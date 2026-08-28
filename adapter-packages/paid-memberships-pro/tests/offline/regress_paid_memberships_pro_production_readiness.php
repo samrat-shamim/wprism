@@ -156,7 +156,7 @@ duo_check(
     'the exact matrix binds both PMPro conformance environments to its dedicated pair'
 );
 duo_check(
-    preg_match('/if \[ "\$VMATRIX_MANIFEST" = paid-memberships-pro \]; then.*?wp2 duo apply --repo=\/siterepo --adopt-by-slug=terms,posts.*?2>&1 \| tee "\$VMATRIX_APPLY_LOG"/s', $matrix) === 1,
+    preg_match('/version_matrix_workflow\(\) \{.*?wp2 duo apply --repo=\/siterepo --adopt-by-slug=terms,posts.*?2>&1 \| tee "\$VMATRIX_APPLY_LOG"/s', $pmproMatrixFile) === 1,
     'the exact matrix retains PMPro apply output for the declared cache postcondition boundary'
 );
 

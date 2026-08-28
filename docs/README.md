@@ -46,7 +46,7 @@ so their section numbering is load-bearing: extend it, never renumber it.
 
 | Path | What it is |
 |---|---|
-| [code-half.md](code-half.md) | The `code/` half in full: layout and dependency modes, deploy semantics per transport, the cross-partition invariant (`active_plugins ⊆ plugins in code/`), the plugin-upgrade workflow, engine touchpoints, and the risk register. Nine shipped source citation sites across eight files, `manifests/core.json`'s own note and a `duo doctor` warning string all cite its § numbers. |
+| [code-half.md](code-half.md) | The `code/` half in full: layout and dependency modes, deploy semantics per transport, the cross-partition invariant (`active_plugins ⊆ plugins in code/`), the plugin-upgrade workflow, engine touchpoints, and the risk register. Nine shipped source citation sites across eight files, `platform/adapter-library/core/manifest.json`'s own note and a `duo doctor` warning string all cite its § numbers. |
 | [adapter-boundary.md](adapter-boundary.md) | The owner ruling on where engine core stops and an adapter package starts: the four extension surfaces, the provider contract, the trust tiers. Six shipped source sites cite it by name. |
 
 ## Engineering history

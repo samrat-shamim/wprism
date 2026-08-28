@@ -95,7 +95,11 @@ final class AcfSerializedWakeupProbe {
 // docblock says the param is unused (classification is fully schema-driven
 // from primed field definitions), so an empty, manifest-less Policy is
 // exactly as valid as any other for the direct-class tests below.
-$emptyPolicy = Policy::load(null, []);
+$emptyPolicy = Policy::load(
+    null,
+    [],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+);
 
 echo "\n== term_meta_rule(): reuses post_meta_rule()'s exact shadow-key machinery ==\n";
 $acf = new Acf($emptyPolicy);
@@ -217,7 +221,11 @@ check(
 );
 
 echo "\n== end-to-end: Policy dispatch through the REAL ACF package ==\n";
-$policy = Policy::load(null, ['acf']);
+$policy = Policy::load(
+    null,
+    ['acf'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+);
 // Policy's OWN internal Acf instance (built lazily inside interpreters(),
 // separate from $acf/$acf2 above) must be primed the same way a real
 // RepositoryAuthorization/RepositoryCompiler pass primes it -- otherwise
@@ -256,7 +264,11 @@ check(
 $coldTreeAuthorized = true;
 $coldTreeError = '';
 try {
-    $coldPolicy = Policy::load(null, ['acf']);
+    $coldPolicy = Policy::load(
+        null,
+        ['acf'],
+        adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+    );
     $coldPolicy->site['policy']['post_types'] = ['acf-field'];
     \Duo\RepositoryAuthorization::assert_tree($coldPolicy, [
         'field_site_tagline' => fake_field('field_site_tagline', 'text'),
@@ -315,7 +327,11 @@ $unrelatedTree = [
 ];
 $unrelatedRefused = false;
 try {
-    $corePolicy = Policy::load(null, ['core']);
+    $corePolicy = Policy::load(
+        null,
+        ['core'],
+        adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+    );
     \Duo\RepositoryAuthorization::assert_tree($corePolicy, $unrelatedTree);
 } catch (\Duo\RepositoryAuthorizationException $e) {
     $unrelatedRefused = count(array_filter(

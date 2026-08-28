@@ -15,6 +15,7 @@ declare(strict_types=1);
  */
 
 define('DUO_SPEC_VERSION', 3);
+$repoRoot = dirname(__DIR__, 4);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
@@ -594,9 +595,12 @@ function woo_effect_retention_scheduler_action(): array {
 /** @return list<array<string,mixed>> */
 /** @return array<string,mixed> */
 function woo_effect_policy_for_manifest(array $manifest): Policy {
+    global $repoRoot;
     return FrozenPolicy::policy(
         [$manifest],
-        FrozenPolicy::site([$manifest], DUO_SPEC_VERSION)
+        FrozenPolicy::site([$manifest], DUO_SPEC_VERSION),
+        null,
+        \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
     );
 }
 
@@ -635,7 +639,6 @@ function woo_effect_remove_tree(string $path): void {
 // ======================================================================
 echo "\n== committed WooCommerce manifest inventory ==\n";
 
-$repoRoot = dirname(__DIR__, 4);
 $wooPolicy = Policy::load(
     null,
     ['woocommerce'],

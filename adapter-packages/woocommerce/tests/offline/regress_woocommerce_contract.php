@@ -72,7 +72,7 @@ $policy = Policy::from_snapshot([
     'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
-]);
+], \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 woo_ok($policy->option_rule_details('pickup_location_pickup_locations') === [
     'rule' => ['class' => 'authored', 'plain_data' => true, 'autoload' => 'preserve'],
     'source' => 'woocommerce',
@@ -907,6 +907,7 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 $woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
+$matrixHarness .= "\n" . $woocommerceMatrixHarness;
 $wooEntry = json_decode(
     (string) file_get_contents(dirname(__DIR__) . '/conformance/entry.json'),
     true,
@@ -1108,188 +1109,6 @@ $conformanceAssertsHarness = (string) file_get_contents($root . '/sandbox/confor
 $wooMultisiteHarness = (string) file_get_contents(
     dirname(__DIR__) . '/live/regress_woocommerce_multisite_refusal.sh'
 );
-$wooRewriteCoInstallHarness = (string) file_get_contents(
-    $root . '/integration-scenarios/woocommerce-rewrite-coinstall/tests/live/'
-    . 'regress_woocommerce_rewrite_coinstall.sh'
-);
-$wooRewriteCoInstallTopology = json_decode(
-    (string) file_get_contents(
-        $root . '/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/'
-        . 'woocommerce-rewrite-coinstall-topology.json'
-    ),
-    true,
-    flags: JSON_THROW_ON_ERROR
-);
-$wooRewriteComposeHandoffIsExact = static function (string $harness): bool {
-    $mutations = [];
-    $resolverLine = null;
-    foreach (preg_split('/\R/', $harness) ?: [] as $lineNumber => $line) {
-        $executableLine = trim($line);
-        if ($executableLine === '. bin/fetch-artifact.sh') {
-            $resolverLine = $lineNumber;
-        }
-        $arrayMutation = preg_match(
-            '/^(?:COMPOSE|PAIR_COMPOSE)(?:\[[^]]*\])?\+?=/',
-            $executableLine
-        ) === 1;
-        // No unset belongs in this harness. Refusing every executable unset
-        // form also covers Bash's -v/-n/options and quoted variable names;
-        // a target-specific parser could otherwise miss a valid clearing
-        // spelling and let the resolver expand an empty command array.
-        $unsetMutation = preg_match(
-            '/^(?:(?:builtin|command)\s+)?unset(?:\s|$)/',
-            $executableLine
-        ) === 1;
-        if ($arrayMutation || $unsetMutation) {
-            $mutations[] = ['line' => $executableLine, 'number' => $lineNumber];
-        }
-    }
-    return array_column($mutations, 'line') === [
-        'COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)',
-        'PAIR_COMPOSE=("${COMPOSE[@]}")',
-    ]
-        && $resolverLine !== null
-        && $mutations[1]['number'] < $resolverLine;
-};
-woo_ok(
-    $wooRewriteComposeHandoffIsExact($wooRewriteCoInstallHarness),
-    'the candidate-bound co-install hands its exact Compose argv to the pinned artifact resolver before loading it'
-);
-$yoastOptionSources = [
-    'admin/class-admin.php' => '6b18d8e8aab6089b1d425259343f3f0a784c648fbf42ad95f908b67c050a7883',
-    'inc/class-rewrite.php' => 'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda',
-    'inc/options/class-wpseo-options.php' => 'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93',
-    'inc/options/class-wpseo-option.php' => '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9',
-    'inc/options/class-wpseo-option-wpseo.php' => '39b7002ff87b9b3e44d72c06ddaba43ef9d02539a7a6f74781d8723641cf6f34',
-    'inc/options/class-wpseo-option-titles.php' => 'd3ab1e747666f0b8219a4531ad34c262c8c849ed178119f500eeba6fe9774c4f',
-    'inc/options/class-wpseo-option-social.php' => 'c59cb35218f7868b99f03efb027d23ed4b004cbe31473733281d17f9a158292e',
-    'inc/options/class-wpseo-taxonomy-meta.php' => 'b1c7b6e96c0c7d248028ec596ab24877b984913f563dbd4f11196c4ff73ea1f8',
-    'inc/options/class-wpseo-option-llmstxt.php' => '3626daec1fd21fbf4128a9891f208d9402cce198b3703641221b6973f23786a7',
-    'inc/options/class-wpseo-option-tracking-only.php' => '24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c',
-    'inc/sitemaps/class-sitemaps-cache.php' => 'dc99816988fef1554775757fb8ab18b65ec2d46a08f03c475bf6da4dfdc72cc8',
-    'inc/sitemaps/class-sitemaps.php' => 'e436a8c3702e6c8c954d8bb3b4dd099124c47a4d6007c87f6693a79a7759a885',
-    'inc/sitemaps/class-sitemaps-admin.php' => '03b1fdcb3da0fd6d82edc2d6d9e24f9ede8744d6fb68c3f8877b0d03c433bf82',
-];
-$coInstallSourcePins = [];
-foreach ((array) ($wooRewriteCoInstallTopology['source_files'] ?? []) as $sourcePin) {
-    if (($sourcePin['plugin'] ?? null) === 'wordpress-seo') {
-        $coInstallSourcePins[(string) ($sourcePin['path'] ?? '')] = $sourcePin['sha256'] ?? null;
-    }
-}
-foreach ($yoastOptionSources as $sourceFile => $sha256) {
-    woo_ok(($coInstallSourcePins[$sourceFile] ?? null) === $sha256,
-        "co-install evidence pins exact Yoast 28.3 option source $sourceFile");
-}
-woo_ok(($wooRewriteCoInstallTopology['artifacts']['wordpress-seo']['versions'] ?? null) === [
-    '28.0' => '348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f',
-    '28.2' => 'f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23',
-    '28.3' => '381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb',
-], 'co-install evidence binds exact Yoast 28.0/28.2/28.3 artifact ZIP SHAs');
-$yoastMainSource = array_values(array_filter(
-    (array) ($wooRewriteCoInstallTopology['source_files'] ?? []),
-    static fn(array $row): bool => ($row['plugin'] ?? null) === 'wordpress-seo'
-        && ($row['path'] ?? null) === 'wp-seo-main.php'
-))[0] ?? [];
-woo_ok(($yoastMainSource['versions'] ?? null) === [
-    '28.0' => 'c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b',
-    '28.2' => '9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117',
-    '28.3' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
-], 'co-install evidence binds version-specific Yoast wp-seo-main.php hashes');
-woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology']['option_cache_map'] ?? null) === [
-    'wpseo' => 'WPSEO_Option_Wpseo',
-    'wpseo_titles' => 'WPSEO_Option_Titles',
-    'wpseo_social' => 'WPSEO_Option_Social',
-    'wpseo_taxonomy_meta' => 'WPSEO_Taxonomy_Meta',
-    'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
-    'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
-], 'co-install evidence closes the exact normal Yoast option cache map');
-woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology']['sitemap'] ?? null) === [
-    'global' => 'wpseo_sitemaps',
-    'class' => 'WPSEO_Sitemaps',
-    'cache_property' => 'cache',
-    'cache_class' => 'WPSEO_Sitemaps_Cache',
-    'cache_callback' => [
-        'hook' => 'update_option',
-        'method' => 'clear_on_option_update',
-        'priority' => 10,
-        'accepted_args' => 1,
-    ],
-], 'co-install evidence closes the exact normal Yoast sitemap/cache semantics');
-woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology']['woocommerce_permalinks'] ?? null) === [
-    'hook' => 'update_option_woocommerce_permalinks',
-    'callback' => 'Yoast\\WP\\SEO\\Integrations\\Third_Party\\Woocommerce_Permalinks::reset_woocommerce_permalinks',
-    'priority' => 10,
-    'accepted_args' => 2,
-], 'co-install evidence closes Yoast 28.3 permalink invalidation to its exact specific callback');
-$yoastPermalinkAuthoritySources = [
-    'src/integrations/third-party/woocommerce-permalinks.php' =>
-        '8913e5e888d96cd4d9797d055cb862381cf4dfe6d2ddd4f1b8c6225c7aaa85a5',
-    'src/generated/container.php' => 'f41aad93f9c02c150763720d07cfe03fd697805149aa671d628714ef9cde84b4',
-    'lib/dependency-injection/container-registry.php' =>
-        '36fdda743db041f6dae37e51b70456c52c661dceb8b411fa0e3c2d2f5e92349a',
-    'vendor_prefixed/symfony/dependency-injection/Container.php' =>
-        '4fc50ac8b32a60246f11173ebe11e9c947152cafea3359f4846da3fa0c407e38',
-    'src/helpers/indexable-helper.php' => 'b462c43e61fcb755f8357e711d80a0aa2c267ce593d361885e686aa26f9cfe8e',
-];
-foreach ($yoastPermalinkAuthoritySources as $path => $sha256) {
-    $rows = array_values(array_filter(
-        (array) ($wooRewriteCoInstallTopology['source_files'] ?? []),
-        static fn(array $row): bool => ($row['plugin'] ?? null) === 'wordpress-seo'
-            && ($row['path'] ?? null) === $path
-    ));
-    woo_ok(count($rows) === 1 && ($rows[0]['sha256'] ?? null) === $sha256,
-        "co-install evidence pins the Yoast permalink authority source $path");
-}
-woo_ok(count((array) ($wooRewriteCoInstallTopology['source_files'] ?? [])) === 55
-    && count((array) ($wooRewriteCoInstallTopology['static_callbacks'] ?? [])) === 39,
-    'co-install evidence closes all 55 source files and 39 static callbacks');
-$yoastOptionClasses = [
-    'WPSEO_Option_Wpseo',
-    'WPSEO_Option_Titles',
-    'WPSEO_Option_Social',
-    'WPSEO_Taxonomy_Meta',
-    'WPSEO_Option_Llmstxt',
-    'WPSEO_Option_Tracking_Only',
-];
-foreach ([
-    'pre_update_option' => ['add_default_filters_if_not_changed', PHP_INT_MAX, 3],
-    'update_option' => ['add_default_filters_if_same_option', 10, 1],
-    'add_option' => ['add_default_filters_if_same_option', 10, 1],
-] as $hook => [$method, $priority, $acceptedArgs]) {
-    $expected = array_map(static fn(string $class): array => [
-        'callback' => "$class::$method",
-        'priority' => $priority,
-        'accepted_args' => $acceptedArgs,
-    ], $yoastOptionClasses);
-    if ($hook === 'update_option') {
-        $expected[] = [
-            'callback' => 'WPSEO_Sitemaps_Cache::clear_on_option_update',
-            'priority' => 10,
-            'accepted_args' => 1,
-        ];
-    }
-    woo_ok(($wooRewriteCoInstallTopology['yoast_normal_option_topology'][$hook] ?? null) === $expected,
-        "co-install evidence closes the canonical Yoast callback family on $hook");
-}
-foreach ([
-    'a comment cannot impersonate the executable handoff' => str_replace(
-        'PAIR_COMPOSE=("${COMPOSE[@]}")',
-        '# PAIR_COMPOSE=("${COMPOSE[@]}")',
-        $wooRewriteCoInstallHarness
-    ),
-    'a later array overwrite cannot clear the artifact resolver handoff' => str_replace(
-        '. bin/fetch-artifact.sh',
-        "PAIR_COMPOSE=()\n. bin/fetch-artifact.sh",
-        $wooRewriteCoInstallHarness
-    ),
-    'Bash unset -v cannot clear the artifact resolver handoff' => str_replace(
-        '. bin/fetch-artifact.sh',
-        "unset -v PAIR_COMPOSE\n. bin/fetch-artifact.sh",
-        $wooRewriteCoInstallHarness
-    ),
-] as $claim => $invalidHarness) {
-    woo_ok(!$wooRewriteComposeHandoffIsExact($invalidHarness), $claim);
-}
 woo_ok(($wooEntry['manifest'] ?? null) === 'woocommerce'
     && ($wooEntry['entry']['pin'] ?? null) === ['core', 'woocommerce']
     && ($wooEntry['entry']['plugins'] ?? null) === [['slug' => 'woocommerce', 'version' => '11.0.1']]
@@ -1395,7 +1214,7 @@ $capturePolicy = Policy::from_snapshot([
         ],
         'spec_version' => DUO_SPEC_VERSION,
     ],
-]);
+], \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 $captureDb = \DuoTest\FakeWpdb::install()->enableJoinedCaptureSql();
 $captureDb->seedTable('wp_posts', [])
     ->seedTable('wp_postmeta', [])
@@ -1505,11 +1324,12 @@ foreach ([
     ['ID' => 3, 'post_type' => 'page', 'post_title' => 'Cart', 'post_status' => 'publish'],
     ['ID' => 7, 'post_type' => 'page', 'post_title' => 'Catalog', 'post_status' => 'publish'],
 ]);
-$lintPolicy = static function (array $wooManifest) use ($lintLibrary): Policy {
+$lintPolicy = static function (array $wooManifest) use ($lintLibrary, $root): Policy {
     return \DuoTest\FrozenPolicy::policy(
         [$wooManifest],
         \DuoTest\FrozenPolicy::site([$wooManifest], DUO_SPEC_VERSION),
-        $lintLibrary
+        $lintLibrary,
+        \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
     );
 };
 $preReviewManifest = $manifest;
@@ -1543,7 +1363,6 @@ $hposHarnesses = [
     $wooPostdeployHarness,
     $matrixHarness,
     $wooMultisiteHarness,
-    $wooRewriteCoInstallHarness,
 ];
 $executableHposCli = array_filter(
     $hposHarnesses,
@@ -1560,34 +1379,37 @@ woo_ok(
         && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+wp_conf2\b/m', $wooPostdeployHarness) === 1
         && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+wp1\b/m', $matrixHarness) === 3
         && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+wp1\b/m', $wooMultisiteHarness) === 1
-        && preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+"wp\$side"/m', $wooRewriteCoInstallHarness) === 1
         && strpos($wooPostdeployHarness, 'establish_woocommerce_hpos wp_conf2')
             < strpos($wooPostdeployHarness, 'wc_create_order()')
         && $executableHposCli === [],
     'every exact Woo live track establishes and verifies HPOS through one warning-free native new-shop helper before orders'
 );
-$wooMatrixPlaceholderNormalization = strpos(
-    $matrixHarness,
-    'normalize_woocommerce_harness_placeholder_mode wp2'
-);
+$wooMatrixWorkflowStart = strpos($woocommerceMatrixHarness, 'version_matrix_workflow() {');
+$wooMatrixPlaceholderNormalization = $wooMatrixWorkflowStart === false
+    ? false
+    : strpos(
+        $woocommerceMatrixHarness,
+        'normalize_woocommerce_harness_placeholder_mode wp2',
+        $wooMatrixWorkflowStart
+    );
 $wooMatrixApplyAfterNormalization = $wooMatrixPlaceholderNormalization === false
     ? false
     : strpos(
-        $matrixHarness,
+        $woocommerceMatrixHarness,
         'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts',
         $wooMatrixPlaceholderNormalization
     );
 $wooMatrixUpgradeNormalization = $wooMatrixPlaceholderNormalization === false
     ? false
     : strpos(
-        $matrixHarness,
+        $woocommerceMatrixHarness,
         'normalize_woocommerce_harness_placeholder_mode wp2',
         $wooMatrixPlaceholderNormalization + 1
     );
 $wooMatrixUpgradeApply = $wooMatrixUpgradeNormalization === false
     ? false
     : strpos(
-        $matrixHarness,
+        $woocommerceMatrixHarness,
         'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts',
         $wooMatrixUpgradeNormalization
     );
@@ -1625,16 +1447,14 @@ woo_ok(
         && $wooReinstallNormalization !== false
         && $wooFinalApply !== false
         && $wooReinstallNormalization < $wooFinalApply
-        && substr_count($matrixHarness, 'normalize_woocommerce_harness_placeholder_mode wp2') === 2
+        && substr_count($woocommerceMatrixHarness, 'normalize_woocommerce_harness_placeholder_mode wp2') === 5
         && $wooMatrixApplyAfterNormalization !== false
         && $wooMatrixUpgradeNormalization !== false
         && $wooMatrixUpgradeApply !== false
         && $wooMatrixUpgradeNormalization < $wooMatrixUpgradeApply
-        && substr_count($woocommerceMatrixHarness, 'normalize_woocommerce_harness_placeholder_mode wp2') === 3
         && $wooLifecycleNormalization !== false
         && !str_contains($conformanceRunnerHarness, 'chmod -R')
         && !str_contains($wooCheckHarness, 'chmod -R')
-        && !str_contains($matrixHarness, 'chmod -R')
         && !str_contains($woocommerceMatrixHarness, 'chmod -R'),
     'every exact Woo target apply, upgrade, and reinstall normalizes only the hash-bound placeholder created by the cooperative test umask'
 );
@@ -2051,7 +1871,6 @@ foreach ([
     $conformanceRunnerHarness,
     $matrixHarness,
     $wooMultisiteHarness,
-    $wooRewriteCoInstallHarness,
 ] as $directComposeHarness) {
     woo_ok(str_contains($directComposeHarness, 'pair_identity_export_source_mounts'),
         'Woo live evidence keeps candidate mounts caller-local across parallel shared-.env rewrites');
@@ -2271,7 +2090,7 @@ foreach ([
         "exact WooCommerce pre-apply authority guard pins $preapplyAuthorityWitness");
 }
 woo_ok(
-    substr_count($woocommerceMatrixHarness, 'woocommerce_preapply_authority_assertion ') === 2
+    substr_count($woocommerceMatrixHarness, 'woocommerce_preapply_authority_assertion ') === 3
         && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion \"\$WOO_VERSION\" 'exact boundary'")
         && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
         && strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
@@ -2280,29 +2099,24 @@ woo_ok(
                 'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision"',
                 strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
             )
-        && substr_count($matrixHarness, 'woocommerce_preapply_authority_assertion ') === 1
-        && str_contains($matrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
-        && strpos($matrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+        && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+        && strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
             < strpos(
-                $matrixHarness,
+                $woocommerceMatrixHarness,
                 'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
-                strpos($matrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
+                strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
             ),
     'every successful exact WooCommerce boundary, upgrade, and downgrade apply emits deterministic loaded-manifest and diagnostic-seam rule authority evidence first'
 );
-woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
-    && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
+woo_ok(substr_count($woocommerceMatrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
+    && str_contains($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
     'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
-woo_ok(substr_count($matrixHarness, 'check_woocommerce_product_delete_refusal "$WOO_VERSION"') === 1
-    && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
+woo_ok(substr_count($woocommerceMatrixHarness, 'check_woocommerce_product_delete_refusal "$WOO_VERSION"') === 1
+    && str_contains($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
     'one product-deletion refusal call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
-$wooMatrixCaseAnchor = strpos($matrixHarness, '# WooCommerce 11.0.0 is the declared minimum');
-$wooMatrixCaseStart = $wooMatrixCaseAnchor === false
-    ? false
-    : strpos($matrixHarness, 'if [ "$VMATRIX_MANIFEST" = woocommerce ]; then', $wooMatrixCaseAnchor);
-$wooMatrixCaseEnd = strpos($matrixHarness, "# Yoast's published 28.x line", $wooMatrixCaseStart === false ? 0 : $wooMatrixCaseStart);
-$wooMatrixCase = $wooMatrixCaseStart !== false && $wooMatrixCaseEnd !== false
-    ? substr($matrixHarness, $wooMatrixCaseStart, $wooMatrixCaseEnd - $wooMatrixCaseStart)
+$wooMatrixCaseStart = strpos($woocommerceMatrixHarness, 'version_matrix_workflow() {');
+$wooMatrixCase = $wooMatrixCaseStart !== false
+    ? substr($woocommerceMatrixHarness, $wooMatrixCaseStart)
     : '';
 $wooPostapplyCall = strpos($wooMatrixCase, 'postapply_woocommerce_content');
 $wooApplySuccess = strpos($wooMatrixCase, 'pass "deploy + apply succeeded on side 2');
@@ -2399,128 +2213,9 @@ foreach ([
     woo_ok(str_contains($woocommerceMatrixHarness, $deletionWitness),
         "exact WooCommerce product-deletion matrix pins $deletionWitness");
 }
-woo_ok(str_contains($matrixHarness, '[ "$VMATRIX_MANIFEST" = woocommerce ] || [ "$VMATRIX_MANIFEST" = redirection ]')
-    && str_contains($matrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA')
-    && str_contains($matrixHarness, 'export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"'),
-    'the WooCommerce and Redirection artifact matrices mount their invoking candidate worktree before pair reset');
-foreach ([
-    '"pll_rewrite_rules","pll_modify_rewrite_rule"',
-    '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
-    'def static_rewrite_hook:',
-    '(.source_files|length==55)',
-    '(.static_callbacks|length==39)',
-    '(.dynamic_callback_containers|length==4)',
-    'WP_CLI_MEMORY_LIMIT=512M',
-    '--entrypoint php',
-    '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
-    'pre-bootstrap PHP memory limit',
-    'DUO_AUDITED_PLUGIN_FILE',
-    '--exec="putenv(',
-    'WC_Install::create_terms()',
-    'new WC_Product_Simple()',
-    '"product_visibility"',
-    '$polylang["default_lang"]="en"',
-    '$polylang["force_lang"]=1',
-    '$polylang["hide_default"]=false',
-    '$polylang["post_types"]=["product"]',
-    '$polylang["rewrite"]=true',
-    'add_language() leaves Polylang\'s Options singleton dirty',
-    'POLYLANG_SOURCE_MODE=$(wp1 option get polylang --format=json)',
-    'Polylang directory-mode source option did not survive its authoring request',
-    'wp1 rewrite flush --hard',
-    'product_route() { # side',
-    'exec -T "wp$side" curl -sS --max-time 20',
-    '__DUO_HTTP_STATUS__%{http_code}',
-    '. + {http_status:$status,single_product:true,postid:$postid}',
-    '.http_status==200 and .single_product==true and .postid==.id',
-    'INITIAL_RAW=$(wp2 duo apply',
-    'initial co-install apply failed (exit $INITIAL_RC): $INITIAL_RAW',
-    'CALLBACK_IDENTITIES=$(wp2 eval',
-    'native rewrite callback identity differs from source services',
-    '$GLOBALS["wc_container"]',
-    'get_class($container)!=="Automattic\\\\WooCommerce\\\\Container"||wc_get_container()!==$container',
-    'new ReflectionProperty("Automattic\\\\WooCommerce\\\\Container","container")',
-    '$runtime=$containerProperty->getValue($container)',
-    'Automattic\\\\WooCommerce\\\\Internal\\\\DependencyManagement\\\\RuntimeContainer',
-    'get_class($runtime)!=="Automattic\\\\WooCommerce\\\\Internal\\\\DependencyManagement\\\\RuntimeContainer"',
-    'new ReflectionProperty("Automattic\\\\WooCommerce\\\\Internal\\\\DependencyManagement\\\\RuntimeContainer","resolved_cache")',
-    '$resolvedCache=$cacheProperty->getValue($runtime)',
-    'if(!is_array($resolvedCache))',
-    'array_key_exists($class,$resolvedCache)',
-    'get_class($service)!==$class',
-    'Automattic\\\\WooCommerce\\\\Internal\\\\Features\\\\FeaturesController',
-    'Automattic\\\\WooCommerce\\\\Internal\\\\DataStores\\\\Orders\\\\DataSynchronizer',
-    'Automattic\\\\WooCommerce\\\\Internal\\\\DataStores\\\\Orders\\\\CustomOrdersTableController',
-    'Yoast_Dynamic_Rewrites::instance()',
-    'WPSEO_Options::get_option_instance($optionName)',
-    '$GLOBALS["wpseo_sitemaps"]',
-    'Yoast sitemap global/cache identity differs from normal boot',
-    '$GLOBALS["wpseo_rewrite"]',
-    'Yoast category rewrite singleton differs from normal boot',
-    'category_rewrite_rules_wrapper',
-    'Yoast category rewrite policy is not the exact primed pass-through state',
-    'WPSEO_Sitemaps_Cache","clear_on_option_update',
-    '$exact("update_option",array_merge($yoastGeneric,[$yoastSitemap]))',
-    '$exact("add_option",$yoastGeneric)',
-    'Yoast dynamic rewrite singleton was not registered by normal boot',
-    'Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime',
-    '$exact("option_rewrite_rules",[[[$yoast,"filter_rewrite_rules_option"],10,1]])',
-    '$yoastPre[]=[[$instance,"add_default_filters_if_not_changed"],PHP_INT_MAX,3]',
-    '$yoastGeneric[]=[[$instance,"add_default_filters_if_same_option"],10,1]',
-    '$exact("updated_option",[[[$manager,"update_options_cache"],10,3]',
-    'array_merge([[[$customOrders,"process_pre_update_option"],999,3]],$yoastPre)',
-    '$exact("added_option",[[[$features,"process_added_option"],999,3]',
-    '$exact("pre_option",[[[$harbor,"filter_pre_get_option"],10,3]])',
-    'Tribe__Cache_Listener::instance()',
-    'The Events Calendar rewrite-generation callback differs from the cache-listener singleton',
-    'Tribe__Events__Rewrite::instance()',
-    'The Events Calendar rewrite singleton was not registered by normal boot',
-    'The Events Calendar rewrite callback differs from the exact TEC event rewrite singleton',
-    '"callbacks"=>"exact-singletons"',
-    'Polylang dynamic rewrite callback differs from the directory links model',
-    '.links_model=="PLL_Links_Directory"',
-    '.sitemaps=="PLL_Sitemaps"',
-    'Polylang sitemap rewrite callback is not the runtime-owned sitemap service',
-    '["product_base","category_base","tag_base","attribute_base","use_verbose_page_rules"]',
-    '$wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1","rewrite_rules")',
-    'install_hostile_mu() { # basename; plugin bytes on stdin',
-    'exec -T --user root wp2 sh -c',
-    'install_hostile_mu duo-woo-rewrite-hostile.php <<\'PHP\'',
-    'remove_hostile_mu duo-woo-rewrite-hostile.php',
-    'install_hostile_mu duo-woo-polylang-dynamic-hostile.php <<\'PHP\'',
-    'remove_hostile_mu duo-woo-polylang-dynamic-hostile.php',
-    'third-party Polylang dynamic callback unexpectedly allowed apply',
-    "apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported",
-    'unsupported open Polylang rewrite filter',
-    'Polylang dynamic refusal did not stop at the pre-mutation rewrite preflight',
-    'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
-    'Polylang dynamic retry did not preserve target row identity and copy the exact source Woo row',
-    'Polylang dynamic retry did not regenerate the exact directory product route',
-] as $rewriteCoInstallWitness) {
-    woo_ok(str_contains($wooRewriteCoInstallHarness, $rewriteCoInstallWitness),
-        "candidate-bound co-install harness pins $rewriteCoInstallWitness");
-}
-woo_ok(!str_contains($wooRewriteCoInstallHarness, '->get('),
-    'candidate-bound co-install service witness cannot construct cache misses through Container::get');
-woo_ok(!str_contains($wooRewriteCoInstallHarness, 'memory_limit=-1'),
-    'four-plugin co-install keeps a finite PHP bootstrap ceiling');
-woo_ok(!str_contains($wooRewriteCoInstallHarness, '$args[0]'),
-    'co-install source hashing uses WP-CLI global execution state, not unsupported eval positional arguments');
-woo_ok(!str_contains($wooRewriteCoInstallHarness, 'url_to_postid('),
-    'co-install product-route evidence uses the real HTTP parser, not the CLI url_to_postid helper');
-woo_ok(!str_contains($wooRewriteCoInstallHarness, 'file_put_contents($path,$bytes)'),
-    'co-install hostile MU fixtures do not assume the unprivileged WP-CLI process owns the webroot');
-woo_ok(!str_contains(
-    $wooRewriteCoInstallHarness,
-    "provider 'woocommerce-hierarchy-lookups' capability 'rebuild_product_permalink_routes' failed"
-), 'co-install Polylang hostility is refused by rewrite preflight before provider invocation');
-woo_ok(substr_count($wooRewriteCoInstallHarness, 'wp1 rewrite flush --hard >/dev/null') === 3,
-    'each directly-authored source permalink grammar crosses the native rewrite-regeneration boundary');
-woo_ok(!str_contains($wooRewriteCoInstallHarness, '[[$yoast,"filter_rewrite_rules_option",10,1]]'),
-    'co-install callback identity tuples keep the callable nested separately from priority and arity');
-woo_ok(!str_contains($wooRewriteCoInstallHarness, 'option_name="rewrite_rules"'),
-    'co-install durable-rule observation uses a parse-safe prepared query');
-woo_ok(!str_contains($wooRewriteCoInstallHarness, '["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"]'),
-    'co-install permalink fixtures retain WooCommerce native key order across fresh bootstraps');
+woo_ok(str_contains($woocommerceMatrixHarness, 'version_matrix_preflight()')
+    && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA')
+    && str_contains($woocommerceMatrixHarness, 'export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"'),
+    'the WooCommerce artifact matrix mounts its invoking candidate worktree before pair reset');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";

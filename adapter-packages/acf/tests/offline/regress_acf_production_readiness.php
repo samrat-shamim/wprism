@@ -210,7 +210,11 @@ duo_check_throws(
     'preserves native PHP plain data'
 );
 
-$policy = Policy::load(null, ['acf']);
+$policy = Policy::load(
+    null,
+    ['acf'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+);
 $acf = new Acf($policy);
 $fieldTree = [
     acf_readiness_field('field_image', 'image'),
@@ -325,7 +329,11 @@ $hostileDiagnostics = acf_readiness_diagnostics(new Acf($policy), $hostileTree);
 duo_check_same(4, count(acf_readiness_code($hostileDiagnostics, 'adapter_schema_content_mismatch')), 'trailing, object, reference, and over-depth field schemas all become batched blocking diagnostics');
 
 $GLOBALS['wpdb'] = new AcfReadinessWpdb();
-$capturePolicy = Policy::load(null, ['acf']);
+$capturePolicy = Policy::load(
+    null,
+    ['acf'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+);
 $captureTokens = new Tokens('https://source.example', 'https://source.example/content/files');
 $metaCapture = new EntityMetaCapture(
     $capturePolicy,
@@ -376,7 +384,11 @@ duo_check_throws(
 );
 
 $compilerDiagnostics = [];
-$compilerPolicy = Policy::load(null, ['acf']);
+$compilerPolicy = Policy::load(
+    null,
+    ['acf'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+);
 $compilerTree = [
     'field' => acf_readiness_field(
         'field_compiler_secret',
@@ -395,7 +407,11 @@ duo_check_same(1, count(acf_readiness_code($compilerDiagnostics, 'repository_ser
 
 $malformedCompilerDiagnostics = [];
 $malformedTree = ['field' => acf_readiness_field('field_compiler_bad', 'text', [], serialize(['type' => 'text']) . 'suffix')];
-$malformedPolicy = Policy::load(null, ['acf']);
+$malformedPolicy = Policy::load(
+    null,
+    ['acf'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+);
 $malformedPolicy->prime_interpreters_from_repository($malformedTree);
 (new RepositoryPortableShapeValidator(
     $malformedPolicy,

@@ -16,8 +16,7 @@ artifact_library_repo_root() {
 # One package-owned evidence run must not enumerate sibling capsules. Explicit
 # DUO_ARTIFACT_PACKAGE wins; the generic conformance/version-matrix drivers
 # already carry the owning manifest name, and package-local live suites carry
-# their canonical PACKAGE_ROOT. Shared and cross-adapter scenarios have none of
-# those contexts and deliberately retain the aggregate view.
+# their canonical PACKAGE_ROOT.
 artifact_library_package_context() {
   local repo candidate="${DUO_ARTIFACT_PACKAGE:-}"
   repo="$(artifact_library_repo_root)" || return 1
@@ -45,12 +44,45 @@ artifact_library_package_context() {
   printf '%s\n' "$candidate"
 }
 
+artifact_library_participant_context() {
+  local participants="${DUO_ARTIFACT_PARTICIPANTS:-}"
+  if [ -z "$participants" ]; then
+    return 0
+  fi
+  [[ "$participants" =~ ^[a-z][a-z0-9]*(-[a-z0-9]+)*(,[a-z][a-z0-9]*(-[a-z0-9]+)*)*$ ]] \
+    || { echo "FAIL: artifact participant context is not a canonical comma-separated list: $participants" >&2; return 1; }
+  printf '%s\n' "$participants"
+}
+
+artifact_library_scenario_participants() {
+  local record="$1"
+  [ -f "$record" ] && [ ! -L "$record" ] \
+    || { echo "FAIL: artifact scenario record is not an ordinary file: $record" >&2; return 1; }
+  jq -er '
+    if .format == "duo-adapter-integration-scenario/v1"
+      and (.participants | type) == "array"
+      and (.participants | length) >= 2
+      and all(.participants[]; type == "string" and test("^[a-z][a-z0-9]*(-[a-z0-9]+)*$"))
+      and (.participants == (.participants | sort | unique))
+    then .participants | join(",")
+    else error("scenario participants are not a sorted, unique canonical list")
+    end
+  ' "$record"
+}
+
 artifact_library_emit() {
-  local repo package
+  local repo package participants
   repo="$(artifact_library_repo_root)" || return 1
   package="$(artifact_library_package_context)" || return 1
+  participants="$(artifact_library_participant_context)" || return 1
+  if [ -n "$package" ] && [ -n "$participants" ]; then
+    echo "FAIL: artifact package and participant contexts are mutually exclusive" >&2
+    return 1
+  fi
   if [ -n "$package" ]; then
     php "$repo/tools/artifact-library.php" --root="$repo" --adapter="$package"
+  elif [ -n "$participants" ]; then
+    php "$repo/tools/artifact-library.php" --root="$repo" --participants="$participants"
   else
     php "$repo/tools/artifact-library.php" --root="$repo"
   fi

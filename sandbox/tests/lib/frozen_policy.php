@@ -107,7 +107,10 @@ final class FrozenPolicy
      * otherwise an inert placeholder closes the physical inventory for tests
      * that exercise policy grammar rather than hook behavior.
      */
-    public static function adapterLibrary(?string $library = null): \Duo\AdapterLibrary
+    public static function adapterLibrary(
+        ?string $library = null,
+        ?\Duo\AdapterLibrary $activeLibrary = null
+    ): \Duo\AdapterLibrary
     {
         $dir = rtrim($library ?? self::library(), '/');
         foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $relative) {
@@ -117,7 +120,7 @@ final class FrozenPolicy
             }
         }
 
-        $active = \Duo\Policy::adapter_library_context();
+        $active = $activeLibrary ?? \Duo\Policy::adapter_library_context();
         copy($active->platformBoundaryPath(), "$dir/capabilities/platform.json");
         copy($active->authoritiesPath(), "$dir/capabilities/adapter-authorities.json");
         file_put_contents("$dir/dispositions/profiles.json", "{}\n");
@@ -201,15 +204,31 @@ final class FrozenPolicy
     }
 
     /** Build and load the common frozen-policy vehicle in one explicit step. */
-    public static function policy(array $manifests, array $site, ?string $library = null): \Duo\Policy
+    public static function policy(
+        array $manifests,
+        array $site,
+        ?string $library = null,
+        ?\Duo\AdapterLibrary $activeLibrary = null
+    ): \Duo\Policy
     {
-        return self::fromEnvelope(self::envelope($manifests, $site, $library), $library);
+        return self::fromEnvelope(
+            self::envelope($manifests, $site, $library),
+            $library,
+            $activeLibrary
+        );
     }
 
     /** Load a caller-adjusted envelope against the fixture bytes it names. */
-    public static function fromEnvelope(array $snapshot, ?string $library = null): \Duo\Policy
+    public static function fromEnvelope(
+        array $snapshot,
+        ?string $library = null,
+        ?\Duo\AdapterLibrary $activeLibrary = null
+    ): \Duo\Policy
     {
-        return \Duo\Policy::from_snapshot($snapshot, self::adapterLibrary($library));
+        return \Duo\Policy::from_snapshot(
+            $snapshot,
+            self::adapterLibrary($library, $activeLibrary)
+        );
     }
 
     /**

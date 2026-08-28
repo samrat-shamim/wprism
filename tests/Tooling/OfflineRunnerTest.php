@@ -696,11 +696,19 @@ final class OfflineRunnerTest extends TestCase
         $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         self::assertSame([
             'adapter-package:polylang',
-            'integration-scenario:polylang-tec-rewrite-coinstall:live:regress_polylang_tec_rewrite_coinstall.sh',
-            'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
             'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
         ], $targets);
         self::assertNotContains('regress-adapter-packages', $targets);
+        self::assertStringContainsString(
+            'advisory task (not executed by changed mode): '
+                . 'integration-scenario:polylang-tec-rewrite-coinstall:live:',
+            $result['stderr']
+        );
+        self::assertStringContainsString(
+            'advisory task (not executed by changed mode): '
+                . 'integration-scenario:woocommerce-rewrite-coinstall:live:',
+            $result['stderr']
+        );
     }
 
     public function testChangedAdapterFilterCanSelectItsPackageTask(): void
@@ -713,6 +721,19 @@ final class OfflineRunnerTest extends TestCase
 
         self::assertSame(0, $result['status'], $result['stderr']);
         self::assertSame("adapter-package:polylang\n", $result['stdout']);
+    }
+
+    public function testChangedUnknownPathRunsTheClosedFullOfflineSelection(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=future-root/new.php',
+            '--list',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-adapter-packages', $targets);
     }
 
     public function testChangedAdapterExplainPrintsCheckedTaskCommands(): void
@@ -729,10 +750,14 @@ final class OfflineRunnerTest extends TestCase
             $result['stdout']
         );
         self::assertStringContainsString(
-            'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
+            'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php',
             $result['stdout']
         );
-        self::assertStringContainsString('3 selected task(s) from ', $result['stderr']);
+        self::assertStringContainsString(
+            'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
+            $result['stderr']
+        );
+        self::assertStringContainsString('2 selected task(s) from ', $result['stderr']);
     }
 
     public function testChangedAdapterFilterThatMatchesNoScopedTaskIsAnError(): void

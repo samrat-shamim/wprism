@@ -30,6 +30,9 @@ printf 'pinned artifact bytes\n' > "$PAYLOAD"
 DIGEST="$(sha256sum "$PAYLOAD" | awk '{print $1}')"
 printf '{"plugins":{"fixture":{"1.0":{"url":"https://fixture.invalid/pinned.zip","sha256":"%s","role":"exercise-fixture"}}},"themes":{}}\n' \
   "$DIGEST" > "$TMP/adapter-packages/fixture/evidence/artifacts.lock.json"
+mkdir -p "$TMP/adapter-packages/other/evidence"
+printf '{"plugins":{"other":{"1.0":{"url":"https://fixture.invalid/other.zip","sha256":"%s","role":"exercise-fixture"}}},"themes":{}}\n' \
+  "$DIGEST" > "$TMP/adapter-packages/other/evidence/artifacts.lock.json"
 printf '{"plugins":{},"themes":{"fixture":{"1.0":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
   "$DIGEST" > "$TMP/platform/artifact-library/artifacts.lock.json"
 
@@ -154,11 +157,26 @@ validate_artifact_library \
 artifact_library_jq -e '.plugins.fixture["1.0"] and (.plugins | has("broken") | not)' >/dev/null \
   || fail "package-owned artifact lookup did not use the isolated package loader"
 unset DUO_ARTIFACT_PACKAGE
+
+say "scenario artifact resolution reads only declared participant fragments"
+export DUO_ARTIFACT_PARTICIPANTS=fixture,other
+validate_artifact_library \
+  || fail "scenario participants were coupled to a malformed nonparticipant"
+artifact_library_jq -e '
+  (.plugins | keys) == ["fixture", "other"] and (.plugins | has("broken") | not)
+' >/dev/null || fail "scenario artifact lookup did not use the participant-scoped loader"
+unset DUO_ARTIFACT_PARTICIPANTS
 if validate_artifact_library; then
   fail "aggregate artifact validation ignored the deliberately malformed sibling fixture"
 fi
 rm -rf adapter-packages/unrelated
 pass "package-owned artifact resolution uses only its capsule while aggregate validation still sees every owner"
+
+WOO_SCENARIO="$REPO_ROOT/integration-scenarios/woocommerce-rewrite-coinstall/scenario.json"
+[ "$(artifact_library_scenario_participants "$WOO_SCENARIO")" \
+    = 'polylang,the-events-calendar,woocommerce,yoast' ] \
+  || fail "live scenario participant context did not come from its closed scenario record"
+pass "live scenario artifact authority is derived from its declared participant list"
 
 say "the typed lock schema refuses unknown roles before artifact resolution"
 cp adapter-packages/fixture/evidence/artifacts.lock.json "$TMP/valid-artifacts.lock.json"

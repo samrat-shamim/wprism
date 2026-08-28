@@ -350,6 +350,8 @@ check($shippedPolicy->deletion_capability('post:product') === null,
 $fixtureManifest = $shippedPolicy->manifests[0];
 $fixtureManifest['deletions'] = synthetic_woo_deletions();
 $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
+$adapterLibrary = new ReflectionProperty(Policy::class, 'adapterLibrary');
+$adapterLibrary->setValue($policy, \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 $policy->manifests = [$fixtureManifest];
 $variation = $policy->deletion_capability('post:product_variation');
 $product = $policy->deletion_capability('post:product');

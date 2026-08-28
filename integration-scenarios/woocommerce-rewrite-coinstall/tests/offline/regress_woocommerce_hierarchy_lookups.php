@@ -25,6 +25,13 @@ use DuoTest\FakeWpdb;
 use DuoTest\WpCliChildRuntime;
 use DuoTest\WpStore;
 
+$scenarioRecord = json_decode(
+    (string) file_get_contents(
+        $root . '/integration-scenarios/woocommerce-rewrite-coinstall/scenario.json'
+    ),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
 $coinstallTopology = json_decode(
     (string) file_get_contents(
         $root . '/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/'
@@ -33,7 +40,20 @@ $coinstallTopology = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-$artifactLock = \Duo\Tooling\ArtifactLibrary::load($root);
+duo_check_same(
+    'duo-adapter-integration-scenario/v1',
+    $scenarioRecord['format'] ?? null,
+    'the mixed rewrite scenario carries the closed participant-record format'
+);
+duo_check_same(
+    ['polylang', 'the-events-calendar', 'woocommerce', 'yoast'],
+    $scenarioRecord['participants'] ?? null,
+    'the mixed rewrite artifact scope names exactly its four adapter participants'
+);
+$artifactLock = \Duo\Tooling\ArtifactLibrary::loadParticipants(
+    $root,
+    (array) ($scenarioRecord['participants'] ?? [])
+);
 $settingsInventory = json_decode(
     (string) file_get_contents($root . '/adapter-packages/woocommerce/fixtures/woocommerce-core-11.0-settings.json'),
     true,
@@ -61,6 +81,41 @@ foreach ($yoastArtifactMatrix as $version => $sha256) {
         "mixed rewrite topology pins the exact Yoast $version artifact lock"
     );
 }
+$yoastPolicy = Policy::load(
+    null,
+    ['yoast'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'yoast')
+);
+$yoastActions = array_values(array_filter(
+    $yoastPolicy->actions_for(['option:woocommerce_permalinks']),
+    static fn(array $action): bool => ($action['provider'] ?? null) === 'yoast-index'
+        && ($action['capability'] ?? null) === 'reindex'
+));
+duo_check_same(
+    1,
+    count($yoastActions),
+    'the declared Woo/Yoast co-install scenario selects one full reindex for a Woo permalink mutation'
+);
+$yoastEffects = [];
+foreach ((array) ($yoastActions[0]['effects'] ?? []) as $effect) {
+    $selector = (array) ($effect['selector'] ?? []);
+    if (($effect['kind'] ?? null) === 'database'
+        && ($effect['mode'] ?? null) === 'restorable'
+        && ($selector['scope'] ?? null) === 'database_checkpoint') {
+        $yoastEffects[(string) ($selector['type'] ?? '') . ':' . (string) ($selector['value'] ?? '')] = true;
+    }
+}
+duo_check_same(
+    [],
+    array_diff([
+        'table:options',
+        'table:yoast_indexable',
+        'table:yoast_indexable_hierarchy',
+        'table:yoast_primary_term',
+        'table:yoast_seo_links',
+    ], array_keys($yoastEffects)),
+    'the scenario-selected Yoast replacement checkpoints every skipped permalink-callback write surface'
+);
 $yoastMainRows = array_values(array_filter(
     (array) ($coinstallTopology['source_files'] ?? []),
     static fn(array $source): bool => ($source['plugin'] ?? null) === 'wordpress-seo'
@@ -291,6 +346,130 @@ duo_check_same([
     ],
 ], $coinstallTopology['dynamic_callback_containers'] ?? null,
     'Polylang dynamic rewrite types and its open four-argument third-party filter are source-bound, never hand-whitelisted');
+
+$liveHarness = (string) file_get_contents(
+    $root . '/integration-scenarios/woocommerce-rewrite-coinstall/tests/live/'
+    . 'regress_woocommerce_rewrite_coinstall.sh'
+);
+$composeHandoffIsExact = static function (string $harness): bool {
+    $mutations = [];
+    $resolverLine = null;
+    foreach (preg_split('/\R/', $harness) ?: [] as $lineNumber => $line) {
+        $executableLine = trim($line);
+        if ($executableLine === '. bin/fetch-artifact.sh') {
+            $resolverLine = $lineNumber;
+        }
+        $arrayMutation = preg_match(
+            '/^(?:COMPOSE|PAIR_COMPOSE)(?:\[[^]]*\])?\+?=/',
+            $executableLine
+        ) === 1;
+        $unsetMutation = preg_match(
+            '/^(?:(?:builtin|command)\s+)?unset(?:\s|$)/',
+            $executableLine
+        ) === 1;
+        if ($arrayMutation || $unsetMutation) {
+            $mutations[] = ['line' => $executableLine, 'number' => $lineNumber];
+        }
+    }
+
+    return array_column($mutations, 'line') === [
+        'COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)',
+        'PAIR_COMPOSE=("${COMPOSE[@]}")',
+    ]
+        && $resolverLine !== null
+        && $mutations[1]['number'] < $resolverLine;
+};
+duo_check(
+    $composeHandoffIsExact($liveHarness),
+    'the scenario hands its exact Compose argv to the pinned artifact resolver before loading it'
+);
+foreach ([
+    'a comment cannot impersonate the executable handoff' => str_replace(
+        'PAIR_COMPOSE=("${COMPOSE[@]}")',
+        '# PAIR_COMPOSE=("${COMPOSE[@]}")',
+        $liveHarness
+    ),
+    'a later array overwrite cannot clear the artifact resolver handoff' => str_replace(
+        '. bin/fetch-artifact.sh',
+        "PAIR_COMPOSE=()\n. bin/fetch-artifact.sh",
+        $liveHarness
+    ),
+    'Bash unset cannot clear the artifact resolver handoff' => str_replace(
+        '. bin/fetch-artifact.sh',
+        "unset -v PAIR_COMPOSE\n. bin/fetch-artifact.sh",
+        $liveHarness
+    ),
+] as $claim => $invalidHarness) {
+    duo_check(!$composeHandoffIsExact($invalidHarness), $claim);
+}
+foreach ([
+    'DUO_EXPECTED_SOURCE_SHA is required',
+    'pair_identity_export_source_mounts',
+    'WP_CLI_MEMORY_LIMIT=512M',
+    '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
+    'assert_live_source_file_hashes 1',
+    'assert_live_source_file_hashes 2',
+    'WC_Install::create_terms()',
+    'new WC_Product_Simple()',
+    '$polylang["post_types"]=["product"]',
+    'product_route() { # side',
+    'exec -T "wp$side" curl -sS --max-time 20',
+    'Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime',
+    'The Events Calendar rewrite callback differs from the exact TEC event rewrite singleton',
+    'Polylang dynamic rewrite callback differs from the directory links model',
+    'install_hostile_mu duo-woo-rewrite-hostile.php <<\'PHP\'',
+    'remove_hostile_mu duo-woo-rewrite-hostile.php',
+    'install_hostile_mu duo-woo-polylang-dynamic-hostile.php <<\'PHP\'',
+    'remove_hostile_mu duo-woo-polylang-dynamic-hostile.php',
+    'third-party Polylang dynamic callback unexpectedly allowed apply',
+    'Polylang dynamic refusal did not stop at the pre-mutation rewrite preflight',
+    'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
+    'Polylang dynamic retry did not regenerate the exact directory product route',
+] as $witness) {
+    duo_check(str_contains($liveHarness, $witness), "the candidate-bound scenario pins $witness");
+}
+foreach ([
+    '->get(' => 'scenario service inspection cannot construct cache misses through Container::get',
+    'memory_limit=-1' => 'the four-plugin scenario keeps a finite PHP bootstrap ceiling',
+    '$args[0]' => 'source hashing uses WP-CLI global execution state, not eval positional arguments',
+    'url_to_postid(' => 'product-route evidence uses the real HTTP parser',
+    'file_put_contents($path,$bytes)' => 'hostile fixtures do not assume unprivileged webroot ownership',
+    'option_name="rewrite_rules"' => 'durable-rule observation uses a parse-safe prepared query',
+    '["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"]' =>
+        'permalink fixtures retain WooCommerce native key order',
+] as $forbidden => $claim) {
+    duo_check(!str_contains($liveHarness, $forbidden), $claim);
+}
+duo_check_same(
+    1,
+    preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+"wp\$side"/m', $liveHarness),
+    'the scenario establishes HPOS through the shared native new-shop helper'
+);
+duo_check_same(
+    3,
+    substr_count($liveHarness, 'wp1 rewrite flush --hard >/dev/null'),
+    'each authored source permalink grammar crosses native rewrite regeneration'
+);
+$nativeRewriteEffectSource = (string) file_get_contents(
+    $root . '/agent/src/Rebuild/NativeRewriteEffects.php'
+);
+$wooSourceHashes = [];
+foreach (($coinstallTopology['source_files'] ?? []) as $sourceFile) {
+    if (($sourceFile['plugin'] ?? null) === 'woocommerce') {
+        $wooSourceHashes[(string) ($sourceFile['path'] ?? '')] = $sourceFile['sha256'] ?? null;
+    }
+}
+foreach (array_intersect_key($wooSourceHashes, array_fill_keys([
+    'includes/class-woocommerce.php',
+    'src/Internal/Features/FeaturesController.php',
+    'src/Internal/DataStores/Orders/DataSynchronizer.php',
+    'src/Internal/DataStores/Orders/CustomOrdersTableController.php',
+], true)) as $wooSourceHash) {
+    duo_check(
+        is_string($wooSourceHash) && str_contains($nativeRewriteEffectSource, $wooSourceHash),
+        'the shared rewrite boundary cites each exact participant Woo service/bootstrap source hash it admits'
+    );
+}
 
 final class WooHierarchyWakeupCanary {
     public static int $wakeups = 0;
@@ -796,7 +975,7 @@ $GLOBALS['wooHierarchyPermalinkReadMode'] = 'stable';
 $GLOBALS['wooHierarchyPermalinkNativeReads'] = 0;
 $GLOBALS['wp_filter'] = [];
 $GLOBALS['wooHierarchyFreshRewriteRules'] = $store->options['rewrite_rules'];
-$wp_rewrite = new class {
+$wp_rewrite = new class() {
     public string|false $permalink_structure = false;
     public mixed $rules = null;
 
@@ -1447,9 +1626,9 @@ duo_check(str_contains($optionFailure, 'provider checked read failed')
     && !str_contains($optionFailure, 'HIERARCHY_OPTION_DRIVER'),
     'option witness database failure is loud, bounded, and redacted');
 
-$wpdb->prefix = "wp_`hostile";
-$wpdb->options = "wp_`hostileoptions";
-$wpdb->term_taxonomy = "wp_`hostileterm_taxonomy";
+$wpdb->prefix = 'wp_`hostile';
+$wpdb->options = 'wp_`hostileoptions';
+$wpdb->term_taxonomy = 'wp_`hostileterm_taxonomy';
 $wpdb->resetLog();
 duo_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
@@ -1492,7 +1671,7 @@ $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
 $source = (string) file_get_contents($root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php');
 duo_check(str_contains($source, 'use Duo\\WpCliChildProcess;')
-    && str_contains($source, "\$duoLayoutRoot = dirname(__DIR__, 5);")
+    && str_contains($source, '$duoLayoutRoot = dirname(__DIR__, 5);')
     && str_contains($source, "is_dir(\$duoLayoutRoot . '/agent/src')")
     && str_contains($source, "basename(\$duoLayoutRoot) === 'agent'")
     && str_contains($source, "require_once \$duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';")

@@ -67,7 +67,11 @@ R1="siterepo/$PAIR""1"
 R2="siterepo/$PAIR""2"
 ORIGIN="siterepo/origin-$PAIR.git"
 TOPOLOGY="$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/woocommerce-rewrite-coinstall-topology.json"
+SCENARIO="$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/scenario.json"
 . bin/fetch-artifact.sh
+DUO_ARTIFACT_PARTICIPANTS="$(artifact_library_scenario_participants "$SCENARIO")" \
+  || fail 'Woo rewrite co-install scenario metadata is malformed'
+export DUO_ARTIFACT_PARTICIPANTS
 
 GREEN=0
 cleanup() {

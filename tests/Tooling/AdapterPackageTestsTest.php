@@ -77,6 +77,8 @@ final class AdapterPackageTestsTest extends TestCase
         self::assertContains('runtime-sdk:' . AdapterPackageValidator::RUNTIME_SDK_FORMAT, $result['checks']);
         self::assertContains('artifact-evidence', $result['checks']);
         self::assertContains('production-readiness', $result['checks']);
+        self::assertContains('premise-evidence:2', $result['checks']);
+        self::assertContains('version-matrix-premises', $result['checks']);
         self::assertContains('evidence-wiring:2', $result['checks']);
     }
 
@@ -126,6 +128,83 @@ final class AdapterPackageTestsTest extends TestCase
     }
 
     /** @return iterable<string,array{0:string}> */
+    public static function hiddenRuntimeSdkDependencies(): iterable
+    {
+        yield 'root namespace unqualified name' => [
+            "\nnamespace Duo;\nRepositoryCompiler::compile();\n",
+        ];
+        yield 'root namespace constructor' => [
+            "\nnamespace Duo;\nfunction hiddenSdkConstructor(): void { new RepositoryCompiler(); }\n",
+        ];
+        yield 'root namespace return type' => [
+            "\nnamespace Duo;\nfunction hiddenSdkReturnType(): RepositoryCompiler {}\n",
+        ];
+        yield 'namespace-relative name' => [
+            "\nnamespace Duo;\nnamespace\\RepositoryCompiler::compile();\n",
+        ];
+        yield 'deeper Duo namespace unqualified name' => [
+            "\nnamespace Duo\\Repository;\nCompiledArtifactReader::load();\n",
+        ];
+        yield 'dynamic class string' => [
+            "\n\$class = 'Duo\\\\RepositoryCompiler';\n\$class::compile();\n",
+        ];
+        yield 'concatenated dynamic class string' => [
+            "\n\$class = 'Duo' . '\\\\RepositoryCompiler';\n\$class::compile();\n",
+        ];
+        yield 'case-variant fully-qualified name' => [
+            "\n\\duo\\RepositoryCompiler::compile();\n",
+        ];
+    }
+
+    #[DataProvider('hiddenRuntimeSdkDependencies')]
+    public function testValidatorRejectsSdkDependenciesHiddenByPhpNameForms(string $mutation): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write($path, (string) file_get_contents($path) . $mutation);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('depends on non-SDK Duo symbol');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsCapsuleClassDeclaredInAnEngineInternalNamespace(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write(
+            $path,
+            str_replace(
+                'namespace Duo\\Interpreters;',
+                'namespace Duo\\Repository;',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("outside owned namespace 'Duo\\Interpreters'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorAcceptsDynamicReferencesToSdkAndCapsuleOwnedClasses(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
+        self::write(
+            $path,
+            (string) file_get_contents($path)
+                . "\nis_callable(['\\\\Duo\\\\Policy', 'load']);\n"
+                . "is_callable(['\\\\Duo\\\\Interpreters\\\\Acf', 'tokens']);\n"
+                . "namespace Duo;\nuse Duo\\Policy as SdkPolicy;\n"
+                . "function sdkReturnType(): SdkPolicy {}\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    /** @return iterable<string,array{0:string}> */
     public static function unresolvedDuoImports(): iterable
     {
         yield 'grouped import' => ['use Duo\\{Policy, RepositoryCompiler};'];
@@ -170,6 +249,23 @@ final class AdapterPackageTestsTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Artifact fragment must contain exactly plugins and themes');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsArtifactSubjectsNotOwnedByTheManifest(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/evidence/artifacts.lock.json';
+        $artifacts = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($artifacts);
+        $artifacts['plugins']['woocommerce'] = $artifacts['plugins']['advanced-custom-fields'];
+        self::write(
+            $path,
+            json_encode($artifacts, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("must own exactly its manifest plugin 'advanced-custom-fields'");
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -253,6 +349,73 @@ final class AdapterPackageTestsTest extends TestCase
 
         self::assertSame('acf', $result['adapter']);
         self::assertContains('production-readiness', $result['checks']);
+    }
+
+    public function testValidatorRejectsExternalEvidenceFromAnUndeclaredIntegrationScenario(): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = self::scenarioFixture(
+            $root,
+            'polylang-tec-rewrite-coinstall',
+            ['polylang', 'the-events-calendar']
+        );
+        self::addExternalEvidence($root, 'regress-polylang-tec-rewrite-coinstall', $evidence);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("cites undeclared integration scenario 'polylang-tec-rewrite-coinstall'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testDeclaredExternalScenarioDoesNotReadAParticipantSiblingManifest(): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = self::scenarioFixture($root, 'acf-woocommerce-coinstall', ['acf', 'woocommerce']);
+        self::addExternalEvidence($root, 'regress-acf-woocommerce-coinstall', $evidence);
+        self::write($root . '/adapter-packages/woocommerce/package/manifest.json', "{not-json\n");
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+        self::assertContains('regress-acf-woocommerce-coinstall', $result['evidence_tests']);
+    }
+
+    public function testExternalScenarioCannotAliasReservedLocalEvidence(): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = self::scenarioFixture($root, 'acf-woocommerce-coinstall', ['acf', 'woocommerce']);
+        self::addExternalEvidence($root, 'exact-artifact-version-matrix', $evidence);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('must equal its scenario gate basename');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testExternalScenarioEvidenceKeyIsDerivedFromItsGateBasename(): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = self::scenarioFixture($root, 'acf-woocommerce-coinstall', ['acf', 'woocommerce']);
+        self::addExternalEvidence($root, 'regress-invented-alias', $evidence);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            "key 'regress-invented-alias' must equal its scenario gate basename 'regress-acf-woocommerce-coinstall'"
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testExternalScenarioCannotCollideWithAPackageLocalSuite(): void
+    {
+        $root = $this->validatorFixture();
+        $evidence = self::scenarioFixture($root, 'acf-woocommerce-coinstall', ['acf', 'woocommerce']);
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_acf_woocommerce_coinstall.php',
+            "<?php\n"
+        );
+        self::addExternalEvidence($root, 'regress-acf-woocommerce-coinstall', $evidence);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("external evidence collides with local test 'regress-acf-woocommerce-coinstall'");
+        AdapterPackageValidator::validate($root, 'acf');
     }
 
     public function testValidatorRejectsReadinessEvidenceOutsideClosedSharedRoots(): void
@@ -367,6 +530,181 @@ PHP
             $result['checks'],
             static fn(string $check): bool => str_starts_with($check, 'dependency-boundary:')
         ));
+    }
+
+    /** @return iterable<string,array{0:string,1:string}> */
+    public static function siblingCapsuleSourceReferences(): iterable
+    {
+        yield 'runtime PHP string' => [
+            'package/runtime/interpreters/acf.php',
+            "\nfile_get_contents(__DIR__ . '/../../../../adapter-packages/woocommerce/package/manifest.json');\n",
+        ];
+        yield 'runtime cwd-relative sibling' => [
+            'package/runtime/interpreters/acf.php',
+            "\nfile_get_contents('../woocommerce/package/manifest.json');\n",
+        ];
+        yield 'offline PHP string' => [
+            'tests/offline/regress_sibling_package.php',
+            "<?php file_get_contents(__DIR__ . '/../../../../adapter-packages/woocommerce/package/manifest.json');\n",
+        ];
+        yield 'offline cwd-relative sibling' => [
+            'tests/offline/regress_relative_sibling.php',
+            "<?php file_get_contents('../woocommerce/package/manifest.json');\n",
+        ];
+        yield 'offline file-relative sibling' => [
+            'tests/offline/regress_file_relative_sibling.php',
+            "<?php file_get_contents(__DIR__ . '/../../../woocommerce/package/manifest.json');\n",
+        ];
+        yield 'live shell command' => [
+            'tests/live/regress_sibling_package.sh',
+            "#!/usr/bin/env bash\nphp adapter-packages/woocommerce/tests/offline/regress_woocommerce_contract.php\n",
+        ];
+        yield 'fixture PHP string' => [
+            'fixtures/sibling_package.php',
+            "<?php file_get_contents(__DIR__ . '/../../../adapter-packages/woocommerce/package/manifest.json');\n",
+        ];
+        yield 'fixture cwd-relative sibling' => [
+            'fixtures/cwd_relative_sibling.php',
+            "<?php file_get_contents('../woocommerce/package/manifest.json');\n",
+        ];
+        yield 'fixture file-relative sibling' => [
+            'fixtures/relative_sibling.php',
+            "<?php file_get_contents(__DIR__ . '/../../woocommerce/package/manifest.json');\n",
+        ];
+    }
+
+    #[DataProvider('siblingCapsuleSourceReferences')]
+    public function testValidatorRejectsSiblingCapsuleReferencesInPackageSources(
+        string $relative,
+        string $bytes
+    ): void {
+        $root = $this->validatorFixture();
+        self::makeDirectory($root . '/adapter-packages/woocommerce');
+        $path = $root . '/adapter-packages/acf/' . $relative;
+        if (is_file($path)) {
+            $bytes = (string) file_get_contents($path) . $bytes;
+        }
+        self::write($path, $bytes);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            "references sibling adapter package 'woocommerce' at $relative"
+        );
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAComputedAdapterPackagesRoot(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_computed_package.php',
+            "<?php file_get_contents(__DIR__ . '/../../../../adapter-packages/' . 'woocommerce/package/manifest.json');\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('has an unresolved adapter-packages path');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorIgnoresSiblingPackageReferencesInComments(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/regress_package_comment.php',
+            "<?php\n// adapter-packages/woocommerce is historical context, not a dependency.\n"
+        );
+        self::write(
+            $root . '/adapter-packages/acf/tests/live/regress_package_comment.sh',
+            "#!/usr/bin/env bash\n# adapter-packages/woocommerce is historical context, not a dependency.\n"
+        );
+
+        $result = AdapterPackageValidator::validate($root, 'acf');
+
+        self::assertSame('acf', $result['adapter']);
+    }
+
+    public function testValidatorRequiresAPackagePremiseContractWhenItsTestsUsePremiseHelpers(): void
+    {
+        $root = $this->validatorFixture();
+        self::assertTrue(unlink(
+            $root . '/adapter-packages/acf/evidence/target-observation-premises.tsv'
+        ));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('uses target-observation premise helpers but owns no target-observation-premises.tsv');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAStalePackagePremiseAssertion(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/evidence/target-observation-premises.tsv';
+        self::write(
+            $path,
+            str_replace(
+                'require_observed_nonempty "conf2 ACF runtime observation"',
+                'require_observed_nonempty "stale ACF runtime observation"',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('source is missing premise');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsADeletedPackagePremiseRow(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/evidence/target-observation-premises.tsv';
+        self::write(
+            $path,
+            str_replace(
+                "observation\ttests/conformance/seed.sh\trequire_observed_nonempty \"conf1 ACF seed output\"\n",
+                '',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('expected-count mismatch (2/0 declared, 1/0 found)');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAPackagePremisePathEscape(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/evidence/target-observation-premises.tsv';
+        self::write(
+            $path,
+            str_replace(
+                'tests/conformance/check.sh',
+                '../outside.sh',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("names invalid premise source '../outside.sh'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testValidatorRejectsAnUnguardedVersionMatrixObservation(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write(
+            $path,
+            str_replace(
+                'require_fixture_values INSTALLED_2',
+                '# removed fixture premise',
+                (string) file_get_contents($path)
+            )
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('INSTALLED_2 assignment/premise mismatch (1/0)');
+        AdapterPackageValidator::validate($root, 'acf');
     }
 
     public function testValidatorDoesNotInspectSiblingCapsules(): void
@@ -792,6 +1130,28 @@ PHP
         );
     }
 
+    private static function addExternalEvidence(string $root, string $test, string $evidence): void
+    {
+        $package = $root . '/adapter-packages/acf';
+        self::write(
+            $package . '/evidence/external-tests.json',
+            json_encode([
+                'format' => 'duo-adapter-external-evidence/v1',
+                'tests' => [$test => $evidence],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
+        );
+        $path = $package . '/package/disposition.json';
+        $disposition = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($disposition);
+        if (!in_array($test, $disposition['evidence']['tests'], true)) {
+            $disposition['evidence']['tests'][] = $test;
+        }
+        self::write(
+            $path,
+            json_encode($disposition, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
+        );
+    }
+
     /** @param list<string> $participants */
     private static function scenarioFixture(string $root, string $scenario, array $participants): string
     {
@@ -812,7 +1172,8 @@ PHP
                 'participants' => $participants,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
         );
-        $evidence = 'integration-scenarios/' . $scenario . '/tests/offline/regress_participants.php';
+        $gate = 'regress_' . str_replace('-', '_', $scenario) . '.php';
+        $evidence = 'integration-scenarios/' . $scenario . '/tests/offline/' . $gate;
         self::write($root . '/' . $evidence, "<?php\n");
         return $evidence;
     }

@@ -352,7 +352,11 @@ duo_check_same(
     'every source-audited optional-core persistence family is machine-enumerated'
 );
 
-$policy = Policy::load(null, ['woocommerce']);
+$policy = Policy::load(
+    null,
+    ['woocommerce'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+);
 
 /*
  * OptionsMaterializer bypasses WordPress's dispatcher, so the reciprocal TEC
@@ -961,47 +965,6 @@ duo_check(
     )['written'] === $permalinkSource,
     'a missing target permalink row uses the closed Woo/Yoast insertion callback union'
 );
-$wooYoastPolicy = Policy::load(null, ['woocommerce', 'yoast']);
-$wooYoastActions = array_values(array_filter(
-    $wooYoastPolicy->actions_for(['option:woocommerce_permalinks']),
-    static fn(array $action): bool => ($action['provider'] ?? null) === 'yoast-index'
-        && ($action['capability'] ?? null) === 'reindex'
-));
-duo_check_same(1, count($wooYoastActions),
-    'the Woo plus Yoast policy selects one full reindex for a Woo permalink mutation');
-$wooYoastEffects = [];
-foreach ((array) ($wooYoastActions[0]['effects'] ?? []) as $effect) {
-    $selector = (array) ($effect['selector'] ?? []);
-    if (($effect['kind'] ?? null) === 'database'
-        && ($effect['mode'] ?? null) === 'restorable'
-        && ($selector['scope'] ?? null) === 'database_checkpoint') {
-        $wooYoastEffects[(string) ($selector['type'] ?? '') . ':' . (string) ($selector['value'] ?? '')] = true;
-    }
-}
-duo_check_same([], array_diff([
-    'table:options',
-    'table:yoast_indexable',
-    'table:yoast_indexable_hierarchy',
-    'table:yoast_primary_term',
-    'table:yoast_seo_links',
-], array_keys($wooYoastEffects)),
-    'the selected Yoast replacement checkpoints every skipped permalink-callback write surface');
-$GLOBALS['wooMixedYoastPermalinkCalls'] = 0;
-$wooYoastResult = $materializeMixed(
-    'woocommerce_permalinks',
-    $permalinkNormalized,
-    $permalinkRules,
-    'yes',
-    ['product_base' => 'stale-only-sparse-target'],
-    $wooYoastPolicy,
-    true
-);
-duo_check(
-    $wooYoastResult['handled'] === true
-        && $wooYoastResult['written'] === $permalinkSource
-        && $GLOBALS['wooMixedYoastPermalinkCalls'] === 0,
-    'the exact container-owned Yoast permalink callback is replaced by the checkpointed reindex without invocation'
-);
 duo_check_throws(
     static fn() => $materializeMixed(
         'woocommerce_permalinks',
@@ -1015,25 +978,6 @@ duo_check_throws(
     RuntimeException::class,
     'an exact Yoast callback refuses when the selected policy has no checkpointed replacement action',
     'requires the checkpointed yoast-index action'
-);
-$foreignYoastPermalinks =
-    new \Yoast\WP\SEO\Integrations\Third_Party\Woocommerce_Permalinks(
-        $GLOBALS['wooMixedYoastIndexableHelper']
-    );
-duo_check_throws(
-    static fn() => $materializeMixed(
-        'woocommerce_permalinks',
-        $permalinkNormalized,
-        $permalinkRules,
-        'yes',
-        ['product_base' => 'stale-only-sparse-target'],
-        $wooYoastPolicy,
-        true,
-        $foreignYoastPermalinks
-    ),
-    RuntimeException::class,
-    'a same-class foreign Yoast permalink observer refuses before direct option storage',
-    'not the exact resolved service'
 );
 woo_optional_clear_hooks();
 duo_check_same(0, $GLOBALS['wooMixedContainerGetCalls'],

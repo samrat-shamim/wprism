@@ -458,7 +458,8 @@ The one structural change that matters: **replace the persistent named volume ba
       - ./siterepo/f1/code:/var/www/html          # NEW — was a named volume; now code/ itself
       - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro          # unchanged — see §1.7's sandbox carve-out
       - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
+      - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/f1:/siterepo                    # unchanged — whole-repo access for --repo=
 
   cli-f1:

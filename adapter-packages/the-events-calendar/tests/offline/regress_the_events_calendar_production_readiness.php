@@ -1879,7 +1879,11 @@ duo_check_same(
     'the reviewed claim names every free TEC entity whose native deletion effects remain unsupported'
 );
 
-$policy = Policy::load(null, ['the-events-calendar']);
+$policy = Policy::load(
+    null,
+    ['the-events-calendar'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+);
 $interpreter = $policy->interpreters()['the-events-calendar'];
 duo_check($interpreter instanceof TheEventsCalendar, 'the manifest resolves its digest-bound TEC interpreter');
 $savedVersionPlugins = $GLOBALS['tec_readiness_plugins'] ?? null;
@@ -3742,7 +3746,11 @@ duo_check_same(
     $policy->block_attr_rule_details('core/legacy-widget')['source'] ?? null,
     'stored-widget discovery binds the effective whole-block codec owner'
 );
-$coreTecPolicy = Policy::load(null, ['core', 'the-events-calendar']);
+$coreTecPolicy = Policy::load(
+    null,
+    ['core', 'the-events-calendar'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+);
 $ownerMismatchDb = FakeWpdb::install();
 $ownerMismatchMapTable = $ownerMismatchDb->prefix . 'duo_map';
 $ownerMismatchDb
@@ -3911,7 +3919,11 @@ foreach ([
             : 'does not bind one declared widget type and canonical instance'
     );
 }
-$coreOnlyPolicy = Policy::load(null, ['core']);
+$coreOnlyPolicy = Policy::load(
+    null,
+    ['core'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+);
 duo_check_same(
     [],
     Blocks::capture_widget_instance_references($targetStoredList, $coreOnlyPolicy),
@@ -4718,165 +4730,6 @@ $optionHookFixture = json_decode(
     512,
     JSON_THROW_ON_ERROR
 );
-$wooRewriteTopology = json_decode(
-    (string) file_get_contents(
-        $root . '/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/'
-        . 'woocommerce-rewrite-coinstall-topology.json'
-    ),
-    true,
-    512,
-    JSON_THROW_ON_ERROR
-);
-duo_check_same(
-    '11.0.1',
-    $wooRewriteTopology['artifacts']['woocommerce']['version'] ?? null,
-    'the TEC rewrite co-install contract is pinned to exact WooCommerce 11.0.1'
-);
-$wooSourceHashes = [];
-foreach (($wooRewriteTopology['source_files'] ?? []) as $sourceFile) {
-    if (($sourceFile['plugin'] ?? null) === 'woocommerce') {
-        $wooSourceHashes[(string) ($sourceFile['path'] ?? '')] = $sourceFile['sha256'] ?? null;
-    }
-}
-duo_check_same(
-    [
-        'includes/class-woocommerce.php' =>
-            '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
-        'src/Container.php' =>
-            '05893eda7dcffa910185fdabe7a0dd5ac783b8169db0fec463f4b69ab4a4d312',
-        'src/Internal/DependencyManagement/RuntimeContainer.php' =>
-            'e3e84d93da8994fe01875ca1322559c5817b4af5a1b8b841bc2a104e68e6c62f',
-        'src/Internal/Features/FeaturesController.php' =>
-            'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2',
-        'src/Internal/DataStores/Orders/DataSynchronizer.php' =>
-            'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234',
-        'src/Internal/DataStores/Orders/CustomOrdersTableController.php' =>
-            'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf',
-    ],
-    array_intersect_key($wooSourceHashes, array_fill_keys([
-        'includes/class-woocommerce.php',
-        'src/Container.php',
-        'src/Internal/DependencyManagement/RuntimeContainer.php',
-        'src/Internal/Features/FeaturesController.php',
-        'src/Internal/DataStores/Orders/DataSynchronizer.php',
-        'src/Internal/DataStores/Orders/CustomOrdersTableController.php',
-    ], true)),
-    'the exact Woo public/runtime containers and three no-op option services are source-hash bound'
-);
-$coinstallSourceHashes = [];
-foreach (($wooRewriteTopology['source_files'] ?? []) as $sourceFile) {
-    $plugin = (string) ($sourceFile['plugin'] ?? '');
-    $path = (string) ($sourceFile['path'] ?? '');
-    $coinstallSourceHashes[$plugin][$path] = $sourceFile['sha256'] ?? null;
-}
-duo_check_same(
-    [
-        'inc/class-yoast-dynamic-rewrites.php' =>
-            '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553',
-        'inc/class-rewrite.php' =>
-            'd8e168e467b06e6c49f1f1c60b2c5437d7eb9081ef96aa472ed1de880639dbda',
-        'wp-seo-main.php' =>
-            '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
-        'admin/class-admin.php' =>
-            '6b18d8e8aab6089b1d425259343f3f0a784c648fbf42ad95f908b67c050a7883',
-        'inc/sitemaps/class-sitemaps-admin.php' =>
-            '03b1fdcb3da0fd6d82edc2d6d9e24f9ede8744d6fb68c3f8877b0d03c433bf82',
-        'inc/options/class-wpseo-options.php' =>
-            'dfa12977fe7d8e44a46e55106dbd6beff2f62ded44bb72130eb40092c8aa3c93',
-        'inc/options/class-wpseo-option.php' =>
-            '9be7b8c73ec223dc2349b5976a51c3fcf66d21d12ddd8985742c4ddaaf4057e9',
-        'inc/options/class-wpseo-option-wpseo.php' =>
-            '39b7002ff87b9b3e44d72c06ddaba43ef9d02539a7a6f74781d8723641cf6f34',
-        'inc/options/class-wpseo-option-titles.php' =>
-            'd3ab1e747666f0b8219a4531ad34c262c8c849ed178119f500eeba6fe9774c4f',
-        'inc/options/class-wpseo-option-social.php' =>
-            'c59cb35218f7868b99f03efb027d23ed4b004cbe31473733281d17f9a158292e',
-        'inc/options/class-wpseo-taxonomy-meta.php' =>
-            'b1c7b6e96c0c7d248028ec596ab24877b984913f563dbd4f11196c4ff73ea1f8',
-        'inc/options/class-wpseo-option-llmstxt.php' =>
-            '3626daec1fd21fbf4128a9891f208d9402cce198b3703641221b6973f23786a7',
-        'inc/options/class-wpseo-option-tracking-only.php' =>
-            '24902a45b2912e0f2d8cd731bc1e0990c824c61f35bb5076a7a4b091a8949c8c',
-        'inc/sitemaps/class-sitemaps-cache.php' =>
-            'dc99816988fef1554775757fb8ab18b65ec2d46a08f03c475bf6da4dfdc72cc8',
-        'inc/sitemaps/class-sitemaps.php' =>
-            'e436a8c3702e6c8c954d8bb3b4dd099124c47a4d6007c87f6693a79a7759a885',
-        'src/integrations/third-party/woocommerce-permalinks.php' =>
-            '8913e5e888d96cd4d9797d055cb862381cf4dfe6d2ddd4f1b8c6225c7aaa85a5',
-        'src/generated/container.php' =>
-            'f41aad93f9c02c150763720d07cfe03fd697805149aa671d628714ef9cde84b4',
-        'lib/dependency-injection/container-registry.php' =>
-            '36fdda743db041f6dae37e51b70456c52c661dceb8b411fa0e3c2d2f5e92349a',
-        'vendor_prefixed/symfony/dependency-injection/Container.php' =>
-            '4fc50ac8b32a60246f11173ebe11e9c947152cafea3359f4846da3fa0c407e38',
-        'src/helpers/indexable-helper.php' =>
-            'b462c43e61fcb755f8357e711d80a0aa2c267ce593d361885e686aa26f9cfe8e',
-    ],
-    $coinstallSourceHashes['wordpress-seo'] ?? null,
-    'the exact Yoast option/sitemap, Woo permalink, and bounded dynamic-rule maps are source-hash bound'
-);
-duo_check_same(
-    [
-        'src/admin/admin.php' =>
-            '7ed2774c6c73c514c64fc1a4b6533e41bacc8278a54785e8246492ce597bfdc5',
-        'src/modules/sitemaps/sitemaps.php' =>
-            '364cf0f52c51aeba8702e5108e2ddc66c35dc7b93bb4f694a3c35f862ed25856',
-        'src/modules/sitemaps/load.php' =>
-            'f8f29cc916bd931ad1d2e886fff55beabba537ffcf21af055dddf4b918b24e8e',
-        'src/links-directory.php' =>
-            '5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0',
-        'src/links-permalinks.php' =>
-            'cc15a8ffa92ffb045cd5c5ef350688c7b2e36c6b43ceb9c68bdf6f8c5ed68f98',
-        'src/base.php' =>
-            '23c6fad9a329966eb841ac86f468f347c4bf9cc4bb382e2f9a777c1b2f450762',
-        'src/api.php' =>
-            '4ff84b4c80783cefaa497009812b492d816ad6be8f5f5c79613f18906a462793',
-    ],
-    $coinstallSourceHashes['polylang'] ?? null,
-    'the exact Polylang admin runtime, conditional sitemap boot, service, directory model, and dynamic type roster are source-hash bound'
-);
-$tecRewriteSourceHashes = array_intersect_key(
-    $coinstallSourceHashes['the-events-calendar'] ?? [],
-    array_fill_keys([
-        'common/src/Tribe/Rewrite.php',
-        'common/src/Tribe/Deprecation.php',
-        'src/Tribe/Rewrite.php',
-        'src/Tribe/Views/V2/Hooks.php',
-        'src/Tribe/Views/V2/Manager.php',
-        'src/Tribe/Views/V2/Rewrite.php',
-        'src/Tribe/Views/V2/View_Register.php',
-        'src/Tribe/Views/V2/Kitchen_Sink.php',
-        'src/Tribe/Views/V2/Service_Provider.php',
-        'src/Events/QR/Routes.php',
-    ], true)
-);
-ksort($tecRewriteSourceHashes);
-duo_check_same(
-    [
-        'common/src/Tribe/Deprecation.php' =>
-            '71050d6b3644f5570df03b4f9c1584c4d8ba08775e958f9fb8bb62f0a3bf8d2b',
-        'common/src/Tribe/Rewrite.php' =>
-            '0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a',
-        'src/Events/QR/Routes.php' =>
-            '13970bae6bc23da3db24a44c14194568c7baf25f46b6b62166972c63b3e89acf',
-        'src/Tribe/Rewrite.php' =>
-            '2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab',
-        'src/Tribe/Views/V2/Hooks.php' =>
-            'd746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f',
-        'src/Tribe/Views/V2/Kitchen_Sink.php' =>
-            '9f26d8aed55135352eb89107b5851517a6955b761831db264275e325505e578f',
-        'src/Tribe/Views/V2/Manager.php' =>
-            'c7138bf36ebd78bf2c749ed6b6548255064710559e31a9716f4fc8af86dde353',
-        'src/Tribe/Views/V2/Rewrite.php' =>
-            '10ad020cac5de505fe0874135a3783422b1e1f88223d4bc65156a4877b5f2377',
-        'src/Tribe/Views/V2/Service_Provider.php' =>
-            '29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1',
-        'src/Tribe/Views/V2/View_Register.php' =>
-            '1a6d490cb4627fb282fd8fb1c9312c06308af87c3fa99be268b50db53cf3ac9f',
-    ],
-    $tecRewriteSourceHashes,
-    'both exact TEC pins bind the complete outer and inner rewrite service graph'
-);
 $exactTecInnerHooks = [
     'tribe_cache_expiration',
     'tribe_events_category_slug',
@@ -4891,113 +4744,9 @@ $exactTecInnerHooks = [
     'deprecated_function_trigger_error',
 ];
 duo_check_same(
-    $exactTecInnerHooks,
-    $wooRewriteTopology['tec_exact_empty_inner_hooks'] ?? null,
-    'the source-bound TEC inner rewrite hook frontier is closed and order-stable'
-);
-duo_check_same(
-    ['tribe_pre_rewrite'],
-    $optionHookFixture['rewrite_generation']['normal_empty_hooks'] ?? null,
-    'both exact TEC artifacts bind the opt-in predecessor hook as empty during normal boot'
-);
-duo_check_same(
-    [[
-        'accepted_args' => 2,
-        'class' => 'Tribe\\Events\\Views\\V2\\Hooks',
-        'hook' => 'tribe_events_rewrite_i18n_slugs_raw',
-        'method' => 'filter_rewrite_i18n_slugs_raw',
-        'priority' => 50,
-    ]],
-    $optionHookFixture['rewrite_generation']['normal_callbacks'] ?? null,
-    'both exact TEC artifacts bind the Views V2 raw-slug callback identity and order'
-);
-$staticRewriteCallbacks = [];
-foreach (($wooRewriteTopology['static_callbacks'] ?? []) as $callback) {
-    $staticRewriteCallbacks[(string) ($callback['hook'] ?? '')][] = $callback['callback'] ?? null;
-}
-foreach ([
-    'generate_rewrite_rules' => [
-        'Tribe__Cache_Listener::generate_rewrite_rules',
-        'Tribe__Events__Rewrite::filter_generate',
-    ],
-    'rewrite_rules_array' => [
-        'wc_fix_rewrite_rules',
-        'Tribe__Events__Rewrite::filter_rewrite_rules_array',
-    ],
-    'option_rewrite_rules' => [
-        'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option',
-    ],
-    'sanitize_option_rewrite_rules' => [
-        'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',
-    ],
-    'tribe_events_rewrite_i18n_slugs_raw' => [
-        'Tribe\\Events\\Views\\V2\\Hooks::filter_rewrite_i18n_slugs_raw',
-    ],
-] as $hookName => $callbacks) {
-    foreach ($callbacks as $callback) {
-        duo_check(
-            in_array($callback, $staticRewriteCallbacks[$hookName] ?? [], true),
-            "the exact co-install fixture pins $hookName callback $callback"
-        );
-    }
-}
-duo_check_same(
-    ['rewrite_rules_array', 'rewrite_rules_array', '{type}_rewrite_rules', 'pll_modify_rewrite_rule'],
-    array_column($wooRewriteTopology['dynamic_callback_containers'] ?? [], 'hook'),
-    'the Polylang fixture distinguishes its exact dynamic callbacks from the refused open filter chain'
-);
-duo_check_same(
-    [
-        [
-            'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option',
-            'priority' => 999,
-            'accepted_args' => 3,
-        ],
-        [
-            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option',
-            'priority' => 999,
-            'accepted_args' => 3,
-        ],
-        [
-            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option',
-            'priority' => 999,
-            'accepted_args' => 3,
-        ],
-        [
-            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index',
-            'priority' => 999,
-            'accepted_args' => 3,
-        ],
-    ],
-    $wooRewriteTopology['woocommerce_normal_option_topology']['updated_option'] ?? null,
-    'the source fixture pins the exact four normal Woo updated-option callbacks'
-);
-duo_check_same(
-    [
-        [
-            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_pre_update_option',
-            'priority' => 999,
-            'accepted_args' => 3,
-        ],
-    ],
-    $wooRewriteTopology['woocommerce_normal_option_topology']['pre_update_option'] ?? null,
-    'the source fixture pins the exact normal Woo pre-update callback'
-);
-duo_check_same(
-    [
-        [
-            'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option',
-            'priority' => 999,
-            'accepted_args' => 3,
-        ],
-        [
-            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_added_option',
-            'priority' => 999,
-            'accepted_args' => 2,
-        ],
-    ],
-    $wooRewriteTopology['woocommerce_normal_option_topology']['added_option'] ?? null,
-    'the source fixture pins the exact normal Woo add-option callbacks'
+    [],
+    array_values(array_diff($exactTecInnerHooks, $optionHookFixture['rewrite_generation']['exact_hooks'] ?? [])),
+    'every package-owned TEC inner hook belongs to the shared exact rewrite frontier'
 );
 duo_check_same(
     ['6.9.2', '7.0.3', '7.1'],
@@ -5215,7 +4964,11 @@ duo_check_same(
     $lifecycleBoundary['activation']['transient_ownership'] ?? null,
     'activation transients are exact request-consumed runtime rather than portable lifecycle receipts'
 );
-$lifecyclePolicy = Policy::load(null, ['core', 'the-events-calendar']);
+$lifecyclePolicy = Policy::load(
+    null,
+    ['core', 'the-events-calendar'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+);
 foreach ([
     '_transient__tribe_events_delayed_flush_rewrite_rules',
     '_transient_timeout__tribe_events_delayed_flush_rewrite_rules',
@@ -5837,17 +5590,6 @@ foreach ($lastSaveHookTopology as $lastSaveHook) {
 $nativeRewriteEffectSource = (string) file_get_contents(
     $root . '/agent/src/Rebuild/NativeRewriteEffects.php'
 );
-foreach (array_intersect_key($wooSourceHashes, array_fill_keys([
-    'includes/class-woocommerce.php',
-    'src/Internal/Features/FeaturesController.php',
-    'src/Internal/DataStores/Orders/DataSynchronizer.php',
-    'src/Internal/DataStores/Orders/CustomOrdersTableController.php',
-], true)) as $wooSourceHash) {
-    duo_check(
-        is_string($wooSourceHash) && str_contains($nativeRewriteEffectSource, $wooSourceHash),
-        'the shipped rewrite boundary cites each exact Woo service/bootstrap source hash it admits'
-    );
-}
 foreach ([
     'tribe_last_generate_rewrite_rules',
     'tribe_last_updated_option',
@@ -8982,10 +8724,9 @@ foreach ([
         "the single exact TEC matrix retains evidence $matrixEvidence"
     );
 }
-$tecMatrixCaseStart = strpos($versionMatrix, '# One candidate-bound pass executes every real-world standalone scenario');
-$tecMatrixCaseEnd = strpos($versionMatrix, 'if [ "$VMATRIX_MANIFEST" = elementor ]; then', $tecMatrixCaseStart);
-duo_check($tecMatrixCaseStart !== false && $tecMatrixCaseEnd !== false, 'the exact TEC matrix case has bounded source markers');
-$tecMatrixCase = substr($versionMatrix, $tecMatrixCaseStart, $tecMatrixCaseEnd - $tecMatrixCaseStart);
+$tecMatrixCaseStart = strpos($tecMatrixHelpers, 'version_matrix_workflow() {');
+duo_check($tecMatrixCaseStart !== false, 'the exact TEC matrix case has a package-owned source marker');
+$tecMatrixCase = substr($tecMatrixHelpers, (int) $tecMatrixCaseStart);
 duo_check(
     strpos($tecMatrixCase, 'wp2 duo apply --repo=/siterepo')
         < strpos($tecMatrixCase, 'postapply_the_events_calendar_content')

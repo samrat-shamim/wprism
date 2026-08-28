@@ -1460,7 +1460,7 @@ file.
    adapter rows; this is what keeps ordinary adapter authoring package-local.
 
 A profile (`fse` is the shipped one) follows the same shape inside
-`dispositions/profiles.json`, with its own conformance entry.
+`platform/adapter-library/profiles.json`, with its own conformance entry.
 
 **A shipped manifest is a shipped byte sequence.** Before you edit an existing
 one, read [the identity warning above](#editing-a-shipped-manifest-moves-its-identity):

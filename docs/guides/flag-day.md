@@ -290,8 +290,9 @@ migrated v3 adapters already owes the bundle-and-repin rollback described above.
    you are rolling back **to**. Same command, same comparison, opposite
    direction.
 2. Redeploy the prior `agent recovery` archive. All embedded surfaces, one
-   atomic swap. Never an agent-only revert: `agent` and `manifests` travel
-   together by design, and a mixed state refuses at load.
+   atomic swap. Never replace only part of `agent`: its assembled
+   `adapter-library/` travels inside the same tree by design, and a mixed state
+   refuses at load.
 3. Re-mint symmetrically: `duo adapter recertify <repo> --secret-key-file=<f>`
    on every site where you ran step 5 going forward.
 4. Re-project: `duo release --spec-v3` is not the verb for this direction, but

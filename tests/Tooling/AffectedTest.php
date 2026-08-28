@@ -209,24 +209,22 @@ final class AffectedTest extends TestCase
         self::assertSame($sorted, $targets, 'target list must be sorted');
     }
 
-    public function testSuiteFileChangeSelectsItself(): void
+    public function testSuiteFileChangeHonorsClosedFullDecision(): void
     {
         $targets = self::targets(['--paths=sandbox/tests/offline/cli/regress_command_output.php']);
-        self::assertSame(['regress-command-output'], $targets);
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-command-output', $targets);
     }
 
     public function testNestedSuiteFileSelectsItsOwnTarget(): void
     {
-        // sandbox/tests/offline/guards/regress_suite_wiring.php is the first
-        // suite below the top level, and it is here deliberately: the whole
-        // target->file mapping used to be a non-recursive scandir(), under
-        // which this target has no primary file, prints a NOTICE, and selects
-        // for nothing. Reverting the recursion in af_suite_files() turns this
-        // assertion red.
-        self::assertSame(
-            ['regress-suite-wiring'],
-            self::targets(['--paths=sandbox/tests/offline/guards/regress_suite_wiring.php'])
-        );
+        // AdapterChangeScope does not assign sandbox files a narrower owner,
+        // so its closed full decision wins over the static index. The target
+        // still has to be in the resulting corpus; the pure primary-map cases
+        // below pin recursive discovery independently.
+        $targets = self::targets(['--paths=sandbox/tests/offline/guards/regress_suite_wiring.php']);
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-suite-wiring', $targets);
     }
 
     public function testPrimaryTargetMapCarriesRepoRelativePathsNotBasenames(): void
@@ -399,23 +397,22 @@ final class AffectedTest extends TestCase
         self::assertContains('regress-fatal-mutations-unit', $targets);
     }
 
-    public function testUnknownFileIsReportedUncoveredButExitsZero(): void
+    public function testUnknownFileHonorsClosedFullDecision(): void
     {
-        // Deliberately under NO root directory: the directory signal claims
-        // whole trees (docs/, adapter-packages/, ...) by prefix, including paths
-        // that do not exist -- a deleted package member must still select the
-        // suites that globbed it -- so a docs/ path is no longer uncovered.
         $result = self::invoke(['--paths=README-nonexistent-xyz.md']);
         self::assertSame(0, $result['status']);
-        self::assertSame('', trim($result['stdout']));
-        self::assertStringContainsString('no suite covers: README-nonexistent-xyz.md', $result['stderr']);
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertSame('', $result['stderr']);
     }
 
-    public function testQuietSuppressesTheUncoveredNotice(): void
+    public function testQuietDoesNotChangeClosedFullSelection(): void
     {
         $result = self::invoke(['--paths=README-nonexistent-xyz.md', '--quiet']);
         self::assertSame(0, $result['status']);
         self::assertSame('', $result['stderr']);
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
     }
 
     public function testExplainFormatNamesTargetChangedFileAndReason(): void
@@ -441,6 +438,22 @@ final class AffectedTest extends TestCase
     public function testUnknownOptionExitsTwo(): void
     {
         self::assertSame(2, self::invoke(['--nonsense'])['status']);
+    }
+
+    public function testExplicitPathsRejectLossyNormalizationBeforeOwnershipClassification(): void
+    {
+        foreach ([
+            'adapter-packages/acf/../woocommerce/package/manifest.json',
+            'adapter-packages\\acf\\package\\manifest.json',
+            ' adapter-packages/acf/package/manifest.json',
+            'adapter-packages/acf//package/manifest.json',
+            '',
+        ] as $path) {
+            $result = self::invoke(['--paths=' . $path]);
+            self::assertSame(2, $result['status'], "non-canonical path unexpectedly selected work: $path");
+            self::assertSame('', $result['stdout']);
+            self::assertStringContainsString('non-canonical repo-relative path', $result['stderr']);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -560,6 +573,71 @@ final class AffectedTest extends TestCase
         self::assertSame('', af_normalize_path('sandbox/..'));
     }
 
+    public function testGitDiffParserPreservesRenameIdentityAndFlattensDependencyPaths(): void
+    {
+        self::loadTool();
+        $parsed = af_parse_diff_name_status(
+            "R100\0agent/src/Kernel/Old.php\0cli/src/Kernel/New.php\0"
+                . "M\0agent/src/Kernel/Canon.php\0"
+        );
+
+        self::assertSame([
+            ['from' => 'agent/src/Kernel/Old.php', 'to' => 'cli/src/Kernel/New.php'],
+            'agent/src/Kernel/Canon.php',
+        ], $parsed['changes']);
+        self::assertSame([
+            'agent/src/Kernel/Old.php',
+            'cli/src/Kernel/New.php',
+            'agent/src/Kernel/Canon.php',
+        ], $parsed['paths']);
+        self::assertSame(
+            'cross_root_rename',
+            \Duo\Tooling\AdapterChangeScopeDecision::decide($parsed['changes'])['reason_code']
+        );
+    }
+
+    public function testGitDiffDiscoveryFailureRefusesInsteadOfReturningNoChanges(): void
+    {
+        self::loadTool();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('git diff --name-status -M -z failed');
+        af_git_diff_changes(self::repoRoot(), 'refs/heads/duo-definitely-missing');
+    }
+
+    public function testGitStatusDiscoveryFailureRefusesInsteadOfReturningNoChanges(): void
+    {
+        self::loadTool();
+        $root = self::syntheticTestsTree([]);
+        mkdir($root, 0o777, true);
+        try {
+            af_git_status_changes($root);
+            self::fail('a non-repository status query returned an empty green change set');
+        } catch (\RuntimeException $failure) {
+            self::assertStringContainsString('git status --porcelain=v1 -z failed', $failure->getMessage());
+        } finally {
+            self::removeTree($root);
+        }
+    }
+
+    public function testGitStatusParserUsesDestinationThenSourceRenameOrder(): void
+    {
+        self::loadTool();
+        $parsed = af_parse_porcelain_status(
+            "R  cli/src/Kernel/New.php\0agent/src/Kernel/Old.php\0"
+                . "?? adapter-packages/acf/tests/offline/regress_new.php\0"
+        );
+
+        self::assertSame([
+            ['from' => 'agent/src/Kernel/Old.php', 'to' => 'cli/src/Kernel/New.php'],
+            'adapter-packages/acf/tests/offline/regress_new.php',
+        ], $parsed['changes']);
+        self::assertSame([
+            'agent/src/Kernel/Old.php',
+            'cli/src/Kernel/New.php',
+            'adapter-packages/acf/tests/offline/regress_new.php',
+        ], $parsed['paths']);
+    }
+
     public function testDirRelativeExtractorResolvesDotDotToACanonicalPath(): void
     {
         self::loadTool();
@@ -676,7 +754,6 @@ final class AffectedTest extends TestCase
         ] as $path) {
             self::assertSame([
                 'adapter-package:woocommerce',
-                'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
                 'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
             ], self::targets(['--paths=' . $path]));
         }
@@ -705,9 +782,13 @@ final class AffectedTest extends TestCase
             $decoded['tasks'][0]['command']
         );
         self::assertSame(
-            ['adapter-package', 'participant-scenario', 'participant-scenario', 'participant-scenario'],
+            ['adapter-package', 'participant-scenario'],
             array_column($decoded['explain'], 'why')
         );
+        self::assertSame([
+            'integration-scenario:polylang-tec-rewrite-coinstall:live:regress_polylang_tec_rewrite_coinstall.sh',
+            'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
+        ], array_column($decoded['advisories'], 'target'));
     }
 
     public function testEngineChangesConservativelySelectPackageConsumers(): void

@@ -19,8 +19,10 @@ require_once __DIR__ . '/src/AdapterChangeScopeDecision.php';
  * shells out to `php tools/affected.php --base=BASE --json`, treats the
  * `targets` members as the work list, and intersects ordinary targets with
  * the real leaf set. A closed single-adapter decision may also return scoped
- * adapter/scenario tasks with checked commands; plain output still emits one
- * target name per line for human and shell callers.
+ * adapter and offline-scenario tasks with checked commands. Live/certify
+ * scenario gates are separate advisory metadata, never executable targets;
+ * plain output still emits one executable target name per line for human and
+ * shell callers.
  *
  * SOURCE OF TRUTH FOR THE LEAF LIST
  * ----------------------------------
@@ -276,6 +278,22 @@ function af_normalize_path(string $path): string
         $segments[] = $segment;
     }
     return ($absolute ? '/' : '') . implode('/', $segments);
+}
+
+/** Explicit CLI paths are ownership evidence, so lossy cleanup is a refusal. */
+function af_is_canonical_explicit_path(string $path): bool
+{
+    if ($path === '' || $path[0] === '/' || str_contains($path, "\0") || str_contains($path, '\\')) {
+        return false;
+    }
+
+    foreach (explode('/', $path) as $segment) {
+        if ($segment === '' || $segment === '.' || $segment === '..') {
+            return false;
+        }
+    }
+
+    return af_normalize_path($path) === $path;
 }
 
 // -------------------------------------------------------- make db parsing
@@ -1315,52 +1333,167 @@ function af_get_index(string $root, bool $rebuild): array
 
 // ------------------------------------------------------------ changed files
 
-function af_unquote_status_field(string $field): string
+/**
+ * Parse `git diff --name-status -M -z` without flattening rename identity.
+ *
+ * Dependency matching still needs both path spellings, while the closed
+ * ownership decision needs the structured from/to pair to detect a move
+ * across ownership roots.
+ *
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_parse_diff_name_status(string $output): array
 {
-    $field = trim($field);
-    if (strlen($field) >= 2 && $field[0] === '"' && str_ends_with($field, '"')) {
-        return stripcslashes(substr($field, 1, -1));
+    $fields = explode("\0", $output);
+    if ($fields !== [] && end($fields) === '') {
+        array_pop($fields);
     }
-    return $field;
-}
-
-/** @return list<string> repo-relative paths */
-function af_git_diff_paths(string $root, string $base): array
-{
-    $result = af_exec(['git', '-C', $root, 'diff', '--name-only', $base . '...HEAD'], $root);
-    if ($result['exit'] !== 0) {
-        $result = af_exec(['git', '-C', $root, 'diff', '--name-only', $base], $root);
-    }
-    if ($result['exit'] !== 0) {
-        fwrite(STDERR, "affected: NOTICE `git diff --name-only $base...HEAD` failed, "
-            . "continuing with working-tree changes only\n");
-        return [];
-    }
-    return array_map('af_normalize_path', af_lines($result['out']));
-}
-
-/** @return list<string> repo-relative paths, tracked + untracked working-tree changes */
-function af_git_status_paths(string $root): array
-{
-    $result = af_exec(['git', '-C', $root, 'status', '--porcelain', '--untracked-files=all'], $root);
-    if ($result['exit'] !== 0) {
-        return [];
-    }
+    $changes = [];
     $paths = [];
-    foreach (af_lines($result['out']) as $line) {
-        if (strlen($line) < 4) {
+    for ($offset = 0; $offset < count($fields);) {
+        $status = $fields[$offset++];
+        if (preg_match('/^R[0-9]{1,3}$/D', $status) === 1) {
+            if (!isset($fields[$offset], $fields[$offset + 1])) {
+                throw new RuntimeException('truncated rename record from git diff --name-status');
+            }
+            $from = af_normalize_path($fields[$offset++]);
+            $to = af_normalize_path($fields[$offset++]);
+            if ($from === '' || $to === '') {
+                throw new RuntimeException('empty rename path from git diff --name-status');
+            }
+            $changes[] = ['from' => $from, 'to' => $to];
+            $paths[] = $from;
+            $paths[] = $to;
             continue;
         }
-        $rest = substr($line, 3);
-        $fields = str_contains($rest, ' -> ') ? explode(' -> ', $rest, 2) : [$rest];
-        foreach ($fields as $field) {
-            $path = af_normalize_path(af_unquote_status_field($field));
-            if ($path !== '') {
-                $paths[] = $path;
+        if (preg_match('/^C[0-9]{1,3}$/D', $status) === 1) {
+            if (!isset($fields[$offset], $fields[$offset + 1])) {
+                throw new RuntimeException('truncated copy record from git diff --name-status');
             }
+            $from = af_normalize_path($fields[$offset++]);
+            $to = af_normalize_path($fields[$offset++]);
+            foreach ([$from, $to] as $path) {
+                if ($path !== '') {
+                    $changes[] = $path;
+                    $paths[] = $path;
+                }
+            }
+            continue;
+        }
+        if (preg_match('/^[A-Z?]{1,2}$/D', $status) !== 1 || !isset($fields[$offset])) {
+            throw new RuntimeException('malformed record from git diff --name-status');
+        }
+        $path = af_normalize_path($fields[$offset++]);
+        if ($path !== '') {
+            $changes[] = $path;
+            $paths[] = $path;
         }
     }
-    return $paths;
+
+    return ['changes' => $changes, 'paths' => $paths];
+}
+
+/**
+ * Parse `git status --porcelain=v1 -z`; rename records place the destination
+ * in the status field and the source in the following NUL field.
+ *
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_parse_porcelain_status(string $output): array
+{
+    $fields = explode("\0", $output);
+    if ($fields !== [] && end($fields) === '') {
+        array_pop($fields);
+    }
+    $changes = [];
+    $paths = [];
+    for ($offset = 0; $offset < count($fields); $offset++) {
+        $record = $fields[$offset];
+        if (strlen($record) < 4 || $record[2] !== ' ') {
+            throw new RuntimeException('malformed record from git status --porcelain=v1');
+        }
+        $status = substr($record, 0, 2);
+        $to = af_normalize_path(substr($record, 3));
+        if (str_contains($status, 'R')) {
+            if (!isset($fields[$offset + 1])) {
+                throw new RuntimeException('truncated rename record from git status --porcelain=v1');
+            }
+            $from = af_normalize_path($fields[++$offset]);
+            if ($from === '' || $to === '') {
+                throw new RuntimeException('empty rename path from git status --porcelain=v1');
+            }
+            $changes[] = ['from' => $from, 'to' => $to];
+            $paths[] = $from;
+            $paths[] = $to;
+            continue;
+        }
+        if (str_contains($status, 'C')) {
+            if (!isset($fields[$offset + 1])) {
+                throw new RuntimeException('truncated copy record from git status --porcelain=v1');
+            }
+            $from = af_normalize_path($fields[++$offset]);
+            foreach ([$from, $to] as $path) {
+                if ($path !== '') {
+                    $changes[] = $path;
+                    $paths[] = $path;
+                }
+            }
+            continue;
+        }
+        if ($to !== '') {
+            $changes[] = $to;
+            $paths[] = $to;
+        }
+    }
+
+    return ['changes' => $changes, 'paths' => $paths];
+}
+
+/**
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_git_diff_changes(string $root, string $base): array
+{
+    $result = af_exec(['git', '-C', $root, 'diff', '--name-status', '-M', '-z', $base . '...HEAD'], $root);
+    if ($result['exit'] !== 0) {
+        $result = af_exec(['git', '-C', $root, 'diff', '--name-status', '-M', '-z', $base], $root);
+    }
+    if ($result['exit'] !== 0) {
+        $diagnostic = trim($result['err'] !== '' ? $result['err'] : $result['out']);
+        throw new RuntimeException(
+            "git diff --name-status -M -z failed for base '$base'"
+                . ($diagnostic === '' ? '' : ': ' . $diagnostic)
+        );
+    }
+    return af_parse_diff_name_status($result['out']);
+}
+
+/**
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_git_status_changes(string $root): array
+{
+    $result = af_exec(['git', '-C', $root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], $root);
+    if ($result['exit'] !== 0) {
+        $diagnostic = trim($result['err'] !== '' ? $result['err'] : $result['out']);
+        throw new RuntimeException(
+            'git status --porcelain=v1 -z failed'
+                . ($diagnostic === '' ? '' : ': ' . $diagnostic)
+        );
+    }
+    return af_parse_porcelain_status($result['out']);
 }
 
 // ------------------------------------------------------------------- main
@@ -1410,25 +1543,34 @@ function af_main(array $argv): int
         return 0;
     }
 
+    /** @var list<string|array{from:string,to:string}> $ownershipChanges */
+    $ownershipChanges = [];
     if ($explicitPaths !== null) {
         $changed = [];
         foreach (explode(',', $explicitPaths) as $raw) {
-            $raw = af_normalize_path($raw);
-            if ($raw !== '') {
-                $changed[$raw] = true;
+            if (!af_is_canonical_explicit_path($raw)) {
+                fwrite(STDERR, "affected: --paths contains a non-canonical repo-relative path: '$raw'\n");
+                return 2;
             }
+            $changed[$raw] = true;
+            $ownershipChanges[] = $raw;
         }
         $changed = array_keys($changed);
     } else {
-        $changed = array_values(array_unique(array_merge(
-            af_git_diff_paths($root, $base),
-            af_git_status_paths($root)
-        )));
+        try {
+            $diff = af_git_diff_changes($root, $base);
+            $status = af_git_status_changes($root);
+        } catch (Throwable $failure) {
+            fwrite(STDERR, 'affected: closed Git change parsing failed: ' . $failure->getMessage() . "\n");
+            return 1;
+        }
+        $changed = array_values(array_unique(array_merge($diff['paths'], $status['paths'])));
+        $ownershipChanges = array_merge($diff['changes'], $status['changes']);
     }
     sort($changed, SORT_STRING);
 
     try {
-        $ownership = \Duo\Tooling\AdapterChangeScopeDecision::decide($changed);
+        $ownership = \Duo\Tooling\AdapterChangeScopeDecision::decide($ownershipChanges);
     } catch (Throwable $failure) {
         fwrite(STDERR, 'affected: closed ownership classification failed: ' . $failure->getMessage() . "\n");
         return 1;
@@ -1455,39 +1597,61 @@ function af_main(array $argv): int
         foreach ($changed as $file) {
             $rows[] = ['target' => $selected[0], 'file' => $file, 'why' => 'adapter-package'];
         }
+        $advisories = [];
         foreach ($ownership['scenario_gates'] as $gate) {
             $target = 'integration-scenario:' . $gate['scenario'] . ':' . $gate['class'] . ':'
                 . basename($gate['path']);
-            $selected[] = $target;
-            $tasks[] = [
+            $task = [
                 'target' => $target,
                 'kind' => 'integration-scenario',
                 'command' => $gate['command'],
             ];
+            if ($gate['class'] !== 'offline') {
+                $advisories[] = $task;
+                continue;
+            }
+            $selected[] = $target;
+            $tasks[] = $task;
             foreach ($changed as $file) {
                 $rows[] = ['target' => $target, 'file' => $file, 'why' => 'participant-scenario'];
             }
         }
-        af_emit($selected, $rows, $changed, $json, $explain, $tasks);
+        af_emit($selected, $rows, $changed, $json, $explain, $tasks, $advisories);
         return 0;
     }
 
-    // A scenario is shared participant evidence by definition. Static path
-    // extraction cannot safely choose one adapter's offline leaf for it, and
-    // previously chose nothing at all for scenario.json. Honor the closed
-    // ownership decision here: the changed iteration path selects the global
-    // offline aggregate, while the decision's scenario_gates name the live
-    // participant evidence for the reviewer/operator.
-    if ($ownership['reason_code'] === 'integration_scenario_change') {
+    // Every non-engine full decision is a closed-scope refusal to narrow.
+    // Falling through to the static dependency index can turn unknown paths
+    // or cross-root renames into a green zero-task run. Engine edits retain
+    // their explicit static dependency map plus conservative package aggregate
+    // below; every other full reason expands to the complete offline corpus.
+    if ($ownership['gate'] === \Duo\Tooling\AdapterChangeScopeDecision::GATE_FULL
+        && $ownership['reason_code'] !== 'engine_change') {
         $selected = $leaves;
         sort($selected, SORT_STRING);
         $rows = [];
         foreach ($selected as $target) {
             foreach ($changed as $file) {
-                $rows[] = ['target' => $target, 'file' => $file, 'why' => 'integration-scenario'];
+                $rows[] = [
+                    'target' => $target,
+                    'file' => $file,
+                    'why' => 'closed-full:' . $ownership['reason_code'],
+                ];
             }
         }
-        af_emit($selected, $rows, $changed, $json, $explain);
+        $advisories = [];
+        foreach ($ownership['scenario_gates'] as $gate) {
+            if ($gate['class'] === 'offline') {
+                continue;
+            }
+            $advisories[] = [
+                'target' => 'integration-scenario:' . $gate['scenario'] . ':' . $gate['class'] . ':'
+                    . basename($gate['path']),
+                'kind' => 'integration-scenario',
+                'command' => $gate['command'],
+            ];
+        }
+        af_emit($selected, $rows, $changed, $json, $explain, [], $advisories);
         return 0;
     }
 
@@ -1566,6 +1730,7 @@ function af_main(array $argv): int
  * @param list<array{target:string,file:string,why:string}> $explainRows
  * @param list<string> $changed
  * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $tasks
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $advisories
  */
 function af_emit(
     array $selected,
@@ -1573,13 +1738,19 @@ function af_emit(
     array $changed,
     bool $json,
     bool $explain,
-    array $tasks = []
+    array $tasks = [],
+    array $advisories = []
 ): void
 {
     if ($json) {
         usort($explainRows, static fn (array $a, array $b): int
             => $a['target'] <=> $b['target'] ?: $a['file'] <=> $b['file']);
-        $payload = ['targets' => $selected, 'changed_files' => $changed, 'tasks' => $tasks];
+        $payload = [
+            'targets' => $selected,
+            'changed_files' => $changed,
+            'tasks' => $tasks,
+            'advisories' => $advisories,
+        ];
         if ($explain) {
             $payload['explain'] = $explainRows;
         }

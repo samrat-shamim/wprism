@@ -204,6 +204,100 @@ final class AdapterLibraryAssemblerTest extends TestCase
         self::assertSame([], $this->assemblyScratchEntries('refusal'));
     }
 
+    public function testCompleteEmbeddedValidationRefusesDuplicateRuntimeIdentityBeforeStageMutation(): void
+    {
+        foreach (['alpha', 'beta'] as $slug) {
+            $this->addPackage(
+                $slug,
+                ['providers' => [['id' => 'shared-cache', 'source' => 'manifest']]],
+                ['providers/shared-cache.php' => "<?php\n// $slug\n"]
+            );
+        }
+        $agent = $this->stageAgent('duplicate-runtime');
+        self::makeDirectory($agent . '/adapter-library/current');
+        self::write($agent . '/adapter-library/current/sentinel.txt', 'keep exact');
+        $before = self::snapshot($agent);
+
+        try {
+            AdapterLibraryAssembler::assemble($this->repo, $agent);
+            self::fail('Duplicate global runtime identities must refuse assembly');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString(
+                'adapter runtime provider shared-cache is declared by both alpha and beta',
+                $exception->getMessage()
+            );
+        }
+
+        self::assertSame($before, self::snapshot($agent));
+        self::assertFileDoesNotExist($agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER);
+        self::assertSame([], $this->assemblyScratchEntries('duplicate-runtime'));
+    }
+
+    public function testEveryPreCommitPublicationFaultRestoresLibraryAndNewMarkerState(): void
+    {
+        $this->addPackage('alpha');
+        foreach (['marker-written', 'target-published', 'pre-backup-cleanup'] as $faultPhase) {
+            $stage = 'publication-' . $faultPhase;
+            $agent = $this->stageAgent($stage);
+            self::makeDirectory($agent . '/adapter-library/current');
+            self::write($agent . '/adapter-library/current/sentinel.txt', 'keep exact');
+            $before = self::snapshot($agent);
+
+            try {
+                AdapterLibraryAssembler::assemble(
+                    $this->repo,
+                    $agent,
+                    null,
+                    static function (string $phase) use ($faultPhase): void {
+                        if ($phase === $faultPhase) {
+                            throw new RuntimeException("publication fault at $phase");
+                        }
+                    }
+                );
+                self::fail("The $faultPhase publication fault must refuse assembly");
+            } catch (RuntimeException $exception) {
+                self::assertSame("publication fault at $faultPhase", $exception->getMessage());
+            }
+
+            self::assertSame($before, self::snapshot($agent), "$faultPhase restores the exact staged agent");
+            self::assertFileDoesNotExist($agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER);
+            self::assertSame([], $this->assemblyScratchEntries($stage));
+        }
+    }
+
+    public function testPostCommitBackupCleanupFailureKeepsTheCompletePublicationSuccessful(): void
+    {
+        $this->addPackage('alpha');
+        $agent = $this->stageAgent('cleanup-failure');
+        self::makeDirectory($agent . '/adapter-library/current');
+        self::write($agent . '/adapter-library/current/sentinel.txt', 'old');
+        $cleanupReached = false;
+
+        $result = AdapterLibraryAssembler::assemble(
+            $this->repo,
+            $agent,
+            null,
+            static function (string $phase) use (&$cleanupReached): void {
+                if ($phase === 'backup-cleanup') {
+                    $cleanupReached = true;
+                    throw new RuntimeException('simulated backup cleanup failure');
+                }
+            }
+        );
+
+        self::assertTrue($cleanupReached);
+        self::assertSame($agent . '/adapter-library', $result['target']);
+        self::assertSame(
+            "duo-embedded-adapter-library-assembly/v1\n",
+            file_get_contents($agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER)
+        );
+        self::assertFileExists($agent . '/adapter-library/adapters/alpha/manifest.json');
+        self::assertFileDoesNotExist($agent . '/adapter-library/current/sentinel.txt');
+        $scratch = $this->assemblyScratchEntries('cleanup-failure');
+        self::assertCount(1, $scratch);
+        self::assertStringContainsString('backup-', $scratch[0]);
+    }
+
     public function testSymlinkedExistingTargetRefusesWithoutFollowingIt(): void
     {
         $this->addPackage('alpha');

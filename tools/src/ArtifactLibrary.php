@@ -46,12 +46,45 @@ final class ArtifactLibrary
      */
     public static function loadPackage(string $repoRoot, string $package): array
     {
-        $repo = self::repo($repoRoot);
         if (!self::safePackage($package)) {
             throw new RuntimeException("Adapter package name is not canonical: $package");
         }
 
-        return self::merge([self::packagePath($repo, $package)]);
+        return self::loadParticipants($repoRoot, [$package]);
+    }
+
+    /**
+     * Merge only the package fragments owned by one integration scenario's
+     * declared participants. Unlike load(), this path never enumerates sibling
+     * capsules or admits the platform fragment implicitly.
+     *
+     * @param list<string> $participants
+     * @return array{plugins:array<string,array<string,array<string,string>>>,themes:array<string,array<string,array<string,string>>>}
+     */
+    public static function loadParticipants(string $repoRoot, array $participants): array
+    {
+        $repo = self::repo($repoRoot);
+        if ($participants === [] || !array_is_list($participants)) {
+            throw new RuntimeException('Artifact participant scope must be a non-empty list');
+        }
+
+        $paths = [];
+        $seen = [];
+        foreach ($participants as $participant) {
+            if (!is_string($participant) || !self::safePackage($participant)) {
+                throw new RuntimeException(
+                    'Artifact participant is not a canonical adapter package: ' . var_export($participant, true)
+                );
+            }
+            if (isset($seen[$participant])) {
+                throw new RuntimeException("Artifact participant is declared more than once: $participant");
+            }
+            $seen[$participant] = true;
+            $paths[] = self::packagePath($repo, $participant);
+        }
+        sort($paths, SORT_STRING);
+
+        return self::merge($paths);
     }
 
     /** @return array<string,string> */

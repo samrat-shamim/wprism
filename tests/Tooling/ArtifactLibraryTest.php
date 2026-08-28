@@ -28,17 +28,35 @@ final class ArtifactLibraryTest extends TestCase
         self::removeTree($this->scratch);
     }
 
-    public function testDiscoveredAggregatePreservesEveryFormerFlatLockFact(): void
+    public function testDiscoveredAggregateIsExactlyTheDynamicFragmentUnion(): void
     {
         $library = ArtifactLibrary::load($this->repoRoot);
-        $canonical = json_encode(self::sortRecursive($library), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $expected = ['plugins' => [], 'themes' => []];
+        $fragments = [$this->repoRoot . '/platform/artifact-library/artifacts.lock.json'];
+        foreach (scandir($this->repoRoot . '/adapter-packages') ?: [] as $package) {
+            if ($package === '.' || $package === '..') {
+                continue;
+            }
+            $path = ArtifactLibrary::packagePath($this->repoRoot, $package);
+            if (is_file($path)) {
+                $fragments[] = $path;
+            }
+        }
+        sort($fragments, SORT_STRING);
+        foreach ($fragments as $path) {
+            $fragment = ArtifactLibrary::loadFragment($path);
+            foreach (['plugins', 'themes'] as $namespace) {
+                foreach ($fragment[$namespace] as $subject => $versions) {
+                    self::assertArrayNotHasKey($subject, $expected[$namespace]);
+                    $expected[$namespace][$subject] = $versions;
+                }
+            }
+        }
+        ksort($expected['plugins'], SORT_STRING);
+        ksort($expected['themes'], SORT_STRING);
 
-        self::assertCount(16, $library['plugins']);
-        self::assertCount(2, $library['themes']);
-        self::assertSame(['3.3.21.4', '3.4.34.2', '3.14.11'], array_keys($library['plugins']['ninja-forms']));
-        self::assertSame(46, array_sum(array_map('count', $library['plugins']))
-            + array_sum(array_map('count', $library['themes'])));
-        self::assertSame('5f5d65df4bea8f3801545d5a4bd0c4dafa653eacb84ed776f0056bc5c908256f', hash('sha256', $canonical));
+        self::assertNotSame([], $expected['plugins']);
+        self::assertSame($expected, $library);
     }
 
     public function testOneAdapterLoadsWithoutPlatformOrSiblingCapsules(): void
@@ -48,6 +66,54 @@ final class ArtifactLibraryTest extends TestCase
         self::assertSame(['woocommerce'], array_keys($library['plugins']));
         self::assertSame(['10.9.4', '11.0.0', '11.0.1'], array_keys($library['plugins']['woocommerce']));
         self::assertSame([], $library['themes']);
+    }
+
+    public function testScenarioParticipantsIgnoreMalformedNonParticipantWithoutChangingGlobalAggregation(): void
+    {
+        $this->writeFragment('adapter-packages/woocommerce/evidence/artifacts.lock.json', [
+            'plugins' => ['woocommerce' => ['11.0.1' => self::entry('certified-boundary')]],
+            'themes' => [],
+        ]);
+        $this->writeFragment('adapter-packages/yoast/evidence/artifacts.lock.json', [
+            'plugins' => ['wordpress-seo' => ['28.3' => self::entry('certified-boundary')]],
+            'themes' => [],
+        ]);
+        $acf = $this->scratch . '/adapter-packages/acf/evidence';
+        self::assertTrue(mkdir($acf, 0777, true));
+        self::assertNotFalse(file_put_contents($acf . '/artifacts.lock.json', "not json\n"));
+
+        $library = ArtifactLibrary::loadParticipants($this->scratch, ['woocommerce', 'yoast']);
+
+        self::assertSame(['woocommerce', 'wordpress-seo'], array_keys($library['plugins']));
+        self::assertSame([], $library['themes']);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Artifact fragment is not valid JSON');
+        ArtifactLibrary::load($this->scratch);
+    }
+
+    public function testScenarioParticipantMutationStillRefuses(): void
+    {
+        $this->writeFragment('adapter-packages/woocommerce/evidence/artifacts.lock.json', [
+            'plugins' => ['woocommerce' => ['11.0.1' => self::entry('certified-boundary')]],
+            'themes' => [],
+        ]);
+        $this->writeFragment('adapter-packages/yoast/evidence/artifacts.lock.json', [
+            'plugins' => ['wordpress-seo' => ['28.3' => self::entry('certified-boundary')]],
+            'themes' => [],
+        ]);
+        self::assertSame(
+            ['woocommerce', 'wordpress-seo'],
+            array_keys(ArtifactLibrary::loadParticipants($this->scratch, ['woocommerce', 'yoast'])['plugins'])
+        );
+
+        self::assertNotFalse(file_put_contents(
+            $this->scratch . '/adapter-packages/yoast/evidence/artifacts.lock.json',
+            "not json\n"
+        ));
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Artifact fragment is not valid JSON');
+        ArtifactLibrary::loadParticipants($this->scratch, ['woocommerce', 'yoast']);
     }
 
     public function testDuplicateSubjectOwnershipRefusesInsteadOfOverwriting(): void
@@ -104,21 +170,6 @@ final class ArtifactLibraryTest extends TestCase
             $path,
             json_encode($fragment, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
         ));
-    }
-
-    private static function sortRecursive(mixed $value): mixed
-    {
-        if (!is_array($value)) {
-            return $value;
-        }
-        foreach ($value as &$item) {
-            $item = self::sortRecursive($item);
-        }
-        unset($item);
-        if (!array_is_list($value)) {
-            ksort($value, SORT_STRING);
-        }
-        return $value;
     }
 
     private static function removeTree(string $path): void

@@ -238,8 +238,8 @@ stale-code warnings looked like a candidate regression).
 in (provenance is not progress chatter). Export
 `DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (7–40 hex; `run.sh` takes
 `CONF_EXPECTED_SOURCE_SHA` and exports it as this) to turn that report into a
-gate: the run refuses unless the mounted source is exactly that commit with
-no uncommitted `agent`/`manifests` changes, and it refuses **before** the
+gate: the run refuses unless the mounted source is exactly that commit with no
+uncommitted `agent`/`adapter-packages`/`platform` changes, and it refuses **before** the
 budget reservation, the shared db, `DROP`/`CREATE DATABASE`, the site-repo
 roots, and any container create/start. `start` verifies the source **baked
 into that pair's existing containers** rather than what the common-dir
@@ -256,7 +256,8 @@ were.
 ### `up` — idempotent bring-up
 
 In order: report (and, when `DUO_EXPECTED_SOURCE_SHA` is set, verify) the
-agent/manifests bind-mount source, before anything else at all; validate the
+agent/adapter-packages/platform bind-mount source, before anything else at all;
+validate the
 dynamic host CPU/RAM pair budget (before creating any
 pair state); ensure the shared db is up and healthy; ensure the `wordpress`
 user/grant exist; create this pair's two databases; create its site-repo

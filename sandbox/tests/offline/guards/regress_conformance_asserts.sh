@@ -94,11 +94,78 @@ pass 'adapter conformance entries and hooks are package-owned and package-first 
 [ -f ../adapter-packages/acf/tests/certify/version-matrix.sh ] \
   && [ ! -e tests/certify/matrix.d/acf.sh ] \
   || fail 'the ACF version-matrix hook has duplicate or missing ownership'
-grep -q 'adapter-packages/\*/tests/certify/version-matrix.sh' tests/certify/certify_version_matrix.sh \
-  || fail 'the shared certify matrix does not discover package-owned hooks'
+grep -Fq 'VMATRIX_CAPSULE="../adapter-packages/$VMATRIX_MANIFEST/tests/certify/version-matrix.sh"' tests/certify/certify_version_matrix.sh \
+  && grep -Fq '. "$VMATRIX_CAPSULE"' tests/certify/certify_version_matrix.sh \
+  || fail 'the shared certify matrix does not source the selected package-owned capsule'
+if grep -Eq 'adapter-packages/\*|^if \[ "\$VMATRIX_MANIFEST" = ' tests/certify/certify_version_matrix.sh; then
+  fail 'the shared certify matrix still owns a package registry or adapter-specific case dispatch'
+fi
+for package in ../adapter-packages/*; do
+  disposition="$package/package/disposition.json"
+  [ -f "$disposition" ] || continue
+  jq -e '.evidence.tests | index("exact-artifact-version-matrix") != null' "$disposition" >/dev/null 2>&1 \
+    || continue
+  capsule="$package/tests/certify/version-matrix.sh"
+  [ -f "$capsule" ] \
+    && grep -q '^VMATRIX_PLUGIN_SLUG=' "$capsule" \
+    && grep -q '^version_matrix_workflow() {' "$capsule" \
+    || fail "exact-artifact package ${package##*/} does not own its complete certification workflow"
+done
 grep -q 'adapter-packages/${MANIFEST}/tests/certify/version-matrix.sh' bin/adapter-boundary.sh \
   || fail 'the boundary runner does not prefer a package-owned certify hook'
-pass 'ACF exact-version and boundary helpers are package-owned and generically discovered'
+pass 'exact-version workflows and boundary helpers are package-owned and selected without a central registry'
+
+# Execute the real driver's pre-pair selection boundary in a scratch tree. A
+# sibling capsule with a top-level exit reproduces the former wildcard-source
+# hazard: it must be completely invisible to ACF. The same probe proves a new
+# valid package runs without a driver edit and an incomplete capsule refuses
+# before Docker or any pair mutation can begin.
+MATRIX_PROBE=$(mktemp -d "${TMPDIR:-/tmp}/duo-certify-capsule.XXXXXX")
+trap 'rm -rf -- "$MATRIX_PROBE"' EXIT
+mkdir -p "$MATRIX_PROBE/sandbox/tests/certify" "$MATRIX_PROBE/sandbox/conformance"
+cp tests/certify/certify_version_matrix.sh "$MATRIX_PROBE/sandbox/tests/certify/"
+: > "$MATRIX_PROBE/sandbox/conformance/asserts.sh"
+
+write_probe_disposition() {
+  local subject="$1"
+  mkdir -p "$MATRIX_PROBE/adapter-packages/$subject/package" "$MATRIX_PROBE/adapter-packages/$subject/tests/certify"
+  printf '%s\n' '{"evidence":{"tests":["exact-artifact-version-matrix"]}}' \
+    > "$MATRIX_PROBE/adapter-packages/$subject/package/disposition.json"
+}
+
+write_probe_disposition acf
+cat > "$MATRIX_PROBE/adapter-packages/acf/tests/certify/version-matrix.sh" <<'SH'
+VMATRIX_PLUGIN_SLUG=advanced-custom-fields
+version_matrix_workflow() { :; }
+version_matrix_preflight() { printf '%s\n' 'selected-acf-only'; exit 0; }
+SH
+write_probe_disposition sibling
+printf '%s\n' 'exit 73' > "$MATRIX_PROBE/adapter-packages/sibling/tests/certify/version-matrix.sh"
+PROBE_RC=0
+PROBE_OUT=$(VMATRIX_MANIFEST=acf bash "$MATRIX_PROBE/sandbox/tests/certify/certify_version_matrix.sh" 2>&1) || PROBE_RC=$?
+[ "$PROBE_RC" -eq 0 ] && [ "$PROBE_OUT" = selected-acf-only ] \
+  || fail "a sibling capsule affected the selected ACF workflow: rc=$PROBE_RC output=$PROBE_OUT"
+
+write_probe_disposition new-adapter
+cat > "$MATRIX_PROBE/adapter-packages/new-adapter/tests/certify/version-matrix.sh" <<'SH'
+VMATRIX_PLUGIN_SLUG=new-adapter
+version_matrix_workflow() { :; }
+version_matrix_preflight() { printf '%s\n' 'selected-new-adapter'; exit 0; }
+SH
+PROBE_RC=0
+PROBE_OUT=$(VMATRIX_MANIFEST=new-adapter bash "$MATRIX_PROBE/sandbox/tests/certify/certify_version_matrix.sh" 2>&1) || PROBE_RC=$?
+[ "$PROBE_RC" -eq 0 ] && [ "$PROBE_OUT" = selected-new-adapter ] \
+  || fail "a new package-owned workflow required central driver registration: rc=$PROBE_RC output=$PROBE_OUT"
+
+write_probe_disposition missing-workflow
+printf '%s\n' 'VMATRIX_PLUGIN_SLUG=missing-workflow' \
+  > "$MATRIX_PROBE/adapter-packages/missing-workflow/tests/certify/version-matrix.sh"
+PROBE_RC=0
+PROBE_OUT=$(VMATRIX_MANIFEST=missing-workflow bash "$MATRIX_PROBE/sandbox/tests/certify/certify_version_matrix.sh" 2>&1) || PROBE_RC=$?
+[ "$PROBE_RC" -ne 0 ] \
+  && grep -q 'certification capsule does not define version_matrix_workflow' <<<"$PROBE_OUT" \
+  || fail "a package without a workflow did not refuse before pair startup: rc=$PROBE_RC output=$PROBE_OUT"
+pass 'selected capsule isolation, registry-free package addition, and missing-workflow refusal are executable offline contracts'
 
 # DUO-3391: wiring is necessary but not sufficient for require_duo_answered.
 # Its whole safety argument is that the "answered" marker is BROAD — a narrow
@@ -209,7 +276,8 @@ grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_m
   || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
 grep -q '^export DUO_ARTIFACT_LIBRARY_ROOT$' conformance/run.sh \
   || fail "package check subprocesses do not receive a stable artifact-library repository root"
-grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_library_emit' conformance/run.sh \
+grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_library_participant_context' conformance/run.sh \
+  && grep -Eq 'artifact_library_emit' conformance/run.sh \
   && grep -Eq 'validate_artifact_library artifact_library_jq' conformance/run.sh \
   || fail "package check subprocesses cannot call the convention-discovered artifact-library helpers"
 ! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \

@@ -1055,7 +1055,7 @@ namespace {
         $artifactLock['plugins']['polylang']['3.8.7'] ?? null,
         'official Polylang 3.8.7 archive is digest-pinned as the admitted upper boundary'
     );
-    $versionMatrix = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
+    $versionMatrix = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
     duo_check(
         str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.7; do')
             && str_contains($versionMatrix, 'fetch_artifact polylang "$POLYLANG_VERSION" cli1')

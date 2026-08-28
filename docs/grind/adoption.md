@@ -93,7 +93,8 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   `grind_mup.sh`, the walk and this grind; side 2 is `<pair>2` for rehearsal
   and release alike.
 - A3 (loop): a product deleted from the target makes the next capture refuse
-  the deletion intent — `manifests/woocommerce.json` keeps product deletion
+  the deletion intent — `adapter-packages/woocommerce/package/manifest.json`
+  keeps product deletion
   fail-closed by design — so the situation authors its catalog change on the
   source instead of preview-then-delete.
 - A4 (first look, host side): `duo assess`'s per-operation `wp duo
@@ -128,14 +129,16 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   confirmation's primary sentence to `init refused at an unclassified safety
   gate` and writes it nowhere else.
 - A4 (release): Yoast SEO 28.x creates `wp_yoast_expiring_store` (a TTL
-  key/value cache) that `manifests/yoast.json` did not declare; the release
+  key/value cache) that `adapter-packages/yoast/package/manifest.json` did not
+  declare; the release
   refused `release_surface_not_releasable` for the unclassified table.
   Declared `runtime` (an adapter gap fixed at the root, like WooCommerce's
   operational post types in T6).
 - A5 (rehearse): `duo rehearse` materializes the preview through
   refresh-export under the isolated control bootstrap, where no plugin is
   loaded; Polylang's four taxonomies were in scope (init proposes them now)
-  but `manifests/polylang.json` declared no static `object_type` for them
+  but `adapter-packages/polylang/package/manifest.json` declared no static
+  `object_type` for them
   (only the additive option-derived one), so the export refused. The manifest
   now declares the plugin's own registration object types (verified live:
   language/post_translations on post, page, wp_block; term_language/
@@ -143,7 +146,8 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
 - A6 (init): Elementor's kit lives in the non-public `elementor_library`
   post type and `elementor_active_kit` is a `ref:post` into it; init left the
   type local (no adapter declared it) and its own baseline capture then
-  refused `unresolved_option_reference_scope`. `manifests/elementor.json` now
+  refused `unresolved_option_reference_scope`.
+  `adapter-packages/elementor/package/manifest.json` now
   declares `elementor_library` structurally, so init proposes it into scope.
 
 - A6 (rehearse, sandbox tooling): the rehearsal target's `duo apply` failed
@@ -193,7 +197,8 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   the `elementor-css` provider's `flush-css --regenerate` re-renders documents
   (repopulating `_elementor_element_cache`), so the target served its
   PRE-apply rendered HTML for the full cache TTL (~2 min, measured across two
-  instrumented runs). `manifests/providers/elementor-css.php` now clears
+  instrumented runs).
+  `adapter-packages/elementor/package/runtime/providers/elementor-css.php` now clears
   `_elementor_element_cache` and `_elementor_page_assets` (both `derived` in
   the manifest) after regenerating CSS, and the receipt proves the count is
   zero — the next front-end render rebuilds them from the applied
@@ -292,7 +297,8 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   covered the config members (_direct_updates/_enabled/_optimized_updates), so
   those three were unclassified and `duo init` refused incomplete_state_
   discovery. A4/A5's fresh installs never triggered a regeneration, so they
-  never surfaced them. `manifests/woocommerce.json` now classes the three as
+  never surfaced them. `adapter-packages/woocommerce/package/manifest.json`
+  now classes the three as
   runtime (transient regeneration progress the plugin clears when done). The
   init's jwt_in_code_file line was an ADVISORY (the Yoast OIDC software
   statement, correctly non-blocking); the grind's error extraction mislabeled

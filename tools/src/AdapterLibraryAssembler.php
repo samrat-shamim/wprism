@@ -8,6 +8,7 @@ use RuntimeException;
 use Throwable;
 
 require_once __DIR__ . '/AdapterPackageProjection.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Policy/AdapterLibrary.php';
 
 /**
  * Assemble the allowlisted adapter library inside a disposable agent stage.
@@ -39,11 +40,13 @@ final class AdapterLibraryAssembler
      *     files:list<array{path:string,sha256:string,size:int}>
      * }
      * @param null|callable():void $afterSourceGenerationCaptured deterministic concurrency-test seam
+     * @param null|callable(string):void $publicationCheckpoint deterministic publication-test seam
      */
     public static function assemble(
         string $repoRoot,
         string $stagingAgentRoot,
-        ?callable $afterSourceGenerationCaptured = null
+        ?callable $afterSourceGenerationCaptured = null,
+        ?callable $publicationCheckpoint = null
     ): array
     {
         // Plan before making any staging mutation. Source schema, symlink,
@@ -83,13 +86,13 @@ final class AdapterLibraryAssembler
             self::verifyTree($build, $rows);
             self::normalizeDirectories($build);
             self::assertSourceGenerationUnchanged($repoRoot, $plan, $generation);
+            self::validateEmbeddedLibrary($build, $agent);
             // The marker and library are one deployed authority boundary. No
             // package source is read after this point, so every source refusal
             // leaves both prior nodes untouched; marker publication still
             // precedes the target rename so a deployed library is never
             // published without its authority marker.
-            self::writeDeploymentMarker($agent);
-            self::publish($build, $target, $backup);
+            self::publish($build, $target, $backup, $agent, $publicationCheckpoint);
             $published = true;
 
             return [
@@ -104,6 +107,15 @@ final class AdapterLibraryAssembler
             }
             throw $throwable;
         }
+    }
+
+    /** Validate the exact projected layout through the production runtime reader before publication. */
+    private static function validateEmbeddedLibrary(string $build, string $agent): void
+    {
+        \Duo\AdapterLibrary::fromEmbeddedDirectory(
+            $build,
+            dirname($agent) . '/duo-control/adapter-revocations.json'
+        );
     }
 
     /**
@@ -200,7 +212,8 @@ final class AdapterLibraryAssembler
         }
     }
 
-    private static function writeDeploymentMarker(string $agent): void
+    /** Return true only when this call created the marker and therefore owns rollback of it. */
+    private static function writeDeploymentMarker(string $agent): bool
     {
         $marker = $agent . '/' . self::DEPLOYMENT_MARKER;
         if (self::nodeExists($marker)) {
@@ -211,9 +224,14 @@ final class AdapterLibraryAssembler
                 || file_get_contents($marker) !== self::DEPLOYMENT_MARKER_BYTES) {
                 throw new RuntimeException("Staging agent has an invalid adapter-library deployment marker: $marker");
             }
-            return;
+            return false;
         }
+        // writeExclusive() cleans up only after its own exclusive open
+        // succeeds; an open collision belongs to another writer and is never
+        // unlinked here.
         self::writeExclusive($marker, self::DEPLOYMENT_MARKER_BYTES);
+
+        return true;
     }
 
     private static function libraryRelativePath(string $destination): string
@@ -302,6 +320,7 @@ final class AdapterLibraryAssembler
         if ($handle === false) {
             throw new RuntimeException("Cannot create projected adapter-library member: $path");
         }
+        $writeFailure = null;
         try {
             $offset = 0;
             $length = strlen($bytes);
@@ -315,10 +334,25 @@ final class AdapterLibraryAssembler
             if (!fflush($handle)) {
                 throw new RuntimeException("Cannot flush projected adapter-library member: $path");
             }
+        } catch (Throwable $throwable) {
+            $writeFailure = $throwable;
         } finally {
             fclose($handle);
         }
+        if ($writeFailure !== null) {
+            if (!@unlink($path)) {
+                throw new RuntimeException(
+                    "Cannot remove incomplete projected adapter-library member: $path",
+                    0,
+                    $writeFailure
+                );
+            }
+            throw $writeFailure;
+        }
         if (!chmod($path, self::OUTPUT_FILE_PERMISSIONS) || !touch($path, self::OUTPUT_MTIME)) {
+            if (!@unlink($path)) {
+                throw new RuntimeException("Cannot remove unnormalized projected adapter-library member: $path");
+            }
             throw new RuntimeException("Cannot normalize projected adapter-library member: $path");
         }
     }
@@ -435,22 +469,119 @@ final class AdapterLibraryAssembler
         }
     }
 
-    private static function publish(string $build, string $target, string $backup): void
+    /**
+     * Publish marker and target as one rollbackable staging transaction.
+     *
+     * Cleanup of a successfully published backup is deliberately post-commit:
+     * deleting it can fail after deleting only some members, at which point it
+     * is no longer an exact rollback source. Such cleanup can retain scratch,
+     * but it cannot turn a complete new marker/library pair into a thrown,
+     * half-committed result.
+     *
+     * @param null|callable(string):void $checkpoint
+     */
+    private static function publish(
+        string $build,
+        string $target,
+        string $backup,
+        string $agent,
+        ?callable $checkpoint
+    ): void
     {
-        $hadTarget = self::nodeExists($target);
-        if ($hadTarget && !@rename($target, $backup)) {
-            throw new RuntimeException("Cannot move prior staged adapter-library to rollback backup: $target");
-        }
-        if (!@rename($build, $target)) {
-            if ($hadTarget && !@rename($backup, $target)) {
+        $markerCreated = false;
+        $hadTarget = false;
+        $oldMoved = false;
+        $newPublished = false;
+        try {
+            $markerCreated = self::writeDeploymentMarker($agent);
+            self::checkpoint($checkpoint, 'marker-written');
+
+            // Recheck at the mutation boundary. Assembly can take long enough
+            // for a staging caller to replace the target after the initial
+            // inventory, and a newly appeared unsafe node is never ours to move.
+            self::assertReplaceableTarget($target, $agent);
+            $hadTarget = self::nodeExists($target);
+            if ($hadTarget) {
+                if (!@rename($target, $backup)) {
+                    throw new RuntimeException("Cannot move prior staged adapter-library to rollback backup: $target");
+                }
+                $oldMoved = true;
+            }
+            if (!@rename($build, $target)) {
+                throw new RuntimeException("Cannot atomically publish staged adapter-library: $target");
+            }
+            $newPublished = true;
+            self::checkpoint($checkpoint, 'target-published');
+            self::checkpoint($checkpoint, 'pre-backup-cleanup');
+        } catch (Throwable $throwable) {
+            try {
+                self::rollbackPublication(
+                    $build,
+                    $target,
+                    $backup,
+                    $agent,
+                    $markerCreated,
+                    $oldMoved,
+                    $newPublished
+                );
+            } catch (Throwable $rollbackFailure) {
                 throw new RuntimeException(
-                    "Cannot publish staged adapter-library and cannot restore its rollback backup: $target"
+                    $throwable->getMessage() . '; publication rollback failed: ' . $rollbackFailure->getMessage(),
+                    0,
+                    $throwable
                 );
             }
-            throw new RuntimeException("Cannot atomically publish staged adapter-library: $target");
+            throw $throwable;
         }
+
         if ($hadTarget) {
-            self::removeOwnedTree($backup, dirname(dirname($target)));
+            try {
+                self::checkpoint($checkpoint, 'backup-cleanup');
+                self::removeOwnedTree($backup, dirname(dirname($target)));
+            } catch (Throwable) {
+                // Publication is committed and the new marker/library pair is
+                // complete. A partially removed backup cannot safely be
+                // restored, so retain it for caller cleanup without converting
+                // a successful publication into a misleading failure.
+            }
+        }
+    }
+
+    private static function rollbackPublication(
+        string $build,
+        string $target,
+        string $backup,
+        string $agent,
+        bool $markerCreated,
+        bool $oldMoved,
+        bool $newPublished
+    ): void {
+        if ($newPublished) {
+            if (self::nodeExists($build) || !@rename($target, $build)) {
+                throw new RuntimeException("Cannot withdraw failed staged adapter-library publication: $target");
+            }
+        }
+        if ($oldMoved && !@rename($backup, $target)) {
+            throw new RuntimeException("Cannot restore prior staged adapter-library after publication failure: $target");
+        }
+        if (!$markerCreated) {
+            return;
+        }
+        $marker = $agent . '/' . self::DEPLOYMENT_MARKER;
+        if (!self::nodeExists($marker)
+            || is_link($marker)
+            || !is_file($marker)
+            || file_get_contents($marker) !== self::DEPLOYMENT_MARKER_BYTES
+            || !@unlink($marker)) {
+            throw new RuntimeException("Cannot restore prior adapter-library deployment marker state: $marker");
+        }
+    }
+
+    /** @param null|callable(string):void $checkpoint */
+    private static function checkpoint(?callable $checkpoint, string $phase): void
+    {
+        if ($checkpoint !== null) {
+            $checkpoint($phase);
         }
     }
 

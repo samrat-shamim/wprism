@@ -251,7 +251,8 @@ export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
   require_duo_answered capture_duo_json_success require_observed_nonempty \
   establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
-  artifact_library_repo_root artifact_library_package_context artifact_library_emit \
+  artifact_library_repo_root artifact_library_package_context artifact_library_participant_context \
+  artifact_library_emit \
   validate_artifact_library artifact_library_jq
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which

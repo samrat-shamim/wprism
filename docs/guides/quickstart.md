@@ -213,9 +213,11 @@ an archive or target path when that proof is red.
 #### 2. Check, then adopt
 
 Run these from the connected site workspace with `DUO_CLI` pointing to the Duo
-source checkout whose `cli/`, `agent/`, `manifests/`, and `recovery/`
-directories are the release you intend to install — adoption ships *those
-exact trees*, so the checkout you invoke is the version the target gets.
+source checkout whose `cli/`, `agent/`, `adapter-packages/`,
+`platform/adapter-library/`, and `recovery/` directories are the release you
+intend to install. Adoption assembles the package and platform sources into
+`agent/adapter-library/`, then ships exactly `agent recovery`, so the checkout
+you invoke is the version the target gets.
 
 ```sh
 "$DUO_CLI" doctor production   # expected to report the agent/repo missing first

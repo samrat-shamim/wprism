@@ -34,6 +34,10 @@ capture_without_warnings() {
 }
 R1="siterepo/${PAIR}1"; R2="siterepo/${PAIR}2"; ORIGIN="siterepo/origin-$PAIR.git"
 . bin/fetch-artifact.sh
+SCENARIO="$ROOT/integration-scenarios/polylang-tec-rewrite-coinstall/scenario.json"
+DUO_ARTIFACT_PARTICIPANTS="$(artifact_library_scenario_participants "$SCENARIO")" \
+  || fail 'Polylang+TEC rewrite co-install scenario metadata is malformed'
+export DUO_ARTIFACT_PARTICIPANTS
 validate_artifact_library || fail 'artifact library validation failed'
 artifact_library_jq -e '.plugins.polylang["3.8.6"] and .plugins["the-events-calendar"]["6.17.2"]' >/dev/null || fail 'exact co-install pins are missing'
 GREEN=0; cleanup() { [ "$GREEN" = 1 ] && bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true; }; trap cleanup EXIT

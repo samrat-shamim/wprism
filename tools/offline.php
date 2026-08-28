@@ -579,14 +579,17 @@ final class OfflineRunnerCli
 
     /**
      * Set when an EMPTY selection is the correct answer rather than a mistake,
-     * to the sentence explaining which. `--changed` over a docs-only diff and
-     * `--rerun-failed` with nothing red are both "no work, and that is
-     * correct"; an empty `--filter` is a typo and keeps exit 2.
+     * to the sentence explaining which. `--rerun-failed` with nothing red is
+     * "no work, and that is correct"; an empty `--filter` is a typo and keeps
+     * exit 2. Closed changed-file scope decisions never use this escape hatch.
      */
     private ?string $emptySelectionIsBenign = null;
 
     /** @var array<string, non-empty-list<string>> target => checked argv */
     private array $scopedTasks = [];
+
+    /** @var array<string, non-empty-list<string>> target => checked argv */
+    private array $advisoryTasks = [];
 
     /** @var array<string,mixed> */
     private array $opt;
@@ -660,6 +663,13 @@ final class OfflineRunnerCli
         $selected = $this->select($leaves);
         if ($selected === null) {
             return 2;
+        }
+        foreach ($this->advisoryTasks as $target => $command) {
+            fwrite(
+                STDERR,
+                'tools/offline.php: advisory task (not executed by changed mode): '
+                    . $target . ' => ' . implode(' ', $command) . "\n"
+            );
         }
         // Compared against the full leaf list rather than inferred from which
         // flags were passed: a --filter that happens to match everything really
@@ -911,6 +921,7 @@ TXT;
     private function select(array $leaves): ?array
     {
         $this->scopedTasks = [];
+        $this->advisoryTasks = [];
         $selected = $leaves;
         $rerunTargets = null;
 
@@ -973,7 +984,9 @@ TXT;
                 || !is_array($payload['targets'] ?? null)
                 || !array_is_list($payload['targets'])
                 || !is_array($payload['tasks'] ?? null)
-                || !array_is_list($payload['tasks'])) {
+                || !array_is_list($payload['tasks'])
+                || !is_array($payload['advisories'] ?? null)
+                || !array_is_list($payload['advisories'])) {
                 fwrite(STDERR, "tools/offline.php: tools/affected.php returned an invalid JSON selection\n");
 
                 return null;
@@ -1008,6 +1021,36 @@ TXT;
                     $this->scopedTasks[$task['target']] = $task['command'];
                 }
             }
+            foreach ($payload['advisories'] as $row) {
+                if (!is_array($row) || ($row['kind'] ?? null) !== 'integration-scenario') {
+                    fwrite(STDERR, "tools/offline.php: tools/affected.php returned malformed advisory task metadata\n");
+
+                    return null;
+                }
+                $task = $this->checkedScopedTask($row);
+                if ($task === null) {
+                    return null;
+                }
+                if (str_contains($task['target'], ':offline:')) {
+                    fwrite(STDERR, 'tools/offline.php: tools/affected.php marked an offline scenario task advisory: '
+                        . $task['target'] . "\n");
+
+                    return null;
+                }
+                if (isset($names[$task['target']])) {
+                    fwrite(STDERR, 'tools/offline.php: tools/affected.php marked a selected target advisory: '
+                        . $task['target'] . "\n");
+
+                    return null;
+                }
+                if (isset($this->advisoryTasks[$task['target']])) {
+                    fwrite(STDERR, 'tools/offline.php: tools/affected.php repeated advisory task: '
+                        . $task['target'] . "\n");
+
+                    return null;
+                }
+                $this->advisoryTasks[$task['target']] = $task['command'];
+            }
             $leafNames = array_values(array_intersect(array_keys($names), $leaves));
             $knownNames = array_fill_keys(array_merge($leafNames, array_keys($this->scopedTasks)), true);
             $unknown = array_values(array_diff(array_keys($names), array_keys($knownNames)));
@@ -1040,6 +1083,19 @@ TXT;
             }));
             $this->scopedTasks = array_filter(
                 $this->scopedTasks,
+                function (array $unused, string $target): bool {
+                    foreach ($this->opt['filter'] as $needle) {
+                        if (str_contains($target, $needle)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                },
+                ARRAY_FILTER_USE_BOTH
+            );
+            $this->advisoryTasks = array_filter(
+                $this->advisoryTasks,
                 function (array $unused, string $target): bool {
                     foreach ($this->opt['filter'] as $needle) {
                         if (str_contains($target, $needle)) {

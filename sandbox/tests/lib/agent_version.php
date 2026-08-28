@@ -8,7 +8,7 @@
  * files that read `DUO_AGENT_VERSION` / `DUO_SPEC_VERSION`, so ~69 suites open
  * with a `if (!defined(...)) define(..., 2)` guard. Every one of those literals
  * is a private copy of a number AGENTS.md rule 8 says moves in exactly one
- * commit, together with `manifests/capabilities/platform.json`.
+ * commit, together with `platform/adapter-library/capabilities/platform.json`.
  *
  * That was free while the number never moved. The flip moved it, and the cost
  * was measured: 15 of the 28 suites that went red on the bumped tree failed

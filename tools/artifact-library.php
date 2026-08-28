@@ -9,6 +9,7 @@ require_once __DIR__ . '/src/ArtifactLibrary.php';
 
 $repoRoot = dirname(__DIR__);
 $package = null;
+$participants = null;
 $check = false;
 foreach (array_slice($_SERVER['argv'] ?? [], 1) as $argument) {
     if ($argument === '--check' && !$check) {
@@ -23,14 +24,26 @@ foreach (array_slice($_SERVER['argv'] ?? [], 1) as $argument) {
         $package = substr($argument, strlen('--adapter='));
         continue;
     }
-    fwrite(STDERR, "usage: php tools/artifact-library.php [--root=DIR] [--adapter=PACKAGE] [--check]\n");
+    if (is_string($argument) && str_starts_with($argument, '--participants=') && $participants === null) {
+        $participants = explode(',', substr($argument, strlen('--participants=')));
+        continue;
+    }
+    fwrite(STDERR, "usage: php tools/artifact-library.php [--root=DIR] [--adapter=PACKAGE|--participants=A,B] [--check]\n");
+    exit(2);
+}
+if ($package !== null && $participants !== null) {
+    fwrite(STDERR, "usage: php tools/artifact-library.php [--root=DIR] [--adapter=PACKAGE|--participants=A,B] [--check]\n");
     exit(2);
 }
 
 try {
-    $library = $package === null
-        ? ArtifactLibrary::load($repoRoot)
-        : ArtifactLibrary::loadPackage($repoRoot, $package);
+    if ($package !== null) {
+        $library = ArtifactLibrary::loadPackage($repoRoot, $package);
+    } elseif ($participants !== null) {
+        $library = ArtifactLibrary::loadParticipants($repoRoot, $participants);
+    } else {
+        $library = ArtifactLibrary::load($repoRoot);
+    }
     if ($check) {
         $subjects = count($library['plugins']) + count($library['themes']);
         $versions = array_sum(array_map('count', $library['plugins']))

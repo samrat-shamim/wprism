@@ -14,7 +14,8 @@ Authority: `agent/src/Adapter/AdapterCertification.php`. Proof:
 ## 1. The site trust root — `adapters/authorities.json`
 
 Format `duo-adapter-authorities/v1`, canonical Duo JSON bytes, exactly the
-grammar of the shipped `manifests/capabilities/adapter-authorities.json`:
+grammar of the shipped
+`platform/adapter-library/capabilities/adapter-authorities.json`:
 
 ```json
 {
@@ -272,7 +273,7 @@ conformance bundle on disk. A site certificate does not use it.
 
 ```
 php scripts/adapter-certification.php sign \
-  --manifest-dir=<agent manifests> --repo=<site repo> --name=<n> \
+  --manifest-dir=<Duo source root> --repo=<site repo> --name=<n> \
   --bundle=<bundle dir> --evidence-repo=<site repo> \
   --authority=<key id> --secret-key-file=<file>
 ```

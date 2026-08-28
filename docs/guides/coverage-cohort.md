@@ -188,13 +188,16 @@ question set. It carries no row values and promotes nothing.
 ### 3. Draft — `duo adapter-draft`
 
 ```sh
-duo adapter-draft <site-repo> --name=<n> --evidence=probe.json --out=manifests/<n>.json
+mkdir -p adapter-packages/<n>/package
+duo adapter-draft <site-repo> --name=<n> --evidence=probe.json \
+  --out=adapter-packages/<n>/package/manifest.json
 ```
 
 The draft proposes rules from the repository's captured `state/**` plus the
 probe's live column types. It is a proposal: the `plugin`, `version_range` and
-evidence notes are still yours to write, and
-[adapter-authoring.md](adapter-authoring.md) is where the craft lives.
+evidence notes are still yours to write. Complete the capsule structure and
+reviewed disposition as described in
+[adapter-authoring.md](adapter-authoring.md), where the craft lives.
 
 ### 4. Boundary — `duo adapter boundary`
 

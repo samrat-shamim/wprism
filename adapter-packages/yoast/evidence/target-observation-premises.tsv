@@ -1,0 +1,6 @@
+# format duo-target-observation-premises/v1
+# expected observations=3 fixtures=0
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/check.sh	require_observed_nonempty "conf2 Yoast runtime observation"
+observation	tests/conformance/check.sh	require_observed_nonempty "conf2 Yoast rendered response"
+observation	tests/conformance/seed.sh	require_observed_nonempty "conf1 Yoast seed rendered response"

@@ -38,7 +38,8 @@ final class AdapterLibraryTest extends TestCase
         $library = AdapterLibrary::fromSourceTree($root);
         $names = array_map(static fn($package): string => $package->name(), $library->packages());
 
-        $this->assertCount(17, $names);
+        $this->assertContains('core', $names);
+        $this->assertContains('redirection', $names);
         $sorted = $names;
         sort($sorted, SORT_STRING);
         $this->assertSame($sorted, $names);

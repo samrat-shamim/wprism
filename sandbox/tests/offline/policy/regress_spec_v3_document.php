@@ -649,27 +649,20 @@ foreach ($adapterLibrary->packages() as $package) {
     $declaredVersions[$package->name()] = $decoded['spec_version'] ?? null;
 }
 ksort($declaredVersions, SORT_STRING);
-duo_check_same(
-    [
-        'code-snippets',
-        'elementor',
-        'ninja-forms',
-        'paid-memberships-pro',
-        'polylang',
-        'redirection',
-        'the-events-calendar',
-        'woocommerce',
-        'yoast',
-        'yoast-duplicate-post',
-    ],
-    array_keys(array_filter($declaredVersions, static fn($version): bool => $version === $specVersion)),
-    'only feature-consuming manifests are stamped to v' . $specVersion
-        . ' — each existing adapter paid a reviewed identity change, while Redirection was authored at v3'
-);
-duo_check_same(
-    7,
-    count(array_filter($declaredVersions, static fn($version): bool => $version === $specVersion - 1)),
-    'the seven unrelated shipped manifests remain one below the engine and inside the window'
+$currentVersionPackages = array_keys(array_filter(
+    $declaredVersions,
+    static fn($version): bool => $version === $specVersion
+));
+$priorVersionPackages = array_keys(array_filter(
+    $declaredVersions,
+    static fn($version): bool => $version === $specVersion - 1
+));
+duo_check(
+    $currentVersionPackages !== []
+        && $priorVersionPackages !== []
+        && count($currentVersionPackages) + count($priorVersionPackages) === count($declaredVersions),
+    'every discovered manifest stays inside the two-version window, while both the current feature format and '
+        . 'the digest-neutral prior format remain exercised without a central adapter-name registry'
 );
 
 echo "\nPART 2 — THE DOCUMENT: every measurable claim re-measured from the tree\n";

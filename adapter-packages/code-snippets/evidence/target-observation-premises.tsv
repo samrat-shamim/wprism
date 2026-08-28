@@ -1,0 +1,26 @@
+# format duo-target-observation-premises/v1
+# expected observations=18 fixtures=5
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/check.sh	require_observed_nonempty "Code Snippets $side runtime observation"
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets deploy after deactivation" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets deploy with code absent" human
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets deploy after retained-state reinstall" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets schema-drift plan" human
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets plan after plugin schema repair" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets competing-row plan" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets target-only identity capture" human
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets unforced competing-row apply" human
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets forced competing-row apply" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets zero-change plan" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets zero-change apply" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets deploy after complete uninstall" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets plan after complete uninstall" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets forced recovery after complete uninstall" json
+observation	tests/conformance/check.sh	require_duo_answered "Code Snippets plan retry after complete-uninstall recovery" json
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty "Code Snippets hostile target seed"
+observation	tests/conformance/seed.sh	require_observed_nonempty "Code Snippets source seed"
+fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_CONTENT_ID TARGET_CONTENT_ID
+fixture	tests/conformance/check.sh	require_fixture_ids out
+fixture	tests/conformance/check.sh	require_fixture_ids TARGET_ONLY_ID
+fixture	tests/conformance/check.sh	require_fixture_ids SECRET_ID
+fixture	tests/conformance/check.sh	require_fixture_ids INVALID_ID

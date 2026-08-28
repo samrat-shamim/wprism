@@ -52,8 +52,8 @@
             "origin": "copied",
             "source": "sandbox/tests/lib/frozen_policy.php",
             "role": "DuoTest\\FrozenPolicy — a duo-policy-snapshot/v6 envelope; needs the agent runtime",
-            "bytes": 12459,
-            "sha256": "ac62b6da9af8e94aa50466c4cd81dd82be381c51e58f8fd93b81d6c458ceeb32"
+            "bytes": 12811,
+            "sha256": "1c9c82f5a47037ddd7fd9038f389b966538df0b493890202a1c51b384ff24e8a"
         },
         {
             "path": "lib/ConformanceVector.php",
@@ -76,8 +76,8 @@
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 36106,
-            "sha256": "35ba3ad1953e30f608ade0cd1cfcc8606336ab975e553009f52dd322669042e0"
+            "bytes": 36147,
+            "sha256": "02f3bcc7e4530dbafe9eb4896332b713dee179c1f535ca5b7de003475282cda4"
         },
         {
             "path": "conformance/asserts.sh",

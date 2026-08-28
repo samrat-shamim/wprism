@@ -79,7 +79,11 @@ function cf7_readiness_messages(array $diagnostics): array {
     return array_map(static fn(array $diagnostic): string => (string) $diagnostic['message'], $diagnostics);
 }
 
-$policy = Policy::load(null, ['contact-form-7']);
+$policy = Policy::load(
+    null,
+    ['contact-form-7'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'contact-form-7')
+);
 $interpreter = $policy->interpreters()['contact-form-7'];
 duo_check($interpreter instanceof ContactForm7, 'the shipped manifest resolves its digest-bound CF7 interpreter');
 
@@ -246,9 +250,10 @@ duo_check_same(true, $manifest['post_meta']['_messages']['plain_data'], 'message
 duo_check_same('hex-prefix', $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['codec'], 'modern CF7 shortcode declares its real hash-prefix identity');
 duo_check_same([40, 64], $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['stored_lengths'], 'modern CF7 shortcode admits exactly the native SHA-1 and SHA-256 storage widths');
 duo_check_same(true, $manifest['shortcode_attrs']['contact-form-7'][0]['required'], 'modern CF7 shortcode refuses mutable title-only fallback');
-$versionMatrix = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
+$versionMatrix = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
 duo_check(
-    str_contains($versionMatrix, "'wps-hide-login-target-runtime-probe',\n      'wpcf7'"),
+    str_contains($versionMatrix, 'version_matrix_reset_after_delete()')
+        && str_contains($versionMatrix, "option_name = 'wpcf7'"),
     'exact version-matrix resets delete the CF7 activation marker before each source and target case'
 );
 duo_check(

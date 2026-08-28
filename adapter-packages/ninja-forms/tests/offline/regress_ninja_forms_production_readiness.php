@@ -7,6 +7,7 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 3);
 }
 
+$repoRoot = dirname(__DIR__, 4);
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
@@ -61,7 +62,11 @@ function ninja_readiness_one_problem(
     return $diagnostics[0];
 }
 
-$policy = Policy::load(null, ['ninja-forms']);
+$policy = Policy::load(
+    null,
+    ['ninja-forms'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'ninja-forms')
+);
 $interpreter = $policy->interpreters()['ninja-forms'] ?? null;
 duo_check($interpreter instanceof NinjaForms, 'shipped manifest resolves its digest-bound Ninja Forms interpreter');
 

@@ -7,6 +7,7 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 3);
 }
 
+$repoRoot = dirname(__DIR__, 4);
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
@@ -462,7 +463,11 @@ function woo_readiness_compile_expect_parent_refusal(
     string $message
 ): void {
     $fixture = woo_readiness_compile_repository($shape);
-    $policy = Policy::load($fixture['root'], ['woocommerce']);
+    $policy = Policy::load(
+        $fixture['root'],
+        ['woocommerce'],
+        adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($GLOBALS['repoRoot'], 'woocommerce')
+    );
     try {
         RepositoryCompiler::compile($fixture['root'], $policy);
         duo_check(false, "RepositoryCompiler accepts invalid Woo variation parent shape '$shape'");
@@ -499,7 +504,11 @@ function woo_readiness_reports(
     );
 }
 
-$policy = Policy::load(null, ['woocommerce']);
+$policy = Policy::load(
+    null,
+    ['woocommerce'],
+    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
+);
 $interpreter = $policy->interpreters()['woocommerce'] ?? null;
 duo_check($interpreter instanceof Woocommerce, 'the shipped WooCommerce manifest resolves its digest-bound interpreter');
 if (!$interpreter instanceof Woocommerce) {
@@ -608,7 +617,11 @@ $compiledCanonicalFixture = woo_readiness_compile_repository('canonical');
 try {
     $compiledCanonical = RepositoryCompiler::compile(
         $compiledCanonicalFixture['root'],
-        Policy::load($compiledCanonicalFixture['root'], ['woocommerce'])
+        Policy::load(
+            $compiledCanonicalFixture['root'],
+            ['woocommerce'],
+            adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
+        )
     );
     duo_check(
         isset($compiledCanonical->tree()['51000000-0000-4000-8000-000000000002']),
@@ -1847,7 +1860,7 @@ $woocommerceMatrix = (string) file_get_contents(
     dirname(__DIR__) . '/certify/version-matrix.sh'
 );
 duo_check(
-    str_contains($matrixDriver, 'check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"'),
+    str_contains($woocommerceMatrix, 'check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"'),
     'WooCommerce version matrix invokes the in-range downgrade with both exact retained artifacts'
 );
 foreach ([

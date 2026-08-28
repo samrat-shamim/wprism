@@ -7,7 +7,7 @@
  *
  * `AdapterBoundary::search()` — the real search, not a model of it. A probe is
  * a full pair round-trip (fetch the digest-pinned artifact, reset, install the
- * exact version, seed through `sandbox/tests/certify/matrix.d/<slug>.sh`,
+ * exact version, seed through `adapter-packages/<slug>/tests/certify/version-matrix.sh`,
  * capture, deploy, apply, recapture, require byte-identity), so the command is
  * a PLANNER over a recorded outcome table and this suite feeds it recorded
  * tables. Nothing here starts docker and nothing here reaches the network,
@@ -638,10 +638,10 @@ duo_check_json_equal(
 // is "the same round-trip the certify matrix already certifies". That is only
 // true while the two files agree byte for byte.
 $committedPolicy = (string) file_get_contents($repoRoot . '/adapter-packages/acf/fixtures/boundary/site.duo.json');
-$certifySource = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
+$certifySource = (string) file_get_contents($repoRoot . '/adapter-packages/acf/tests/certify/version-matrix.sh');
 duo_check(
     str_contains($certifySource, $committedPolicy),
-    'the boundary probe runs ACF under byte-identical policy to certify_version_matrix.sh, so a bisection '
+    'the boundary probe runs ACF under byte-identical policy to its package-owned certify workflow, so a bisection '
     . 'and a certification are claiming the same thing'
 );
 
