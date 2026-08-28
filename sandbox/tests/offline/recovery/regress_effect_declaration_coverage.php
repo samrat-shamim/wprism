@@ -349,6 +349,28 @@ duo_check_refuses(
     'a failed journal read refuses as unreadable rather than as an absent table'
 );
 
+$aggregateUnreadable = FakeWpdb::install();
+$aggregateUnreadable->seedTable('wp_duo_journal', []);
+$aggregateUnreadable->failNextQuery(
+    'injected journal aggregate failure',
+    'SELECT tbl, item, surface, caps, proposal'
+);
+$aggregateReason = null;
+$aggregatePreviousReason = null;
+try {
+    EffectDeclarationCoverage::report(['core']);
+} catch (CommandRefusalException $failure) {
+    $aggregateReason = $failure->reasonCode;
+    $aggregatePreviousReason = $failure->getPrevious() instanceof CommandRefusalException
+        ? $failure->getPrevious()->reasonCode
+        : null;
+}
+duo_check(
+    $aggregateReason === 'effect_coverage_journal_unreadable'
+        && $aggregatePreviousReason === 'journal_evidence_unreadable',
+    'a failed aggregate SELECT is translated from the neutral repository fact into the effect-coverage contract'
+);
+
 $GLOBALS['wpdb'] = null;
 duo_check_same('unusable', Journal::table_state($GLOBALS['wpdb']), 'no usable $wpdb probes as unusable');
 duo_check_refuses(

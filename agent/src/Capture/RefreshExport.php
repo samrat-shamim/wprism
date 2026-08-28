@@ -22,6 +22,10 @@ require_once __DIR__ . '/../Policy/ScopeClosure.php';
  * to bind to, not a source of live truth. Live authored records remain the
  * Capture-derived half; code and policy identities stay explicit siblings so
  * a caller cannot confuse state convergence with code materialization.
+ * The target database and durable repository remain read-only, but scoped
+ * validation creates and discards private temporary state/media compiler
+ * views. Those scratch files are Capture-owned validation inputs, never
+ * publication.
  */
 final class RefreshExport {
     public const FORMAT = 'duo-refresh-production/v1';

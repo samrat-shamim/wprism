@@ -205,7 +205,7 @@ return [
     'Duo\\ReferenceRules' => 'src/Kernel/ReferenceRules.php',
     'Duo\\ReferenceScopeClassifier' => 'src/Kernel/ReferenceScopeClassifier.php',
     'Duo\\ReferenceShapeGrammar' => 'src/Kernel/ReferenceShapeGrammar.php',
-    'Duo\\RefreshExport' => 'src/Review/RefreshExport.php',
+    'Duo\\RefreshExport' => 'src/Capture/RefreshExport.php',
     'Duo\\RegenerationContext' => 'src/Rebuild/RegenerationContext.php',
     'Duo\\RegenerationContextStore' => 'src/Rebuild/RegenerationContextStore.php',
     'Duo\\RelationshipMaterializer' => 'src/Apply/RelationshipMaterializer.php',

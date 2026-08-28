@@ -528,6 +528,7 @@
         "status": "populated",
         "entry_points": [
           "Capture",
+          "RefreshExport",
           "TypedTableCapture"
         ],
         "depends_on": [
@@ -542,9 +543,10 @@
           {
             "module": "Delete",
             "kind": "intra-layer",
-            "count": 1,
+            "count": 2,
             "edges": [
-              "CapturePublicationWorkflow.php -> Deletion.php"
+              "CapturePublicationWorkflow.php -> Deletion.php",
+              "RefreshExport.php -> Deletion.php"
             ]
           },
           {
@@ -587,16 +589,17 @@
           {
             "module": "Scope",
             "kind": "intra-layer",
-            "count": 4,
+            "count": 5,
             "edges": [
               "Capture.php -> ScopedCaptureProjector.php",
               "CapturePublicationWorkflow.php -> ScopedApply.php",
               "CapturePublicationWorkflow.php -> ScopedCaptureProjector.php",
-              "CapturePublicationWorkflow.php -> ScopedStateOverlay.php"
+              "CapturePublicationWorkflow.php -> ScopedStateOverlay.php",
+              "RefreshExport.php -> ScopedStateOverlay.php"
             ]
           }
         ],
-        "file_count": 18,
+        "file_count": 19,
         "files": [
           "Capture.php",
           "CaptureCandidateBuilder.php",
@@ -613,6 +616,7 @@
           "MenuCapture.php",
           "OptionsCapture.php",
           "PostCapture.php",
+          "RefreshExport.php",
           "TermCapture.php",
           "TypedTableCapture.php",
           "UserMetaCapture.php"
@@ -1069,7 +1073,7 @@
       },
       "Review": {
         "layer": "engine",
-        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, effect-declaration coverage, plan explanation and refresh export.",
+        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, effect-declaration coverage and plan explanation.",
         "status": "populated",
         "entry_points": [
           "EffectDeclarationCoverage",
@@ -1079,7 +1083,6 @@
           "PlanExplanation",
           "PlanView",
           "Coverage",
-          "RefreshExport",
           "LintEnvironment",
           "LintFinding",
           "LintTrustGate"
@@ -1096,31 +1099,21 @@
           {
             "module": "Capture",
             "kind": "intra-layer",
-            "count": 2,
+            "count": 1,
             "edges": [
-              "Pending.php -> Capture.php",
-              "RefreshExport.php -> Capture.php"
+              "Pending.php -> Capture.php"
             ]
           },
           {
             "module": "Delete",
             "kind": "intra-layer",
-            "count": 2,
-            "edges": [
-              "PlanExplanation.php -> Deletion.php",
-              "RefreshExport.php -> Deletion.php"
-            ]
-          },
-          {
-            "module": "Scope",
-            "kind": "intra-layer",
             "count": 1,
             "edges": [
-              "RefreshExport.php -> ScopedStateOverlay.php"
+              "PlanExplanation.php -> Deletion.php"
             ]
           }
         ],
-        "file_count": 16,
+        "file_count": 15,
         "files": [
           "BlockReferenceScanner.php",
           "Coverage.php",
@@ -1134,7 +1127,6 @@
           "PlanCategorySummary.php",
           "PlanExplanation.php",
           "PlanView.php",
-          "RefreshExport.php",
           "SerializedTermDescriptionScanner.php",
           "ShortcodeReferenceScanner.php",
           "StructuredReferenceScanner.php"

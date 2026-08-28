@@ -1,21 +1,19 @@
 # agent: Review
 
-**Purpose.** Read-only projections over plans and state — lint and its reference scanners, coverage, pending, effect-declaration coverage, plan explanation and refresh export.
+**Purpose.** Read-only projections over plans and state — lint and its reference scanners, coverage, pending, effect-declaration coverage and plan explanation.
 
-**Directory** `agent/src/Review/` &middot; **layer** `engine` &middot; **files** 16 &middot; **status** populated
+**Directory** `agent/src/Review/` &middot; **layer** `engine` &middot; **files** 15 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `EffectDeclarationCoverage`, `Lint`, `Pending`, `PlanCategorySummary`, `PlanExplanation`, `PlanView`, `Coverage`, `RefreshExport`, `LintEnvironment`, `LintFinding`, `LintTrustGate`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `EffectDeclarationCoverage`, `Lint`, `Pending`, `PlanCategorySummary`, `PlanExplanation`, `PlanView`, `Coverage`, `LintEnvironment`, `LintFinding`, `LintTrustGate`.
 
 **May depend on:** `Code`, `Grammar`, `Kernel`, `Policy`, `Repository`, `Review`.
 
 **Ratified exceptions** (same-layer or upward edges that exist today; ratchet — may shrink, never grow):
 
-- `Capture` (intra-layer, 2 edges)
-  `Pending.php -> Capture.php`; `RefreshExport.php -> Capture.php`
-- `Delete` (intra-layer, 2 edges)
-  `PlanExplanation.php -> Deletion.php`; `RefreshExport.php -> Deletion.php`
-- `Scope` (intra-layer, 1 edge)
-  `RefreshExport.php -> ScopedStateOverlay.php`
+- `Capture` (intra-layer, 1 edge)
+  `Pending.php -> Capture.php`
+- `Delete` (intra-layer, 1 edge)
+  `PlanExplanation.php -> Deletion.php`
 
 **Must not depend on.** Adapter and Command. Review must stay read-only: no writes, no locks, no publication.
 

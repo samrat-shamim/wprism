@@ -1384,7 +1384,7 @@ check(is_int($candidateCompile) && is_int($firstMediaWrite) && is_int($sourceMed
 check(str_contains($captureSource, 'if ($scopeContract === null && $intoRepo)')
     && str_contains($captureSource, 'scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'),
     'legacy output-only capture skips repo-media compilation while scoped --out refuses explicitly');
-$refreshExportSource = Canon::read_file("$root/agent/src/Review/RefreshExport.php");
+$refreshExportSource = Canon::read_file("$root/agent/src/Capture/RefreshExport.php");
 check(str_contains($scopeProjectorSource, "array_is_list(\$request['selectors'])")
     && str_contains($refreshExportSource, "array_is_list(\$request['selectors'])"),
     'compact capture and refresh requests require selector lists rather than accepting associative objects');

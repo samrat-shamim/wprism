@@ -10,7 +10,7 @@ define('ARRAY_A', 'ARRAY_A');
 require_once $root . '/agent/src/Kernel/Uuid.php';
 require_once $root . '/agent/src/Kernel/Db.php';
 require_once $root . '/agent/src/Repository/Ledger.php';
-require_once $root . '/agent/src/Review/RefreshExport.php';
+require_once $root . '/agent/src/Capture/RefreshExport.php';
 require_once $root . '/agent/src/Repository/Snapshot.php';
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Grammar/Tokens.php';
@@ -181,7 +181,7 @@ try {
     check_re(str_contains($e->getMessage(), 'contradicts'), 'contradiction did not fail loudly');
 }
 
-$source = file_get_contents($root . '/agent/src/Review/RefreshExport.php');
+$source = file_get_contents($root . '/agent/src/Capture/RefreshExport.php');
 if ($source === false) fail_re('cannot read exporter source');
 $code = '';
 foreach (token_get_all($source) as $token) {

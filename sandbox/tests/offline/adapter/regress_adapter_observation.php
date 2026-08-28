@@ -705,14 +705,19 @@ namespace {
     $queryErrorDb->journalQueryFails = true;
     $GLOBALS['wpdb'] = $queryErrorDb;
     $journalError = null;
+    $journalPreviousError = null;
     try {
         TargetObservation::report($site);
     } catch (CommandRefusalException $e) {
         $journalError = $e->reasonCode;
+        $journalPreviousError = $e->getPrevious() instanceof CommandRefusalException
+            ? $e->getPrevious()->reasonCode
+            : null;
     }
     check(
-        $journalError === 'adapter_observation_journal_unreadable',
-        'failed/empty journal SELECT with wpdb last_error refuses instead of publishing a false zero report'
+        $journalError === 'adapter_observation_journal_unreadable'
+            && $journalPreviousError === 'journal_evidence_unreadable',
+        'failed journal SELECT is translated from the neutral repository fact into the adapter observation contract'
     );
 
     $pendingErrorDb = new ObservationFakeWpdb();
@@ -851,15 +856,17 @@ namespace {
     $normalPendingDb->failCurrentValueThenSuccess = true;
     $GLOBALS['wpdb'] = $normalPendingDb;
     $normalPendingError = null;
+    $policyLoadsBeforeNormalPending = Policy::$loads;
     try {
-        Pending::scan($site, new Policy());
+        Pending::scan($site);
     } catch (CommandRefusalException $e) {
         $normalPendingError = $e->reasonCode;
     }
     check(
         $normalPendingError === 'pending_evidence_unreadable'
+            && Policy::$loads === $policyLoadsBeforeNormalPending + 1
             && Ledger::$ensureCalls === 0 && Db::$mutationCalls === 0,
-        'the ordinary pending product path is the same fail-closed, zero-write projection as every other caller'
+        'the ordinary default-policy pending product path loads Policy once and remains fail-closed with zero writes'
     );
 
     echo "\n== strict host validation and one-call transport ==\n";

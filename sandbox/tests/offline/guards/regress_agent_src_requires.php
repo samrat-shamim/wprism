@@ -65,17 +65,59 @@ function executable_source(string $source): string {
     return $out;
 }
 
+/** Resolve Duo imports before matching static calls; mask foreign lookalikes. */
+function review_executable_source(string $source): string {
+    $code = executable_source($source);
+    foreach (namespace_aliases($source) as $alias => $target) {
+        $quotedAlias = preg_quote($alias, '/');
+        if ($target === null) {
+            $code = (string) preg_replace(
+                '/\b' . $quotedAlias . '(?=\s*::|\s*\\\\)/',
+                '__External_' . $alias,
+                $code
+            );
+            continue;
+        }
+        if (str_starts_with($target, '@namespace:')) {
+            $prefix = substr($target, strlen('@namespace:'));
+            $code = (string) preg_replace_callback(
+                '/\b' . $quotedAlias . '\s*\\\\\s*([A-Za-z_][A-Za-z0-9_]*)\s*::/',
+                static function (array $match) use ($prefix, $alias): string {
+                    $resolved = normalized_engine_name($prefix . $match[1]);
+                    return ($resolved ?? '__External_' . $alias . '_' . $match[1]) . '::';
+                },
+                $code
+            );
+            continue;
+        }
+        $code = (string) preg_replace(
+            '/\b' . $quotedAlias . '(?=\s*::)/',
+            $target,
+            $code
+        );
+    }
+    return $code;
+}
+
 /** @return list<string> */
 function review_side_effects(string $source): array {
-    $code = executable_source($source);
+    $code = review_executable_source($source);
     $patterns = [
-        'ledger mutation/initialization' => '/\bLedger\s*::\s*(?:ensure|forget|remember|kv_put|kv_delete)\s*\(/',
-        'database write transaction/query' => '/\bDb\s*::\s*(?:start|query|commit|rollback_after_failure)\s*\(/',
-        'snapshot row mutation' => '/\bSnapshot\s*::\s*(?:delete_local_row|reparent_local_row)\s*\(/',
+        'ledger mutation/initialization' => '/\bLedger\s*::\s*(?:ensure|set|forget|set_state_hash|prune_state|prune_dead_map|prune_dead_table_map|prune_dead_composite_table_map|kv_set|kv_delete)\s*\(/',
+        'database write transaction/query' => '/\bDb\s*::\s*(?:query|insert|update|delete|start|start_repeatable_read|start_consistent_snapshot|commit|rollback_after_failure)\s*\(/',
+        'snapshot row mutation' => '/\bSnapshot\s*::\s*(?:repair_truncated_entity_types|capture|adopt|ensure_row|finalize_row|delete_row|delete_local_row|reparent_local_row|prune_dead_map|prune_option_name_ref_map)\s*\(/',
+        'policy mutation' => '/\bPolicy\s*::\s*set_rule\s*\(/',
+        'scoped staging/discard mutation' => '/\bScopedStateOverlay\s*::\s*(?:stage_candidate_media_view|stage_state_view|stage_associated_source_media_view|discard_state_view|discard_media_view)\s*\(/',
+        'durable filesystem mutation' => '/\bDurableFilesystem\s*::\s*(?:removeOwned|syncParent|syncFile|syncDirectory|removeTree)\s*\(/',
+        'publication mutation' => '/\b(?:Publish|PublicationJournal|AtomicTreePublisher)\s*::\s*[A-Za-z_][A-Za-z0-9_]*\s*\(/',
         'canonical file write' => '/\bCanon\s*::\s*write_file\s*\(/',
-        'direct filesystem write' => '/\b(?:file_put_contents|tempnam|unlink|mkdir|rename)\s*\(/',
-        'direct wpdb mutation' => '/->\s*(?:insert|update|delete|query)\s*\(/',
-        'exclusive file write/lock' => '/\bLOCK_EX\b/',
+        'direct filesystem write' => '/\b(?:file_put_contents|tempnam|unlink|mkdir|rename|fopen|fwrite|fputs|copy|touch|chmod|chown|chgrp|rmdir|symlink|link|move_uploaded_file|stream_copy_to_stream)\s*\(/',
+        'direct wpdb mutation' => '/->\s*(?:insert|update|delete|replace|query)\s*\(/',
+        'WordPress option/cache mutation' => '/\b(?:add_option|update_option|delete_option|add_site_option|update_site_option|delete_site_option|set_transient|delete_transient|set_site_transient|delete_site_transient|wp_cache_(?:add|set|replace|delete|flush|incr|decr)|clean_(?:post|term|user|comment|object)_cache)\s*\(/',
+        'WordPress metadata mutation' => '/\b(?:(?:add|update|delete)_metadata|(?:add|update|delete)_(?:post|term|user|comment)_meta|set_post_thumbnail|delete_post_thumbnail)\s*\(/',
+        'WordPress entity mutation' => '/\b(?:wp_(?:insert|update|delete|trash|untrash)_post|wp_insert_attachment|wp_delete_attachment|wp_(?:insert|update|delete)_term|wp_(?:create|insert|update|delete)_user|wp_(?:insert|update|delete|trash|untrash|spam|unspam)_comment|wp_create_nav_menu|wp_update_nav_menu|wp_update_nav_menu_item|wp_delete_nav_menu)\s*\(/',
+        'WordPress relationship mutation' => '/\b(?:wp_(?:set|add|remove)_object_terms|wp_delete_object_term_relationships|wp_set_post_(?:terms|categories|tags))\s*\(/',
+        'file lock' => '/(?:\bflock\s*\(|\bLOCK_(?:EX|SH)\b)/',
     ];
     $found = [];
     foreach ($patterns as $label => $pattern) {
@@ -84,6 +126,40 @@ function review_side_effects(string $source): array {
         }
     }
     return $found;
+}
+
+/**
+ * Mixed-authority facades fail closed: a newly added method call is a review
+ * event even if its name has not yet reached the writer vocabulary above.
+ *
+ * @return list<string>
+ */
+function review_unapproved_mixed_calls(string $source): array {
+    $allowed = [
+        'Canon' => ['decode', 'encode', 'parse_post_file', 'read_file'],
+        'Capture' => ['gate_scan_read_only'],
+        'Db' => [],
+        'DurableFilesystem' => [],
+        'Journal' => ['ground_truth', 'ground_truth_details', 'report_read_only', 'table_state'],
+        'Ledger' => [],
+        'Policy' => ['load'],
+        'ScopedStateOverlay' => [],
+        'Snapshot' => ['keyspace_gaps'],
+    ];
+    $code = review_executable_source($source);
+    $violations = [];
+    foreach ($allowed as $class => $methods) {
+        $pattern = '/\b' . preg_quote($class, '/') . '\s*::\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/';
+        preg_match_all($pattern, $code, $matches);
+        foreach ($matches[1] as $method) {
+            if (!in_array($method, $methods, true)) {
+                $violations[] = "$class::$method";
+            }
+        }
+    }
+    $violations = array_values(array_unique($violations));
+    sort($violations, SORT_STRING);
+    return $violations;
 }
 
 function token_id(mixed $token): int|string {
@@ -510,7 +586,6 @@ $knownGapsByFile = [
     'Identity' => ['Canon', 'SidebarState', 'Uuid'],
     'IdentityBackup' => ['Canon', 'Identity', 'Ledger', 'Policy', 'RepositoryCompiler', 'SidebarState', 'Snapshot', 'Uuid'],
     'IdentityNotes' => ['Snapshot', 'Uuid'],
-    'Journal' => ['CommandRefusalException'],
     'Ledger' => ['Db', 'Uuid'],
     'LifecycleExecutor' => ['PromotionLock'],
     'LifecyclePlanner' => ['Code', 'CompiledRepository', 'Ledger', 'Policy'],
@@ -561,9 +636,9 @@ $gaps = find_gaps($sources, $classFiles, $knownGaps);
 
 // The Review ownership correction closed ten explicit gaps by giving the
 // relocated writers their own requirements and removing Pending's DDL
-// dependency (258 -> 248); retain the previous eight-pair deletion tripwire
+// dependency (258 -> 247); retain the previous eight-pair deletion tripwire
 // below that reviewed baseline rather than making real gap closure fail.
-check(count($knownGaps) >= 240, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
+check(count($knownGaps) >= 239, 'known-gap baseline unexpectedly shrank; review the allowlist rather than hiding changes');
 fwrite(STDOUT, 'known gaps: ' . count($knownGaps) . " (explicit baseline; new pairs fail)\n");
 // The allowlist cannot become a dead, copy-pasted escape hatch: every entry
 // must still be observed in the current baseline.  Then mutate concrete
@@ -760,6 +835,9 @@ foreach ($modulesDecoded['agent']['modules'] as $moduleName => $module) {
 // Orphans delete/reparent rows and ConvergenceVerifier stage files while the
 // dependency graph remained green. Check executable tokens in every mapped
 // Review file so those behaviors cannot return under a different class name.
+// RefreshExport also proved that direct tokens are insufficient: it delegated
+// scratch-tree writes to ScopedStateOverlay, so mixed-authority calls use a
+// read allowlist and fail closed when a new method appears.
 $reviewFiles = $modulesDecoded['agent']['modules']['Review']['files'] ?? null;
 check(is_array($reviewFiles) && $reviewFiles !== [], 'tools/modules.json has no populated Review module');
 $reviewViolations = [];
@@ -767,15 +845,76 @@ foreach ($reviewFiles as $file) {
     $reviewSource = file_get_contents($root . '/agent/src/Review/' . $file);
     check(is_string($reviewSource), "could not read Review/$file for the read-only ownership guard");
     $effects = review_side_effects($reviewSource);
+    $unapprovedCalls = review_unapproved_mixed_calls($reviewSource);
+    if ($unapprovedCalls !== []) {
+        $effects[] = 'unapproved mixed-authority calls ' . implode(', ', $unapprovedCalls);
+    }
     if ($effects !== []) {
         $reviewViolations[] = "$file: " . implode(', ', $effects);
     }
 }
 check($reviewViolations === [], 'Review must stay read-only: ' . implode('; ', $reviewViolations));
+check(review_side_effects(<<<'PHP'
+<?php
+Ledger::set($uuid, $type, $kind, $id);
+Db::delete($table, $where);
+Snapshot::ensure_row($policy, $entity);
+Policy::set_rule($repo, $section, $key, $rule);
+ScopedStateOverlay::stage_state_view($rows);
+DurableFilesystem::syncFile($path);
+Publish::run($repo);
+Canon::write_file($path, $bytes);
+mkdir($path);
+$wpdb->replace($table, $row);
+update_option($key, $value);
+update_metadata('post', $id, $key, $value);
+wp_update_post($post);
+wp_set_object_terms($id, $terms, $taxonomy);
+flock($handle, LOCK_SH);
+PHP) === [
+    'ledger mutation/initialization',
+    'database write transaction/query',
+    'snapshot row mutation',
+    'policy mutation',
+    'scoped staging/discard mutation',
+    'durable filesystem mutation',
+    'publication mutation',
+    'canonical file write',
+    'direct filesystem write',
+    'direct wpdb mutation',
+    'WordPress option/cache mutation',
+    'WordPress metadata mutation',
+    'WordPress entity mutation',
+    'WordPress relationship mutation',
+    'file lock',
+], 'Review read-only mutation probe no longer detects every forbidden writer group');
 check(
-    review_side_effects('<?php Ledger::ensure(); Db::query($sql); Canon::write_file($p, $b);')
-        === ['ledger mutation/initialization', 'database write transaction/query', 'canonical file write'],
-    'Review read-only mutation probe no longer detects the prior behavior classes'
+    review_unapproved_mixed_calls('<?php Capture::run($repo); Ledger::kv_set($key, $value);')
+        === ['Capture::run', 'Ledger::kv_set'],
+    'Review mixed-authority allowlist no longer fails closed on unapproved calls'
+);
+check(
+    review_side_effects(
+        '<?php namespace Duo; use Duo\\Ledger as EvidenceLedger; EvidenceLedger::set($u, $t, $k, $id);'
+    ) === ['ledger mutation/initialization']
+        && review_unapproved_mixed_calls(
+            '<?php namespace Duo; use Duo\\Ledger as EvidenceLedger; EvidenceLedger::set($u, $t, $k, $id);'
+        ) === ['Ledger::set'],
+    'Review read-only guard can be bypassed through a same-namespace class alias'
+);
+check(
+    review_side_effects('<?php // Ledger::set(); Db::delete();\n $literal = "Snapshot::ensure_row"; Db::rollback();') === []
+        && review_unapproved_mixed_calls(
+            '<?php Canon::read_file($path); Capture::gate_scan_read_only($repo, $policy, $checkpoint); '
+            . 'Journal::report_read_only($policy); Policy::load($repo); Snapshot::keyspace_gaps($policy);'
+        ) === []
+        && review_side_effects(
+            '<?php namespace Duo; use Vendor\\Ledger; Ledger::set($u, $t, $k, $id);'
+        ) === []
+        && review_unapproved_mixed_calls(
+            '<?php namespace Duo; use Vendor\\Ledger; Ledger::set($u, $t, $k, $id);'
+        ) === [],
+    'Review read-only guard rejects comments, strings, or approved read calls'
 );
 fwrite(STDOUT, "ok: every mapped Review file is free of database, ledger, filesystem and lock mutation primitives\n");
 
