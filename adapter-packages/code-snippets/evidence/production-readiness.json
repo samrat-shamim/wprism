@@ -1,0 +1,65 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "code-snippets",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/code-snippets/package/manifest.json",
+      "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php",
+      "adapter-packages/code-snippets/evidence/artifacts.lock.json",
+      "adapter-packages/code-snippets/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/code-snippets/tests/conformance/entry.json",
+      "adapter-packages/code-snippets/tests/conformance/seed.sh",
+      "adapter-packages/code-snippets/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/code-snippets/tests/conformance/postdeploy.sh",
+      "adapter-packages/code-snippets/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/code-snippets/tests/conformance/seed.sh",
+      "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "adapter-packages/code-snippets/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/code-snippets/tests/conformance/seed.sh",
+      "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "adapter-packages/code-snippets/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php",
+      "adapter-packages/code-snippets/tests/offline/regress_code_snippets_state_provider.php",
+      "adapter-packages/code-snippets/tests/conformance/check.sh"
+    ],
+    "deletion": [
+      "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "adapter-packages/code-snippets/tests/offline/regress_code_snippets_state_provider.php",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "adapter-packages/code-snippets/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/code-snippets/tests/conformance/seed.sh",
+      "adapter-packages/code-snippets/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/code-snippets/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

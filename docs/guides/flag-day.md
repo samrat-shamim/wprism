@@ -13,7 +13,7 @@ order, and what makes you stop.
 ## The one-paragraph version
 
 The bump moves two `define()` lines in the agent and the two members
-`manifests/capabilities/platform.json` restates. **No shipped adapter digest
+`platform/adapter-library/capabilities/platform.json` restates. **No shipped adapter digest
 moves, and no manifest file moves a byte** — that is measured, not asserted, by
 `sandbox/tests/offline/policy/regress_spec_v3_digest_neutrality.php` against
 identity fixtures frozen before the defines moved. Every site keeps its
@@ -113,7 +113,8 @@ cohort proceeds:
 
 ### 3. Bump
 
-Deploy the new `agent manifests recovery` archive. It travels as **one**
+Deploy the new `agent recovery` archive; the staged agent already contains its
+assembled adapter library. It travels as **one**
 archive through four atomic journal surfaces, so a site never observes half of
 it: there is no window in which a v2 agent sees a v3 manifest library.
 
@@ -236,7 +237,7 @@ because nothing on disk changed when the certificate went stale.
 ## Gate G3 — the rollback window, and the three acts that close it
 
 Until G3 is opened **by a dated, deliberate decision**, rollback is the shipped
-atomic bundle swap run backwards: redeploy the prior `agent manifests recovery`
+atomic bundle swap run backwards: redeploy the prior `agent recovery`
 archive and the site is exactly where it was. Every pin matches, every compiled
 artifact verifies, every scope contract and identity sidecar holds, and
 `platform.json` reverts to the bytes every pre-flag certificate signed over — so
@@ -288,9 +289,10 @@ migrated v3 adapters already owes the bundle-and-repin rollback described above.
 1. Run the preflight against the sites you are rolling back, from the release
    you are rolling back **to**. Same command, same comparison, opposite
    direction.
-2. Redeploy the prior `agent manifests recovery` archive. All four surfaces, one
-   atomic swap. Never an agent-only revert: `agent` and `manifests` travel
-   together by design, and a mixed state refuses at load.
+2. Redeploy the prior `agent recovery` archive. All embedded surfaces, one
+   atomic swap. Never replace only part of `agent`: its assembled
+   `adapter-library/` travels inside the same tree by design, and a mixed state
+   refuses at load.
 3. Re-mint symmetrically: `duo adapter recertify <repo> --secret-key-file=<f>`
    on every site where you ran step 5 going forward.
 4. Re-project: `duo release --spec-v3` is not the verb for this direction, but

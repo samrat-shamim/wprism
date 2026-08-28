@@ -458,3 +458,17 @@ to compile" reads `code-half`, and all four answers should be in one place.
 
 `code-half` is now full. The next code-half suite either replaces one of these
 or forces the split of this domain, which is what the cap is for.
+
+### 2026-08-28 — ACF suites leave the global corpus layout map
+
+The ACF package migration moved `regress_acf_meta_interpreter.php`,
+`regress_acf_term_options_fields.sh`, and `spike_e_acf.sh` out of
+`sandbox/tests/` and into `adapter-packages/acf/tests/`. That is intentionally
+outside this codemod's closed `sandbox/tests/` boundary: package leaf rules are
+now derived by `tools/offline-corpus.php`, and package discovery validates the
+five execution-class directories directly.
+
+Their three rows are therefore removed from the executable map (333 → 330)
+rather than retargeted outside the directory `move-suites.php` owns. The
+decision-time placements above remain the record of the original corpus
+restructure; the package README records their current owner and logical IDs.

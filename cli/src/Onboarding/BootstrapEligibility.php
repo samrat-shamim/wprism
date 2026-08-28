@@ -78,7 +78,7 @@ PHP;
             $sourceOk
                 ? 'the controller source contains the complete fixed control-plane artifact'
                 : 'the controller source is missing part of the fixed control-plane artifact',
-            'restore this Duo checkout\'s agent, manifests, and complete recovery runtime, then retry'
+            'restore this Duo checkout\'s agent, adapter packages, platform adapter library, assembler, and complete recovery runtime, then retry'
         );
         if (!$sourceOk) {
             return self::finish($environment, $driverId, '[invalid]', $checks, null);
@@ -271,12 +271,17 @@ PHP;
         $dirTargets = [
             $mu . '/duo',
             $mu . '/manifests',
+            $mu . '/duo-control',
             $repo . '/.duo',
             $repo . '/.duo/control',
             $repo . '/.duo/control/recovery-runtime',
             $repo . '/.duo/rollback',
         ];
-        $fileTargets = [$mu . '/duo-loader.php', $repo . '/site.duo.json'];
+        $fileTargets = [
+            $mu . '/duo-loader.php',
+            $mu . '/duo-control/adapter-revocations.json',
+            $repo . '/site.duo.json',
+        ];
 
         $script = 'set -u' . "\n"
             . 'wp=' . $q($wp) . "\n"
@@ -302,10 +307,11 @@ PHP;
                 . 'check_ancestors ' . $q(dirname($path)) . " || exit 0; check_parent_write $quoted || exit 0\n";
         }
         $script .= "[ ! -e \"\$mu/.duo-adopt-lock\" ] || { echo adoption_in_progress; exit 0; }\n"
-            . "if [ -e \"\$mu\" ]; then stale=\$(find \"\$mu\" -maxdepth 1 \( -name '.duo-adopt-txn-*' -o -name '.duo-new-*' -o -name '.duo-old-*' -o -name '.duo-loader-new-*' -o -name '.duo-loader-old-*' -o -name '.duo-manifests-new-*' -o -name '.duo-manifests-old-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"
+            . "if [ -e \"\$mu\" ]; then stale=\$(find \"\$mu\" -maxdepth 1 \( -name '.duo-adopt-txn-*' -o -name '.duo-new-*' -o -name '.duo-old-*' -o -name '.duo-loader-new-*' -o -name '.duo-loader-old-*' -o -name '.duo-manifests-old-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"
             . "if [ -e \"\$repo\" ]; then stale=\$(find \"\$repo\" -maxdepth 1 \( -name '.duo-new-*' -o -name '.duo-old-*' -o -name '.site.duo.new-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"
-            . "for tree in \"\$mu/duo\" \"\$mu/manifests\" \"\$repo/.duo\"; do if [ -e \"\$tree\" ]; then [ -r \"\$tree\" ] || { echo source_unreadable; exit 0; }; special=\$(find \"\$tree\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$special\" ] || { echo control_special; exit 0; }; unreadable=\$(find \"\$tree\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$unreadable\" ] || { echo source_unreadable; exit 0; }; fi; done\n"
+            . "for tree in \"\$mu/duo\" \"\$mu/manifests\" \"\$mu/duo-control\" \"\$repo/.duo\"; do if [ -e \"\$tree\" ]; then [ -r \"\$tree\" ] || { echo source_unreadable; exit 0; }; special=\$(find \"\$tree\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$special\" ] || { echo control_special; exit 0; }; unreadable=\$(find \"\$tree\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$unreadable\" ] || { echo source_unreadable; exit 0; }; fi; done\n"
             . "for file in \"\$mu/duo-loader.php\" \"\$repo/site.duo.json\"; do [ ! -e \"\$file\" ] || [ -r \"\$file\" ] || { echo source_unreadable; exit 0; }; done\n"
+            . "legacy_revocations=\"\$mu/manifests/capabilities/adapter-revocations.json\"; durable_revocations=\"\$mu/duo-control/adapter-revocations.json\"; if [ -e \"\$legacy_revocations\" ] || [ -L \"\$legacy_revocations\" ]; then [ -f \"\$legacy_revocations\" ] && [ ! -L \"\$legacy_revocations\" ] && [ -r \"\$legacy_revocations\" ] && [ -f \"\$durable_revocations\" ] && [ ! -L \"\$durable_revocations\" ] && [ -r \"\$durable_revocations\" ] && php -r '\$a = @file_get_contents(\$argv[1]); \$b = @file_get_contents(\$argv[2]); exit(is_string(\$a) && is_string(\$b) && hash_equals(\$a, \$b) ? 0 : 1);' \"\$legacy_revocations\" \"\$durable_revocations\" || { echo legacy_revocation_unmigrated; exit 0; }; fi\n"
             . "echo safe\n";
         return $script;
     }
@@ -366,6 +372,10 @@ PHP;
                 'the prior Duo authority tree cannot be safely read for staging',
                 'repair ownership and read access for repo_path/.duo, then retry',
             ],
+            'legacy_revocation_unmigrated' => [
+                'the legacy flat library carries adapter revocations without a byte-identical durable control copy',
+                'copy manifests/capabilities/adapter-revocations.json byte-for-byte to duo-control/adapter-revocations.json, then retry',
+            ],
             'adoption_in_progress' => [
                 'an adoption lock already exists',
                 'inspect the existing .duo-adopt-lock and recover or finish that adoption before retrying',
@@ -396,7 +406,10 @@ PHP;
         $files = [
             '/agent/duo.php',
             '/agent/duo-loader.php',
-            '/manifests/core.json',
+            '/platform/adapter-library/core/manifest.json',
+            '/platform/adapter-library/capabilities/platform.json',
+            '/tools/src/AdapterPackageProjection.php',
+            '/tools/src/AdapterLibraryAssembler.php',
             '/recovery/CanonicalJson.php',
             '/recovery/AtomicStore.php',
             '/recovery/ProtocolLock.php',
@@ -418,8 +431,15 @@ PHP;
                 return false;
             }
         }
+        require_once $root . '/tools/src/AdapterPackageProjection.php';
+        try {
+            \Duo\Tooling\AdapterPackageProjection::plan($root);
+        } catch (\Throwable) {
+            return false;
+        }
         return self::ordinaryReadableTree($root . '/agent')
-            && self::ordinaryReadableTree($root . '/manifests')
+            && self::ordinaryReadableTree($root . '/adapter-packages')
+            && self::ordinaryReadableTree($root . '/platform/adapter-library')
             && self::ordinaryReadableTree($root . '/recovery');
     }
 

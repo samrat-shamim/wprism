@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
@@ -239,7 +240,7 @@ final class AdapterCertify {
     private static function certify(array $args): int {
         $flags = self::flags(
             $args,
-            ['name', 'secret-key-file', 'key-id', 'reason', 'ratification-file'],
+            ['name', 'secret-key-file', 'key-id', 'reason', 'ratification-file', 'adapter-library'],
             ['pin', 'adopt-scope']
         );
         $repo = self::onlySiteRepo($flags['positional'], 'certify');
@@ -269,6 +270,7 @@ final class AdapterCertify {
         }
 
         self::boot();
+        $adapterLibrary = self::adapterLibrary($flags['adapter-library'] ?? null);
         AdapterSources::assert_name($name, 'adapter certify --name');
 
         $adapterPath = $repo . '/' . AdapterSources::SITE_DIR . '/' . $name . '.json';
@@ -305,7 +307,7 @@ final class AdapterCertify {
         // trust root in a repository whose certify attempt failed, and "a
         // failed certify leaves the repository exactly as it found it" is
         // worth one extra offline Policy::load(). (Found by running it.)
-        $grammar = self::grammarVerdict($repo, $name);
+        $grammar = self::grammarVerdict($repo, $name, $adapterLibrary);
         if ($grammar['status'] !== 'ok') {
             return self::fail(
                 "site adapter '$name' does not load: {$grammar['message']}\n"
@@ -335,10 +337,9 @@ final class AdapterCertify {
         // two producers is the failure mode both halves of this train were
         // trying to avoid, and the producer belongs beside the validator that
         // refuses it.
-        $manifestDir = Policy::manifests_dir();
         try {
             $certificate = AdapterCertification::sign_site(
-                $manifestDir,
+                $adapterLibrary,
                 $repo,
                 $name,
                 $keyId,
@@ -364,7 +365,7 @@ final class AdapterCertify {
         // claiming anything. A producer that trusted its own bytes would put
         // the one certificate nobody checked into the repository.
         $verified = AdapterCertification::verifyFile(
-            $manifestDir,
+            $adapterLibrary,
             $repo,
             $name,
             $manifest,
@@ -372,7 +373,7 @@ final class AdapterCertify {
         );
 
         $summary = AdapterCertification::certificateSummary($verified);
-        $pinObject = self::pinObject($repo, $name, 'site');
+        $pinObject = self::pinObject($repo, $name, 'site', $adapterLibrary);
 
         echo "certified:  $name (site adapter)\n";
         echo "authority:  $keyId (site trust root, " . self::AUTHORITIES_RELATIVE
@@ -430,7 +431,7 @@ final class AdapterCertify {
      * @param list<string> $args
      */
     private static function pin(array $args): int {
-        $flags = self::flags($args, ['name', 'source'], ['adopt-scope']);
+        $flags = self::flags($args, ['name', 'source', 'adapter-library'], ['adopt-scope']);
         $repo = self::onlySiteRepo($flags['positional'], 'pin');
         if (is_int($repo)) {
             return $repo;
@@ -453,6 +454,8 @@ final class AdapterCertify {
 
         self::boot();
         AdapterSources::assert_name($name, 'adapter pin --name');
+        $adapterLibrary = self::adapterLibrary($flags['adapter-library'] ?? null);
+        $shippedManifestExists = $adapterLibrary->package($name) !== null;
 
         // The override bootstrap (T6 §3.3, AdapterSources::override_pins()):
         // a site copy of a SHIPPED name loads only once site.duo.json pins that
@@ -463,7 +466,7 @@ final class AdapterCertify {
         // command. If the load then refuses, the file is put back exactly.
         $before = null;
         if ($source === AdapterSources::SITE
-            && is_file(rtrim(Policy::manifests_dir(), '/') . '/' . $name . '.json')
+            && $shippedManifestExists
             && !self::hasSourcePin($repo, $name, AdapterSources::SITE)) {
             $before = (string) file_get_contents($repo . '/site.duo.json');
             self::writePin($repo, ['name' => $name, 'source' => AdapterSources::SITE]);
@@ -471,7 +474,7 @@ final class AdapterCertify {
                 . "the shipped definition is shadowed\n";
         }
         try {
-            $pinObject = self::pinObject($repo, $name, is_string($source) ? $source : null);
+            $pinObject = self::pinObject($repo, $name, is_string($source) ? $source : null, $adapterLibrary);
         } catch (\Throwable $t) {
             if ($before !== null) {
                 file_put_contents($repo . '/site.duo.json', $before, LOCK_EX);
@@ -491,7 +494,12 @@ final class AdapterCertify {
         // site opts into an adapter, so this is where the scope it declares
         // stops being invisible (DUO-3495). Last, so the pin's own trailer
         // stays one block.
-        self::adoptScope($repo, $name, self::resolvedManifest($repo, $name), ($flags['adopt-scope'] ?? false) === true);
+        self::adoptScope(
+            $repo,
+            $name,
+            self::resolvedManifest($repo, $name, $adapterLibrary),
+            ($flags['adopt-scope'] ?? false) === true
+        );
 
         return 0;
     }
@@ -872,8 +880,12 @@ final class AdapterCertify {
      *
      * @return array<string,mixed>
      */
-    private static function resolvedManifest(string $repo, string $name): array {
-        $manifest = self::resolvedManifestOrNull($repo, $name);
+    private static function resolvedManifest(
+        string $repo,
+        string $name,
+        ?AdapterLibrary $adapterLibrary = null
+    ): array {
+        $manifest = self::resolvedManifestOrNull($repo, $name, $adapterLibrary);
         if ($manifest === null) {
             throw new \RuntimeException("duo: the engine resolved no manifest for adapter '$name' after pinning it");
         }
@@ -889,8 +901,12 @@ final class AdapterCertify {
      *
      * @return ?array<string,mixed>
      */
-    private static function resolvedManifestOrNull(string $repo, string $name): ?array {
-        foreach (Policy::load($repo)->manifests as $manifest) {
+    private static function resolvedManifestOrNull(
+        string $repo,
+        string $name,
+        ?AdapterLibrary $adapterLibrary = null
+    ): ?array {
+        foreach (Policy::load($repo, adapterLibrary: $adapterLibrary)->manifests as $manifest) {
             if (is_array($manifest) && (string) ($manifest['name'] ?? '') === $name) {
                 return $manifest;
             }
@@ -980,11 +996,16 @@ final class AdapterCertify {
      * @param ?string $source null pins whatever precedence resolves
      * @return array<string,string>
      */
-    private static function pinObject(string $repo, string $name, ?string $source): array {
+    private static function pinObject(
+        string $repo,
+        string $name,
+        ?string $source,
+        AdapterLibrary $adapterLibrary
+    ): array {
         $requested = $source === null
             ? [$name]
             : [['name' => $name, 'source' => $source]];
-        $policy = Policy::load($repo, $requested);
+        $policy = Policy::load($repo, $requested, adapterLibrary: $adapterLibrary);
         $resolved = RepositoryCompiler::resolved_adapters($policy);
         $row = null;
         foreach ($resolved as $candidate) {
@@ -1177,9 +1198,9 @@ final class AdapterCertify {
      *
      * @return array{status:string,message:?string}
      */
-    private static function grammarVerdict(string $repo, string $name): array {
+    private static function grammarVerdict(string $repo, string $name, AdapterLibrary $adapterLibrary): array {
         try {
-            Policy::load($repo, [$name]);
+            Policy::load($repo, [$name], adapterLibrary: $adapterLibrary);
         } catch (\Throwable $t) {
             return ['status' => 'error', 'message' => $t->getMessage()];
         }
@@ -1350,6 +1371,24 @@ final class AdapterCertify {
         }
 
         return rtrim($resolved, '/');
+    }
+
+    /** Resolve only the installed library or one explicitly selected authoring/archive input. */
+    private static function adapterLibrary(mixed $path): AdapterLibrary {
+        if ($path === null) {
+            return Policy::adapter_library_context();
+        }
+        $root = realpath((string) $path);
+        if ($root === false || !is_dir($root)) {
+            throw new \RuntimeException("adapter library '$path' is not a directory");
+        }
+        if (is_dir($root . '/adapter-packages') || is_dir($root . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($root);
+        }
+        if (is_dir($root . '/adapters') && is_dir($root . '/platform')) {
+            return AdapterLibrary::fromEmbeddedDirectory($root);
+        }
+        return AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     /**

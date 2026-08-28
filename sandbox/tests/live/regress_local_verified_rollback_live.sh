@@ -100,7 +100,6 @@ WP_VOLUME="duo-${PAIR}_wp1"
 REPO_VOLUME="duo-${PAIR}-verified-repo"
 IMAGE="duo-local-verified-cli:${PAIR}"
 SCRATCH_ROOT=""
-HERMETIC_ROOT=""
 ENVS_FILE=""
 SIGNING_KEY=""
 SUITE_FIXTURES=""
@@ -127,7 +126,6 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
 fi
 
 SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/${PAIR}-local-verified.XXXXXX")"
-HERMETIC_ROOT="$SCRATCH_ROOT/hermetic"
 ENVS_FILE="$SCRATCH_ROOT/envs.json"
 # The controller runs as uid 33 with HOME=/ inside wordpress:cli-php8.3, and
 # `duo init` builds its code-artifact cache before classifying any component --
@@ -190,13 +188,6 @@ cleanup_on_exit() {
   exit "$incoming"
 }
 trap cleanup_on_exit EXIT
-
-say "build the hermetic manifest library before Docker mutation"
-HERMETIC_MANIFESTS="$(php sandbox/tests/offline/adapter/certification_fixture.php "$HERMETIC_ROOT")" \
-  || fail "could not build the hermetic manifest library"
-[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
-  || fail "hermetic manifest library landed outside the owned scratch root"
-pass "hermetic manifest library is ready"
 
 say "mint the controller signing key"
 # The Ed25519 secret is the controller's. On a `local` target the controller IS
@@ -534,7 +525,6 @@ DOCKER_COMMON=(
   -v "$WP_VOLUME:/var/www/html"
   -v "$REPO_VOLUME:/siterepo"
   -v "$REPO_ROOT:/duo-source:ro"
-  -v "$HERMETIC_MANIFESTS:/duo-source/manifests:ro"
   -v "$ENVS_FILE:/controller/envs.json:ro"
   -v "$SIGNING_KEY:/controller/signing.key:ro"
   -v "$SUITE_FIXTURES:/controller/fixtures:ro"

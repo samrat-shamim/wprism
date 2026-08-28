@@ -10,6 +10,7 @@
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -50,8 +51,6 @@ register_shutdown_function(function () use ($root) {
     }
     rmdir($root);
 });
-putenv("DUO_MANIFESTS_DIR=$root");
-
 file_put_contents($root . '/interpreters/legacy-post-only.php', <<<'PHP'
 <?php
 namespace Duo\Interpreters;
@@ -117,6 +116,11 @@ function write_manifest(string $root, string $name, array $extra): void {
     ], $extra)));
 }
 
+/** Load through one newly closed view of the incrementally authored fixture. */
+function interpreter_policy_load(string $root, ?string $repo, ?array $names = null): Policy {
+    return Policy::load($repo, $names, adapterLibrary: manifest_fixture_adapter_library($root));
+}
+
 write_manifest($root, 'legacy', [
     'interpreter' => 'legacy-post-only',
     'post_meta' => ['post_static' => ['class' => 'runtime']],
@@ -124,9 +128,28 @@ write_manifest($root, 'legacy', [
     'user_meta' => ['user_static' => ['class' => 'env']],
     'meta_patterns' => [['match' => '^pattern_', 'class' => 'derived']],
 ]);
+write_manifest($root, 'static-owner', [
+    'post_meta' => ['post_dynamic' => ['class' => 'runtime']],
+]);
+write_manifest($root, 'dynamic-owner', [
+    'interpreter' => 'hostile-dynamic',
+]);
+write_manifest($root, 'full', [
+    'interpreter' => 'all-meta-hooks',
+    'post_meta' => ['post_static' => ['class' => 'runtime']],
+    'term_meta' => [
+        'term_dynamic' => ['class' => 'runtime'],
+        'term_static' => ['class' => 'derived'],
+    ],
+    'user_meta' => [
+        'user_dynamic' => ['class' => 'runtime'],
+        'user_static' => ['class' => 'env'],
+    ],
+]);
+write_manifest($root, 'broken', ['interpreter' => 'missing-post-hook']);
 
 echo "\n== post-only interpreter remains compatible ==\n";
-$legacy = Policy::load(null, ['legacy']);
+$legacy = interpreter_policy_load($root, null, ['legacy']);
 check(
     ($legacy->meta_rule_for_post('post_dynamic', ['_post_dynamic' => 'field_1'])['class'] ?? null) === 'authored',
     'required post hook still receives the owning post meta map'
@@ -162,7 +185,7 @@ write_manifest($root, 'static-owner', [
 
 echo "\n== dynamic and static ownership cannot depend on manifest pin order ==\n";
 foreach ([['legacy', 'static-owner'], ['static-owner', 'legacy']] as $pins) {
-    $ambiguous = Policy::load(null, $pins);
+    $ambiguous = interpreter_policy_load($root, null, $pins);
     check_throws(
         fn() => $ambiguous->meta_rule_for_post('post_dynamic', [
             '_post_dynamic' => 'field_1',
@@ -180,7 +203,7 @@ write_manifest($root, 'dynamic-owner', [
 
 echo "\n== two dynamic owners cannot depend on manifest pin order ==\n";
 foreach ([['legacy', 'dynamic-owner'], ['dynamic-owner', 'legacy']] as $pins) {
-    $ambiguous = Policy::load(null, $pins);
+    $ambiguous = interpreter_policy_load($root, null, $pins);
     check_throws(
         fn() => $ambiguous->meta_rule_for_post('post_dynamic', [
             '_post_dynamic' => 'field_1',
@@ -206,7 +229,7 @@ write_manifest($root, 'full', [
 ]);
 
 echo "\n== optional hooks refine their own manifest, then defer exactly like post meta ==\n";
-$full = Policy::load(null, ['full']);
+$full = interpreter_policy_load($root, null, ['full']);
 $termRule = $full->meta_rule_for_term('term_dynamic', [
     '_term_dynamic' => 'field_2',
     'term_dynamic' => '17',
@@ -675,8 +698,11 @@ check_throws(
 );
 
 echo "\n== user_meta is a first-class policy section ==\n";
-$siteRepo = $root . '/site';
+$siteRepo = $root . '-site';
 mkdir($siteRepo);
+register_shutdown_function(static function () use ($siteRepo): void {
+    manifest_fixture_remove_tree($siteRepo);
+});
 Canon::write_file($siteRepo . '/site.duo.json', Canon::encode([
     'manifests' => ['legacy'],
     'policy' => new stdClass(),
@@ -686,7 +712,7 @@ Policy::set_rule($siteRepo, 'user_meta', 'profile_owner', [
     'ref' => 'user',
     'missing_user' => 'warn',
 ]);
-$sitePolicy = Policy::load($siteRepo);
+$sitePolicy = interpreter_policy_load($root, $siteRepo);
 check(
     ($sitePolicy->meta_rule_for_user('profile_owner', [])['ref'] ?? null) === 'user',
     'wp duo classify write path accepts user_meta and Policy loads the site override'
@@ -695,7 +721,12 @@ check(
     $sitePolicy->user_meta_missing_behavior(['profile_owner' => 'user:editor']) === 'warn',
     'static authored user_meta policy carries explicit warn-and-skip missing-user behavior'
 );
-$export = Policy::export_manifest($siteRepo, '^profile_', 'profile-fixture');
+$export = Policy::export_manifest(
+    $siteRepo,
+    '^profile_',
+    'profile-fixture',
+    manifest_fixture_adapter_library($root)
+);
 $exportedUserMeta = (array) $export['user_meta'];
 check(
     (($exportedUserMeta['profile_owner']['class'] ?? null) === 'authored')
@@ -704,7 +735,7 @@ check(
 );
 
 write_manifest($root, 'broken', ['interpreter' => 'missing-post-hook']);
-$broken = Policy::load(null, ['broken']);
+$broken = interpreter_policy_load($root, null, ['broken']);
 check_throws(
     fn() => $broken->meta_rule_for_term('anything', []),
     'must define',

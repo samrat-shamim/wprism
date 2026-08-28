@@ -49,17 +49,17 @@ use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\Triage;
 
 // Policy::load() has demanded spec_version since DUO-3247 and this file never
-// boots agent/duo.php; the fixture library below declares the same number.
+// boots agent/duo.php; derive the exact shipped generation from the platform
+// library this product-path fixture now loads.
 if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+    $classifyPlatform = json_decode(
+        (string) file_get_contents(dirname(__DIR__, 4) . '/platform/adapter-library/capabilities/platform.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    define('DUO_SPEC_VERSION', (int) $classifyPlatform['platform']['spec_version']);
 }
-$manifestDir = sys_get_temp_dir() . '/duo_regress_classify_manifests_' . bin2hex(random_bytes(6));
-mkdir($manifestDir, 0777, true);
-file_put_contents(
-    $manifestDir . '/core.json',
-    json_encode(['name' => 'core', 'spec_version' => DUO_SPEC_VERSION], JSON_PRETTY_PRINT)
-);
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
 $wpdb = \DuoTest\FakeWpdb::install();
 // classify's own pre-write secret check reads the live value through
 // Pending::current_value(); an unseeded table is a LogicException here, which
@@ -69,7 +69,7 @@ $wpdb->seedTable('wp_postmeta', []);
 
 // `make -j8` runs the corpus concurrently in one shared temp dir, so every
 // fixture below is uniquely named and removed on exit.
-$classifyScratch = [$manifestDir];
+$classifyScratch = [];
 register_shutdown_function(static function () use (&$classifyScratch): void {
     foreach ($classifyScratch as $dir) {
         foreach (glob(rtrim($dir, '/') . '/*') ?: [] as $file) {

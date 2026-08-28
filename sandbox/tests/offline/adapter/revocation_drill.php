@@ -91,6 +91,7 @@ require_once $drillRepo . '/agent/src/Policy/Policy.php';
 require_once $drillRepo . '/agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\Policy;
 
@@ -139,12 +140,12 @@ function drill_ms(int $since): float {
  *
  * @return array{verdict:string,reason:string,elapsed_ms:float}
  */
-function drill_live(string $library, string $repo, string $name): array {
+function drill_live(AdapterLibrary $adapterLibrary, string $repo, string $name): array {
     $manifest = Canon::decode(Canon::read_file($repo . '/adapters/' . $name . '.json'));
     $certificate = $repo . '/adapters/certifications/' . $name . '.json';
     $mark = hrtime(true);
     try {
-        $verified = AdapterCertification::verifyFile($library, $repo, $name, $manifest, $certificate);
+        $verified = AdapterCertification::verifyFile($adapterLibrary, $repo, $name, $manifest, $certificate);
         return [
             'verdict' => (string) ($verified['claim']['status'] ?? '?'),
             'reason' => '',
@@ -166,18 +167,18 @@ function drill_live(string $library, string $repo, string $name): array {
  * reopens no mutable site file — so it reads no `adapters/authorities.json` and
  * no `adapters/delegations.json`. The revocation document is the only channel
  * that reaches here, which is the entire reason it lives in the manifest
- * library (`AdapterSources.php` calls verifyFrozen() with `Policy::manifests_dir()`
- * and nothing else).
+ * library (`AdapterSources.php` calls verifyFrozen() with the policy's selected
+ * AdapterLibrary and nothing else).
  *
  * @return array{verdict:string,reason:string,elapsed_ms:float}
  */
-function drill_frozen(string $library, string $estate, string $id, string $name): array {
+function drill_frozen(AdapterLibrary $adapterLibrary, string $estate, string $id, string $name): array {
     $snapshot = Canon::decode(Canon::read_file($estate . '/holdings/' . $id . '/snapshot.json'));
     $envelope = (array) ($snapshot['adapter_sources']['certificates'][$name] ?? []);
     $manifest = Canon::decode(Canon::read_file($estate . '/sites/' . $id . '/adapters/' . $name . '.json'));
     $mark = hrtime(true);
     try {
-        $verified = AdapterCertification::verifyFrozen($library, $name, $manifest, $envelope);
+        $verified = AdapterCertification::verifyFrozen($adapterLibrary, $name, $manifest, $envelope);
         return [
             'verdict' => (string) ($verified['claim']['status'] ?? '?'),
             'reason' => '',
@@ -210,10 +211,10 @@ function drill_frozen(string $library, string $estate, string $id, string $name)
  *
  * @return array{load:string,word:?string,digest:string,manifest_hash:string,artifact:string}
  */
-function drill_site_state(string $estate, string $id, string $name): array {
+function drill_site_state(AdapterLibrary $adapterLibrary, string $estate, string $id, string $name): array {
     $repo = $estate . '/sites/' . $id;
     try {
-        $policy = Policy::load($repo);
+        $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
     } catch (Throwable $t) {
         return [
             'load' => 'refused: ' . $t->getMessage(),
@@ -275,7 +276,7 @@ try {
     $drillClock->setValue(null, static fn(): int => (int) strtotime('2026-09-01T00:00:00Z'));
 
     $library = $drillEstate . '/libs/A';
-    putenv('DUO_MANIFESTS_DIR=' . $library);
+    $adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
     $authorities = $library . '/capabilities/adapter-authorities.json';
     $revocations = $library . '/capabilities/adapter-revocations.json';
     $out = [
@@ -314,12 +315,12 @@ try {
         base64_encode($platformSecret)
     );
     file_put_contents($revocations, $inertDocument);
-    $channel = AdapterCertification::revocation_channel($library);
+    $channel = AdapterCertification::revocation_channel($adapterLibrary);
     $out['inert_before_enrollment'] = [
         'signer' => (string) ($channel['signer'] ?? ''),
         'message' => (string) ($channel['message'] ?? ''),
         'certified_alpha_still_verifies' => drill_live(
-            $library,
+            $adapterLibrary,
             $drillEstate . '/sites/certified-alpha',
             'estate-forms'
         )['verdict'],
@@ -357,9 +358,14 @@ try {
     $out['before'] = [];
     foreach (DRILL_SUBJECTS as $id => $subject) {
         $row = $subject['path'] === 'frozen'
-            ? drill_frozen($library, $drillEstate, $id, $subject['adapter'])
-            : drill_live($library, $drillEstate . '/sites/' . $id, $subject['adapter']);
-        $out['before'][$id] = $row + drill_site_state($drillEstate, $id, $subject['adapter']);
+            ? drill_frozen($adapterLibrary, $drillEstate, $id, $subject['adapter'])
+            : drill_live($adapterLibrary, $drillEstate . '/sites/' . $id, $subject['adapter']);
+        $out['before'][$id] = $row + drill_site_state(
+            $adapterLibrary,
+            $drillEstate,
+            $id,
+            $subject['adapter']
+        );
     }
 
     // --- 4. the burn, and the measurement ----------------------------------
@@ -409,8 +415,8 @@ try {
     $out['after'] = [];
     foreach (DRILL_SUBJECTS as $id => $subject) {
         $row = $subject['path'] === 'frozen'
-            ? drill_frozen($library, $drillEstate, $id, $subject['adapter'])
-            : drill_live($library, $drillEstate . '/sites/' . $id, $subject['adapter']);
+            ? drill_frozen($adapterLibrary, $drillEstate, $id, $subject['adapter'])
+            : drill_live($adapterLibrary, $drillEstate . '/sites/' . $id, $subject['adapter']);
         // Landing-to-effect for THIS site: the whole interval from the document
         // hitting the filesystem to this site's verdict changing, including the
         // sites walked before it. Reported beside the per-site verification
@@ -423,7 +429,7 @@ try {
     }
     $out['fleet_reached_ms'] = drill_ms($landed);
     foreach (DRILL_SUBJECTS as $id => $subject) {
-        $out['after'][$id] += drill_site_state($drillEstate, $id, $subject['adapter']);
+        $out['after'][$id] += drill_site_state($adapterLibrary, $drillEstate, $id, $subject['adapter']);
     }
 
     // --- 5. stand down -----------------------------------------------------
@@ -431,8 +437,8 @@ try {
     $out['restored'] = [];
     foreach (DRILL_SUBJECTS as $id => $subject) {
         $out['restored'][$id] = ($subject['path'] === 'frozen'
-            ? drill_frozen($library, $drillEstate, $id, $subject['adapter'])
-            : drill_live($library, $drillEstate . '/sites/' . $id, $subject['adapter']))['verdict'];
+            ? drill_frozen($adapterLibrary, $drillEstate, $id, $subject['adapter'])
+            : drill_live($adapterLibrary, $drillEstate . '/sites/' . $id, $subject['adapter']))['verdict'];
     }
     $drillClock->setValue(null, null);
 } catch (Throwable $failure) {

@@ -7,7 +7,7 @@
  *
  * `AdapterBoundary::search()` — the real search, not a model of it. A probe is
  * a full pair round-trip (fetch the digest-pinned artifact, reset, install the
- * exact version, seed through `sandbox/tests/certify/matrix.d/<slug>.sh`,
+ * exact version, seed through `adapter-packages/<slug>/tests/certify/version-matrix.sh`,
  * capture, deploy, apply, recapture, require byte-identity), so the command is
  * a PLANNER over a recorded outcome table and this suite feeds it recorded
  * tables. Nothing here starts docker and nothing here reaches the network,
@@ -17,11 +17,11 @@
  *
  * ## The reproduction case, and exactly how strong it is
  *
- * `sandbox/conformance/artifacts.lock.json` already IS a bisection result. Its
+ * The convention-discovered artifact library already IS a bisection result. Its
  * three roles are the vocabulary — `certified-boundary` for a version proven to
  * install and round-trip, `refusal-fixture` for one proven not to,
  * `exercise-fixture` for a version installed to exercise something with no
- * boundary claim attached. Thirteen of its fifteen plugin blocks have the shape
+ * boundary claim attached. Fifteen of its sixteen plugin blocks have the shape
  * a bisection trace has: the greens, bracketed by the adjacent failures. So
  * this suite derives a release list and an outcome table from each such block
  * and asserts the search re-emits that block.
@@ -37,11 +37,10 @@
  * are the two blocks where that is a real constraint rather than an accident of
  * three-element lists.
  *
- * The two blocks that do NOT reproduce are named, because "13 of 15" invites
- * the question: `the-events-calendar` and `wpforms-lite` are pure
- * `exercise-fixture` entries. No probe outcome implies that role — it records a
- * test's intent, not a version's behaviour — so the search never proposes one,
- * and a block made only of them is not a bisection result to reproduce.
+ * The block that does NOT reproduce is named, because "15 of 16" invites the
+ * question: `wpforms-lite` is an `exercise-fixture`. No probe outcome implies
+ * that role — it records a test's intent, not a version's behaviour — so the
+ * search never proposes it, and it is not a bisection result to reproduce.
  *
  * ## The properties the synthetic cases exist for
  *
@@ -66,8 +65,8 @@
  *
  * ## And the one negative property the whole design rests on
  *
- * No manifest is written. Asserted the only way worth asserting it: every file
- * under `manifests/` is hashed before the suite runs and after, across the
+ * No package payload is written. Asserted the only way worth asserting it:
+ * every shipped adapter-library file is hashed before the suite runs and after, across the
  * in-process searches AND the real subprocess runs, including the run that
  * passes `--manifest=acf` and reads a range out of that very directory.
  */
@@ -78,22 +77,19 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $repoRoot = dirname(__DIR__, 4);
 require_once $repoRoot . '/agent/src/Kernel/Canon.php';
+require_once $repoRoot . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repoRoot . '/cli/src/Command/CommandOutput.php';
 require_once $repoRoot . '/cli/src/Adapter/AdapterBoundary.php';
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\Orchestrator\AdapterBoundary;
 
-/** @return array<string,string> path => sha256 for every file under manifests/ */
+/** @return array<string,string> path => sha256 for every shipped adapter-library file */
 function boundary_manifest_digests(string $root): array {
     $digests = [];
-    $walk = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root . '/manifests', FilesystemIterator::SKIP_DOTS)
-    );
-    foreach ($walk as $file) {
-        if ($file->isFile()) {
-            $digests[$file->getPathname()] = (string) hash_file('sha256', $file->getPathname());
-        }
+    foreach (AdapterLibrary::fromSourceTree($root)->scanFiles() as $file) {
+        $digests[$file] = (string) hash_file('sha256', $file);
     }
     ksort($digests);
     return $digests;
@@ -156,8 +152,9 @@ function boundary_outcome_table(array $outcomes): array {
 
 // ------------------------------------------------------------------ 1. the lock
 
-$lock = Canon::decode((string) file_get_contents($repoRoot . '/sandbox/conformance/artifacts.lock.json'));
-duo_check(is_array($lock) && isset($lock['plugins']), 'the committed artifact lock reads');
+require_once $repoRoot . '/tools/src/ArtifactLibrary.php';
+$lock = \Duo\Tooling\ArtifactLibrary::load($repoRoot);
+duo_check(isset($lock['plugins']), 'the convention-discovered artifact library reads');
 
 $bisectionShaped = [];
 $exerciseOnly = [];
@@ -213,7 +210,7 @@ foreach ($bisectionShaped as $slug => $block) {
             'version' => (string) $version,
             'outcome' => $green ? AdapterBoundary::OUTCOME_GREEN : AdapterBoundary::OUTCOME_BOOT_FATAL,
             'signature' => 'replayed from the committed role ' . (string) $entry['role']
-                . ' in sandbox/conformance/artifacts.lock.json',
+                . ' in the package-owned artifact library',
         ];
         // The anchor is the oldest certified version — the release a reviewer
         // already knows is green, which is what a real bisection starts from.
@@ -223,7 +220,7 @@ foreach ($bisectionShaped as $slug => $block) {
     }
 
     $document = AdapterBoundary::search(
-        boundary_release_list((string) $slug, $releases, 'sandbox/conformance/artifacts.lock.json'),
+        boundary_release_list((string) $slug, $releases, 'package-owned artifact library'),
         $outcomes,
         ['anchor' => $anchor]
     );
@@ -422,7 +419,7 @@ duo_check_same(
 // ------------------------------- 9. the recorded inputs are validated, loudly
 
 /**
- * @param array<string,mixed> $document
+ * @param list<string> $args
  * @return array{stdout:string,stderr:string,status:int}
  */
 function boundary_cli(string $root, array $args): array {
@@ -464,7 +461,7 @@ foreach ($acfBlock as $version => $entry) {
 }
 $releasePath = $tmp . '/releases.json';
 file_put_contents($releasePath, Canon::encode(
-    boundary_release_list('advanced-custom-fields', $acfReleases, 'sandbox/conformance/artifacts.lock.json')
+    boundary_release_list('advanced-custom-fields', $acfReleases, 'adapter-packages/acf/evidence/artifacts.lock.json')
 ));
 $outcomePath = $tmp . '/outcomes.json';
 file_put_contents($outcomePath, Canon::encode([
@@ -510,9 +507,7 @@ duo_check_same(
     'the document says on its face that no manifest was edited'
 );
 
-// The proposal is accepted by the SHIPPED schema, not by a copy of it: this
-// sources sandbox/bin/fetch-artifact.sh and calls its own
-// validate_artifact_lock() (fetch-artifact.sh:10-45).
+// The proposal is accepted by the shipped fragment parser, not by a copy.
 // Decoded a second time WITHOUT assoc, and re-encoded from that: the schema
 // requires `.themes | type == "object"`, and an assoc decode turns the
 // command's own `{}` into a PHP `[]` that re-encodes as `[]`. The bytes on
@@ -520,10 +515,9 @@ duo_check_same(
 $rowsPath = $tmp . '/rows.json';
 $cliObject = json_decode($run['stdout']);
 file_put_contents($rowsPath, (string) json_encode($cliObject->proposed_lock_rows));
-$validator = 'cd ' . escapeshellarg($repoRoot . '/sandbox') . '; . bin/fetch-artifact.sh; '
-    . 'validate_artifact_lock ' . escapeshellarg($rowsPath);
-exec('command -v jq >/dev/null 2>&1 && bash -c ' . escapeshellarg($validator) . ' 2>&1', $validatorOut, $validatorStatus);
-duo_check_same(0, $validatorStatus, 'the shipped validate_artifact_lock() accepts the proposed rows unmodified');
+$validatedRows = \Duo\Tooling\ArtifactLibrary::loadFragment($rowsPath);
+duo_check_same(['advanced-custom-fields'], array_keys($validatedRows['plugins']),
+    'the shipped artifact-fragment parser accepts the proposed rows unmodified');
 
 // Exit-code contract, end to end.
 $needsProbe = boundary_cli($repoRoot, ['--releases=' . $releasePath, '--anchor=6.0.0', '--format=json']);
@@ -622,10 +616,10 @@ duo_check(
 
 // ------------------- 9b. the committed recorded inputs cannot drift from the lock
 
-// The release list `sandbox/bin/adapter-boundary.sh` actually runs against is
-// committed, so it is checked here rather than trusted: it must still resolve
-// to the same block the lock records, through the real command.
-$committedReleases = $repoRoot . '/sandbox/conformance/boundary/advanced-custom-fields.releases.json';
+// The package-owned release list `sandbox/bin/adapter-boundary.sh` actually
+// runs against is committed, so it is checked here rather than trusted: it
+// must still resolve to the same block the lock records, through the real command.
+$committedReleases = $repoRoot . '/adapter-packages/acf/fixtures/boundary/releases.json';
 $committedRun = boundary_cli($repoRoot, [
     '--releases=' . $committedReleases,
     '--outcomes=' . $outcomePath,
@@ -643,11 +637,11 @@ duo_check_json_equal(
 // The probe's site policy is a reviewed input, and the claim it stands behind
 // is "the same round-trip the certify matrix already certifies". That is only
 // true while the two files agree byte for byte.
-$committedPolicy = (string) file_get_contents($repoRoot . '/sandbox/conformance/boundary/acf.site.duo.json');
-$certifySource = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
+$committedPolicy = (string) file_get_contents($repoRoot . '/adapter-packages/acf/fixtures/boundary/site.duo.json');
+$certifySource = (string) file_get_contents($repoRoot . '/adapter-packages/acf/tests/certify/version-matrix.sh');
 duo_check(
     str_contains($certifySource, $committedPolicy),
-    'the boundary probe runs ACF under byte-identical policy to certify_version_matrix.sh, so a bisection '
+    'the boundary probe runs ACF under byte-identical policy to its package-owned certify workflow, so a bisection '
     . 'and a certification are claiming the same thing'
 );
 
@@ -656,7 +650,7 @@ duo_check(
 duo_check_same(
     $manifestsBefore,
     boundary_manifest_digests($repoRoot),
-    'no byte under manifests/ moved — the range and its dispositions restatement stay a reviewed human edit'
+    'no adapter-package or platform-library byte moved — the range and its disposition stay a reviewed human edit'
 );
 
 duo_check_summary('adapter boundary search');

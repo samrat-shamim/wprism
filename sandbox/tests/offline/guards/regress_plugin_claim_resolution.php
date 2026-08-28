@@ -27,7 +27,7 @@
  *    such claim, refuses — the drift case, not the typo case.
  *
  * Everything runs through the real `Policy::load()` against real manifest
- * files in a scratch `DUO_MANIFESTS_DIR` and a real `site.duo.json`, the same
+ * files in an explicit scratch `AdapterLibrary` and a real `site.duo.json`, the same
  * product path a site takes; no validator is called directly except where a
  * check is explicitly about one collaborator's own seam.
  *
@@ -47,8 +47,10 @@ require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
 use Duo\AdapterClaimResolutions;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\Policy;
 
@@ -108,7 +110,16 @@ function library(array $manifests): void {
         Canon::write_file("$root/$name.json", Canon::encode($manifest));
     }
     $scratch[] = $root;
-    putenv("DUO_MANIFESTS_DIR=$root");
+    $GLOBALS['claim_resolution_adapter_library'] = manifest_fixture_adapter_library($root);
+}
+
+/** Load claims through the exact fixture inventory selected by library(). */
+function claim_policy_load(?string $repo, ?array $names = null): Policy {
+    $library = $GLOBALS['claim_resolution_adapter_library'] ?? null;
+    if (!$library instanceof AdapterLibrary) {
+        throw new \RuntimeException('claim-resolution fixture selected no adapter library');
+    }
+    return Policy::load($repo, $names, adapterLibrary: $library);
 }
 
 /** A scratch repository carrying only the pins and the policy under test. */
@@ -128,10 +139,7 @@ function repo(array $pins, array $policy = []): string {
 register_shutdown_function(static function (): void {
     global $scratch;
     foreach ($scratch as $root) {
-        foreach (glob("$root/*") ?: [] as $file) {
-            @unlink($file);
-        }
-        @rmdir($root);
+        manifest_fixture_remove_tree($root);
     }
 });
 
@@ -182,13 +190,13 @@ library([
 
 check_same(
     UNRESOLVED_PLUGIN_REFUSAL,
-    refusal_message(fn() => Policy::load(repo(['conf-a', 'conf-b']))),
+    refusal_message(fn() => claim_policy_load(repo(['conf-a', 'conf-b']))),
     'a repository declaring NO policy.adapter_claims gets the pre-WP-5.5 message, byte for byte'
 );
 
 check_same(
     UNRESOLVED_PLUGIN_REFUSAL,
-    refusal_message(fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => new \stdClass()]))),
+    refusal_message(fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => new \stdClass()]))),
     'an EMPTY policy.adapter_claims object admits nothing and gets the identical message'
 );
 
@@ -202,7 +210,7 @@ library([
 ]);
 check_same(
     UNRESOLVED_PLUGIN_REFUSAL,
-    refusal_message(fn() => Policy::load(
+    refusal_message(fn() => claim_policy_load(
         repo(['conf-a', 'conf-b', 'oth-a', 'oth-b'], resolution('plugin', 'other/other.php', 'oth-a'))
     )),
     'a resolution about a DIFFERENT plugin does not answer this collision'
@@ -218,7 +226,7 @@ library([
 // names swap.
 check(
     str_contains(
-        refusal_message(fn() => Policy::load(repo(['conf-b', 'conf-a']))),
+        refusal_message(fn() => claim_policy_load(repo(['conf-b', 'conf-a']))),
         'conflicting ownership with no v2 composition rule'
     ),
     'the unresolved refusal is still pin-order-independent'
@@ -229,7 +237,7 @@ echo "\n== WITH a resolution the pin set LOADS, and the named claim is the one i
 
 $resolved = ['adapter_claims' => ['plugin' => [PLUGIN => ['in_force' => 'conf-b', 'note' => 'acme 2.x is what this site runs']]]];
 
-$p = Policy::load(repo(['conf-a', 'conf-b'], $resolved));
+$p = claim_policy_load(repo(['conf-a', 'conf-b'], $resolved));
 check(true, 'two manifests claiming one plugin with different ranges LOAD when a resolution names one');
 
 $ranges = $p->version_ranges();
@@ -241,7 +249,7 @@ check(
 
 // The whole point of naming a winner: the answer stops depending on the pin
 // list's order. Pinned the other way round it is the same range.
-$reversed = Policy::load(repo(['conf-b', 'conf-a'], $resolved));
+$reversed = claim_policy_load(repo(['conf-b', 'conf-a'], $resolved));
 check(
     $reversed->version_ranges()[PLUGIN] === ['min' => '2.0.0', 'max' => '3.0.0', 'manifest' => 'conf-b'],
     'the in-force range is identical with the pins REVERSED — pin order decides nothing once a resolution exists'
@@ -250,7 +258,7 @@ check(
 // And a resolution naming the FIRST-pinned manifest is honoured just as
 // literally, so "the resolution won" can never be confused with "pin order
 // happened to agree with it".
-$firstWins = Policy::load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-a')));
+$firstWins = claim_policy_load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-a')));
 check(
     $firstWins->version_ranges()[PLUGIN] === ['min' => '1.0.0', 'max' => '2.0.0', 'manifest' => 'conf-a'],
     'a resolution naming the other claimant puts THAT range in force'
@@ -292,7 +300,7 @@ check(
 // become a source of noise on the 100% of repositories that never use it.
 library(['solo' => plugin_manifest('solo', RANGE_A)]);
 check(
-    Policy::load(repo(['solo']))->displaced_adapter_claims() === [],
+    claim_policy_load(repo(['solo']))->displaced_adapter_claims() === [],
     'a repository with no resolutions reports no displaced claims'
 );
 
@@ -309,7 +317,7 @@ library([
         'options' => ['acme_b_only' => ['class' => 'authored']],
     ]),
 ]);
-$p = Policy::load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-b')));
+$p = claim_policy_load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-b')));
 
 check(count($p->manifests) === 2, 'BOTH manifests are still loaded — a displaced claim unloads no adapter');
 check(
@@ -338,7 +346,7 @@ library([
     ]),
 ]);
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-b'))),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-b'))),
     'exactly one owner',
     'a plugin-claim resolution does NOT resolve an unrelated post-type contract conflict in the same set'
 );
@@ -350,7 +358,7 @@ library([
     'dup-a' => plugin_manifest('dup-a', RANGE_A),
     'dup-b' => plugin_manifest('dup-b', RANGE_A),
 ]);
-$dup = Policy::load(repo(['dup-a', 'dup-b']));
+$dup = claim_policy_load(repo(['dup-a', 'dup-b']));
 check(true, 'two manifests claiming one plugin with the IDENTICAL range still load with no resolution');
 check($dup->displaced_adapter_claims() === [], 'and report no displaced claim, because nobody decided anything');
 check(
@@ -360,7 +368,7 @@ check(
 
 // Redundant is not the same as decided: naming one of them is legal and makes
 // WHICH manifest answers for the plugin deterministic rather than positional.
-$dupResolved = Policy::load(repo(['dup-a', 'dup-b'], resolution('plugin', PLUGIN, 'dup-b')));
+$dupResolved = claim_policy_load(repo(['dup-a', 'dup-b'], resolution('plugin', PLUGIN, 'dup-b')));
 check(
     $dupResolved->version_ranges()[PLUGIN]['manifest'] === 'dup-b',
     'a resolution over an identical-range pair makes the answering manifest the declared one'
@@ -389,11 +397,11 @@ library(['theme-a' => $themeA, 'theme-b' => $themeB]);
 
 check_same(
     UNRESOLVED_THEME_REFUSAL,
-    refusal_message(fn() => Policy::load(repo(['theme-a', 'theme-b']))),
+    refusal_message(fn() => claim_policy_load(repo(['theme-a', 'theme-b']))),
     'an unresolved THEME collision keeps its own message byte for byte'
 );
 
-$t = Policy::load(repo(['theme-a', 'theme-b'], resolution('theme', 'acme-theme', 'theme-b')));
+$t = claim_policy_load(repo(['theme-a', 'theme-b'], resolution('theme', 'acme-theme', 'theme-b')));
 check(
     $t->theme_ranges()['acme-theme'] === ['min' => '9.0.0', 'max' => '10.0.0', 'manifest' => 'theme-b'],
     'theme_ranges() returns the in-force theme claim'
@@ -413,7 +421,7 @@ check(
 // is what is wrong.
 check(
     str_contains(
-        refusal_message(fn() => Policy::load(repo(['theme-a', 'theme-b'], resolution('plugin', 'acme-theme', 'theme-b')))),
+        refusal_message(fn() => claim_policy_load(repo(['theme-a', 'theme-b'], resolution('plugin', 'acme-theme', 'theme-b')))),
         "policy.adapter_claims.plugin.acme-theme resolves nothing — 0 pinned manifest(s) claim plugin 'acme-theme'"
     ),
     'a PLUGIN resolution for a THEME identity resolves nothing and says so — the two arms never cross'
@@ -424,12 +432,12 @@ echo "\n== a resolution that decides nothing REFUSES (the drift case) ==\n";
 
 library(['solo' => plugin_manifest('solo', RANGE_A)]);
 expect_throw(
-    fn() => Policy::load(repo(['solo'], resolution('plugin', PLUGIN, 'solo'))),
+    fn() => claim_policy_load(repo(['solo'], resolution('plugin', PLUGIN, 'solo'))),
     'resolves nothing',
     'a resolution left behind after one of its manifests was unpinned refuses instead of looking like a live decision'
 );
 expect_throw(
-    fn() => Policy::load(repo(['solo'], resolution('plugin', 'gone/gone.php', 'solo'))),
+    fn() => claim_policy_load(repo(['solo'], resolution('plugin', 'gone/gone.php', 'solo'))),
     'resolves nothing',
     'a resolution for a plugin no pinned manifest claims at all refuses'
 );
@@ -440,12 +448,12 @@ library([
     'bystander' => ['name' => 'bystander', 'spec_version' => DUO_SPEC_VERSION],
 ]);
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b', 'bystander'], resolution('plugin', PLUGIN, 'bystander'))),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b', 'bystander'], resolution('plugin', PLUGIN, 'bystander'))),
     'may only choose among the claims that were made',
     'a resolution naming a pinned manifest that makes no such claim refuses — it may choose, never install'
 );
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'not-pinned-at-all'))),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'not-pinned-at-all'))),
     'may only choose among the claims that were made',
     'a resolution naming a manifest that is not pinned refuses through the same sentence'
 );
@@ -454,7 +462,7 @@ expect_throw(
 // operator's own file is the thing they can act on.
 check(
     str_contains(
-        refusal_message(fn() => Policy::load(repo(['conf-a', 'conf-b'], resolution('plugin', 'gone/gone.php', 'conf-a')))),
+        refusal_message(fn() => claim_policy_load(repo(['conf-a', 'conf-b'], resolution('plugin', 'gone/gone.php', 'conf-a')))),
         'resolves nothing'
     ),
     'a stale resolution is reported ahead of the collision it does not answer'
@@ -469,37 +477,37 @@ library([
 ]);
 
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['widget' => [PLUGIN => ['in_force' => 'conf-b']]]])),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['widget' => [PLUGIN => ['in_force' => 'conf-b']]]])),
     "declares claim kind 'widget'",
     'an unknown claim kind refuses BY NAME rather than being ignored'
 );
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => 'conf-b']])),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => 'conf-b']])),
     'policy.adapter_claims.plugin must be a JSON object',
     'a scalar arm refuses'
 );
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => [['plugin' => []]]])),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => [['plugin' => []]]])),
     'policy.adapter_claims must be a JSON object',
     'a JSON array in place of the section refuses'
 );
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => ['in_force' => 'conf-b', 'version_range' => RANGE_A]]]])),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => ['in_force' => 'conf-b', 'version_range' => RANGE_A]]]])),
     'a claim resolution accepts exactly in_force and note',
     'a resolution restating a RANGE refuses — a resolution chooses a claim, it never authors one'
 );
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => ['note' => 'no winner named']]]])),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => ['note' => 'no winner named']]]])),
     'must declare a non-empty string in_force',
     'a resolution with no in_force refuses'
 );
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => ['in_force' => 'conf-b', 'note' => 7]]]])),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => ['in_force' => 'conf-b', 'note' => 7]]]])),
     'non-string note',
     'a non-string note refuses'
 );
 expect_throw(
-    fn() => Policy::load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => 'conf-b']]])),
+    fn() => claim_policy_load(repo(['conf-a', 'conf-b'], ['adapter_claims' => ['plugin' => [PLUGIN => 'conf-b']]])),
     'must be an object with a non-empty string in_force',
     'a bare-string resolution refuses — there is one shape, not a string/object polymorphism'
 );
@@ -507,8 +515,8 @@ expect_throw(
 // ======================================================================
 echo "\n== the frozen loader resolves identically (one finalizer, two entry points) ==\n";
 
-$live = Policy::load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-b')));
-$frozen = Policy::from_snapshot($live->export_snapshot());
+$live = claim_policy_load(repo(['conf-a', 'conf-b'], resolution('plugin', PLUGIN, 'conf-b')));
+$frozen = Policy::from_snapshot($live->export_snapshot(), $GLOBALS['claim_resolution_adapter_library']);
 check(
     $frozen->version_ranges() === $live->version_ranges(),
     'a frozen snapshot puts the same claim in force as the live load it was exported from'

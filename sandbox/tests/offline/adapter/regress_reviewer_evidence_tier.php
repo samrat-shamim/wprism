@@ -83,9 +83,11 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/certification_fixture.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
@@ -350,10 +352,10 @@ const REVIEWER_TIER_PARTY = 'acme-conformance-lab';
 $root = sys_get_temp_dir() . '/duo-reviewer-tier-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => rev_remove_tree($root));
 
-$library = $root . '/library';
+$library = duo_cert_hermetic_library($repo, $root . '/library-projection');
+$adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
 $site = $root . '/site';
 $foreign = $root . '/foreign-evidence';
-rev_copy_tree($repo . '/manifests', $library);
 if (!mkdir($site . '/adapters', 0777, true) || !mkdir($foreign . '/adapters', 0777, true)) {
     fwrite(STDERR, "FAIL: cannot create the scratch site/evidence repositories under $root\n");
     exit(1);
@@ -435,19 +437,17 @@ $v2Record = static fn(string $encodedPublic, array $names, array $tiers): array 
     'trust_tiers' => $tiers,
 ];
 
-putenv('DUO_MANIFESTS_DIR=' . $library);
-
 /**
  * Reset the pin to bare, load, read the certificate-derived digest back, and
  * write the exact pin. Two passes because the digest folds the CERTIFICATE in,
  * so it cannot be known before the certificate exists — the same two passes
  * `duo adapter certify --pin` makes.
  */
-$pinRepository = static function (string $name) use ($site): string {
+$pinRepository = static function (string $name) use ($site, $adapterLibrary): string {
     $reset = Canon::decode(Canon::read_file($site . '/site.duo.json'));
     $reset['manifests'] = [['name' => $name, 'source' => 'site']];
     rev_write_canon($site . '/site.duo.json', $reset);
-    $policy = Policy::load($site);
+    $policy = Policy::load($site, adapterLibrary: $adapterLibrary);
     $digest = '';
     foreach (RepositoryCompiler::resolved_adapters($policy) as $row) {
         if ((string) $row['name'] === $name) {
@@ -460,8 +460,8 @@ $pinRepository = static function (string $name) use ($site): string {
 
     return $digest;
 };
-$surveyWord = static function (string $name) use ($site): ?string {
-    foreach (AdapterSources::survey($site)['adapters'] as $row) {
+$surveyWord = static function (string $name) use ($site, $adapterLibrary): ?string {
+    foreach (AdapterSources::survey_library($adapterLibrary, $site)['adapters'] as $row) {
         if (($row['name'] ?? null) === $name) {
             return $row['certification'] === null ? null : (string) $row['certification'];
         }
@@ -473,7 +473,7 @@ $surveyWord = static function (string $name) use ($site): ?string {
 echo "\n== step 1: the evidence repository is FOREIGN, and this one holds none of it ==\n";
 // ===========================================================================
 
-$shippedAuthorities = (string) file_get_contents($repo . '/manifests/capabilities/adapter-authorities.json');
+$shippedAuthorities = (string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json');
 duo_check_same(
     Canon::encode((object) ['format' => AdapterCertification::AUTHORITIES_FORMAT, 'keys' => new stdClass()]),
     $shippedAuthorities,
@@ -544,8 +544,6 @@ duo_check(
 
 $bundleDir = rev_write_bundle($foreign . '/runs/' . $adapterName, $foreign, $adapterName, $adapterManifest);
 $signFrom = static fn(string $bundle): array => rev_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign',
@@ -693,8 +691,6 @@ rev_write_canon($site . '/adapters/authorities.json', [
     ],
 ]);
 $siteSign = rev_run([
-    'env',
-    'DUO_MANIFESTS_DIR=' . $library,
     PHP_BINARY,
     $repo . '/scripts/adapter-certification.php',
     'sign-site',

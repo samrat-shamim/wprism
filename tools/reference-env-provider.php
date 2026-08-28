@@ -1,7 +1,8 @@
 <?php
 // Reference branch-environment provider for the sandbox pair (round-3 MUP
 // §2.2, last bullet). DEV-ONLY: tools/ never ships — cli/src/Onboarding/Adopt.php
-// tars only agent/, manifests/ and recovery/.
+// assembles the source capsules into agent/adapter-library and tars only the
+// closed agent/ plus recovery/.
 //
 // WHAT THIS IS
 // ------------

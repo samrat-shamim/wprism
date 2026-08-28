@@ -1,0 +1,58 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "advanced-editor-tools",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/advanced-editor-tools/package/manifest.json",
+      "adapter-packages/advanced-editor-tools/evidence/artifacts.lock.json",
+      "adapter-packages/advanced-editor-tools/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/entry.json",
+      "adapter-packages/advanced-editor-tools/tests/conformance/seed.sh",
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/postdeploy.sh",
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/seed.sh",
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh",
+      "adapter-packages/advanced-editor-tools/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh",
+      "adapter-packages/advanced-editor-tools/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/seed.sh",
+      "adapter-packages/advanced-editor-tools/tests/conformance/postdeploy.sh",
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/advanced-editor-tools/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "identity-references": "The adapter declares only stable option values and no local identity reference.",
+    "derived-state": "The inspected exact artifact declares no separately persisted derived-state postcondition for these settings."
+  }
+}

@@ -48,9 +48,9 @@
       "status": "shipped",
       "definition": "A plugin-owned provider that restricts raw table materialization to the reviewed module, invokes the plugin's public module/cache boundary, and returns success only after bounded database, native API and lookup-cache readback agrees. The provider receipt contains counts and hashes rather than authored values.",
       "evidence": [
-        "manifests/providers/redirection-state.php",
-        "sandbox/tests/offline/adapter/regress_redirection_adapter.php",
-        "sandbox/conformance/checks/redirection.sh"
+        "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
+        "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
+        "adapter-packages/redirection/tests/conformance/check.sh"
       ]
     },
     "structured_leaf_text_codec": {
@@ -71,7 +71,7 @@
     "table_scoped_cache_entry_invalidation": {
       "title": "a cache entry shared by every row of a table, dropped once per apply rather than per row",
       "status": "open",
-      "definition": "An object-cache entry whose key and group are both literal -- no `{id}` anywhere -- so it is ONE entry the whole table shares rather than one per row. The per-row `{cache_group, cache_key}` verb requires `{id}` in one member and therefore refuses it: with no substitution point every row of the table would name the same entry. This stays recorded rather than admitted because it has exactly ONE demand, which is the same admission rule that let `row_cache_entry_invalidation` in on two. The blanket case was already reviewed into the top-level `actions` channel (manifests/woocommerce.json:307), but that channel has an engine-owned native action for a transient and none for the object cache, so a plugin-owned cache group is still reachable only through a provider."
+      "definition": "An object-cache entry whose key and group are both literal -- no `{id}` anywhere -- so it is ONE entry the whole table shares rather than one per row. The per-row `{cache_group, cache_key}` verb requires `{id}` in one member and therefore refuses it: with no substitution point every row of the table would name the same entry. This stays recorded rather than admitted because it has exactly ONE demand, which is the same admission rule that let `row_cache_entry_invalidation` in on two. The blanket case was already reviewed into the top-level `actions` channel (adapter-packages/woocommerce/package/manifest.json:307), but that channel has an engine-owned native action for a transient and none for the object cache, so a plugin-owned cache group is still reachable only through a provider."
     },
     "composite_ref_identity": {
       "title": "join-table identity with no scalar primary key (`identity.mode: composite_ref`)",
@@ -79,7 +79,7 @@
       "definition": "A pure join table's identity is its two reference columns, not a row id: every identity column is a ref and every ref is an identity column.",
       "evidence": [
         "agent/src/Policy/ManifestGrammar.php",
-        "manifests/paid-memberships-pro.json"
+        "adapter-packages/paid-memberships-pro/package/manifest.json"
       ]
     },
     "option_name_refs": {
@@ -88,7 +88,7 @@
       "definition": "A top-level `option_name_refs` list whose anchored `match` regex carries exactly one named `(?<id>...)` capture bound to a table id_kind, driving its own name-scan discovery pass.",
       "evidence": [
         "agent/src/Grammar/OptionReferenceGrammar.php",
-        "manifests/woocommerce.json"
+        "adapter-packages/woocommerce/package/manifest.json"
       ]
     },
     "row_cache_invalidation": {
@@ -97,7 +97,7 @@
       "definition": "Invalidate rather than rebuild: a plugin whose read site falls through to a fresh read when its cache row is ABSENT needs the row deleted, not reconstructed, and needs no rebuild command to exist.",
       "evidence": [
         "agent/src/Apply/TypedTableMaterializer.php",
-        "manifests/ninja-forms.json"
+        "adapter-packages/ninja-forms/package/manifest.json"
       ]
     },
     "manifest_regenerator": {
@@ -106,17 +106,17 @@
       "definition": "An always-on-write `regen_dependency` naming a regenerator file, for derived state where row EXISTENCE is not a sufficient postcondition because a present row can disagree with the authored state that was just applied.",
       "evidence": [
         "agent/src/Rebuild/DependencyRegenerator.php",
-        "manifests/regenerators/the-events-calendar.php"
+        "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php"
       ]
     },
     "row_cache_entry_invalidation": {
       "title": "a per-row object-cache ENTRY invalidation, whose key or group carries the row id",
       "status": "shipped",
-      "definition": "A `tables.<t>.invalidate[]` verb naming one WordPress object-cache entry -- `{cache_group, cache_key}`, with `{id}` substituting the row's resolved local id into either member -- dropped and PROVEN gone after every apply-time write to that row. Distinct from `row_cache_invalidation`, which reaches a cache stored AS a database row (a table row or an option); no DELETE reaches the object cache. Admitted on TWO independent demands and not before: Paid Memberships Pro's retired provider put the id on the key side, `manifests/providers/woocommerce-product-lookups.php:1301` puts it on the group side, and it is the second that made the rule '{id} in EITHER member' rather than a transcription of one plugin's spelling. `manifests/paid-memberships-pro.json` is the first shipped declarative consumer.",
+      "definition": "A `tables.<t>.invalidate[]` verb naming one WordPress object-cache entry -- `{cache_group, cache_key}`, with `{id}` substituting the row's resolved local id into either member -- dropped and PROVEN gone after every apply-time write to that row. Distinct from `row_cache_invalidation`, which reaches a cache stored AS a database row (a table row or an option); no DELETE reaches the object cache. Admitted on TWO independent demands and not before: Paid Memberships Pro's retired provider put the id on the key side, `adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php:1301` puts it on the group side, and it is the second that made the rule '{id} in EITHER member' rather than a transcription of one plugin's spelling. `adapter-packages/paid-memberships-pro/package/manifest.json` is the first shipped declarative consumer.",
       "evidence": [
         "agent/src/Policy/ManifestGrammar.php",
         "agent/src/Apply/TypedTableMaterializer.php",
-        "manifests/paid-memberships-pro.json"
+        "adapter-packages/paid-memberships-pro/package/manifest.json"
       ]
     }
   },
@@ -202,9 +202,9 @@
           "primitive_required": "verified_module_flush_provider",
           "remedy_phrase": "a verified module-flush provider",
           "closed_by": [
-            "manifests/providers/redirection-state.php",
-            "sandbox/tests/offline/adapter/regress_redirection_adapter.php",
-            "sandbox/conformance/checks/redirection.sh"
+            "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
+            "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
+            "adapter-packages/redirection/tests/conformance/check.sh"
           ]
         }
       ],
@@ -256,13 +256,13 @@
       "coordinates": [
         {
           "coordinate": "tables.snippets",
-          "cannot_represent": "typed rows and shortcode refs are representable, but direct table writes bypass the plugin's object-cache cleanup and optional flat-file execution rebuild. `manifests/code-snippets.json` therefore does not claim apply.",
+          "cannot_represent": "typed rows and shortcode refs are representable, but direct table writes bypass the plugin's object-cache cleanup and optional flat-file execution rebuild. `adapter-packages/code-snippets/package/manifest.json` therefore does not claim apply.",
           "primitive_required": "verified_provider_postcondition",
           "remedy_phrase": "a bounded postcondition over the plugin's object-cache cleanup and flat-file execution rebuild"
         },
         {
           "coordinate": "tables.snippets.invalidate",
-          "cannot_represent": "Code Snippets' own cleanup drops `wp_cache_delete(Settings\\CACHE_KEY, CACHE_GROUP)` (manifests/providers/code-snippets-state.php:94) -- one settings entry the whole `snippets` table shares, keyed by neither the row nor anything derived from it. WP-6.2's `{cache_group, cache_key}` verb requires `{id}` in one member, so a table-scoped entry still has no declarative spelling and this plugin's object cache stays reachable only through a provider.",
+          "cannot_represent": "Code Snippets' own cleanup drops `wp_cache_delete(Settings\\CACHE_KEY, CACHE_GROUP)` (adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php:94) -- one settings entry the whole `snippets` table shares, keyed by neither the row nor anything derived from it. WP-6.2's `{cache_group, cache_key}` verb requires `{id}` in one member, so a table-scoped entry still has no declarative spelling and this plugin's object cache stays reachable only through a provider.",
           "primitive_required": "table_scoped_cache_entry_invalidation",
           "remedy_phrase": "a table-scoped object-cache invalidation with somewhere engine-owned to live"
         }
@@ -305,7 +305,7 @@
           "primitive_required": "composite_ref_identity",
           "closed_by": [
             "agent/src/Policy/ManifestGrammar.php",
-            "manifests/paid-memberships-pro.json"
+            "adapter-packages/paid-memberships-pro/package/manifest.json"
           ]
         }
       ],
@@ -328,7 +328,7 @@
           "primitive_required": "option_name_refs",
           "closed_by": [
             "agent/src/Grammar/OptionReferenceGrammar.php",
-            "manifests/woocommerce.json"
+            "adapter-packages/woocommerce/package/manifest.json"
           ]
         }
       ],
@@ -351,7 +351,7 @@
           "primitive_required": "row_cache_invalidation",
           "closed_by": [
             "agent/src/Apply/TypedTableMaterializer.php",
-            "manifests/ninja-forms.json"
+            "adapter-packages/ninja-forms/package/manifest.json"
           ]
         }
       ],
@@ -373,8 +373,8 @@
           "cannot_represent": "The Events Calendar keeps every event's dates in the derived custom tables `tec_events`/`tec_occurrences`, which capture excludes. Row EXISTENCE was the only postcondition the grammar could state, and an adopted target event can already hold a `tec_occurrences` row whose dates disagree with the applied post meta -- a present-but-stale row that an existence check passes.",
           "primitive_required": "manifest_regenerator",
           "closed_by": [
-            "manifests/regenerators/the-events-calendar.php",
-            "manifests/the-events-calendar.json"
+            "adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php",
+            "adapter-packages/the-events-calendar/package/manifest.json"
           ]
         }
       ],
@@ -399,13 +399,13 @@
           "closed_by": [
             "agent/src/Policy/ManifestGrammar.php",
             "agent/src/Apply/TypedTableMaterializer.php",
-            "manifests/paid-memberships-pro.json",
-            "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php",
+            "adapter-packages/paid-memberships-pro/package/manifest.json",
+            "adapter-packages/paid-memberships-pro/tests/offline/regress_paid_memberships_pro_production_readiness.php",
             "sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php"
           ]
         }
       ],
-      "closing": "Closed in WP-6.2 by generalising the verb rather than by adopting only PMPro's spelling: WooCommerce's `object_<id>`/`lookup_table` drop (manifests/providers/woocommerce-product-lookups.php:1301) is the second independent demand and puts the id on the GROUP side, so the admitted rule is `{id}` in EITHER member. The engine proves the drop with a wp_cache_get() readback; an unverified delete would ship the stale read in a shorter spelling. The shipped PMPro manifest now consumes that primitive, its 233-line provider and both executable declarations are retired, and the product regression observes the committed value through PMPro's native cache semantics. This intentional manifest-identity change requires ordinary recompilation and re-pinning."
+      "closing": "Closed in WP-6.2 by generalising the verb rather than by adopting only PMPro's spelling: WooCommerce's `object_<id>`/`lookup_table` drop (adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php:1301) is the second independent demand and puts the id on the GROUP side, so the admitted rule is `{id}` in EITHER member. The engine proves the drop with a wp_cache_get() readback; an unverified delete would ship the stale read in a shorter spelling. The shipped PMPro manifest now consumes that primitive, its 233-line provider and both executable declarations are retired, and the product regression observes the committed value through PMPro's native cache semantics. This intentional manifest-identity change requires ordinary recompilation and re-pinning."
     }
   ]
 }

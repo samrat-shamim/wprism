@@ -395,12 +395,15 @@ final class FleetCensus {
     /**
      * Read one census over inventory files named on the command line.
      *
-     * @param array{sites:array<string,string>,manifests:string,health:?string} $options
+     * @param array{sites:array<string,string>,manifests:string|null,health:?string} $options
      * @return array<string,mixed>
      */
     public static function run(array $options): array {
         self::boot();
-        $library = self::library((string) $options['manifests']);
+        $selectedLibrary = $options['manifests'] ?? null;
+        $library = self::library(is_string($selectedLibrary)
+            ? $selectedLibrary
+            : \Duo\Policy::shipped_adapter_library());
         $submissions = [];
         foreach ($options['sites'] as $label => $path) {
             // Before the read, not after: a `--dir` collection labelled by
@@ -440,7 +443,7 @@ final class FleetCensus {
      * spec 2 -> 3 flip with the `--dir` form. What `--current` buys is the
      * LIBRARY on the current side, not the engine.
      *
-     * @param array{sites:array<string,string>,manifests:string,health:?string,baseline:string,current:?string} $options
+     * @param array{sites:array<string,string>,manifests:string|null,health:?string,baseline:string,current:?string} $options
      * @return array<string,mixed> a `duo-cohort-rebaseline/v1` document
      */
     public static function rebaseline(array $options): array {
@@ -543,9 +546,10 @@ final class FleetCensus {
      *
      * @return array{adapters:array<string,array<string,mixed>>,reviewed:int,sha256:string,site_mode:string}
      */
-    public static function library(string $dir): array {
-        $dir = rtrim($dir, '/');
-        if (!is_dir($dir)) {
+    public static function library(string|\Duo\AdapterLibrary $library): array {
+        self::boot();
+        $dir = is_string($library) ? rtrim($library, '/') : null;
+        if (is_string($dir) && !is_dir($dir)) {
             throw new FleetCensusRefusal(
                 'census_library_unreadable',
                 'the manifest library directory does not exist',
@@ -553,8 +557,12 @@ final class FleetCensus {
             );
         }
         try {
-            $platform = \Duo\ManifestDispositions::platform_boundary($dir);
-            $dispositions = \Duo\ManifestDispositions::load($dir);
+            $platform = $library instanceof \Duo\AdapterLibrary
+                ? \Duo\ManifestDispositions::platform_boundary_library($library)
+                : \Duo\ManifestDispositions::platform_boundary((string) $dir);
+            $dispositions = $library instanceof \Duo\AdapterLibrary
+                ? \Duo\ManifestDispositions::load_library($library)
+                : \Duo\ManifestDispositions::load((string) $dir);
         } catch (\Throwable $t) {
             throw new FleetCensusRefusal(
                 'census_library_unreadable',
@@ -582,11 +590,18 @@ final class FleetCensus {
 
         $adapters = [];
         $reviewed = 0;
-        foreach (glob($dir . '/*.json') ?: [] as $file) {
-            $name = basename($file, '.json');
-            if ($name === 'dispositions') {
-                continue;
+        $manifestPaths = [];
+        if ($library instanceof \Duo\AdapterLibrary) {
+            foreach ($library->packages() as $package) {
+                $manifestPaths[$package->name()] = $package->manifestPath();
             }
+            ksort($manifestPaths, SORT_STRING);
+        } else {
+            foreach (glob((string) $dir . '/*.json') ?: [] as $file) {
+                $manifestPaths[basename($file, '.json')] = $file;
+            }
+        }
+        foreach ($manifestPaths as $name => $file) {
             $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($file));
             if (!is_array($manifest)) {
                 continue;
@@ -1267,7 +1282,7 @@ final class FleetCensus {
         foreach ($classmap as $path) {
             $files[basename((string) $path, '.php')] = (string) $path;
         }
-        foreach (['Canon', 'ManifestDispositions', 'Coverage'] as $class) {
+        foreach (['Canon', 'ManifestDispositions', 'Coverage', 'Policy'] as $class) {
             $file = $files[$class] ?? null;
             if (!is_string($file)) {
                 throw new FleetCensusRefusal(

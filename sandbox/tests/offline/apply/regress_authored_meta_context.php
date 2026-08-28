@@ -47,7 +47,7 @@ require_once __DIR__ . '/../../../../agent/src/Apply/UserMetaMaterializer.php';
 // The shipped interpreter itself, not a hand-copied twin: this suite is only
 // evidence if the sibling-dependent rule under test is adapter-identity bytes
 // (AGENTS.md rule 2).
-require_once __DIR__ . '/../../../../manifests/interpreters/acf.php';
+require_once __DIR__ . '/../../../../adapter-packages/acf/package/runtime/interpreters/acf.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\CacheInvalidationTransaction;
@@ -64,7 +64,8 @@ const RELATED_TOKEN = '{{post:' . RELATED_UUID . '}}';
 const RELATED_WIRE = 'a:1:{i:0;s:2:"41";}';
 
 /**
- * The certify-matrix subject, verbatim from sandbox/tests/certify/matrix.d/acf.sh:
+ * The certify-matrix subject, verbatim from
+ * adapter-packages/acf/tests/certify/version-matrix.sh:
  * one relationship field named duo_related, whose value meta carries the ids
  * and whose '_duo_related' shadow meta carries the field-key pointer.
  */
@@ -284,7 +285,7 @@ duo_check_same(
 // against the same pre-write map. A target user with no ACF rows yet is the
 // user-side twin of case 1, and ACF fields on users are a shipped claim
 // (manifests/interpreters/acf.php's user_meta_rule(), exercised by
-// sandbox/conformance/seeds/acf.sh).
+// adapter-packages/acf/tests/conformance/seed.sh).
 $userFresh = $run($makeDb(), static function (ApplyFieldMaterializer $field, UserMetaMaterializer $user): void {
     $user->finalize_user_meta([
         'login' => 'editor',

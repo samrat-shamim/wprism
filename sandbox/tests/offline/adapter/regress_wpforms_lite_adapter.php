@@ -99,6 +99,7 @@ require_once $root . '/agent/src/Adapter/AdapterContractGrammar.php';
 
 use Duo\AdapterCertification;
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\Blocks;
 use Duo\BodyRefGrammar;
 use Duo\Canon;
@@ -136,7 +137,8 @@ $confirmationPath = '$.settings.confirmations.*.page';
  *
  * @param array<string,mixed> $manifest
  */
-$loadSite = static function (array $manifest) use ($root): Policy {
+$sourceLibrary = AdapterLibrary::fromSourceTree($root);
+$loadSite = static function (array $manifest) use ($sourceLibrary): Policy {
     $dir = sys_get_temp_dir() . '/duo_wpforms_site_' . bin2hex(random_bytes(8));
     if (!mkdir($dir . '/adapters', 0700, true) && !is_dir($dir . '/adapters')) {
         throw new RuntimeException("could not create scratch site repository $dir");
@@ -155,12 +157,9 @@ $loadSite = static function (array $manifest) use ($root): Policy {
         'policy' => new stdClass(),
         'spec_version' => DUO_SPEC_VERSION,
     ]));
-    // The shipped library stays the real one: a site adapter loads BESIDE it,
-    // and pointing DUO_MANIFESTS_DIR at the scratch repo would make the same
-    // file its own shipped namesake ("shadows the shipped adapter").
-    putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-
-    return Policy::load($dir, ['wpforms-lite']);
+    // The shipped package inventory stays explicit: a site adapter loads
+    // beside it, never through process-global directory selection.
+    return Policy::load($dir, ['wpforms-lite'], adapterLibrary: $sourceLibrary);
 };
 
 /** @param array<string,mixed> $overlay */
@@ -846,7 +845,7 @@ duo_check(
     'F1: through the DERIVED profile, which is the floor an author gets without writing a document'
 );
 $derivedVerified = AdapterCertification::verifyFile(
-    Policy::manifests_dir(),
+    $sourceLibrary,
     $derivedRepo,
     'wpforms-lite',
     $adapter,
@@ -979,7 +978,7 @@ duo_check(
     'F3: and reports the AUTHORED basis, which `duo adapter recertify` reads to refuse re-deriving over it'
 );
 $authoredVerified = AdapterCertification::verifyFile(
-    Policy::manifests_dir(),
+    $sourceLibrary,
     $authoredRepo,
     'wpforms-lite',
     $adapter,

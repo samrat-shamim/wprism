@@ -306,7 +306,7 @@ Usage:
   duo env provider-check <env> [--role=source|target] [--format=json]
   duo env provider-check <env> --cycle --from <disposable-src>
                          --confirm-disposable [--create] [--branch <ref>] [--format=json]
-  duo manifest-validate <manifests-dir> [--manifest=<name>[,...]]
+  duo manifest-validate <adapter-library> [--manifest=<name>[,...]]
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
@@ -315,18 +315,22 @@ Usage:
                     [--evidence=<probe.json>] [--seed=<coverage.json>]
                     [--out=<path> [--force]] [--format=json]
                     [--check-proposals|--gap-report]
-  duo adapter list [--repo=<site-repo>] [--format=json]
-  duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
-  duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter list [--repo=<site-repo>] [--adapter-library=<root>] [--format=json]
+  duo adapter inspect <name> [--repo=<site-repo>] [--adapter-library=<root>] [--format=json]
+  duo adapter doctor [--repo=<site-repo>] [--adapter-library=<root>] [--format=json]
   duo adapter doctor --migration --repo=<site-repo> [--artifact=<artifact.json>]
                      [--scope-contract=<scope-contract.json>]
-                     [--snapshot=<snapshot.json>] [--format=json]
+                     [--snapshot=<snapshot.json>] [--adapter-library=<root>]
+                     [--format=json]
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
                       [--key-id=<id>] [--reason=<text>]
-                      [--ratification-file=<f>] [--pin [--adopt-scope]]
+                      [--ratification-file=<f>] [--adapter-library=<root>]
+                      [--pin [--adopt-scope]]
   duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
-  duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
+                        [--adapter-library=<source-or-archive-root>]
+  duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
+                  [--adapter-library=<root>] [--adopt-scope]
   duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
   duo adapter boundary --releases=<release-list.json> --anchor=<version>
                        [--outcomes=<outcomes.json>] [--from=<v>] [--to=<v>]
@@ -334,9 +338,9 @@ Usage:
   duo adapter proposals [--ledger=<dir>] [--manifests=<dir>] [--format=json]
   duo adapter discover --index=<index.json> [--repo=<site-repo>] [--format=json]
   duo adapter install <site-repo> --index=<index.json> --name=<n>
-                      [--version=<v>] [--format=json]
+                      [--version=<v>] [--adapter-library=<root>] [--format=json]
   duo adapter update <site-repo> --index=<index.json> --name=<n> --to=<v>
-                     [--format=json]
+                     [--adapter-library=<root>] [--format=json]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -366,6 +370,7 @@ Usage:
   duo release --spec-v3 <site-repo> [--artifact=<artifact.json>]
                     [--scope-contract=<scope-contract.json>]
                     [--snapshot=<snapshot.json>] [--format=json]
+                    [--adapter-library=<source-or-archive-root>]
   duo verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
   duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
                     [--operator-directed] [--limit=<1..200>] [--format=json]
@@ -427,13 +432,13 @@ Verbs:
   envs                    List environments from site.duo.json + .duo-envs.json
                           (overlay wins per env name), with transport summaries.
   manifest-validate       Adapter-authoring aid: run the engine's REAL manifest
-    <manifests-dir>       validators over a directory of manifests with no
-    [--manifest=<names>]  WordPress, no database, and no environment. Each
+    <adapter-library>     validators over a source checkout or explicit adapter
+    [--manifest=<names>]  library with no WordPress, database, or environment. Each
     [--pins=<names>]      manifest is loaded on its own (so every verdict shows
     [--all]               in one run), then the requested pin set is co-loaded
     [--site=<site-repo>]  so the cross-manifest guards run too; --manifest
     [--no-code]           narrows what is checked individually, --pins/--all the
-    [--format=json]       co-loaded set (default: every manifest in the dir).
+    [--format=json]       co-loaded set (default: every adapter in the library).
     [--emit-schema]       Engine messages carry their own exact coordinates and
                           are surfaced verbatim; a per-manifest row carries the
                           manifest's file path, the pin-set row the paths of
@@ -444,7 +449,7 @@ Verbs:
                           policy as input, so without it a manifest valid on its
                           real site can be refused here; such a refusal is
                           annotated as possibly site-resolvable rather than
-                          rewritten. TRUST: point this only at a manifests dir
+                          rewritten. TRUST: point this only at a library
                           you trust as much as the agent's own — a declared
                           interpreter/regenerator is resolved, which LOADS that
                           PHP (top level + constructor). --no-code skips that
@@ -526,6 +531,7 @@ Verbs:
                           prior draft are carried forward.
   adapter list            The installed adapter catalog, from the two sources
     [--repo=<site-repo>]  this WordPress-free process can reach: the agent's own
+    [--adapter-library=<root>] adapter library, or one explicitly selected source,
     [--format=json]       manifest library and, with --repo, that site
                           repository's own adapters/ overlay. One row per
                           adapter — name, source, derived trust tier and the
@@ -543,6 +549,7 @@ Verbs:
                           mistaken for "nothing is installed".
   adapter inspect <name>  One adapter in full: the list row plus its reviewed
     [--repo=<site-repo>]  disposition entry, the capability claim that
+    [--adapter-library=<root>] belongs to the same explicitly selected library,
     [--format=json]       disposition projects (supported versions, operations,
                           surfaces, explicit unsupported boundaries, the
                           evidence citation), the providers it requires with the
@@ -556,6 +563,7 @@ Verbs:
                           and writes the exact object.
   adapter doctor          list, plus every readiness blocker for this
     [--repo=<site-repo>]  repository's pins (with --repo) and every installed
+    [--adapter-library=<root>] file in the same explicitly selected library,
     [--format=json]       file the engine refuses to load — a shadowed adapter,
                           an ambiguous identity, a case-confusable name, a
                           symlink, a nested or near-miss .json, a reserved name
@@ -644,7 +652,7 @@ Verbs:
                           a validator run cannot review them.
                           --ratification-file signs the disposition YOU wrote
                           instead of the derived one: the BARE entry
-                          manifests/dispositions/<name>.json carries at its top
+                          adapter-packages/<name>/package/disposition.json carries at its top
                           level — {capabilities, default_authored_keyspaces,
                           evidence, reason, status, supported_versions,
                           unsupported}, never the duo-manifest-dispositions/v1
@@ -661,6 +669,10 @@ Verbs:
     <site-repo>           under the key each certificate already names, in one
     --secret-key-file=<f> idempotent invocation. The flag day's remedy: a
     [--format=json]       certificate binds `spec_version` inside its signed
+    [--adapter-library=<root>]
+                          Use one explicit source, embedded, or historical-flat
+                          library instead of the checkout default; no process
+                          environment can redirect the production library.
                           statement, so every certificate minted before the v3
                           bump withdraws to `uncertified` (a named degradation
                           — the adapter keeps loading, capture and plan stay
@@ -715,7 +727,7 @@ Verbs:
     [--outcomes=<f>]      candidate with its exact URL and sha256 — nothing
     [--from=<v>]          here reaches the network, and an unpinned candidate
     [--to=<v>]            is refused rather than fetched, the same discipline
-    [--manifest=<n>]      artifacts.lock.json already holds. --anchor names a
+    [--manifest=<n>]      the artifact library already holds. --anchor names a
     [--format=json]       release believed green; the search bisects outward
                           from it in O(log releases) probes. One probe is a
                           full pair round-trip, so this is a PLANNER over an
@@ -730,10 +742,11 @@ Verbs:
                           release is never proposed as a boundary, and a
                           recorded failure INSIDE the settled window blocks
                           instead of narrowing the claim by guess. The output
-                          includes artifacts.lock.json rows in that file's own
+                          includes package artifact rows in the library's own
                           three-role vocabulary. It never writes a manifest:
                           the range and its Canon-byte-equal restatement in
-                          dispositions/<name>.json stay one reviewed human edit.
+                          package/manifest.json and package/disposition.json
+                          stay one reviewed human edit.
   adapter proposals       The scheduled job around that planner. Reads every
     [--ledger=<dir>]      <slug>.releases.json / <slug>.outcomes.json in the
     [--manifests=<dir>]   ledger directory, derives each adapter's anchor from
@@ -745,14 +758,14 @@ Verbs:
                           agree on the canonical bytes
                           ManifestDispositions.php:632-637 compares. Nothing is
                           written: applying them stays a reviewed human edit,
-                          because a byte under manifests/ is adapter identity.
+                          because a byte in a package payload is adapter identity.
                           A bisection that never reached green is REFUSED, not
                           proposed, and a range that would contain a recorded
                           failing release is refused too. It also derives a
                           per-adapter freshness row — last_verified is the
                           newest green probe, shaped like platform.json's own
                           per-axis last_verified — and that fact lives OUTSIDE
-                          manifests/ on purpose: stored beside a manifest it
+                          package payloads on purpose: stored beside a manifest it
                           would move every adapter digest on every
                           re-verification. `duo census --health=<doc>` ranks
                           the rows beside the demand rank.
@@ -1150,7 +1163,11 @@ Verbs:
     [--scope-contract=<f>]  1. Enumerate what the bump reaches on THIS site by
     [--snapshot=<f>]           calling `adapter doctor --migration`'s own
     [--format=json]            preflight — never a second answer to the same
-                               question. The optional --artifact /
+    [--adapter-library=<root>]  question. An explicit source, embedded, or
+                               historical-flat library is accepted for a
+                               reviewed archive migration; the process
+                               environment never selects one.
+                               The optional --artifact /
                                --scope-contract / --snapshot are the documents
                                a deployed site holds and git does not; each one
                                omitted becomes a `deferred` row naming the flag
@@ -1560,8 +1577,8 @@ function main(array $argv): int {
         }
     }
 
-    // No environment, no transport, no registry: this one reads manifest files
-    // on this machine and drives the engine's own offline validators over them.
+    // No environment or transport: this reads one explicit adapter library on
+    // this machine and drives the engine's own offline validators over it.
     if ($verb === 'manifest-validate') {
         return ManifestValidate::run($rest);
     }
@@ -1963,7 +1980,7 @@ function render_command_refusal_human(array $refusal): void {
         // operator was told to inspect evidence nobody had told them existed;
         // CommandOutput::redactedRefusalEvidenceHint() already names the same
         // place for the transport-detail path (DUO-3496).
-        fwrite(STDERR, "details: redacted from machine output; inspect private operator evidence"
+        fwrite(STDERR, 'details: redacted from machine output; inspect private operator evidence'
             . " under the target site repository's .duo/refusals/\n");
     }
 }

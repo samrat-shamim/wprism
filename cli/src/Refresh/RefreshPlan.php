@@ -141,47 +141,47 @@ final class RefreshPlan {
         if ($head['exit'] !== 0 || !hash_equals($commit, trim($head['stdout']))) {
             throw new \RuntimeException("$label Git worktree HEAD does not match its declared commit");
         }
-        $old = getenv('DUO_MANIFESTS_DIR');
-        putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-        try {
-            $policy = \Duo\Policy::load($root);
-            $fieldDiffPolicy = self::fieldDiffPolicyProjection($policy);
-            $compiled = in_array($label, self::DIFF_ONLY_ROLES, true)
-                ? \Duo\RepositoryCompiler::compile_for_diff($root, $policy)
-                : \Duo\RepositoryCompiler::compile($root, $policy);
-            if ($scopeMode === 'candidate' || $scopePath !== null) {
-                if ($scopeMode !== 'candidate' || $scopePath === null || !is_file($scopePath)) {
+        [$compiled, $fieldDiffPolicy] = self::withGitWorktreePolicy(
+            $root,
+            static function (\Duo\Policy $policy) use ($root, $label, $scopeMode, $scopePath): array {
+                $fieldDiffPolicy = self::fieldDiffPolicyProjection($policy);
+                $compiled = in_array($label, self::DIFF_ONLY_ROLES, true)
+                    ? \Duo\RepositoryCompiler::compile_for_diff($root, $policy)
+                    : \Duo\RepositoryCompiler::compile($root, $policy);
+                if ($scopeMode === 'candidate' || $scopePath !== null) {
+                    if ($scopeMode !== 'candidate' || $scopePath === null || !is_file($scopePath)) {
+                        throw new \RuntimeException('cannot validate scoped candidate: malformed worker request');
+                    }
+                    $decoded = \Duo\Canon::decode(\Duo\Canon::read_file($scopePath));
+                    if (!is_array($decoded)) {
+                        throw new \RuntimeException('cannot validate scoped candidate: contract is not an object');
+                    }
+                    $contract = \Duo\ScopeContract::from_array($decoded);
+                    $sourceTombstones = array_fill_keys(
+                        array_map('strval', array_column((array) $contract['tombstones'], 'uuid')),
+                        true
+                    );
+                    $selected = array_fill_keys(\Duo\ScopedStateOverlay::selected_identities($contract), true);
+                    $authorizedDeletions = [];
+                    foreach (array_keys($compiled->deletions()) as $identity) {
+                        $identity = (string) $identity;
+                        if (isset($selected[$identity]) && !isset($sourceTombstones[$identity])) {
+                            $authorizedDeletions[] = $identity;
+                        }
+                    }
+                    \Duo\ScopeContract::assert_candidate_bounded(
+                        $contract,
+                        $compiled,
+                        $policy,
+                        $authorizedDeletions
+                    );
+                } elseif ($scopeMode !== null && $scopeMode !== 'complete-media') {
                     throw new \RuntimeException('cannot validate scoped candidate: malformed worker request');
                 }
-                $decoded = \Duo\Canon::decode(\Duo\Canon::read_file($scopePath));
-                if (!is_array($decoded)) {
-                    throw new \RuntimeException('cannot validate scoped candidate: contract is not an object');
-                }
-                $contract = \Duo\ScopeContract::from_array($decoded);
-                $sourceTombstones = array_fill_keys(
-                    array_map('strval', array_column((array) $contract['tombstones'], 'uuid')),
-                    true
-                );
-                $selected = array_fill_keys(\Duo\ScopedStateOverlay::selected_identities($contract), true);
-                $authorizedDeletions = [];
-                foreach (array_keys($compiled->deletions()) as $identity) {
-                    $identity = (string) $identity;
-                    if (isset($selected[$identity]) && !isset($sourceTombstones[$identity])) {
-                        $authorizedDeletions[] = $identity;
-                    }
-                }
-                \Duo\ScopeContract::assert_candidate_bounded(
-                    $contract,
-                    $compiled,
-                    $policy,
-                    $authorizedDeletions
-                );
-            } elseif ($scopeMode !== null && $scopeMode !== 'complete-media') {
-                throw new \RuntimeException('cannot validate scoped candidate: malformed worker request');
+
+                return [$compiled, $fieldDiffPolicy];
             }
-        } finally {
-            $old === false ? putenv('DUO_MANIFESTS_DIR') : putenv('DUO_MANIFESTS_DIR=' . $old);
-        }
+        );
         $artifact = $compiled->export();
         $records = [];
         foreach ($compiled->tree() as $identity => $row) {
@@ -299,13 +299,48 @@ final class RefreshPlan {
         if ($head['exit'] !== 0 || !hash_equals($commit, trim($head['stdout']))) {
             throw new \RuntimeException('candidate Git worktree HEAD does not match its declared commit');
         }
-        $old = getenv('DUO_MANIFESTS_DIR');
-        putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-        try {
-            return self::fieldDiffPolicyProjection(\Duo\Policy::load($root));
-        } finally {
-            $old === false ? putenv('DUO_MANIFESTS_DIR') : putenv('DUO_MANIFESTS_DIR=' . $old);
+        return self::withGitWorktreePolicy(
+            $root,
+            static fn(\Duo\Policy $policy): array => self::fieldDiffPolicyProjection($policy)
+        );
+    }
+
+    /** Run against a ref's package library without changing process-global policy state. */
+    private static function withGitWorktreePolicy(string $root, callable $operation): mixed {
+        $packages = $root . '/adapter-packages';
+        $platform = $root . '/platform/adapter-library';
+        if (file_exists($packages) || is_link($packages) || file_exists($platform) || is_link($platform)) {
+            return $operation(
+                \Duo\Policy::load(
+                    $root,
+                    null,
+                    false,
+                    null,
+                    \Duo\AdapterLibrary::fromSourceTree($root)
+                )
+            );
         }
+
+        $legacy = $root . '/manifests';
+        if (is_dir($legacy)) {
+            // Historical Git refs may still carry the pre-package layout.
+            // Reading that explicitly named ref is the one bounded use for
+            // the strict legacy reader; it never changes runtime discovery.
+            return $operation(
+                \Duo\Policy::load(
+                    $root,
+                    null,
+                    false,
+                    null,
+                    \Duo\AdapterLibrary::fromLegacyFlatDirectory($legacy)
+                )
+            );
+        }
+
+        // A normal site repository owns adapters/ and canonical state, not the
+        // engine's shipped library. Compile it against the library belonging
+        // to this process, exactly as an ordinary Policy::load($root) does.
+        return $operation(\Duo\Policy::load($root));
     }
 
     /** @return array<string,mixed> */

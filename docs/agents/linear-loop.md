@@ -173,15 +173,18 @@ branch or edit files before this passes.
    silent fallbacks, or compat shims. Match the codebase's comment style
    (rationale-dense docblocks stating constraints and evidence).
 3. Every fix ships with regression coverage that fails against the prior
-   defect (a `sandbox/tests/offline/<domain>/regress_*.{php,sh}` or a
-   conformance fixture — read an existing one for the idiom). Tests use the
-   product path, not shortcuts.
+   defect. Adapter-owned coverage stays in
+   `adapter-packages/<slug>/tests/`; shared engine/product coverage goes in
+   `sandbox/tests/offline/<domain>/`, and cross-adapter behavior goes in an
+   explicit `integration-scenarios/<name>/`. Tests use the product path, not
+   shortcuts.
 4. Verify per the issue's Evidence section, plus mechanically: `php -l` every
    touched PHP file, `bash -n` every touched script, and — first and densest,
    because there is NO CI and local evidence is the whole merge gate — `make
-   regress-offline-all` green (DUO-3285): the full offline (no-docker) corpus,
-   cheap enough to run every time, catching mechanisms whose own proof sits
-   outside the suite you'd think to run by name. Live conformance is then
+   regress-offline-all` green: the full offline (no-docker) aggregate — shared
+   leaves plus dynamic discovery of every adapter capsule — catching mechanisms
+   whose own proof sits outside the suite you'd think to run by name. Live
+   conformance is then
    scoped to the MINIMAL reasonably-safe set per Evidence scoping below —
    usually zero or one sweep, never the full manifest matrix by habit.
    Warnings are not green: human output, machine output, and exit status must
@@ -192,7 +195,7 @@ branch or edit files before this passes.
 ### Evidence scoping
 
 - **Minimal reasonably-safe live set, by diff — scope it, never run the matrix
-  by habit.** `make regress-offline-all` (~5 min) is unconditional (DUO-3285);
+  by habit.** `make regress-offline-all` is unconditional;
   nothing below reduces it. The unit of scoping is the set of live surfaces
   that actually EXECUTE the changed code — that set can be empty, one, or
   several, and the cases below are how you compute it. Run that smallest set,
@@ -201,12 +204,12 @@ branch or edit files before this passes.
     suites and their fixtures) → **no sweep**; the offline corpus is the gate.
     `sandbox/tests/` is split by execution class — `offline/<domain>/` is what
     the merge gate runs, while `live/`, `grind/`, `certify/` and `spike/` are
-    LIVE-only — and `regress_suite_wiring.php`'s clause 4 refuses a suite wired
-    to a target of any class but its own directory's, so the path is the class
-    rather than a convention to re-derive. An edit under those four therefore
-    executes nowhere offline: prove its edited logic offline instead (a static
-    pin or a simulated input driving the same jq/shell logic, the
-    DUO-3362/DUO-3406 pattern) or run the edited script's own path once.
+    LIVE-only. Adapter capsules use the same class names under their own
+    `tests/` directories; the fixed `regress-adapter-packages` row discovers
+    their offline suites. An edit to live-only evidence therefore executes
+    nowhere offline: prove its edited logic offline instead (a static pin or a
+    simulated input driving the same jq/shell logic, the DUO-3362/DUO-3406
+    pattern) or run the edited script's own path once.
   - **`agent/src`/`Policy.php` engine internals** → **one sweep of the
     cheapest manifest that executes the changed path** (`core` for generic
     capture/apply/publish/lint paths; a plugin's manifest when the change is
@@ -215,22 +218,24 @@ branch or edit files before this passes.
     path reaches the change (a direct-call-only surface, a WordPress-free host
     verb), the affected set is empty: no sweep, with that proof recorded in
     the PR.
-  - **A `sandbox/conformance/` / `sandbox/bin/` harness change** → one real
-    sweep that EXECUTES the edited file: for a per-manifest check/seed/
-    postdeploy that means THAT manifest's own sweep (an unrelated sweep never
-    runs the edited file); for shared harness (`run.sh`, `asserts.sh`,
+  - **A package-local conformance asset or shared `sandbox/bin/` harness
+    change** → one real sweep that EXECUTES the edited file: for a capsule's
+    check/seed/postdeploy that means THAT adapter's own sweep (an unrelated
+    sweep never runs the edited file); for shared harness (`run.sh`, `asserts.sh`,
     `pair.sh`) any cheapest sweep exercises it. The code that produces
     evidence needs at least one real run of itself.
-  - **A `manifests/*.json` / `providers/` / `interpreters/` / `regenerators/` /
-    dispositions EDIT** → one sweep of EACH changed adapter's own fixture —
-    minimality means skipping unaffected adapters, never skipping changed ones.
+  - **An `adapter-packages/<slug>/package/` edit** → first run that capsule's
+    validator and offline tests, then one live sweep of EACH changed adapter's
+    own fixture — minimality means skipping unaffected adapters, never skipping
+    changed ones.
   - **A flaky / timing-sensitive assertion** → N-consecutive sweeps (typically
     3) of the ONE relevant manifest — not the matrix.
   - **A live-pair `regress-*` suite** runs only when the diff touches the
     mechanism its own header names — not by habit.
-  - **A new WP extension joins by adding its manifest, disposition and
-    conformance entry** — no central allowlist or dispatch switch is edited.
-    Its own sweep is the evidence, per the manifest-edit case above.
+  - **A new WP extension joins by adding one capsule** — its manifest,
+    disposition, runtime hooks, fixtures, and tests live under
+    `adapter-packages/<slug>/`; no central allowlist, Makefile leaf, corpus
+    count, or dispatch switch is edited. Its own sweep is the evidence.
   - **Safety floor:** an engine change you genuinely cannot bound to specific
     surfaces gets a small representative SUBSET — `core` plus the richest
     affected adapter surface(s) — never a silent skip, and never an unrelated
@@ -245,7 +250,8 @@ branch or edit files before this passes.
   a matrix, and the proof holds even when a shared, contended docker host
   makes live runs slow or flaky.
 - **Exact-source gate: bind every live run to its commit (DUO-3377).** A
-  pair's `agent`/`manifests` bind mounts resolve to the CANONICAL checkout,
+  pair's `agent`/`adapter-packages`/`platform` bind mounts resolve to the
+  CANONICAL checkout,
   not to whichever checkout ran `pair.sh` (DUO-3277 — a persistent pair
   survives its worktree's removal), so a live run launched from your issue
   worktree exercises the canonical checkout's bytes and its verdict, green or
@@ -254,7 +260,8 @@ branch or edit files before this passes.
   prints the mounted source path and HEAD; set
   `DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (conformance:
   `CONF_EXPECTED_SOURCE_SHA=...`, which `run.sh` exports as that) and any
-  other source — wrong commit, or uncommitted `agent`/`manifests` bytes —
+  other source — wrong commit, or uncommitted
+  `agent`/`adapter-packages`/`platform` bytes —
   refuses BEFORE the budget reservation, the database drop/create, and any
   container start. Run from a clean issue worktree at the candidate HEAD and
   make the live harness mount that exact worktree; never move the canonical
@@ -266,8 +273,9 @@ branch or edit files before this passes.
   The maximal sequence is: implement → offline-all → targeted live suites →
   targeted sweeps → review/fixes → rebase once → final review of `C` over `B`
   → merge promptly.
-- **A manifest / provider / interpreter / regenerator byte change moves adapter
-  identity — recompile and re-pin, do not work around it.** Those file bytes
+- **An adapter package manifest / provider / interpreter / regenerator byte
+  change moves adapter identity — recompile and re-pin, do not work around
+  it.** Those file bytes
   are folded into the per-manifest row that `manifest_hash()` and each
   adapter's `digest` are hashes of
   (`agent/src/Policy/ArtifactPolicyIdentity.php:60-147`). A target still

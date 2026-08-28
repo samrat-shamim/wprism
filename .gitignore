@@ -42,9 +42,9 @@ sandbox/.env
 
 # DUO-3223 (version-boundary matrix / artifact-sourcing ruling, issue
 # comment 0ec1d2e3): the content-addressed cache sandbox/bin/fetch-
-# artifact.sh downloads pinned plugin ZIPs into. sandbox/conformance/
-# artifacts.lock.json (the pins themselves — {slug, version, url, sha256})
-# IS committed; the ZIPs it verifies are exactly the kind of large,
+# artifact.sh downloads pinned plugin ZIPs into. Package-owned
+# evidence/artifacts.lock.json fragments (the pins themselves) ARE committed;
+# the ZIPs they verify are exactly the kind of large,
 # regenerable-from-a-pinned-digest binary blob git should never carry.
 sandbox/conformance/artifacts-cache/*
 !sandbox/conformance/artifacts-cache/.gitkeep

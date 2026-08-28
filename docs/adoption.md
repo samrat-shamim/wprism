@@ -125,8 +125,9 @@ identity, proxy, and host-key policy stay identical:
 
 ## Install, or update over SSH
 
-Run from a Duo source checkout whose `cli/`, `agent/`, `manifests/`, and `recovery/`
-directories belong to the release you intend to install:
+Run from a Duo source checkout whose `cli/`, `agent/`, `adapter-packages/`,
+`platform/`, and `recovery/` directories belong to the release you intend to
+install:
 
 ```sh
 cli/duo doctor production   # expected to report the agent/repo missing first
@@ -137,17 +138,20 @@ Adoption performs these operations:
 
 1. negotiates explicit transport authority; for local targets, proves a
    normalized, disjoint, ordinary, writable filesystem topology and a wholly
-   absent prior Duo agent/loader/manifest/rollback authority without writes;
+   absent prior Duo agent/loader/adapter-library/rollback authority without
+   writes;
 2. verifies reachability and installed WordPress; local adoption discovers the
    standard `WPMU_PLUGIN_DIR` through a plugin-free control bootstrap, while
    SSH preserves its existing target-discovered path contract;
-3. sends one archive containing this checkout's complete `agent/`,
-   `manifests/`, and public recovery-runtime trees;
+3. assembles `adapter-packages/*/package/` and `platform/adapter-library/`
+   into staging's `agent/adapter-library/`, then sends one archive containing
+   exactly the assembled `agent/` and public recovery-runtime trees;
 4. creates every transaction path exclusively, records its filesystem
    identity, stages and rollback-protects the live paths, then installs:
    - `WPMU_PLUGIN_DIR/duo/` (the agent),
    - `WPMU_PLUGIN_DIR/duo-loader.php` (the required top-level loader),
-   - `WPMU_PLUGIN_DIR/manifests/` (the manifest library),
+   - `WPMU_PLUGIN_DIR/duo/adapter-library/` (the embedded, atomically published
+     adapter library),
    - `repo_path/.duo/control/recovery-runtime/` (outside managed code);
 5. for SSH updates, stages the entire existing `repo_path/.duo/` tree
    (including artifacts and checkpoints); local bootstrap requires that tree
@@ -160,7 +164,7 @@ Adoption performs these operations:
    `core` with post/page/attachment and category/post_tag scope;
 7. starts fresh wp-cli processes to prove the remote `DUO_AGENT_VERSION`
    exactly matches this checkout and that `Policy::load()` can read the seed
-   plus installed manifest library;
+   plus installed embedded adapter library;
 8. verifies the recovery runtime can read and validate the external target;
 9. runs the normal public doctor checks while the swap is still rollbackable
    (the local path uses the isolated control plane);
@@ -170,13 +174,15 @@ Adoption performs these operations:
     never triggers restoration from a partially deleted backup.
 
 An existing `site.duo.json` is never overwritten. Over SSH, re-running the
-command is the update mechanism: the current agent and manifest trees are
-replaced by the exact trees beside the invoking CLI, while the site's policy
+command is the update mechanism: the current agent and its embedded adapter
+library are replaced atomically from the invoking checkout's assembled
+projection, while the site's policy
 remains untouched. Local bootstrap refuses a repeat and points to the existing
-installed-environment update path. Symlink destinations are refused rather than followed, and an
-install failure restores the previous agent, loader, manifests, complete
-`.duo` tree, and repository bytes, and removes a seed/directory leaf created
-by that failed run. Cleanup first rechecks each transaction path's recorded
+installed-environment update path. Symlink destinations are refused rather
+than followed, and an install failure restores the previous agent (including
+its library), loader, complete `.duo` tree, and repository bytes, and removes a
+seed/directory leaf created by that failed run. Cleanup first rechecks each
+transaction path's recorded
 filesystem identity; an unexpected replacement is retained for operator
 recovery rather than recursively deleted. A target-side adoption lock refuses
 overlapping operators. If the host process is killed so abruptly that
@@ -195,21 +201,15 @@ the encrypted database before-image slice described in
 promotion automatically recoverable: code/storage, reversibility, and the
 integrated crash matrix must also close.
 
-## Why the manifest directory is installed beside the agent
+## Why the adapter library is embedded in the agent
 
-`DUO_MANIFESTS_DIR` is a process environment variable. A value injected into
-a container, service manager, or interactive shell is not generally present
-in a later SSH login, so it cannot be the installation contract for an SSH
-transport. The earlier hand-run adoption proof worked around that by copying
-manifests to the agent's literal `/duo-manifests` fallback, which also assumes
-the SSH account can modify a root-level path.
-
-`duo adopt` instead uses the other existing `Policy::manifests_dir()`
-fallback: `manifests/` beside the installed `duo/` directory. This layout is
-stable across fresh SSH sessions, stays inside the operator-writable
-mu-plugin directory, and requires neither an environment variable nor root
-filesystem access. Adoption verifies that exact resolved path before it
-reports success.
+Production policy resolution is bound to the installed
+`WPMU_PLUGIN_DIR/duo/adapter-library/`. Adoption constructs that allowlisted
+projection from the checkout's package and platform sources before upload, and
+publishes it atomically with the engine. No environment variable, neighboring
+flat directory, or root-level fallback can select another runtime library.
+This keeps fresh SSH processes on the same engine/library generation and lets
+adoption verify the exact installed projection before reporting success.
 
 ## Version visibility and remaining boundary
 
@@ -224,7 +224,7 @@ standalone freshness guarantee.
 
 ## Upgrading a managed site across the certification-evidence teardown
 
-Two releases changed what an installed manifest library contains and what the
+Two releases changed what an installed adapter library contains and what the
 platform boundary says: #477 removed the certification-evidence apparatus (the
 generated `manifests/capabilities/registry.json`, its evidence record, and the
 per-subject certification bundles adoption used to ship), and #478 removed four
@@ -329,7 +329,7 @@ commits — the commit is the human's signature on the review.
 
 **4. Re-sign any site-adapter certificates you hold.** A site certificate binds
 the compatibility CELLS it was exercised against out of the platform boundary,
-now `manifests/capabilities/platform.json` and previously the `platform` block
+now `platform/adapter-library/capabilities/platform.json` and previously the `platform` block
 inside the deleted `registry.json` (before spec/repo-format.md § v3.6 it bound
 that whole object byte for byte, so any edit refused). Certificates cut against
 the old file bind cells this boundary states differently, so verification
@@ -351,7 +351,8 @@ cli/duo adapter certify <site-repo> --name=<adapter> \
 `duo adapter list` is the check — an adapter that read `site_signed` before the
 upgrade and does not now needs re-signing, and `duo adapter doctor` reports that
 state instead of dying on it. This is only about adapters *you* signed: the
-shipped `manifests/capabilities/adapter-authorities.json` carries `"keys": {}`,
+shipped `platform/adapter-library/capabilities/adapter-authorities.json` carries
+`"keys": {}`,
 so no platform-signed certificate exists to re-issue.
 
 **5. Nothing else needs recompiling or re-pinning.** For the manifests that
@@ -363,9 +364,9 @@ hygiene; only `artifact_hash` moves, and it moves on the next natural compile.
 
 The rule that *does* require a recompile is unchanged by the teardown and worth
 restating, because the advice it replaces used to end in "regenerate the
-registry": editing a shipped manifest's bytes, or the bytes of a
-`manifests/providers/`, `manifests/interpreters/` or `manifests/regenerators/`
-file it names, moves that adapter's identity.
+registry": editing an adapter's `package/manifest.json`, or the bytes of a
+`package/runtime/` provider, interpreter, or regenerator it names, moves that
+adapter's identity.
 `ArtifactPolicyIdentity::manifest_rows()` folds the manifest array, its
 disposition, and `hash_file('sha256', …)` of each named hook file into one row;
 `manifest_hash()` is that row set hashed and `resolved_adapters()` is each row

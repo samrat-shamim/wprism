@@ -74,6 +74,7 @@ require $engineRoot . '/agent/src/Repository/Ledger.php';
 require $engineRoot . '/agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\AdapterSources;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\Policy;
 
@@ -225,9 +226,6 @@ if (__STRICT_ERRORS__) {
         throw new ErrorException($message, 0, $severity, $file, $line);
     });
 }
-if (__MANIFESTS__ !== null) {
-    putenv('DUO_MANIFESTS_DIR=' . __MANIFESTS__);
-}
 $pluginDir = __WP_PLUGIN_DIR__;
 if ($pluginDir !== null) {
     define('WP_PLUGIN_DIR', $pluginDir);
@@ -258,12 +256,13 @@ require __ENGINE_ROOT__ . '/cli/src/Plan/PlanSummary.php';
 $repo = __REPO__;
 $name = __NAME__;
 $payload = [];
+$adapterLibrary = \Duo\Policy::shipped_adapter_library();
 
 // ONE scan per mode, and both views of it: the architectural claim under test
 // is that discover() and survey() are the same walk, so they are taken
 // together and compared by the parent rather than trusted apart.
 try {
-    $discover = \Duo\AdapterSources::discover(\Duo\Policy::manifests_dir(), $repo);
+    $discover = \Duo\AdapterSources::discover_library($adapterLibrary, $repo);
     $payload['discover'] = [
         'names' => array_values(array_map('strval', array_keys((function ($d) {
             $out = [];
@@ -283,7 +282,7 @@ try {
         $payload['discover']['path'] = $discover->path($name);
         $payload['discover']['provenance'] = $discover->provenance($name);
         try {
-            $payload['discover']['file'] = $discover->file($name, \Duo\Policy::manifests_dir());
+            $payload['discover']['file'] = $discover->file($name, $adapterLibrary);
         } catch (\Throwable $t) {
             $payload['discover']['file_error'] = $t->getMessage();
         }
@@ -293,14 +292,14 @@ try {
 }
 
 try {
-    $payload['survey'] = \Duo\AdapterSources::survey($repo);
+    $payload['survey'] = \Duo\AdapterSources::survey_library($adapterLibrary, $repo);
 } catch (\Throwable $t) {
     $payload['survey'] = ['error' => $t->getMessage()];
 }
 
 if (__MODE__ === 'pin' || __MODE__ === 'all') {
     try {
-        $policy = \Duo\Policy::load($repo, [$name]);
+        $policy = \Duo\Policy::load($repo, [$name], adapterLibrary: $adapterLibrary);
         $payload['pin'] = [
             'digest' => \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? null,
             'source' => \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['source'] ?? null,
@@ -316,7 +315,7 @@ if (__MODE__ === 'pin' || __MODE__ === 'all') {
 
 if (__MODE__ === 'load' || __MODE__ === 'all') {
     try {
-        $policy = \Duo\Policy::load($repo);
+        $policy = \Duo\Policy::load($repo, adapterLibrary: $adapterLibrary);
         $payload['load'] = [
             'names' => array_map(static fn(array $m): string => (string) $m['name'], $policy->manifests),
             'diagnostics' => $policy->adapter_sources()->diagnostics($policy->manifests),
@@ -335,7 +334,7 @@ if (__MODE__ === 'load' || __MODE__ === 'all') {
 
 if (__MODE__ === 'snapshot') {
     try {
-        $policy = \Duo\Policy::load($repo);
+        $policy = \Duo\Policy::load($repo, adapterLibrary: $adapterLibrary);
         $payload['snapshot'] = $policy->export_snapshot();
         $payload['resolved'] = \Duo\RepositoryCompiler::resolved_adapters($policy);
     } catch (\Throwable $t) {
@@ -377,7 +376,7 @@ function child(array $spec): array {
     $script = str_replace(
         [
             '__SPEC__', '__AGENT__', '__WP_PLUGIN_DIR__', '__WITH_GET_OPTION__', '__ACTIVE__',
-            '__ENGINE_ROOT__', '__REPO__', '__NAME__', '__MODE__', '__STRICT_ERRORS__', '__MANIFESTS__',
+            '__ENGINE_ROOT__', '__REPO__', '__NAME__', '__MODE__', '__STRICT_ERRORS__',
         ],
         [
             (string) DUO_SPEC_VERSION,
@@ -390,7 +389,6 @@ function child(array $spec): array {
             var_export($spec['name'] ?? null, true),
             var_export($spec['mode'] ?? 'all', true),
             ($spec['strict_errors'] ?? false) ? 'true' : 'false',
-            var_export($spec['manifests'] ?? null, true),
         ],
         child_source()
     );
@@ -441,7 +439,7 @@ function rows_with(array $rows, string $key, string $value): array {
     ));
 }
 
-$manifestDir = Policy::manifests_dir();
+$manifestDir = Policy::shipped_adapter_library();
 
 // ======================================================================
 echo "\n== a plugin bundles an adapter, and it is installed (case a) ==\n";
@@ -674,7 +672,7 @@ check(
     && ($wooShadow['name'] ?? null) === 'woocommerce'
     && ($wooShadow['path'] ?? null) === 'plugins/woocommerce/duo-adapter.json'
     && ($wooShadow['winner']['source'] ?? null) === 'shipped'
-    && ($wooShadow['winner']['path'] ?? null) === $manifestDir . '/woocommerce.json',
+    && ($wooShadow['winner']['path'] ?? null) === $manifestDir->package('woocommerce')->manifestPath(),
     'THE case Amendment A exists for: a plugin that starts bundling a name this project ships produces NO refusal '
     . '— one not_installed row naming the shipped winner'
 );
@@ -1863,30 +1861,35 @@ check(
 // ======================================================================
 echo "\n== `uncertified` is the ONLY certification word this source can hold ==\n";
 // ======================================================================
-// A manifest library carrying neither dispositions nor a generated registry
-// makes no product claim, and a SHIPPED row there reports `null`. A plugin row
-// must still report `uncertified` — the word is a property of the source, not
-// of whether this library happens to have a reviewed certification story, and
-// falling through to the site branch there would answer `certification_unjudged`
-// about evidence that could not exist in the first place.
+// A plugin row must report `uncertified` against the closed shipped library —
+// the word is a property of the source, not of the reviewed claim beside it.
+// A registry-less flat directory is no longer a selectable runtime library:
+// AdapterLibrary closes manifests, dispositions, capabilities and runtime as
+// one inventory, so the old process-selected fixture is itself refused.
 $bareLibrary = scratch('bare-library');
 write_file($bareLibrary . '/solo.json', Canon::encode(adapter('solo')));
 $bare = child([
     'plugins' => $happyPlugins,
     'active' => ['acme/acme.php'],
-    'manifests' => $bareLibrary,
     'name' => 'acme-widget',
 ]);
 $bareRows = $bare['survey']['adapters'] ?? [];
 $barePluginRow = rows_with($bareRows, 'name', 'acme-widget')[0] ?? [];
-$bareShippedRow = rows_with($bareRows, 'name', 'solo')[0] ?? [];
 check(
-    array_key_exists('certification', $barePluginRow) && $barePluginRow['certification'] === 'uncertified'
-    && array_key_exists('certification', $bareShippedRow) && $bareShippedRow['certification'] === null,
-    'against a registry-less library the plugin row still says exactly `uncertified` while the shipped row beside '
-    . 'it correctly says nothing at all (plugin: '
-    . var_export($barePluginRow['certification'] ?? '(absent)', true) . ', shipped: '
-    . var_export($bareShippedRow['certification'] ?? '(absent)', true) . ')'
+    array_key_exists('certification', $barePluginRow) && $barePluginRow['certification'] === 'uncertified',
+    'against the closed packaged library the plugin row still says exactly `uncertified` (found: '
+    . var_export($barePluginRow['certification'] ?? '(absent)', true) . ')'
+);
+$bareRefusal = null;
+try {
+    AdapterLibrary::fromLegacyFlatDirectory($bareLibrary);
+} catch (Throwable $t) {
+    $bareRefusal = $t->getMessage();
+}
+check(
+    is_string($bareRefusal) && str_contains($bareRefusal, 'dispositions directory'),
+    'a registry-less flat directory cannot replace the packaged runtime library; explicit selection refuses the '
+    . 'incomplete inventory (' . ($bareRefusal ?? 'no refusal') . ')'
 );
 
 // The DISCRIMINATING fixture, and the check above is not it: against a

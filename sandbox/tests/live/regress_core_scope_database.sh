@@ -2,7 +2,7 @@
 # Exact-artifact database engine matrix — the live half of the per-engine
 # platform claim.
 #
-# manifests/capabilities/platform.json's database axis is a map from engine to
+# platform/adapter-library/capabilities/platform.json's database axis is a map from engine to
 # that engine's own version line (agent/src/Policy/PlatformCompatibility.php's
 # valid_database_axis()). This suite is what that map's MySQL entry rests on:
 # one full round trip per CLAIMED engine, on that engine's own shared server,
@@ -35,7 +35,7 @@ note() { printf '\033[1;33mnote: %s\033[0m\n' "$*"; }
 PAIR="${CORE_SCOPE_DATABASE_PAIR:-coredb}"
 PORT1="${CORE_SCOPE_DATABASE_PORT1:-8990}"
 PORT2="${CORE_SCOPE_DATABASE_PORT2:-8991}"
-PLATFORM_FILE='../manifests/capabilities/platform.json'
+PLATFORM_FILE='../platform/adapter-library/capabilities/platform.json'
 ARTIFACTS='tmp/core-scope-database'
 
 # The web/cli pair every cell boots. The engine is the variable under test, so

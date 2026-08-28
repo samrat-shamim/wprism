@@ -38,9 +38,10 @@ final class ManifestGrammar {
      * dispositions rather than mechanisms — `authored_typed_snapshot_post_v1`
      * is the pre-existing "declared, and loudly not implemented yet" marker,
      * and runtime/derived/env record a reviewed decision that a table's
-     * contents are target-local (core.json alone classifies 44 tables that
-     * way, which is exactly what keeps them out of `duo pending`'s unknown
-     * queue). The two literals repeat Snapshot::CLASS_ROW/CLASS_META rather
+     * contents are target-local
+     * (`platform/adapter-library/core/manifest.json` alone classifies 44
+     * tables that way, which is exactly what keeps them out of `duo pending`'s
+     * unknown queue). The two literals repeat Snapshot::CLASS_ROW/CLASS_META rather
      * than referencing them: this file must stay loadable with no other
      * engine class present (RepositoryCompiler validates a revision in a
      * process that never constructs Ledger/Tokens/Snapshot), and both
@@ -590,12 +591,14 @@ final class ManifestGrammar {
      * provider corpus, and nothing less.
      *
      * `{cache_group, cache_key}` has exactly two, in two unrelated plugins:
-     *   - `manifests/paid-memberships-pro.json` declares the key-side demand
+     *   - `adapter-packages/paid-memberships-pro/package/manifest.json`
+     *     declares the key-side demand
      *     that its retired provider expressed as `wp_cache_delete($levelId,
      *     'pmpro_membership_level_meta')`. The provider's whole product act was
      *     that call in a loop, which is why PMPro could drop out of
      *     `compatibility_shim` without moving plugin semantics into the engine.
-     *   - `manifests/providers/woocommerce-product-lookups.php:1301` —
+     *   - `adapter-packages/woocommerce/package/runtime/providers/
+     *     woocommerce-product-lookups.php:3601` —
      *     `wp_cache_delete('lookup_table', 'object_' . $id)`, the id on the
      *     GROUP side. Two spellings of one primitive, which is what makes the
      *     `{id}`-in-either-member rule below a generalisation rather than a
@@ -603,10 +606,12 @@ final class ManifestGrammar {
      *
      * Single-demand shapes stay REFUSED and stay RECORDED: a cache entry shared
      * by every row of a table (no `{id}` anywhere) is demanded only by Code
-     * Snippets (`manifests/providers/code-snippets-state.php:94`), so it is
+     * Snippets (`adapter-packages/code-snippets/package/runtime/providers/
+     * code-snippets-state.php:95`), so it is
      * `table_scoped_cache_entry_invalidation` in tools/engine-gaps.json and it
-     * refuses here. That is also the reviewed boundary manifests/woocommerce.
-     * json:307 already drew — "a BLANKET, not row-id-keyed, invalidation …
+     * refuses here. That is also the reviewed boundary in
+     * `adapter-packages/woocommerce/package/manifest.json:662` — "a BLANKET,
+     * not row-id-keyed, invalidation …
      * covered with zero new engine code" through the top-level `actions`
      * channel — so admitting it would overturn a decision, not close a gap.
      *

@@ -95,7 +95,7 @@ $frozenSnapshot = static function (array $manifests): array {
     return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
 };
 try {
-    Policy::from_snapshot($frozenSnapshot([manifest_a(), manifest_b()]));
+    manifest_fixture_policy_from_snapshot($frozenSnapshot([manifest_a(), manifest_b()]));
     $check(true, 'Policy::from_snapshot() uses the extracted frozen pipeline');
 } catch (Throwable $e) {
     $check(false, 'Policy::from_snapshot() uses the extracted frozen pipeline (threw: ' . $e->getMessage() . ')');
@@ -112,28 +112,14 @@ Canon::write_file($root . '/site.duo.json', Canon::encode([
 ]));
 Canon::write_file($manifests . '/a.json', Canon::encode(manifest_a()));
 Canon::write_file($manifests . '/b.json', Canon::encode(manifest_b()));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$manifests");
+$adapterLibrary = manifest_fixture_adapter_library($manifests);
 try {
-    Policy::load($root);
+    Policy::load($root, adapterLibrary: $adapterLibrary);
     $check(true, 'Policy::load() uses the extracted live pipeline');
 } catch (Throwable $e) {
     $check(false, 'Policy::load() uses the extracted live pipeline (threw: ' . $e->getMessage() . ')');
 }
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($manifests . '/*') ?: [] as $file) {
-    if (is_file($file)) {
-        unlink($file);
-    }
-}
-manifest_fixture_code_cleanup($manifests);
-rmdir($manifests);
-unlink($root . '/site.duo.json');
-rmdir($root);
+manifest_fixture_remove_tree($root);
 
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";

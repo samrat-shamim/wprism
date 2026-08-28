@@ -18,7 +18,7 @@ FRAGMENT=conformance/asserts.sh
 
 # Every require_* invoked anywhere in the hooks both harnesses source...
 # (require_once is PHP inside the hooks' heredocs, not a bash helper.)
-CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/postapply/ conformance/checks/ conformance/capture-checks/ | grep -v '^require_once$' | sort -u)
+CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/postapply/ conformance/checks/ conformance/capture-checks/ ../adapter-packages/*/tests/conformance/ | grep -v '^require_once$' | sort -u)
 [ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ + capture-checks/ — the grep itself regressed"
 
 # ...must be defined in the fragment (definition = `name() {`).
@@ -36,12 +36,12 @@ for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
 done
 pass "both hook-sourcing harnesses source the fragment"
 
-grep -q 'POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh \
-  || fail 'conformance/run.sh does not invoke the convention-named post-apply hook'
+grep -q 'POSTAPPLY=$(conformance_hook postapply.sh "conformance/postapply/\$MANIFEST.sh")' conformance/run.sh \
+  || fail 'conformance/run.sh does not resolve the package-first post-apply hook'
 APPLY_LINE=$(grep -n 'pass "apply succeeded, side-effect canary clean"' conformance/run.sh | cut -d: -f1)
-POSTAPPLY_LINE=$(grep -n '^POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+POSTAPPLY_LINE=$(grep -n '^POSTAPPLY=$(conformance_hook postapply.sh ' conformance/run.sh | cut -d: -f1)
 RECAPTURE_LINE=$(grep -n '^say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"' conformance/run.sh | cut -d: -f1)
-CHECK_LINE=$(grep -n '^CHECK="conformance/checks/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+CHECK_LINE=$(grep -n '^CHECK=$(conformance_hook check.sh ' conformance/run.sh | cut -d: -f1)
 [ "$APPLY_LINE" -lt "$POSTAPPLY_LINE" ] \
   && [ "$POSTAPPLY_LINE" -lt "$RECAPTURE_LINE" ] \
   && [ "$RECAPTURE_LINE" -lt "$CHECK_LINE" ] \
@@ -50,7 +50,7 @@ pass 'post-apply target-local witness hooks have one convention path and an exac
 
 # And the fragment must not silently grow a second definition home: the
 # helpers may be defined nowhere else.
-DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ | grep -v "^$FRAGMENT\$" | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
+DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ ../adapter-packages/*/tests/conformance/ | grep -v "^$FRAGMENT\$" | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
 [ -z "$DUPES" ] || fail "helper definitions exist outside the fragment (one owner per grammar):$DUPES"
 pass "the fragment is the single definition home"
 
@@ -58,7 +58,7 @@ pass "the fragment is the single definition home"
 # curl directly into grep -q lets grep close early after a match; curl then
 # reports EPIPE (exit 23) and the live check falsely fails a working route.
 # Buffering the body also keeps transport success separate from body content.
-EARLY_CLOSE_CURL=$(grep -En '^[^#]*curl[^#|]*\|[^#]*grep[^#]*-[[:alpha:]]*q' conformance/checks/*.sh || true)
+EARLY_CLOSE_CURL=$(grep -En '^[^#]*curl[^#|]*\|[^#]*grep[^#]*-[[:alpha:]]*q' conformance/checks/*.sh ../adapter-packages/*/tests/conformance/check.sh || true)
 [ -z "$EARLY_CLOSE_CURL" ] \
   || fail "conformance check streams curl into early-closing grep -q under pipefail; capture the body first: $EARLY_CLOSE_CURL"
 pass "conformance checks separate HTTP transport success from body matching (no curl | grep -q EPIPE false negatives)"
@@ -69,11 +69,103 @@ pass "conformance checks separate HTTP transport success from body matching (no 
 # source-side hook timing, and the early stop before clone/deploy/apply.
 grep -q 'roundtrip|capture-plan' conformance/run.sh \
   || fail "conformance/run.sh has no closed capture-plan mode vocabulary"
-grep -q 'CAPTURE_CHECK="conformance/capture-checks/\$MANIFEST.sh"' conformance/run.sh \
-  || fail "conformance/run.sh does not invoke the convention-named source-side capture check"
+grep -q 'CAPTURE_CHECK=$(conformance_hook capture-check.sh "conformance/capture-checks/\$MANIFEST.sh")' conformance/run.sh \
+  || fail "conformance/run.sh does not resolve the package-first source-side capture check"
 grep -q 'CONFORMANCE PASSED (%s; capture-plan)' conformance/run.sh \
   || fail "conformance/run.sh has no explicit successful early terminal before target apply"
 pass "capture-plan mode is closed, convention-hooked, and terminates explicitly before target apply"
+
+# Every shipped adapter owns its entry and hooks; the shared aggregate was
+# retired so adding an adapter never edits conformance infrastructure.
+for manifest in ../adapter-packages/*; do
+  name=${manifest##*/}
+  [ "$name" = duo-agency-cpt ] && continue
+  [ -f "$manifest/tests/conformance/entry.json" ] \
+    && [ -f "$manifest/tests/conformance/seed.sh" ] \
+    && [ -f "$manifest/tests/conformance/check.sh" ] \
+    || fail "adapter package $name does not own its conformance entry, seed, and check"
+done
+[ ! -e conformance/manifests.json ] \
+  || fail 'the retired shared conformance registry still exists'
+grep -q 'PACKAGE_ENTRY="$PACKAGE_CONFORMANCE/entry.json"' conformance/run.sh \
+  || fail 'conformance/run.sh does not discover a package-owned entry'
+pass 'adapter conformance entries and hooks are package-owned and package-first discovered'
+
+[ -f ../adapter-packages/acf/tests/certify/version-matrix.sh ] \
+  && [ ! -e tests/certify/matrix.d/acf.sh ] \
+  || fail 'the ACF version-matrix hook has duplicate or missing ownership'
+grep -Fq 'VMATRIX_CAPSULE="../adapter-packages/$VMATRIX_MANIFEST/tests/certify/version-matrix.sh"' tests/certify/certify_version_matrix.sh \
+  && grep -Fq '. "$VMATRIX_CAPSULE"' tests/certify/certify_version_matrix.sh \
+  || fail 'the shared certify matrix does not source the selected package-owned capsule'
+if grep -Eq 'adapter-packages/\*|^if \[ "\$VMATRIX_MANIFEST" = ' tests/certify/certify_version_matrix.sh; then
+  fail 'the shared certify matrix still owns a package registry or adapter-specific case dispatch'
+fi
+for package in ../adapter-packages/*; do
+  disposition="$package/package/disposition.json"
+  [ -f "$disposition" ] || continue
+  jq -e '.evidence.tests | index("exact-artifact-version-matrix") != null' "$disposition" >/dev/null 2>&1 \
+    || continue
+  capsule="$package/tests/certify/version-matrix.sh"
+  [ -f "$capsule" ] \
+    && grep -q '^VMATRIX_PLUGIN_SLUG=' "$capsule" \
+    && grep -q '^version_matrix_workflow() {' "$capsule" \
+    || fail "exact-artifact package ${package##*/} does not own its complete certification workflow"
+done
+grep -q 'adapter-packages/${MANIFEST}/tests/certify/version-matrix.sh' bin/adapter-boundary.sh \
+  || fail 'the boundary runner does not prefer a package-owned certify hook'
+pass 'exact-version workflows and boundary helpers are package-owned and selected without a central registry'
+
+# Execute the real driver's pre-pair selection boundary in a scratch tree. A
+# sibling capsule with a top-level exit reproduces the former wildcard-source
+# hazard: it must be completely invisible to ACF. The same probe proves a new
+# valid package runs without a driver edit and an incomplete capsule refuses
+# before Docker or any pair mutation can begin.
+MATRIX_PROBE=$(mktemp -d "${TMPDIR:-/tmp}/duo-certify-capsule.XXXXXX")
+trap 'rm -rf -- "$MATRIX_PROBE"' EXIT
+mkdir -p "$MATRIX_PROBE/sandbox/tests/certify" "$MATRIX_PROBE/sandbox/conformance"
+cp tests/certify/certify_version_matrix.sh "$MATRIX_PROBE/sandbox/tests/certify/"
+: > "$MATRIX_PROBE/sandbox/conformance/asserts.sh"
+
+write_probe_disposition() {
+  local subject="$1"
+  mkdir -p "$MATRIX_PROBE/adapter-packages/$subject/package" "$MATRIX_PROBE/adapter-packages/$subject/tests/certify"
+  printf '%s\n' '{"evidence":{"tests":["exact-artifact-version-matrix"]}}' \
+    > "$MATRIX_PROBE/adapter-packages/$subject/package/disposition.json"
+}
+
+write_probe_disposition acf
+cat > "$MATRIX_PROBE/adapter-packages/acf/tests/certify/version-matrix.sh" <<'SH'
+VMATRIX_PLUGIN_SLUG=advanced-custom-fields
+version_matrix_workflow() { :; }
+version_matrix_preflight() { printf '%s\n' 'selected-acf-only'; exit 0; }
+SH
+write_probe_disposition sibling
+printf '%s\n' 'exit 73' > "$MATRIX_PROBE/adapter-packages/sibling/tests/certify/version-matrix.sh"
+PROBE_RC=0
+PROBE_OUT=$(VMATRIX_MANIFEST=acf bash "$MATRIX_PROBE/sandbox/tests/certify/certify_version_matrix.sh" 2>&1) || PROBE_RC=$?
+[ "$PROBE_RC" -eq 0 ] && [ "$PROBE_OUT" = selected-acf-only ] \
+  || fail "a sibling capsule affected the selected ACF workflow: rc=$PROBE_RC output=$PROBE_OUT"
+
+write_probe_disposition new-adapter
+cat > "$MATRIX_PROBE/adapter-packages/new-adapter/tests/certify/version-matrix.sh" <<'SH'
+VMATRIX_PLUGIN_SLUG=new-adapter
+version_matrix_workflow() { :; }
+version_matrix_preflight() { printf '%s\n' 'selected-new-adapter'; exit 0; }
+SH
+PROBE_RC=0
+PROBE_OUT=$(VMATRIX_MANIFEST=new-adapter bash "$MATRIX_PROBE/sandbox/tests/certify/certify_version_matrix.sh" 2>&1) || PROBE_RC=$?
+[ "$PROBE_RC" -eq 0 ] && [ "$PROBE_OUT" = selected-new-adapter ] \
+  || fail "a new package-owned workflow required central driver registration: rc=$PROBE_RC output=$PROBE_OUT"
+
+write_probe_disposition missing-workflow
+printf '%s\n' 'VMATRIX_PLUGIN_SLUG=missing-workflow' \
+  > "$MATRIX_PROBE/adapter-packages/missing-workflow/tests/certify/version-matrix.sh"
+PROBE_RC=0
+PROBE_OUT=$(VMATRIX_MANIFEST=missing-workflow bash "$MATRIX_PROBE/sandbox/tests/certify/certify_version_matrix.sh" 2>&1) || PROBE_RC=$?
+[ "$PROBE_RC" -ne 0 ] \
+  && grep -q 'certification capsule does not define version_matrix_workflow' <<<"$PROBE_OUT" \
+  || fail "a package without a workflow did not refuse before pair startup: rc=$PROBE_RC output=$PROBE_OUT"
+pass 'selected capsule isolation, registry-free package addition, and missing-workflow refusal are executable offline contracts'
 
 # DUO-3391: wiring is necessary but not sufficient for require_duo_answered.
 # Its whole safety argument is that the "answered" marker is BROAD — a narrow
@@ -182,9 +274,18 @@ grep -Eq 'require_duo_answered capture_duo_json_success require_observed_nonempt
   || fail "manifest check subprocesses cannot call the refusal-preserving JSON command wrapper"
 grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode' conformance/run.sh \
   || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
+grep -q '^export DUO_ARTIFACT_LIBRARY_ROOT$' conformance/run.sh \
+  || fail "package check subprocesses do not receive a stable artifact-library repository root"
+grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_library_participant_context' conformance/run.sh \
+  && grep -Eq 'artifact_library_emit' conformance/run.sh \
+  && grep -Eq 'validate_artifact_library artifact_library_jq' conformance/run.sh \
+  || fail "package check subprocesses cannot call the convention-discovered artifact-library helpers"
+grep -Fq 'archive_root=$(artifact_library_platform_jq -r --arg slug "$slug" --arg version "$version"' \
+  conformance/run.sh \
+  || fail "conformance theme archive roots are not resolved from the explicit platform library"
 ! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
-pass "conformance apply preserves answered refusal envelopes, separates dead transport, and publishes only successful JSON"
+pass "conformance children receive assertion, lifecycle, and artifact-library helpers; apply preserves answered refusals"
 
 # A mode typo must be a caller bug, never an infrastructure verdict: it may not
 # borrow the prefix operators grep to route a failure away from the engine.

@@ -1,0 +1,61 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "yoast-duplicate-post",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/yoast-duplicate-post/package/manifest.json",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/entry.json",
+      "adapter-packages/yoast-duplicate-post/evidence/artifacts.lock.json",
+      "adapter-packages/yoast-duplicate-post/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/seed.sh",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/postdeploy.sh",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/seed.sh",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/postdeploy.sh",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/seed.sh",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php",
+      "adapter-packages/yoast-duplicate-post/tests/offline/regress_yoast_duplicate_post_role_provider.php",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "deletion": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "failure-recovery": [
+      "adapter-packages/yoast-duplicate-post/tests/offline/regress_yoast_duplicate_post_role_provider.php",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh",
+      "adapter-packages/yoast-duplicate-post/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/yoast-duplicate-post/tests/conformance/seed.sh",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/postdeploy.sh",
+      "adapter-packages/yoast-duplicate-post/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/yoast-duplicate-post/tests/offline/regress_yoast_duplicate_post_role_provider.php",
+      "adapter-packages/yoast-duplicate-post/tests/certify/version-matrix.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

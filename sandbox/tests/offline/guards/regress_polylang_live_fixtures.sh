@@ -8,8 +8,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../../../.."
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-LIVE_FILES=(sandbox/tests/live/regress_polylang_*.sh)
-[ -e "${LIVE_FILES[0]}" ] || fail 'no Polylang live fixtures found'
+LIVE_FILES=(
+  adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh
+  integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh
+)
 
 assert_fail_before_asserts() {
   local file="$1" fail_line source_line
@@ -53,9 +55,9 @@ for file in "${LIVE_FILES[@]}"; do
   fi
 done
 printf 'PASS: fail-before-asserts ordering rejects a source-before-fail mutation for every Polylang live fixture\n'
-MS=sandbox/tests/live/regress_polylang_multisite_refusal.sh
-TEC=sandbox/tests/live/regress_polylang_tec_rewrite_coinstall.sh
-CONF=sandbox/conformance/checks/polylang.sh
+MS=adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh
+TEC=integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh
+CONF=adapter-packages/polylang/tests/conformance/check.sh
 [ -x "$MS" ] || fail "missing executable $MS"
 [ -x "$TEC" ] || fail "missing executable $TEC"
 [ -f "$CONF" ] || fail "missing conformance check $CONF"

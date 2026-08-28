@@ -243,8 +243,10 @@ grep -Fqx 'DUO_DB_HOST=duo-shared-db' "$ENV_CWD/.env" \
   || fail ".env must carry the defaulted DUO_DB_HOST; got: $(cat "$ENV_CWD/.env")"
 grep -Fqx "DUO_AGENT_SRC=$TMP/fake-source-root/agent" "$ENV_CWD/.env" \
   || fail ".env lost DUO_AGENT_SRC: $(cat "$ENV_CWD/.env")"
-grep -Fqx "DUO_MANIFESTS_SRC=$TMP/fake-source-root/manifests" "$ENV_CWD/.env" \
-  || fail ".env lost DUO_MANIFESTS_SRC: $(cat "$ENV_CWD/.env")"
+grep -Fqx "DUO_ADAPTER_PACKAGES_SRC=$TMP/fake-source-root/adapter-packages" "$ENV_CWD/.env" \
+  || fail ".env lost DUO_ADAPTER_PACKAGES_SRC: $(cat "$ENV_CWD/.env")"
+grep -Fqx "DUO_PLATFORM_SRC=$TMP/fake-source-root/platform" "$ENV_CWD/.env" \
+  || fail ".env lost DUO_PLATFORM_SRC: $(cat "$ENV_CWD/.env")"
 (
   cd "$ENV_CWD"
   PAIR_SOURCE_ROOT="$TMP/fake-source-root"
@@ -253,9 +255,9 @@ grep -Fqx "DUO_MANIFESTS_SRC=$TMP/fake-source-root/manifests" "$ENV_CWD/.env" \
 )
 grep -Fqx 'DUO_DB_HOST=duo-shared-mysql' "$ENV_CWD/.env" \
   || fail ".env must carry the selected engine's host; got: $(cat "$ENV_CWD/.env")"
-[ "$(wc -l < "$ENV_CWD/.env" | tr -d ' ')" = 3 ] \
-  || fail ".env must be exactly three lines (overwritten, never appended): $(cat "$ENV_CWD/.env")"
-pass ".env carries all three values and is rewritten, not appended, on every call"
+[ "$(wc -l < "$ENV_CWD/.env" | tr -d ' ')" = 4 ] \
+  || fail ".env must be exactly four lines (overwritten, never appended): $(cat "$ENV_CWD/.env")"
+pass ".env carries all four values and is rewritten, not appended, on every call"
 
 say "db.mysql.yml is a parallel project attached to db.yml's network, with a real-query healthcheck"
 python3 - "$DB_MYSQL_YML" <<'PY'

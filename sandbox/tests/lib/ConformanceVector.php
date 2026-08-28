@@ -266,9 +266,7 @@ final class ConformanceVector
      */
     public static function policy(array $manifest): \Duo\Policy
     {
-        return \Duo\Policy::from_snapshot(
-            FrozenPolicy::envelope([$manifest], FrozenPolicy::site([$manifest]))
-        );
+        return FrozenPolicy::policy([$manifest], FrozenPolicy::site([$manifest]));
     }
 
     /**

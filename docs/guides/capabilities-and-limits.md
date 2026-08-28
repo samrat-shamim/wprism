@@ -5,21 +5,19 @@ consider *mine* to manage, what will it refuse and why, and where is the line
 past which it does not claim to work.
 
 The matrix itself — which adapters are reviewed for which plugin versions and
-which operations, and every explicitly unsupported boundary — is **generated**
-and lives in [docs/capabilities.md](../capabilities.md). `php
-tools/capability-doc.php generate` writes it from exactly four inputs
-(`manifests/*.json`, `manifests/dispositions/*.json`,
-`manifests/capabilities/platform.json`, and `agent/duo.php`'s
-`DUO_AGENT_VERSION`/`DUO_SPEC_VERSION` defines), and `make release-gate` —
-`capability-doc.php --check` then `classmap-generate.php --check` — regenerates
-it in memory and byte-compares. Nothing here restates a row of it, deliberately:
-a hand-copied claim in a guide is a claim that goes stale in silence, and the
-generator exists to make that impossible rather than merely discouraged.
+operations, and every explicitly unsupported boundary — is rendered on demand
+with `php tools/capability-doc.php render`. It reads capsule manifests and
+dispositions, `platform/adapter-library/`, and `agent/duo.php`'s version
+defines. `make release-gate` validates those sources and their cross-checks
+without checking in a second adapter inventory. Nothing here restates a row,
+deliberately: a hand-copied claim in a guide is a claim that goes stale in
+silence.
 
 **Read the narrowing before you read the matrix.** A status in that document
 means three things and no more: the manifest *declares* the surface, a human
-*reviewed* it into `manifests/dispositions/` and wrote down why, and the
-named live conformance suites under `sandbox/conformance/` *exercise* it. It
+*reviewed* it in the sibling `package/disposition.json` and wrote down why,
+and package-local conformance/live evidence (or a participant-declared
+integration scenario) *exercises* it. It
 does not mean a bundle digest seals the claim to a run, an artifact set, or a
 closure. That apparatus is gone; what replaces it is four cross-checks
 `capability-doc.php` refuses on, each mirroring a rule
@@ -309,7 +307,7 @@ somewhere new.
 disposition entry — `ArtifactPolicyIdentity::manifest_rows()` puts the
 disposition inside the row it hashes
 (`agent/src/Policy/ArtifactPolicyIdentity.php:68`, hashed at `:147`) — so
-editing one subject in `manifests/dispositions/` moves `registry_sha256`
+editing one subject's capsule disposition moves `registry_sha256`
 **and** exactly that adapter's digest. That makes the moved set a proof, and
 the flip `exact`: it reaches only the surfaces those adapters govern, which
 each row names in `governed_by`, and `evidence_pins.stale_adapters` lists them.
@@ -322,7 +320,7 @@ the surfaces that adapter governs. The row prints the gap action
 `certify adapter` and the remediation `re-certify the pinned evidence, then
 re-run assess`, which is literal for a site adapter you sign yourself. For a
 shipped adapter, the move you have to make is the review: read what changed in
-`manifests/dispositions/`, then `duo contract <env> propose`, review, and
+`adapter-packages/<slug>/package/disposition.json`, then `duo contract <env> propose`, review, and
 `duo contract <env> accept` — accept re-runs the assessment and refuses a
 stale proposal (`assess_digest_stale`) rather than re-pinning behind your back.
 
@@ -330,7 +328,7 @@ stale proposal (`assess_digest_stale`) rather than re-pinning behind your back.
 one number against itself over time, both halves the *target's*. `duo assess`
 also holds a second pair — the reviewed dispositions your checkout ships and
 the ones the target answered from, which differ for as long as you have pulled
-a revision that edited `manifests/dispositions/` and not re-adopted the
+a revision that edited an adapter disposition and not re-adopted the
 site yet. That window is legitimate, so assess completes: it prints
 `MISMATCH: this checkout ships <hash>; the target answered from <hash>` in the
 evidence block, publishes both full hashes as `dispositions` in
@@ -351,7 +349,7 @@ the gate.
 
 | Value | Meaning |
 |---|---|
-| `Platform-certified` | shipped adapter, reviewed into `manifests/dispositions/` with `status: certified`. The generated matrix in [docs/capabilities.md](../capabilities.md) is the authority, and it means declared + reviewed-with-a-written-reason + exercised by the named conformance suites — not a bundle digest sealing the claim |
+| `Platform-certified` | shipped adapter whose capsule disposition carries `status: certified`. The current rendered matrix means declared + reviewed-with-a-written-reason + exercised by the named conformance suites — not a bundle digest sealing the claim |
 | `Site-certified` | a site adapter whose certificate verified: an Ed25519 signature over that adapter's exact bytes, under a key in a trust root the repository or the agent owns, with an exact `{name,source,digest}` pin. `duo adapter certify` produces one |
 | `Uncertified` | everything else — no certificate, or a certificate whose pin does not bind it (`signed_unpinned`, which the row names) |
 
@@ -683,8 +681,9 @@ roots need an explicit layout contract, not path guessing.
 
 **Version-bound.** The WordPress, PHP, and database windows are one
 project-level statement, not a per-adapter field. They are recorded in
-`manifests/capabilities/platform.json` (`duo-platform-boundary/v1`), rendered
-into the generated [docs/capabilities.md](../capabilities.md), and mirrored
+`platform/adapter-library/capabilities/platform.json`
+(`duo-platform-boundary/v1`), available in the on-demand capability projection,
+and mirrored
 byte-for-byte in `docs/compatibility-baseline.json` — `make release-gate`
 holds those two copies equal so they cannot drift into two truths.
 
@@ -711,7 +710,7 @@ The platform boundary is also load-bearing in one other way:
 `DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`, so a claim can never describe a runtime
 nobody is running.
 
-**Per-adapter.** The generated page's *Explicit unsupported boundaries*
+**Per-adapter.** The rendered projection's *Explicit unsupported boundaries*
 section enumerates every one of them with its reason — the shapes are worth
 recognizing even though the list is not reproduced here: entity kinds whose
 deletion has no closed guard grammar, derived tables a plugin exposes no
@@ -722,7 +721,7 @@ unsupported rather than half-implemented.
 That last pattern is doctrine, not accident: capability *reduction* is a
 legitimate review outcome. Working-but-unprovable behavior gets removed and
 refused rather than shipped under-proven, and the reviewer writes the reason
-into the disposition so the generated page can print it.
+into the disposition so the rendered projection can print it.
 
 **Per-host environment lifecycle.** `duo env materialize` requires two
 independent truths: a local/Docker/SSH environment driver that can run the
@@ -752,8 +751,8 @@ rather than working around it.
 - Local control-plane delivery — **Shipped (DUO-3365)** for a machine-local
   environment carrying the exact `duo-local-control-plane/v1` opt-in. Static
   driver capability reporting stays target-free; adoption separately proves a
-  read-only safe target, atomically swaps the out-of-band agent/manifests/
-  rollback authority plus an absent-only minimal seed, and runs doctor before
+  read-only safe target, atomically swaps the agent with its embedded adapter
+  library plus the out-of-band rollback authority and an absent-only minimal seed, and runs doctor before
   commit. Docker delivery remains **Planned** and is not inferred from mounts
   or generic shell access.
 - Discovery of adapters from a REMOTE source — a registry, an index, a URL you
@@ -867,7 +866,7 @@ rather than working around it.
 - Retiring the last Duo-authored WooCommerce business logic — **Partially shipped (DUO-3342)** — the
   dispatch migration has landed; the WooCommerce-authored semantics have not.
   The lookup rebuild lives in
-  `manifests/providers/woocommerce-product-lookups.php` and runs through the
+  `adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php` and runs through the
   provider contract — negotiated identity, a declared version window, engine
   batch channels, and a receipt whose `verified` is refused unless the adapter
   proved the values it wrote — instead of the engine's regenerator channel. What

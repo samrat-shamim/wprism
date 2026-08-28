@@ -1,0 +1,82 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "polylang",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/polylang/package/manifest.json",
+      "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
+      "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php",
+      "adapter-packages/polylang/evidence/artifacts.lock.json",
+      "adapter-packages/polylang/tests/certify/version-matrix.sh",
+      "adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php",
+      "adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh",
+      "integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/polylang/tests/conformance/entry.json",
+      "adapter-packages/polylang/tests/conformance/seed.sh",
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "adapter-packages/polylang/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/polylang/tests/conformance/seed.sh",
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "adapter-packages/polylang/tests/certify/version-matrix.sh",
+      "integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/polylang/tests/conformance/postdeploy.sh",
+      "adapter-packages/polylang/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "agent/src/Policy/ScopeDiscovery.php",
+      "agent/src/Apply/TermMaterializer.php",
+      "adapter-packages/polylang/tests/conformance/seed.sh",
+      "adapter-packages/polylang/tests/conformance/postdeploy.sh",
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "adapter-packages/polylang/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/polylang/package/runtime/providers/polylang-nav-menus.php",
+      "adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php",
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+    ],
+    "deletion": [
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php",
+      "integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "adapter-packages/polylang/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
+      "adapter-packages/polylang/tests/conformance/seed.sh",
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "adapter-packages/polylang/tests/offline/regress_polylang_production_readiness.php",
+      "sandbox/tests/offline/reference-scope/regress_scope_discovery.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/polylang/package/runtime/interpreters/polylang.php",
+      "adapter-packages/polylang/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh",
+      "adapter-packages/polylang/tests/live/regress_polylang_multisite_refusal.sh",
+      "integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

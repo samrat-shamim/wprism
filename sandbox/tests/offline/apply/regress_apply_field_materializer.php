@@ -41,7 +41,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/EntityAdopter.php';
-require_once __DIR__ . '/../../../../manifests/interpreters/polylang.php';
+require_once __DIR__ . '/../../../../adapter-packages/polylang/package/runtime/interpreters/polylang.php';
 
 use Duo\ApplyFieldMaterializer;
 
@@ -107,7 +107,7 @@ final class ApplyFieldMaterializerFakeWpdb {
             return 1;
         }
         if (preg_match(
-            "/^INSERT INTO wp_duo_map \\(uuid, entity_type, id_kind, local_id\\)\\s+"
+            '/^INSERT INTO wp_duo_map \\(uuid, entity_type, id_kind, local_id\\)\\s+'
                 . "VALUES \\('([^']+)', '([^']+)', '([^']+)', ([0-9]+)\\)\\s+"
                 . 'ON DUPLICATE KEY UPDATE entity_type = VALUES\\(entity_type\\)$/D',
             trim($sql),
@@ -427,7 +427,7 @@ final class ApplyFieldMaterializerFakeWpdb {
 
     public function update(string $table, array $data, array $where, $format = null, $whereFormat = null): int {
         $this->mutations[] = 'update:' . $table;
-        $rows =& $this->rowsFor($table);
+        $rows = & $this->rowsFor($table);
         foreach ($rows as &$row) {
             $matches = true;
             foreach ($where as $key => $value) {
@@ -455,7 +455,7 @@ final class ApplyFieldMaterializerFakeWpdb {
             $this->dropNextMetaInsert = false;
             return 1;
         }
-        $rows =& $this->rowsFor($table);
+        $rows = & $this->rowsFor($table);
         if (str_contains($table, 'meta')) {
             $ids = array_map('intval', array_column($rows, 'meta_id'));
             $this->insert_id = $ids ? max($ids) + 1 : 1;
@@ -483,7 +483,7 @@ final class ApplyFieldMaterializerFakeWpdb {
             $this->retainNextMetaDelete = false;
             return 1;
         }
-        $rows =& $this->rowsFor($table);
+        $rows = & $this->rowsFor($table);
         $before = count($rows);
         $rows = array_values(array_filter($rows, static function (array $row) use ($where): bool {
             foreach ($where as $key => $value) {
@@ -502,7 +502,7 @@ final class ApplyFieldMaterializerFakeWpdb {
         int $ownerId,
         string $mode
     ): void {
-        $rows =& $this->{$rowsProperty};
+        $rows = & $this->{$rowsProperty};
         $indexes = [];
         foreach ($rows as $index => $row) {
             if ((int) $row[$ownerColumn] === $ownerId) {
@@ -608,7 +608,7 @@ $termPolicy->manifests = [[
         'runtime_neighbor' => ['class' => 'runtime'],
     ],
 ]];
-$nullableInterpreter = new class {
+$nullableInterpreter = new class() {
     public function post_meta_rule(string $key, array $flat): ?array { return null; }
     public function term_meta_rule(string $key, array $flat): ?array {
         if ($key !== 'nullable_owned') {

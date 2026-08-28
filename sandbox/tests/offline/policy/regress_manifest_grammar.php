@@ -354,13 +354,13 @@ $frozenSnapshot = static function (array $manifests, array $sitePolicy = []): ar
     return FrozenPolicy::envelope($manifests, $site);
 };
 $assertPasses(
-    fn() => Policy::from_snapshot($frozenSnapshot([$validManifestA, $validManifestB], [
+    fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot([$validManifestA, $validManifestB], [
         'tables' => ['site_runtime' => ['class' => 'runtime']],
     ])),
     'Policy::from_snapshot() reaches both extracted aggregate grammars'
 );
 $assertThrows(
-    fn() => Policy::from_snapshot($frozenSnapshot([
+    fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot([
         $validManifestA,
         manifest_b(['widgets' => ['bad widget!' => ['settings' => ['title' => ['class' => 'authored']]]]]),
     ])),
@@ -368,7 +368,7 @@ $assertThrows(
     'Policy::from_snapshot() preserves aggregate widget refusals'
 );
 $assertThrows(
-    fn() => Policy::from_snapshot($frozenSnapshot([
+    fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot([
         manifest_a(['tables' => ['acme_bad' => 'not-an-object']]),
         $validManifestB,
     ])),
@@ -387,34 +387,20 @@ Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
 ]));
 Canon::write_file($loadManifests . '/a.json', Canon::encode($validManifestA));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($validManifestB));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$loadManifests");
+$adapterLibrary = manifest_fixture_adapter_library($loadManifests);
 $assertPasses(
-    fn() => Policy::load($loadRoot),
+    fn() => Policy::load($loadRoot, adapterLibrary: $adapterLibrary),
     'Policy::load() reaches both extracted aggregate grammars'
 );
 Canon::write_file($loadManifests . '/b.json', Canon::encode(
     manifest_b(['widgets' => ['bad widget!' => ['settings' => ['title' => ['class' => 'authored']]]]])
 ));
 $assertThrows(
-    fn() => Policy::load($loadRoot),
+    fn() => Policy::load($loadRoot, adapterLibrary: $adapterLibrary),
     'names an invalid widget type',
     'Policy::load() preserves aggregate widget refusals'
 );
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($loadManifests . '/*') ?: [] as $file) {
-    if (is_file($file)) {
-        @unlink($file);
-    }
-}
-manifest_fixture_code_cleanup($loadManifests);
-@rmdir($loadManifests);
-@unlink($loadRoot . '/site.duo.json');
-@rmdir($loadRoot);
+manifest_fixture_remove_tree($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $manifestValidatorSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php');

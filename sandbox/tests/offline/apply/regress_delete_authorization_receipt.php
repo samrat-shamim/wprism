@@ -145,7 +145,7 @@ duo_check_same(
 
 $store = WpStore::reset();
 $wpdb = FakeWpdb::install();
-$policy = Policy::from_snapshot(FrozenPolicy::envelope([], FrozenPolicy::site([])));
+$policy = FrozenPolicy::policy([], FrozenPolicy::site([]));
 $compiled = CompiledRepository::create(['tree' => []]);
 
 /**

@@ -39,18 +39,20 @@ if (PHP_SAPI !== 'cli' || !isset($argv[0]) || realpath($argv[0]) !== __FILE__) {
 if (($argc ?? 0) < 4) {
     fwrite(
         STDERR,
-        'usage: php ' . basename(__FILE__) . " <agent-version> <spec-version> <manifests-dir> [preflight args...]\n"
+        'usage: php ' . basename(__FILE__) . " <agent-version> <spec-version> <source-or-archive-root> [preflight args...]\n"
     );
     exit(2);
 }
 
 define('DUO_AGENT_VERSION', $argv[1]);
 define('DUO_SPEC_VERSION', (int) $argv[2]);
-putenv('DUO_MANIFESTS_DIR=' . $argv[3]);
+$libraryRoot = $argv[3];
 
 // From offline/cli/: four hops to the repo root.
 $preflightRoot = dirname(__DIR__, 4);
 require_once $preflightRoot . '/cli/src/Adapter/AdapterCatalog.php';
 require_once $preflightRoot . '/cli/src/Adapter/MigrationPreflight.php';
 
-exit(\Duo\Orchestrator\AdapterCatalog::run(array_slice($argv, 4)));
+$args = array_slice($argv, 4);
+$args[] = '--adapter-library=' . $libraryRoot;
+exit(\Duo\Orchestrator\AdapterCatalog::run($args));

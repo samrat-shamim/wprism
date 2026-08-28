@@ -455,7 +455,7 @@ ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5d
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=49bc8eb8253fe2c9a3d9a5299ddce5123afb84689a8f74bf189ada8cdb830a51
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=5bb3399daf5aa2fd86d9acb5d420eb4ae162a2322698be7f5cc9ba12e167a9f7
+RECEIPT_HELPER_GOLDEN_HASH=650dcdade85e221dab5248957b10213c9eb536185a5a6890485ff96f1eb51a16
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
 REPLACEMENT_DEPENDENCY_HELPER_GOLDEN_HASH=1af8e0f446c33e4d53b2f64bfcb1c02aac93d6e955be24f2995a3f1ee21833a0
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
@@ -471,7 +471,7 @@ TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686
 TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=7bfecd258305c19f28e31c9058ede01bfbc844479030369fc7e14f83d03bcfb8
 TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=25473f5c9ff32ce4ae0834dcda96c10bd5eca04a4f0577254bbf63087ad7c99d
 DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4983d9395645cbe79418dd286ba
-LIVE_CHECKOUT_HELPER_GOLDEN_HASH=72273ab8fa6e7ee1da62ee11bc029098a2215338153aaf7a0861f749bef704f5
+LIVE_CHECKOUT_HELPER_GOLDEN_HASH=14acd3e360a12129a103219551ccd46699d0a485d815c533d1b6bd5fc0006233
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
 PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=9fc8327f20d2796edeee613f0bbdb8db2208802f40b8aacd8aafd36a7710c15b
@@ -803,7 +803,8 @@ assert_helper_contracts live-checkout "$LIVE_CHECKOUT_HELPER_BLOCK" "$LIVE_CHECK
   '[ -f "$REPO_ROOT/.git" ]' 'live checkout guard does not reject a linked-worktree .git file' \
   'git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all' 'live checkout guard does not reject dirty source bytes' \
   'DUO_AGENT_SRC=' 'live checkout guard does not validate the canonical agent mount source' \
-  'DUO_MANIFESTS_SRC=' 'live checkout guard does not validate the canonical manifests mount source'
+  'DUO_ADAPTER_PACKAGES_SRC=' 'live checkout guard does not validate the canonical adapter-package mount source' \
+  'DUO_PLATFORM_SRC=' 'live checkout guard does not validate the canonical platform mount source'
 block_contains prelude "$PRELUDE_BLOCK" '[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]' 'invalid-name probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do' 'pre-existing-root probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'refusing to reuse pre-existing pair path' 'pre-existing-root refusal disappeared before live checkout mutation'

@@ -1,0 +1,71 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "elementor",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/elementor/package/manifest.json",
+      "adapter-packages/elementor/package/runtime/providers/elementor-css.php",
+      "adapter-packages/elementor/evidence/artifacts.lock.json",
+      "adapter-packages/elementor/tests/certify/version-matrix.sh",
+      "adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php"
+    ],
+    "clean-target": [
+      "adapter-packages/elementor/tests/conformance/entry.json",
+      "adapter-packages/elementor/tests/conformance/seed.sh",
+      "adapter-packages/elementor/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/elementor/tests/conformance/postdeploy.sh",
+      "adapter-packages/elementor/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/elementor/tests/conformance/seed.sh",
+      "adapter-packages/elementor/tests/conformance/postdeploy.sh",
+      "adapter-packages/elementor/tests/conformance/check.sh",
+      "adapter-packages/elementor/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/elementor/tests/conformance/seed.sh",
+      "adapter-packages/elementor/tests/conformance/check.sh",
+      "adapter-packages/elementor/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/elementor/package/runtime/providers/elementor-css.php",
+      "adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php",
+      "adapter-packages/elementor/tests/conformance/check.sh"
+    ],
+    "deletion": [
+      "adapter-packages/elementor/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php",
+      "adapter-packages/elementor/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/elementor/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_capture_concurrency.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/elementor/tests/conformance/check.sh",
+      "adapter-packages/elementor/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/elementor/package/manifest.json",
+      "adapter-packages/elementor/tests/conformance/seed.sh",
+      "adapter-packages/elementor/tests/conformance/check.sh",
+      "adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/elementor/package/manifest.json",
+      "adapter-packages/elementor/tests/offline/regress_elementor_css_provider.php",
+      "adapter-packages/elementor/tests/certify/version-matrix.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

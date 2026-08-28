@@ -73,6 +73,7 @@ duo_test_define_agent_versions();
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/CommandRefusal.php';
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Review/Journal.php';
 require_once $root . '/agent/src/Review/EffectDeclarationCoverage.php';
@@ -80,25 +81,24 @@ require_once $root . '/agent/src/Review/EffectDeclarationCoverage.php';
 use Duo\CommandRefusalException;
 use Duo\EffectDeclarationCoverage;
 use Duo\Journal;
+use Duo\AdapterLibrary;
 use Duo\Policy;
 use DuoTest\FakeWpdb;
 
 // --------------------------------------------------------------- the library
 
-$shipped = [];
-foreach (glob($root . '/manifests/*.json') ?: [] as $file) {
-    $name = basename($file, '.json');
-    if ($name !== 'dispositions') {
-        $shipped[] = $name;
-    }
-}
+$adapterLibrary = AdapterLibrary::fromSourceTree($root);
+$shipped = array_map(
+    static fn(Duo\AdapterPackage $package): string => $package->name(),
+    $adapterLibrary->packages()
+);
 sort($shipped, SORT_STRING);
 // AGENTS.md's repo map says "17 adapters in all". Every count below is stated
 // per-adapter, so an eighteenth manifest arriving silently would shift them all
 // without naming itself.
 duo_check_same(17, count($shipped), 'the shipped manifest library is the 17 adapters the baseline is measured over');
 
-$policy = Policy::load(null, $shipped, true);
+$policy = Policy::load(null, $shipped, true, null, $adapterLibrary);
 
 /**
  * A journal row in `Journal::report_read_only()` shape. Only `table`, `item`

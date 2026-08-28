@@ -178,10 +178,10 @@ done
   || fail "$OLDER_IMAGE does not contain WordPress $OLDER_VERSION"
 [ "$(image_core_version "$CURRENT_IMAGE")" = "$CURRENT_VERSION" ] \
   || fail "$CURRENT_IMAGE does not contain WordPress $CURRENT_VERSION"
-jq -e '.name == "core" and (has("plugin") | not) and (has("version_range") | not)' ../manifests/core.json >/dev/null \
+jq -e '.name == "core" and (has("plugin") | not) and (has("version_range") | not)' ../platform/adapter-library/core/manifest.json >/dev/null \
   || fail 'core unexpectedly acquired an activatable plugin package or adapter version range'
 jq -e --arg version "$CURRENT_VERSION" '.platform.compatibility.wordpress.last_verified == $version' \
-  ../manifests/capabilities/platform.json >/dev/null \
+  ../platform/adapter-library/capabilities/platform.json >/dev/null \
   || fail "platform last_verified no longer names lifecycle current version $CURRENT_VERSION"
 pass 'both WordPress artifacts are digest-pinned; core has no fictitious plugin activation or adapter version range'
 

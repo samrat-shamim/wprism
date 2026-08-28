@@ -60,8 +60,8 @@ case "$WORDPRESS_OFFLINE" in
 esac
 # shellcheck source=../../bin/fetch-artifact.sh
 . "$REPO_ROOT/sandbox/bin/fetch-artifact.sh"
-validate_artifact_lock "$REPO_ROOT/sandbox/conformance/artifacts.lock.json" \
-  || fail "artifact lock is malformed; capture-concurrency proof stopped before pair startup"
+validate_artifact_library \
+  || fail "artifact library is malformed; capture-concurrency proof stopped before pair startup"
 
 PAIR="${CONCURRENCY_PAIR:-}"
 PORT1="${CONCURRENCY_PORT1:-}"

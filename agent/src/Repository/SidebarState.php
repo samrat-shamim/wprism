@@ -81,10 +81,10 @@ final class SidebarState {
      *
      * DUO-3508: `Pending::mechanism_owner()` asks this so a journal-observed
      * write to one of these names is not queued for a classification that
-     * does not exist — there is no class to give. manifests/core.json:86
-     * records the alternative (declaring the family in `options{}`) being
-     * tried and reverted, with this guard named as "the actual, sufficient,
-     * already-shipped blocking net".
+     * does not exist — there is no class to give.
+     * platform/adapter-library/core/manifest.json:86 records the alternative
+     * (declaring the family in `options{}`) being tried and reverted, with this
+     * guard named as "the actual, sufficient, already-shipped blocking net".
      */
     public static function owns_option(string $name): bool {
         return $name === self::SIDEBARS_OPTION || str_starts_with($name, 'widget_');
@@ -439,7 +439,8 @@ final class SidebarState {
                 }
                 throw new \RuntimeException(
                     "duo: widget option '$name' contains instances but type '$type' is undeclared -- either add "
-                    . "\"$type\" to a pinned manifest's widgets{} grammar (see manifests/core.json's "
+                    . "\"$type\" to a pinned manifest's widgets{} grammar (see "
+                    . "platform/adapter-library/core/manifest.json's "
                     . 'widgets.block/nav_menu/text for the shape) if its settings should be portable, or declare it '
                     . "a deliberate exclusion (wp duo classify --set='options:$name=runtime') if not"
                 );

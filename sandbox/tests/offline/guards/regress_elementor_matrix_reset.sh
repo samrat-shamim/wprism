@@ -4,10 +4,9 @@
 # `--uploads`, WooCommerce's 11.0.0 placeholder derivatives survived into the
 # standalone 11.0.1 leg and correctly tripped the unowned-file collision gate.
 # The reset must then recreate the ordinary uploads root that apply requires.
-# DUO-3366 also requires Elementor's active-kit option to be removed before
-# `site empty` deletes its target post. Woo's active Review Order endpoint must
-# likewise be disabled before that deletion or init:4 recreates its page during
-# the next reset command. This guard pins all three reset contracts.
+# Adapter-owned pre-empty hooks remove Elementor's active-kit reference and
+# disable Woo's active Review Order endpoint before shared `site empty` runs.
+# This guard pins package ownership and the shared hook ordering together.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."   # -> sandbox/
 
@@ -15,44 +14,50 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 F=tests/certify/certify_version_matrix.sh
-[ -f "$F" ] || fail "$F is missing"
+ELEMENTOR=../adapter-packages/elementor/tests/certify/version-matrix.sh
+WOO=../adapter-packages/woocommerce/tests/certify/version-matrix.sh
+[ -f "$F" ] && [ -f "$ELEMENTOR" ] && [ -f "$WOO" ] \
+  || fail 'shared matrix or package-owned reset capsule is missing'
 
-python3 - "$F" <<'PY'
+python3 - "$F" "$ELEMENTOR" "$WOO" <<'PY'
 from pathlib import Path
 import json
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
+elementor = Path(sys.argv[2]).read_text(encoding="utf-8")
+woo = Path(sys.argv[3]).read_text(encoding="utf-8")
 start = text.index("reset_env() {")
-end = text.index("\n}\n\nrun_elementor_command", start)
+end = text.index("\n}\n", start)
 reset = text[start:end]
 
 delete = '"$cli" option delete elementor_active_kit >/dev/null 2>&1 || true'
 empty = '"$cli" site empty --yes --uploads >/dev/null'
 uploads_restore = 'version-matrix reset could not restore uploads root'
-if delete not in reset:
-    raise SystemExit("reset_env no longer deletes Elementor's active-kit option")
+hook = 'version_matrix_reset_before_empty "$cli"'
+if hook not in reset or reset.index(hook) >= reset.index(empty):
+    raise SystemExit("shared reset no longer invokes the selected pre-empty hook before site empty")
 if empty not in reset:
     raise SystemExit("reset_env no longer clears persistent uploads at the site-empty boundary")
 if uploads_restore not in reset or 'wp_get_upload_dir()' not in reset or 'wp_mkdir_p($root)' not in reset:
     raise SystemExit("reset_env no longer recreates and verifies the WordPress uploads root")
 if reset.index(empty) >= reset.index(uploads_restore):
     raise SystemExit("reset_env verifies the uploads root before site empty can remove it")
-if reset.index(delete) >= reset.index(empty):
-    raise SystemExit("Elementor active-kit cleanup happens after site empty; the null-post warning can return")
+if 'version_matrix_reset_before_empty() {' not in elementor or delete not in elementor:
+    raise SystemExit("Elementor capsule no longer owns its active-kit pre-empty cleanup")
 woo_review_options = (
     'woocommerce_feature_customer_review_request_enabled',
     'woocommerce_review_order_page_id',
     'woocommerce_review_order_flush_rewrite_pending',
 )
 for option in woo_review_options:
-    if option not in reset:
-        raise SystemExit(f"reset_env no longer clears WooCommerce Review Order option {option}")
-    if reset.index(option) >= reset.index(empty):
-        raise SystemExit(f"WooCommerce Review Order option {option} is cleared after site empty; init can recreate its host page")
-if 'version-matrix reset retained WooCommerce Review Order option' not in reset:
-    raise SystemExit("reset_env no longer verifies WooCommerce Review Order option deletion")
+    if option not in woo:
+        raise SystemExit(f"WooCommerce capsule no longer clears Review Order option {option}")
+if 'version_matrix_reset_before_empty() {' not in woo:
+    raise SystemExit("WooCommerce capsule no longer owns its pre-empty cleanup")
+if 'version-matrix reset retained WooCommerce Review Order option' not in woo:
+    raise SystemExit("WooCommerce capsule no longer verifies Review Order option deletion")
 if 'woocommerce-placeholder' in reset or 'conf-woo-category' in reset:
     raise SystemExit("reset_env substituted a Woo filename cleanup for complete upload-volume isolation")
 
@@ -75,23 +80,23 @@ required = (
     "elementor/core/isolation/elementor-adapter",
     "elementor/core/base/document",
 )
-missing = [marker for marker in required if marker not in text]
+missing = [marker for marker in required if marker not in elementor]
 if missing:
     raise SystemExit("matrix lost its Elementor warning regression contract: " + ", ".join(missing))
 
-boundary_end = text.index("\nfor CF7_VERSION", text.index("for ELEMENTOR_VERSION"))
-guard = text.index("ELEMENTOR_WARNING_MATCHES=", text.index("for ELEMENTOR_VERSION"))
-recapture = text.index("byte-identical recapture", text.index("for ELEMENTOR_VERSION"))
+boundary_end = elementor.rindex("\n}")
+guard = elementor.index("ELEMENTOR_WARNING_MATCHES=", elementor.index("for ELEMENTOR_VERSION"))
+recapture = elementor.index("byte-identical recapture", elementor.index("for ELEMENTOR_VERSION"))
 if guard < recapture:
     raise SystemExit("Elementor warning guard runs before the full boundary recapture")
 if guard >= boundary_end:
     raise SystemExit("Elementor warning guard escaped the Elementor boundary block")
 
-aggregate = json.loads(Path("conformance/manifests.json").read_text(encoding="utf-8"))["elementor"]
-entry = json.loads(Path("conformance/entries/elementor.json").read_text(encoding="utf-8"))["entry"]
-for label, declaration in (("aggregate", aggregate), ("entry", entry)):
-    if "elementor_library_type" not in declaration.get("taxonomies", []):
-        raise SystemExit(f"Elementor {label} fixture omits its native library taxonomy")
+entry = json.loads(
+    Path("../adapter-packages/elementor/tests/conformance/entry.json").read_text(encoding="utf-8")
+)["entry"]
+if "elementor_library_type" not in entry.get("taxonomies", []):
+    raise SystemExit("Elementor package fixture omits its native library taxonomy")
 PY
 
 pass "Elementor fixtures pin native taxonomy scope, machine-readable receipts, reset order, and boundary stderr"

@@ -315,7 +315,7 @@ final class Providers {
                 continue;
             }
             $manifest = (string) ($declaration['manifest'] ?? ($action['manifest'] ?? '?'));
-            $file = Policy::manifests_dir() . '/providers/' . $id . '.php';
+            $file = $policy->adapter_runtime_path($manifest, 'providers', $id);
             if (is_file($file)) {
                 continue;
             }
@@ -824,6 +824,9 @@ final class Providers {
      * mutation.
      */
     public static function packaging_problem(ProviderPackagingException $failure): array {
+        $runtimeRoot = $failure->manifest() === 'core'
+            ? 'platform/adapter-library/core'
+            : "adapter-packages/{$failure->manifest()}/package";
         return self::problem(
             $failure->providerId(),
             $failure->manifest(),
@@ -831,8 +834,9 @@ final class Providers {
             'provider_code_unavailable',
             "the manifest-sourced provider '{$failure->providerId()}' to resolve to its shipped class",
             $failure->getMessage(),
-            "repair manifests/providers/{$failure->providerId()}.php, which ships with manifest "
-                . "'{$failure->manifest()}', or unpin that manifest"
+            "repair $runtimeRoot/runtime/providers/"
+                . "{$failure->providerId()}.php, which ships with manifest '{$failure->manifest()}', or unpin "
+                . 'that manifest'
         );
     }
 
@@ -2146,7 +2150,7 @@ final class Providers {
      * would need its own branching and buy nothing over short, independently
      * readable methods.
      *
-     * The declared id resolves to <manifests_dir>/providers/<id>.php, which
+     * The declared id resolves through the declaring adapter package, which
      * must define \Duo\Providers\<CamelCase(id)>. A missing file is a
      * packaging fault, not an environment fact: the adapter claimed to ship
      * this code, so the engine says so rather than degrading to "capability
@@ -2157,7 +2161,7 @@ final class Providers {
     private static function manifest_provider(Policy $policy, array $declaration): object {
         $id = (string) $declaration['id'];
         $manifest = (string) $declaration['manifest'];
-        $file = Policy::manifests_dir() . '/providers/' . $id . '.php';
+        $file = $policy->adapter_runtime_path($manifest, 'providers', $id);
         // ProviderPackagingException, not a bare RuntimeException: the message
         // and the fail-before-mutation behavior are unchanged (it IS a
         // RuntimeException), but a reporting caller can now tell "the adapter
@@ -2168,7 +2172,7 @@ final class Providers {
                 $id,
                 $manifest,
                 "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
-                . 'provider code ships with its manifest, not the engine'
+                    . 'provider code ships with its manifest, not the engine'
             );
         }
         require_once $file;

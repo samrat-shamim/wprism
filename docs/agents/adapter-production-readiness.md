@@ -1,19 +1,19 @@
 # Adapter production-readiness contract
 
 This is the work contract for taking every shipped product adapter beyond its
-current bounded capability disposition. It is deliberately separate from
-`manifests/dispositions/`: a disposition records a reviewed product claim,
+current bounded capability disposition. It is deliberately separate from each
+capsule's `package/disposition.json`: a disposition records a reviewed product claim,
 while this matrix records the additional hostile evidence required by the
 production-readiness goal. It is neither a generated registry nor an
 attestation that a test ran.
 
-The hand-authored matrix is
-`sandbox/conformance/production-readiness.json`. Its offline guard checks that
-every shipped product adapter and every scenario family is accounted for, that
-all cited evidence files exist, and that no adapter can be marked `ready` while
-an applicable family is a gap or blocked. A `covered` row still requires human
-review of the named evidence; the guard proves coverage of the work ledger, not
-the truth of a product claim.
+Each capsule owns its hand-authored matrix at
+`adapter-packages/<slug>/evidence/production-readiness.json`. Package-local
+validation checks that every scenario family is accounted for, every cited
+evidence file stays inside the capsule and exists, and no adapter can be marked
+`ready` while an applicable family is a gap or blocked. A `covered` row still
+requires human review of the named evidence; the guard proves coverage of the
+work ledger, not the truth of a product claim.
 
 ## Required scenario families
 

@@ -5,10 +5,13 @@ namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/ApplicationContract.php';
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\CommandRefusalException;
+use Duo\Policy;
 
 /**
  * Sign and verify `attestation.state: "signed"` on the application contract,
@@ -123,7 +126,7 @@ final class ContractAttestation {
     /**
      * The only trust root this build admits, and the reason is the same one
      * that made `Site-certified` unreachable before T6: the shipped
-     * `manifests/capabilities/adapter-authorities.json` is `{"keys": {}}` and
+     * `platform/adapter-library/capabilities/adapter-authorities.json` is `{"keys": {}}` and
      * only Anthropic-side review could ever fill it. A contract is a
      * customer-organization statement about the customer's own site, which is
      * exactly what the product spec means by site certification. A
@@ -302,7 +305,7 @@ final class ContractAttestation {
         string $keyId,
         string $secret,
         array $claim,
-        ?string $manifestDir = null
+        string|AdapterLibrary|null $manifestDir = null
     ): array {
         self::assertSodium();
         self::assertKeyId($keyId);
@@ -362,7 +365,7 @@ final class ContractAttestation {
     public static function verify(
         array $document,
         string $siteRepo,
-        ?string $manifestDir = null,
+        string|AdapterLibrary|null $manifestDir = null,
         ?int $now = null
     ): array {
         self::assertSodium();
@@ -466,11 +469,8 @@ final class ContractAttestation {
      * than array, because an array projection re-encodes an empty object as
      * `[]` and would hash different bytes than the certificate path does.
      */
-    public static function currentPlatformDigest(?string $manifestDir = null): string {
-        $directory = $manifestDir !== null && $manifestDir !== ''
-            ? $manifestDir
-            : dirname(__DIR__, 3) . '/manifests';
-        $file = rtrim($directory, '/') . '/' . self::PLATFORM_RELATIVE;
+    public static function currentPlatformDigest(string|AdapterLibrary|null $manifestDir = null): string {
+        $file = self::platformPath($manifestDir);
         $raw = is_file($file) ? @file_get_contents($file) : false;
         if ($raw === false) {
             throw self::refuse(
@@ -485,11 +485,26 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_platform_moved',
                 'the agent capability platform boundary document has no platform object',
-                'restore manifests/capabilities/platform.json from git'
+                'restore platform/adapter-library/capabilities/platform.json from git'
             );
         }
 
         return hash('sha256', Canon::encode($typed->platform));
+    }
+
+    /**
+     * Resolve production through AdapterLibrary while retaining the explicit
+     * string spelling used by custom migration fixtures during this phase.
+     */
+    private static function platformPath(string|AdapterLibrary|null $manifestDir): string {
+        if ($manifestDir === null || $manifestDir === '') {
+            require_once dirname(__DIR__, 3) . '/agent/src/Policy/Policy.php';
+            $manifestDir = Policy::adapter_library_context();
+        }
+        if ($manifestDir instanceof AdapterLibrary) {
+            return $manifestDir->platformBoundaryPath();
+        }
+        return rtrim($manifestDir, '/') . '/' . self::PLATFORM_RELATIVE;
     }
 
     private static function signedBytes(string $attestedDigest): string {

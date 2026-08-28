@@ -1,0 +1,57 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "wps-hide-login",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/wps-hide-login/package/manifest.json",
+      "adapter-packages/wps-hide-login/evidence/artifacts.lock.json",
+      "adapter-packages/wps-hide-login/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/wps-hide-login/tests/conformance/entry.json",
+      "adapter-packages/wps-hide-login/tests/conformance/seed.sh",
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/wps-hide-login/tests/conformance/postdeploy.sh",
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/wps-hide-login/tests/conformance/seed.sh",
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh",
+      "adapter-packages/wps-hide-login/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php",
+      "sandbox/tests/offline/apply/regress_options_materializer.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh",
+      "adapter-packages/wps-hide-login/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/wps-hide-login/tests/conformance/seed.sh",
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh"
+    ],
+    "scope-platform": [
+      "adapter-packages/wps-hide-login/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "identity-references": "Route slugs are stable names rather than local database identities.",
+    "derived-state": "Exact 1.9.19 registers no rewrite rule or route projection; it reads the two options on every request, and the stale-rewrite HTTP matrix proves raw option apply needs no repair provider."
+  }
+}

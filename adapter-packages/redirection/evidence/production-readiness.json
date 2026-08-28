@@ -1,0 +1,76 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "redirection",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/redirection/package/manifest.json",
+      "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
+      "adapter-packages/redirection/evidence/artifacts.lock.json",
+      "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
+      "adapter-packages/redirection/tests/certify/version-matrix.sh"
+    ],
+    "clean-target": [
+      "adapter-packages/redirection/tests/conformance/entry.json",
+      "adapter-packages/redirection/tests/conformance/seed.sh",
+      "adapter-packages/redirection/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/redirection/tests/conformance/postdeploy.sh",
+      "adapter-packages/redirection/tests/conformance/postapply.sh",
+      "adapter-packages/redirection/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/redirection/package/manifest.json",
+      "adapter-packages/redirection/tests/conformance/seed.sh",
+      "adapter-packages/redirection/tests/conformance/postdeploy.sh",
+      "adapter-packages/redirection/tests/conformance/check.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/redirection/tests/conformance/seed.sh",
+      "adapter-packages/redirection/tests/conformance/check.sh",
+      "adapter-packages/redirection/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
+      "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
+      "adapter-packages/redirection/tests/conformance/check.sh"
+    ],
+    "deletion": [
+      "adapter-packages/redirection/package/disposition.json",
+      "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
+      "adapter-packages/redirection/tests/offline/regress_redirection_adapter.php",
+      "adapter-packages/redirection/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/redirection/tests/conformance/check.sh",
+      "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"
+    ],
+    "lifecycle": [
+      "adapter-packages/redirection/tests/conformance/check.sh",
+      "adapter-packages/redirection/evidence/artifacts.lock.json",
+      "adapter-packages/redirection/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "agent/src/Grammar/ColumnCodecGrammar.php",
+      "adapter-packages/redirection/package/manifest.json",
+      "adapter-packages/redirection/tests/conformance/seed.sh",
+      "adapter-packages/redirection/tests/conformance/check.sh",
+      "sandbox/tests/offline/grammar/regress_column_codec_grammar.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/redirection/package/manifest.json",
+      "adapter-packages/redirection/package/runtime/providers/redirection-state.php",
+      "adapter-packages/redirection/tests/conformance/check.sh",
+      "adapter-packages/redirection/tests/certify/version-matrix.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

@@ -14,16 +14,13 @@
 # pair.
 #
 # Bundle-free by construction — this proves the requirement contract WITHOUT a
-# certification bundle. The shipped manifests/duo-agency-cpt.json declares the
+# certification bundle. The shipped duo-agency-cpt package declares the
 # `duo-agency-index` provider but NO `requires`; a `requires` edit to a shipped
 # manifest is a certified-identity change (the manifest bytes fold into the
 # adapter digest ArtifactPolicyIdentity::manifest_rows() hashes), so this suite
-# supplies the requirement
-# through a test-manifests overlay (DUO_MANIFESTS_DIR, the
-# regress_parent_scoped_natural_key.sh pattern) and asserts the shipped file is
-# byte-identical before it starts and after it builds the overlay. The overlay
-# lives under `.tmp-*`, which the site-repo gitignore template already excludes,
-# so it never enters a commit.
+# supplies the requirement through a private source-layout AdapterLibrary and
+# injects only its object through apply's unregistered evidence seam. The
+# shipped file is asserted byte-identical before and after assembly.
 #
 # Own pair, so this is regress-live-list material, never regress-offline-all.
 #
@@ -57,18 +54,19 @@ PORT2="${PROVIDER_REQUIREMENTS_PORT2:-8931}"
 PLUGIN_DIR=duo-agency-cpt
 PLUGIN_BASENAME="$PLUGIN_DIR/$PLUGIN_DIR.php"
 PLUGIN_FILE="code/wp-content/plugins/$PLUGIN_DIR/$PLUGIN_DIR.php"
-MANIFEST=duo-agency-cpt.json
-OVERLAY=.tmp-3317-manifests
+MANIFEST=adapter-packages/duo-agency-cpt/package/manifest.json
+OVERLAY=.tmp-3317-library
 MISSING_FN=duo_absent_requirement_probe_fn
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN="$PLUGIN_DIR"
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.codebind.yml)
+. tests/support/explicit_adapter_library.sh
 
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-# The overlay-manifest invocation on conf2. Only the refused apply uses it;
+# The private-library invocation on conf2. Only the refused apply uses it;
 # every other apply stays on the shipped adapter bytes, which is what keeps the
 # shipped manifest honest and makes the recovery a genuine A/B on `requires`.
-wp2m() { "${COMPOSE[@]}" run --rm -T -e "DUO_MANIFESTS_DIR=/siterepo/$OVERLAY" cli2 wp "$@"; }
+wp2m() { [ "${1:-}" = duo ] || fail 'wp2m accepts only duo commands'; shift; duo_with_adapter_library cli2 "/siterepo/$OVERLAY" "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-3317-a -c user.email=a1@example.test)
 GIT2=(git -C "siterepo/${PAIR}2" -c user.name=duo-3317-b -c user.email=a2@example.test)
 
@@ -83,11 +81,11 @@ cleanup() {
 trap cleanup EXIT
 
 say "the shipped adapter bytes must be untouched before this suite starts"
-git -C .. diff --quiet -- "manifests/$MANIFEST" \
-  || fail "manifests/$MANIFEST has uncommitted changes — this suite proves the requirement contract WITHOUT changing the shipped adapter"
-jq -e '.providers[0].requires == null' "../manifests/$MANIFEST" >/dev/null \
+git -C .. diff --quiet -- "$MANIFEST" \
+  || fail "$MANIFEST has uncommitted changes — this suite proves the requirement contract without changing the shipped adapter"
+jq -e '.providers[0].requires == null' "../$MANIFEST" >/dev/null \
   || fail "the shipped $MANIFEST already declares a provider requires block — this suite's whole premise is that it does not"
-pass "manifests/$MANIFEST is unmodified and declares no provider requires"
+pass "$MANIFEST is unmodified and declares no provider requires"
 
 say "clean-room site repositories, with the fixture plugin authored before the code-bind containers are created"
 bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
@@ -164,23 +162,26 @@ pass "conf2 holds a revision whose apply selects the provider's post:project act
 
 say "(3) build the overlay: shipped bytes + a provider requires block naming an absent function; the shipped file stays byte-identical"
 DIR="siterepo/${PAIR}2/$OVERLAY"
-mkdir -p "$DIR"
-cp ../manifests/core.json "$DIR/core.json"
+mkdir -p "$DIR/adapter-packages/duo-agency-cpt" "$DIR/platform"
+cp -R ../platform/adapter-library "$DIR/platform/adapter-library"
+cp -R ../adapter-packages/duo-agency-cpt/package "$DIR/adapter-packages/duo-agency-cpt/package"
 jq --arg fn "$MISSING_FN" '.providers[0].requires = {"functions": [$fn]}' \
-  "../manifests/$MANIFEST" > "$DIR/$MANIFEST.tmp"
+  "../$MANIFEST" > "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp"
 # Atomic publish + container-side settle barrier: the host write races the
 # container's bind-mount view on macOS (the parent-scoped suite documents the
 # same race), so mv atomically, then prove the container parses the final bytes
 # before apply loads policy.
-mv "$DIR/$MANIFEST.tmp" "$DIR/$MANIFEST"
-jq -e --arg fn "$MISSING_FN" '.providers[0].requires.functions == [$fn]' "$DIR/$MANIFEST" >/dev/null \
+mv "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp" \
+  "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json"
+jq -e --arg fn "$MISSING_FN" '.providers[0].requires.functions == [$fn]' \
+  "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json" >/dev/null \
   || fail "overlay manifest did not receive the provider requires block"
-jq -e '.providers[0].requires == null' "../manifests/$MANIFEST" >/dev/null \
+jq -e '.providers[0].requires == null' "../$MANIFEST" >/dev/null \
   || fail "the SHIPPED $MANIFEST gained a provider requires block — it must stay byte-identical"
-git -C .. diff --quiet -- "manifests/$MANIFEST" \
+git -C .. diff --quiet -- "$MANIFEST" \
   || fail "the SHIPPED $MANIFEST changed on disk while the overlay was built"
 for i in $(seq 1 20); do
-  SEEN=$(wp2m eval 'echo json_encode(\Duo\Policy::load("/siterepo")->provider_declarations()["duo-agency-index"]["requires"] ?? null);' 2>/dev/null | tr -d '\r' | tail -1) || SEEN=""
+  SEEN=$(wp2 eval '$library = \Duo\AdapterLibrary::fromSourceTree("/siterepo/'"$OVERLAY"'"); echo json_encode(\Duo\Policy::load("/siterepo", adapterLibrary: $library)->provider_declarations()["duo-agency-index"]["requires"] ?? null);' 2>/dev/null | tr -d '\r' | tail -1) || SEEN=""
   [ "$SEEN" = "{\"functions\":[\"$MISSING_FN\"]}" ] && break
   [ "$i" = "20" ] && fail "conf2 never saw the settled overlay through the bind mount (last: $SEEN)"
   sleep 1

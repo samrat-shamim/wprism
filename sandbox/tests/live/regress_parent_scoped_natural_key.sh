@@ -16,12 +16,10 @@
 # have a slot called `morning`: that is the ordinary case, and the single
 # reason a one-column natural key cannot express this table.
 #
-# The SHIPPED manifests/duo-agency-cpt.json stays byte-identical — this suite
-# supplies the table declaration through a test-manifests overlay
-# (DUO_MANIFESTS_DIR, the regress_fatal_mutations.sh / regress_tec_regen.sh
-# pattern), and asserts that the shipped file is unchanged before it starts.
-# The overlay lives under `.tmp-*`, which the site-repo gitignore template
-# already excludes, so it never enters a commit and each side builds its own.
+# The shipped package stays byte-identical. This suite assembles a private
+# source-layout AdapterLibrary on each side, edits only that copy, and injects
+# the resulting object through the command's unregistered evidence seam. The
+# overlay lives under `.tmp-*`, so it never enters a commit.
 #
 # Own pair, so this is regress-live-list material, never regress-offline-all.
 set -euo pipefail
@@ -38,17 +36,17 @@ PORT1="${PARENT_KEY_PORT1:-8930}"
 PORT2="${PARENT_KEY_PORT2:-8931}"
 PLUGIN_DIR=duo-agency-cpt
 PLUGIN_FILE="code/wp-content/plugins/$PLUGIN_DIR/$PLUGIN_DIR.php"
-OVERLAY=.tmp-3318-manifests
+OVERLAY=.tmp-3318-library
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN="$PLUGIN_DIR"
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.codebind.yml)
+. tests/support/explicit_adapter_library.sh
 
 wp1()  { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2()  { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-# The overlay-manifest invocations. Everything that loads policy for the two
-# declared tables goes through these; plain wp1/wp2 stay on the shipped
-# adapter bytes, which is what keeps the shipped manifest honest.
-wp1m() { "${COMPOSE[@]}" run --rm -T -e "DUO_MANIFESTS_DIR=/siterepo/$OVERLAY" cli1 wp "$@"; }
-wp2m() { "${COMPOSE[@]}" run --rm -T -e "DUO_MANIFESTS_DIR=/siterepo/$OVERLAY" cli2 wp "$@"; }
+# Everything that loads policy for the two declared tables receives the
+# private library object; plain wp1/wp2 stay on the shipped package bytes.
+wp1m() { [ "${1:-}" = duo ] || fail 'wp1m accepts only duo commands'; shift; duo_with_adapter_library cli1 "/siterepo/$OVERLAY" "$@"; }
+wp2m() { [ "${1:-}" = duo ] || fail 'wp2m accepts only duo commands'; shift; duo_with_adapter_library cli2 "/siterepo/$OVERLAY" "$@"; }
 repo_host() { bash bin/pair.sh repo-host "$PAIR" "$1" >/dev/null; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-3318-a -c user.email=a1@example.test)
 GIT2=(git -C "siterepo/${PAIR}2" -c user.name=duo-3318-b -c user.email=a2@example.test)
@@ -69,9 +67,9 @@ cleanup() {
 trap cleanup EXIT
 
 say "the shipped adapter bytes must be untouched before this suite starts"
-git -C .. diff --quiet -- manifests/duo-agency-cpt.json \
-  || fail "manifests/duo-agency-cpt.json has uncommitted changes — this suite proves the parent-scoped key WITHOUT changing the shipped adapter"
-pass "manifests/duo-agency-cpt.json is unmodified"
+git -C .. diff --quiet -- adapter-packages/duo-agency-cpt/package/manifest.json \
+  || fail "the duo-agency-cpt package manifest has uncommitted changes — this suite proves the parent-scoped key without changing it"
+pass "the shipped duo-agency-cpt package manifest is unmodified"
 
 say "clean-room site repositories, with the fixture plugin authored before the code-bind containers are created"
 # destroy-then-implicit-up rather than reset: pair.sh reset refuses a
@@ -104,11 +102,12 @@ git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --codebind "$PLUGIN_DIR" --headless
 pass "pair $PAIR up (headless, code-bound to $PLUGIN_DIR)"
 
-say "build the test-manifests overlay on BOTH sides (shipped bytes copied, table declaration added)"
+say "build a private source-layout adapter library on BOTH sides"
 for side in 1 2; do
   DIR="siterepo/${PAIR}${side}/$OVERLAY"
-  mkdir -p "$DIR"
-  cp ../manifests/core.json "$DIR/core.json"
+  mkdir -p "$DIR/adapter-packages/duo-agency-cpt" "$DIR/platform"
+  cp -R ../platform/adapter-library "$DIR/platform/adapter-library"
+  cp -R ../adapter-packages/duo-agency-cpt/package "$DIR/adapter-packages/duo-agency-cpt/package"
   jq '.tables = {
         "duo_agency_rooms": {
           "class": "authored_snapshot",
@@ -134,23 +133,26 @@ for side in 1 2; do
           "refs": [{"column": "room_id", "kind": "agency_room"}],
           "identity": {"mode": "natural_key", "columns": ["room_id", "slot_code"]}
         }
-      }' ../manifests/duo-agency-cpt.json > "$DIR/duo-agency-cpt.json.tmp"
+      }' ../adapter-packages/duo-agency-cpt/package/manifest.json \
+    > "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp"
   # Atomic publish + container-side settle barrier: the host's plain `>`
   # write races the container's bind-mount view on macOS (observed live —
   # one run's capture transiently loaded a declaration WITHOUT the identity
   # columns these exact bytes carry, then the identical command loaded clean
   # minutes later). mv is atomic on one filesystem; the barrier below proves
   # the CONTAINER sees the final parsed bytes before anything loads policy.
-  mv "$DIR/duo-agency-cpt.json.tmp" "$DIR/duo-agency-cpt.json"
-  jq -e '.tables.duo_agency_room_slots.identity.columns == ["room_id", "slot_code"]' "$DIR/duo-agency-cpt.json" >/dev/null \
+  mv "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp" \
+    "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json"
+  jq -e '.tables.duo_agency_room_slots.identity.columns == ["room_id", "slot_code"]' \
+    "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json" >/dev/null \
     || fail "overlay manifest on side $side did not receive the parent-scoped identity declaration"
 done
-jq -e '.tables == null' ../manifests/duo-agency-cpt.json >/dev/null \
+jq -e '.tables == null' ../adapter-packages/duo-agency-cpt/package/manifest.json >/dev/null \
   || fail "the SHIPPED duo-agency-cpt manifest gained a tables section — it must stay byte-identical"
 for side in 1 2; do
-  W=wp${side}m
   for i in $(seq 1 20); do
-    SEEN=$($W eval 'echo json_encode((\Duo\Policy::load("/siterepo")->declared_tables()["duo_agency_room_slots"]["identity"]["columns"] ?? []));' 2>/dev/null | tr -d '\r' | tail -1) || SEEN=""
+    W=wp${side}
+    SEEN=$($W eval '$library = \Duo\AdapterLibrary::fromSourceTree("/siterepo/'"$OVERLAY"'"); echo json_encode((\Duo\Policy::load("/siterepo", adapterLibrary: $library)->declared_tables()["duo_agency_room_slots"]["identity"]["columns"] ?? []));' 2>/dev/null | tr -d '\r' | tail -1) || SEEN=""
     [ "$SEEN" = '["room_id","slot_code"]' ] && break
     [ "$i" = "20" ] && fail "side $side never saw the settled overlay through the bind mount (last: $SEEN)"
     sleep 1
@@ -302,13 +304,15 @@ say "(6) the WRONG declaration — the child key without its parent component �
 # Not a style preference: with slot_code alone, both 'morning' rows derive one
 # identity. This is the case the multi-column form exists for, so the engine
 # must refuse rather than silently collapse two authored rows into one.
-BAD_DIR="siterepo/${PAIR}1/.tmp-3318-bad"
-mkdir -p "$BAD_DIR"
-cp ../manifests/core.json "$BAD_DIR/core.json"
+BAD_DIR="siterepo/${PAIR}1/.tmp-3318-bad-library"
+cp -R "siterepo/${PAIR}1/$OVERLAY" "$BAD_DIR"
 jq '.tables.duo_agency_room_slots.identity = {"mode": "natural_key", "column": "slot_code"}' \
-  "siterepo/${PAIR}1/$OVERLAY/duo-agency-cpt.json" > "$BAD_DIR/duo-agency-cpt.json"
-if OUT=$("${COMPOSE[@]}" run --rm -T -e "DUO_MANIFESTS_DIR=/siterepo/.tmp-3318-bad" cli1 \
-    wp duo capture --repo=/siterepo --out=/siterepo/.tmp-bad-capture 2>&1); then
+  "siterepo/${PAIR}1/$OVERLAY/adapter-packages/duo-agency-cpt/package/manifest.json" \
+  > "$BAD_DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp"
+mv "$BAD_DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp" \
+  "$BAD_DIR/adapter-packages/duo-agency-cpt/package/manifest.json"
+if OUT=$(duo_with_adapter_library cli1 /siterepo/.tmp-3318-bad-library capture \
+    --repo=/siterepo --out=/siterepo/.tmp-bad-capture 2>&1); then
   echo "$OUT"
   fail "a single-column key over a parent-scoped table captured cleanly — two distinct authored slots silently collapsed into one identity"
 fi

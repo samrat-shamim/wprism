@@ -739,8 +739,8 @@ scenario_pair() {
   local scenario="$1"; shift
   say "$scenario — fresh pair '$PAIR' on :$PORT1/:$PORT2"
   if ! dry; then
-    validate_artifact_lock "$SANDBOX/conformance/artifacts.lock.json" \
-      || fail "artifact lock is malformed; the walk refused before pair reset"
+    validate_artifact_library \
+      || fail "artifact library is malformed; the walk refused before pair reset"
     docker build -q -f init-cli.Dockerfile -t "$DUO_CLI_IMAGE" . >/dev/null \
       || fail "could not build the Git-enabled cli image $DUO_CLI_IMAGE from sandbox/init-cli.Dockerfile"
   else

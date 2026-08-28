@@ -158,7 +158,7 @@ function gvr_site(
 }
 
 function gvr_policy(array $site): Policy {
-    return Policy::from_snapshot(FrozenPolicy::envelope([gvr_manifest()], $site));
+    return FrozenPolicy::policy([gvr_manifest()], $site);
 }
 
 /**
@@ -412,7 +412,7 @@ duo_check_same(
 // 8. `core` takes NEITHER path. Asserted against the shipped manifest, not
 //    against a fixture that could be made to say anything.
 // =====================================================================
-$coreManifest = \Duo\Canon::decode(file_get_contents($root . '/manifests/core.json'));
+$coreManifest = \Duo\Canon::decode(file_get_contents($root . '/platform/adapter-library/core/manifest.json'));
 duo_check(
     !array_key_exists('plugin', $coreManifest) && !array_key_exists('version_range', $coreManifest),
     'the shipped core manifest declares no plugin and no version_range'

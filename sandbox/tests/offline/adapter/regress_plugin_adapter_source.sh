@@ -76,7 +76,7 @@ fi
 pass "the plugin source reaches WP_PLUGIN_DIR and get_option only, both guarded, and pulls in no Deploy"
 
 say "the shipped manifest library must be untouched by this suite"
-tree_hash() { (cd ../../../.. && find manifests -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256); }
+tree_hash() { (cd ../../../.. && find adapter-packages platform/adapter-library -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256); }
 before="$(tree_hash)"
 
 say "running the offline harness (precedence, per-adapter refusals, anchor, identity, frozen reconstruction)"

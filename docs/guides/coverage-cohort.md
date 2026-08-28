@@ -188,13 +188,16 @@ question set. It carries no row values and promotes nothing.
 ### 3. Draft — `duo adapter-draft`
 
 ```sh
-duo adapter-draft <site-repo> --name=<n> --evidence=probe.json --out=manifests/<n>.json
+mkdir -p adapter-packages/<n>/package
+duo adapter-draft <site-repo> --name=<n> --evidence=probe.json \
+  --out=adapter-packages/<n>/package/manifest.json
 ```
 
 The draft proposes rules from the repository's captured `state/**` plus the
 probe's live column types. It is a proposal: the `plugin`, `version_range` and
-evidence notes are still yours to write, and
-[adapter-authoring.md](adapter-authoring.md) is where the craft lives.
+evidence notes are still yours to write. Complete the capsule structure and
+reviewed disposition as described in
+[adapter-authoring.md](adapter-authoring.md), where the craft lives.
 
 ### 4. Boundary — `duo adapter boundary`
 
@@ -210,7 +213,7 @@ release believed green, and the search bisects outward. One probe is a full pair
 round trip, so this is a **planner**: exit 3 names the one release to probe next,
 exit 0 emits the finished document, and `sandbox/bin/adapter-boundary.sh` is the
 loop between. It never writes a manifest — the range and its byte-equal
-restatement in `manifests/dispositions/<n>.json` stay one reviewed human edit.
+restatement in `adapter-packages/<n>/package/disposition.json` stay one reviewed human edit.
 
 At cohort scale, `duo adapter proposals` is the scheduled job around the same
 planner across every adapter in a ledger directory.

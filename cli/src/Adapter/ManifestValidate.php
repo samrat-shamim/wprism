@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 use Duo\AdapterCertification;
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\NativeActions;
@@ -65,8 +66,9 @@ use Duo\Policy;
  * (specWindow()). None of it is authored here, so it cannot describe a grammar
  * the engine stopped enforcing.
  *
- * Trust boundary: point this command only at a manifests directory trusted
- * as much as the agent's own — validating a manifest that declares an
+ * Trust boundary: point this command only at an adapter source tree or an
+ * explicitly selected historical flat library trusted as much as the agent's
+ * own — validating a manifest that declares an
  * interpreter or regenerator LOADS that PHP (top level + constructor), the
  * unavoidable cost of checking the class contract at all. For a first look
  * at an unfamiliar out-of-tree package, --no-code skips the code half and
@@ -295,7 +297,7 @@ final class ManifestValidate {
             } elseif (str_starts_with($arg, '-')) {
                 return self::fail("unsupported flag '$arg'");
             } elseif ($dir !== null) {
-                return self::fail("expected exactly one <manifests-dir>, got a second argument '$arg'");
+                return self::fail("expected exactly one <adapter-library>, got a second argument '$arg'");
             } else {
                 $dir = $arg;
             }
@@ -308,7 +310,7 @@ final class ManifestValidate {
             if ($dir !== null || $manifestSelection !== null || $pinSelection !== null || $all
                 || $siteArg !== null || $noCode) {
                 return self::fail(
-                    '--emit-schema takes no manifests dir, no manifest/pin selection, no --site, and no --no-code '
+                    '--emit-schema takes no adapter library, no manifest/pin selection, no --site, and no --no-code '
                     . '— the grammar is read from the engine, not from a directory of declarations, one site, or '
                     . 'any manifest-shipped code'
                 );
@@ -316,7 +318,7 @@ final class ManifestValidate {
             return self::emitSchema();
         }
         if ($dir === null) {
-            return self::fail('a <manifests-dir> argument is required (or --emit-schema)');
+            return self::fail('an <adapter-library> argument is required (or --emit-schema)');
         }
 
         $resolved = is_dir($dir) ? realpath($dir) : false;
@@ -344,36 +346,34 @@ final class ManifestValidate {
             $site = $siteResolved;
         }
 
-        $available = [];
-        foreach (glob(rtrim($resolved, '/') . '/*.json') ?: [] as $file) {
-            $base = basename($file, '.json');
-            // The disposition registry and the site trust root live beside the
-            // manifests and are not ones: dispositions.json is external review
-            // state and adapters/authorities.json is the site's Ed25519 trust
-            // root — both loaded by every Policy::load() below as part of the
-            // directory, never validated or pinned as a manifest. The real
-            // loader excludes authorities.json the same way (AdapterSources::
-            // scan(), which reserves the name); without this a `manifest-
-            // validate adapters --site=<repo>` run after ANY certification
-            // reported `[error] authorities … not found` (grind_adoption A8).
-            // adapters/delegations.json joins the same exclusion for the same
-            // reason (§ v3.8, WP-4.9): it is a signed grant document the real
-            // loader reserves by name, never a manifest to validate or pin.
-            if ($base === 'dispositions'
-                || basename($file) === AdapterSources::SITE_AUTHORITIES_FILE
-                || basename($file) === AdapterSources::SITE_DELEGATIONS_FILE) {
-                continue;
-            }
-            $available[$base] = $file;
+        try {
+            self::boot();
+        } catch (\Throwable $t) {
+            return self::fail($t->getMessage());
         }
-        ksort($available, SORT_STRING);
+
+        // One physical inventory object is constructed once and passed to
+        // EVERY Policy load below. Production no longer reads
+        // DUO_MANIFESTS_DIR; letting this host command set that retired global
+        // would make the report describe the checkout's default packages while
+        // printing paths from the caller's input. A source checkout is the
+        // normal authoring input. The strict legacy reader remains available
+        // only when the caller explicitly names a complete historical flat
+        // library, for archived-ref validation and migration rehearsal.
+        $siteAdaptersDir = $site === null ? false : realpath($site . '/' . AdapterSources::SITE_DIR);
+        $validatingSiteSource = $siteAdaptersDir !== false && $siteAdaptersDir === $resolved;
+        try {
+            $adapterLibrary = $validatingSiteSource
+                ? AdapterLibrary::fromSourceTree(dirname(__DIR__, 3))
+                : self::readLibrary($resolved);
+            $available = $validatingSiteSource
+                ? self::siteManifests($resolved)
+                : self::libraryManifests($adapterLibrary);
+        } catch (\Throwable $t) {
+            return self::fail($t->getMessage());
+        }
         if ($available === []) {
-            return self::fail("$resolved contains no manifest *.json files");
-        }
-        foreach ($available as $file) {
-            if (!is_readable($file)) {
-                return self::fail("$file is not readable");
-            }
+            return self::fail("$resolved contains no adapter manifests");
         }
 
         $selected = $manifestSelection ?? array_keys($available);
@@ -381,30 +381,9 @@ final class ManifestValidate {
         foreach ([['--manifest', $selected], ['--pins', $pins]] as [$flag, $requested]) {
             foreach ($requested as $name) {
                 if (!isset($available[$name])) {
-                    return self::fail("$flag names '$name', which is not a manifest in $resolved");
+                    return self::fail("$flag names '$name', which is not an adapter manifest in $resolved");
                 }
             }
-        }
-
-        try {
-            self::boot();
-        } catch (\Throwable $t) {
-            return self::fail($t->getMessage());
-        }
-        // The directory handed in is normally a MANIFEST LIBRARY (the shipped
-        // set, or a candidate library) and becomes the shipped dir for every
-        // load below. When it is the site's own `adapters/` and --site names
-        // that site, it is the SITE source, not a second shipped library:
-        // pointing the shipped dir at it too made AdapterSources see every
-        // file twice and refuse each as "shadows the shipped adapter <name>"
-        // (grind_adapter_walk.sh S2, `manifest-validate <repo>/adapters
-        // --site=<repo>` — the guide's own spelling for authoring). In that
-        // case the shipped library stays what the agent ships and the site
-        // adapters load through the site source, exactly as the engine will.
-        $siteAdaptersDir = $site === null ? false : realpath($site . '/' . AdapterSources::SITE_DIR);
-        $validatingSiteSource = $siteAdaptersDir !== false && $siteAdaptersDir === $resolved;
-        if (!$validatingSiteSource) {
-            putenv('DUO_MANIFESTS_DIR=' . $resolved);
         }
 
         // Pre-flight the site half ALONE, before any manifest is judged against
@@ -416,9 +395,9 @@ final class ManifestValidate {
         // in any of them. Empty pins so nothing but the site half can speak.
         if ($site !== null) {
             try {
-                Policy::load($site, []);
+                Policy::load($site, [], false, null, $adapterLibrary);
             } catch (\Throwable $t) {
-                // The empty-pin load still walks the manifests directory
+                // The empty-pin load still walks the adapter library
                 // (sources, dispositions, platform boundary), so a defect
                 // THERE also surfaces here. Blame --site only when the engine
                 // names the site file; anything else is the input dir's own
@@ -428,7 +407,7 @@ final class ManifestValidate {
                 // reported typed, whatever words it contains — its sentence
                 // may well mention site.duo.json, since that file is where
                 // the remedy lives.
-                $typed = self::typedSourceRefusal($site, $t->getMessage());
+                $typed = self::typedSourceRefusal($adapterLibrary, $site, $t->getMessage());
                 if ($typed !== null) {
                     return self::fail($typed);
                 }
@@ -450,7 +429,7 @@ final class ManifestValidate {
                 // declaration does not hide every later manifest's verdict —
                 // an author fixing three manifests should need one run, not
                 // three.
-                $policy = Policy::load($site, [$name]);
+                $policy = Policy::load($site, [$name], false, null, $adapterLibrary);
                 // --no-code stops here: resolving the declared code half means
                 // loading it, and an author looking at an untrusted package
                 // asked not to. The skip is reported, never silent.
@@ -484,7 +463,7 @@ final class ManifestValidate {
         }
         $pinned = ['names' => $pins, 'files' => $pinnedFiles, 'status' => 'ok', 'message' => null];
         try {
-            $policy = Policy::load($site, $pins);
+            $policy = Policy::load($site, $pins, false, null, $adapterLibrary);
             if (!$noCode) {
                 self::resolve($policy);
             }
@@ -561,7 +540,7 @@ final class ManifestValidate {
      * the one thing this command did not look at.
      *
      * Both resolutions are fully offline — the files live inside the very
-     * manifests directory being validated, and nothing about them needs a
+     * adapter package being validated, and nothing about them needs a
      * target. Calling them here, inside the caller's try/catch, turns their
      * refusals into ordinary per-manifest errors carrying the engine's own
      * message (which already names the exact missing path or the exact class it
@@ -571,8 +550,8 @@ final class ManifestValidate {
      * checking that a file defines `\Duo\Interpreters\<Name>` requires the file
      * to have been `require`d, so its top level RUNS, and `new $class($this)`
      * runs its constructor. That is the same trust decision Policy::
-     * manifests_dir() already documents for the agent itself — the manifests
-     * directory is operator-controlled — and it is why this command's own
+     * package boundary already documents for the agent itself — the adapter
+     * source tree is operator-controlled — and it is why this command's own
      * docblock says to point it only at a directory trusted that far. What is
      * NOT invoked is the contract methods: `post_meta_rule()` / `regenerate()`
      * are live operations and stay deferred.
@@ -698,7 +677,7 @@ final class ManifestValidate {
                         . 'scan) have no engine-owned name and are deliberately not scraped into `patterns`',
                     'pin-dependent halves: ref, token, and ledger kind vocabularies publish their engine-owned '
                         . 'BASE only; the declared half is a property of one pin set plus one site.duo.json, '
-                        . 'reported per run by `duo manifest-validate <manifests-dir> [--site=<repo>]`',
+                        . 'reported per run by `duo manifest-validate <adapter-library> [--site=<repo>]`',
                 ],
                 'spec_window' => 'MEASURED, not declared — the accepted set is whatever the shipped '
                     . 'validate_adapter_contract() answers over the probed integers, so a widened or narrowed '
@@ -915,7 +894,7 @@ final class ManifestValidate {
 
     /** @param array<string,mixed> $report */
     private static function render(array $report): void {
-        echo "manifests dir: {$report['manifests_dir']}\n";
+        echo "adapter library: {$report['manifests_dir']}\n";
         echo 'site repo:     ' . ($report['site'] ?? '(none — site policy is NOT part of this check; see deferred)') . "\n";
         echo 'manifest code: ' . ($report['code'] === 'skipped'
             ? '--no-code — declared interpreter/regenerator PHP was NOT loaded or contract-checked'
@@ -991,6 +970,55 @@ final class ManifestValidate {
             throw new \RuntimeException('duo: manifest-validate could not encode its report');
         }
         return $json;
+    }
+
+    /**
+     * Resolve an explicitly selected shipped-library input.
+     *
+     * Source checkouts are the authoring path. A flat directory is accepted
+     * only through AdapterLibrary's strict historical reader: it must carry
+     * the complete platform/disposition/runtime closure, so a loose directory
+     * of JSON files cannot become production policy by accident.
+     */
+    private static function readLibrary(string $root): AdapterLibrary {
+        if (is_dir($root . '/adapter-packages') || is_dir($root . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($root);
+        }
+        return AdapterLibrary::fromLegacyFlatDirectory($root);
+    }
+
+    /** @return array<string,string> manifest name => canonical manifest path */
+    private static function libraryManifests(AdapterLibrary $library): array {
+        $available = [];
+        foreach ($library->packages() as $package) {
+            $available[$package->name()] = $package->manifestPath();
+        }
+        ksort($available, SORT_STRING);
+        return $available;
+    }
+
+    /**
+     * Site adapters remain a distinct, repository-owned source rather than a
+     * shipped library. The site loader reserves its trust documents by name;
+     * mirror that selection here only to choose which rows to report, while
+     * Policy performs all validation against the explicit shipped library.
+     *
+     * @return array<string,string> manifest name => canonical manifest path
+     */
+    private static function siteManifests(string $directory): array {
+        $available = [];
+        foreach (glob(rtrim($directory, '/') . '/*.json') ?: [] as $file) {
+            if (basename($file) === AdapterSources::SITE_AUTHORITIES_FILE
+                || basename($file) === AdapterSources::SITE_DELEGATIONS_FILE) {
+                continue;
+            }
+            if (!is_readable($file)) {
+                throw new \RuntimeException("$file is not readable");
+            }
+            $available[basename($file, '.json')] = $file;
+        }
+        ksort($available, SORT_STRING);
+        return $available;
     }
 
     /**
@@ -1089,9 +1117,13 @@ final class ManifestValidate {
      * states it, not only "rename or remove" (T6 walk S4). Null when the
      * survey has no row for this sentence — the caller prints it as it was.
      */
-    private static function typedSourceRefusal(string $site, string $message): ?string {
+    private static function typedSourceRefusal(
+        AdapterLibrary $adapterLibrary,
+        string $site,
+        string $message
+    ): ?string {
         try {
-            $survey = AdapterSources::survey($site);
+            $survey = AdapterSources::survey_library($adapterLibrary, $site);
         } catch (\Throwable $t) {
             return null;
         }

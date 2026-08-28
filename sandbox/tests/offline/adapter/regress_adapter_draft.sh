@@ -64,6 +64,16 @@ scan_wp ../../../../agent/src/Kernel/Secrets.php ../../../../agent/src/Kernel/Co
   || fail "a boot()-load-set addition (Secrets/CommandRefusal) reaches WordPress"
 pass "no WordPress reach in the handler or the files it adds to the load set"
 
+say "proposal checks select their throwaway package library explicitly"
+if grep -q 'DUO_MANIFESTS_DIR' ../../../../cli/src/Adapter/AdapterDraft.php; then
+  fail "AdapterDraft still selects its proposal-check library through process-global DUO_MANIFESTS_DIR"
+fi
+grep -q 'AdapterLibrary::fromSourceTree' ../../../../cli/src/Adapter/AdapterDraft.php \
+  || fail "AdapterDraft does not close its throwaway adapter package source through AdapterLibrary"
+grep -q "Policy::load(null, \[\$checkName\], true, null, \$adapterLibrary)" ../../../../cli/src/Adapter/AdapterDraft.php \
+  || fail "AdapterDraft does not pass the closed throwaway library directly to Policy::load"
+pass "throwaway proposal package is explicit and process-local"
+
 say "running the offline harness (envelope, INERTNESS + mutation proof, proposers, guardrails, --check-proposals)"
 php regress_adapter_draft.php || fail "regress_adapter_draft.php reported failing checks (see output above)"
 

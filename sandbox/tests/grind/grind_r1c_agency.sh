@@ -617,7 +617,7 @@ say "(4) policy-to-manifest: export duo-agency-cpt's own classifications, pin th
 # Since DUO-3338 it also carries hand-authored `providers`/`actions` (the shipped
 # proof a custom plugin can advertise a provider through the `duo_providers`
 # filter) plus rationale `notes`, none of which `policy-to-manifest` emits; the
-# old wholesale `> ../manifests/duo-agency-cpt.json` silently deleted them, and
+# old wholesale replacement of the package manifest silently deleted them, and
 # nothing failed until the live provider-contract regression next ran.
 RAW=$($COMPOSE run --rm -T cli-r1c1 wp duo policy-to-manifest --repo=/siterepo --match='^_?duo_(project|agency)_?' --name=duo-agency-cpt)
 printf '%s\n' "$RAW" | awk '/^\{/{f=1} f' > siterepo/r1c1/.tmp-agency-manifest-export.json
@@ -630,11 +630,12 @@ jq -e . siterepo/r1c1/.tmp-agency-manifest-export.json >/dev/null 2>&1 || fail "
 EXPORT_CANON=$(jq -S . siterepo/r1c1/.tmp-agency-manifest-export.json)
 COMMITTED_PROJ=$(jq -S --slurpfile e siterepo/r1c1/.tmp-agency-manifest-export.json '
   ($e[0] | keys) as $ek | to_entries | map(select(.key as $k | $ek | index($k))) | from_entries
-' ../manifests/duo-agency-cpt.json)
+' ../adapter-packages/duo-agency-cpt/package/manifest.json)
 [ "$EXPORT_CANON" = "$COMMITTED_PROJ" ] \
-  || fail "committed manifests/duo-agency-cpt.json's classification sections drifted from the policy-to-manifest export — regenerate the classifications while PRESERVING the hand-authored providers/actions/notes (never overwrite wholesale). export=$EXPORT_CANON committed_projection=$COMMITTED_PROJ"
-jq -e '(.providers // [] | length) > 0 and (.actions // [] | length) > 0' ../manifests/duo-agency-cpt.json >/dev/null \
-  || fail "committed manifests/duo-agency-cpt.json lost its hand-authored providers/actions blocks (DUO-3338) — the export must never overwrite them"
+  || fail "the committed duo-agency-cpt package manifest's classification sections drifted from the policy-to-manifest export — regenerate the classifications while PRESERVING the hand-authored providers/actions/notes (never overwrite wholesale). export=$EXPORT_CANON committed_projection=$COMMITTED_PROJ"
+jq -e '(.providers // [] | length) > 0 and (.actions // [] | length) > 0' \
+  ../adapter-packages/duo-agency-cpt/package/manifest.json >/dev/null \
+  || fail "the committed duo-agency-cpt package manifest lost its hand-authored providers/actions blocks (DUO-3338) — the export must never overwrite them"
 rm -f siterepo/r1c1/.tmp-agency-manifest-export.json
 pass "policy-to-manifest export matches the committed manifest's classification sections; its hand-authored providers/actions/notes are preserved (DUO-3362: no wholesale overwrite)"
 
@@ -649,7 +650,7 @@ mv siterepo/r1c1/.tmp-site-swapped.json siterepo/r1c1/site.duo.json
 wp_r1c1 duo capture --repo=/siterepo
 diff -r siterepo/r1c1/.tmp-state-preswap siterepo/r1c1/state || fail "captured state changed after swapping inline policy for the exported manifest"
 rm -rf siterepo/r1c1/.tmp-state-preswap
-pass "policy == exported manifest: identical captured state either way — manifests/duo-agency-cpt.json is graduation-ready"
+pass "policy == exported manifest: identical captured state either way — the duo-agency-cpt package manifest is graduation-ready"
 
 $GIT_1 add -A
 $GIT_1 commit -qm "capture: agency content (ACF schema+fields, Elementor pages, 2 projects); classify + graduate duo-agency-cpt.json"

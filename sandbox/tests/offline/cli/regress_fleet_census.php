@@ -246,7 +246,7 @@ function fc_library(string $repoRoot, string $dir, array $formsSections): void {
     if (!is_dir($dir . '/capabilities') && !mkdir($dir . '/capabilities', 0777, true)) {
         throw new RuntimeException('could not create the fixture platform directory');
     }
-    copy($repoRoot . '/manifests/capabilities/platform.json', $dir . '/capabilities/platform.json');
+    copy($repoRoot . '/platform/adapter-library/capabilities/platform.json', $dir . '/capabilities/platform.json');
 }
 
 // --------------------------------------------------------- the submissions
@@ -690,6 +690,38 @@ duo_check(
 $one = fc_census($duo, $repoRoot, [$siteFlags['alpha'], '--manifests=' . $library, '--format=json']);
 duo_check_same('one-site', (string) ((fc_json($one['stdout']) ?? [])['basis']['sample_class'] ?? ''),
     'a census of one estate says so — a labelled sample of one is still better than no basis at all');
+
+// The checkout default is the closed package inventory, while an explicit
+// --manifests remains the sparse legacy-fixture seam during the flag-day
+// preparation. Drive both readers over the current shipped bytes: accepting
+// an AdapterLibrary here is what lets the physical layout move without this
+// fleet projection learning the new paths.
+require_once $repoRoot . '/cli/src/Assess/FleetCensus.php';
+require_once $repoRoot . '/agent/src/Policy/Policy.php';
+$closedShippedOracle = \Duo\Orchestrator\FleetCensus::library(\Duo\Policy::shipped_adapter_library());
+if (is_dir($repoRoot . '/manifests')) {
+    $legacyShippedOracle = \Duo\Orchestrator\FleetCensus::library($repoRoot . '/manifests');
+    duo_check_same(
+        $legacyShippedOracle,
+        $closedShippedOracle,
+        'the closed shipped AdapterLibrary preserves the exact fleet coverage oracle of the legacy flat reader'
+    );
+}
+$defaultLibraryRun = fc_census($duo, $repoRoot, [$siteFlags['alpha'], '--format=json']);
+duo_check_same(0, $defaultLibraryRun['exit'], 'omitting --manifests resolves the checkout shipped AdapterLibrary');
+$defaultLibraryDocument = fc_json($defaultLibraryRun['stdout']) ?? [];
+duo_check_same(count($closedShippedOracle['adapters']), $defaultLibraryDocument['library']['adapters'] ?? null,
+    'the default command enumerates the closed shipped package inventory');
+if (is_dir($repoRoot . '/manifests')) {
+    $explicitShippedRun = fc_census($duo, $repoRoot, [
+        $siteFlags['alpha'], '--manifests=' . $repoRoot . '/manifests', '--format=json',
+    ]);
+    duo_check_same(
+        $explicitShippedRun['stdout'],
+        $defaultLibraryRun['stdout'],
+        'the shipped-object default is byte-identical to the transitional explicit flat-library projection'
+    );
+}
 
 // ------------------------------------------------------- the verb contract
 

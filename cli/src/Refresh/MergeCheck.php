@@ -93,7 +93,16 @@ final class MergeCheck {
     private const PLAN_FORMAT = 'duo-refresh-plan/v1';
 
     /** The canonical partitions a compile reads from the filesystem. */
-    private const CANONICAL_PARTITIONS = ['site.duo.json', 'state', 'media', 'code', 'manifests'];
+    private const CANONICAL_PARTITIONS = [
+        'site.duo.json',
+        'state',
+        'media',
+        'code',
+        'adapters',
+        'adapter-packages',
+        'platform',
+        'manifests',
+    ];
 
     /**
      * @param array{ref?:?string,against?:?string,base?:?string} $options

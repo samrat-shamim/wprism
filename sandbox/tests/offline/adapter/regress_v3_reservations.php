@@ -193,10 +193,12 @@ require_once $repo . '/agent/src/Adapter/AdapterSources.php';
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/cli/src/Adapter/AdapterObservation.php';
 
 use Duo\AdapterCertification;
 use Duo\AdapterContractGrammar;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\SupersededWireSiteAdapterCertificate;
@@ -340,10 +342,10 @@ duo_check_same(
 echo "\nPART 1 — nothing the engine accepts today moved\n";
 // ===========================================================================
 
-$manifestDir = $repo . '/manifests';
 $shippedManifests = [];
 $manifestRefusals = [];
-foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
+foreach (AdapterLibrary::fromSourceTree($repo)->packages() as $package) {
+    $file = $package->manifestPath();
     $manifest = json_decode((string) file_get_contents($file), true);
     if (!is_array($manifest) || !is_string($manifest['name'] ?? null)) {
         continue;

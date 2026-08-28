@@ -22,8 +22,11 @@ $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
+require_once $root . '/sandbox/tests/lib/frozen_policy.php';
 require_once $root . '/sandbox/tests/support/wp-shortcode-stub.php';
 require_once $root . '/agent/src/Review/ShortcodeReferenceScanner.php';
+require_once $root . '/tools/src/ArtifactLibrary.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -39,25 +42,28 @@ $names = [
     'wps-hide-login',
     'yoast-duplicate-post',
 ];
+$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree($root);
 
 /** @var array<string,array<string,mixed>> $manifests */
 $manifests = [];
 foreach ($names as $name) {
-    $manifests[$name] = Canon::decode(Canon::read_file($root . "/manifests/$name.json"));
+    $package = $sourceLibrary->package($name);
+    if ($package === null) {
+        throw new RuntimeException("missing shipped adapter package $name");
+    }
+    $manifests[$name] = Canon::decode(Canon::read_file($package->manifestPath()));
 }
 $conformanceEntry = Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/ecosystem-adapter-batch.json'));
 $standaloneEntries = [
-    'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/advanced-editor-tools.json')),
-    'classic-editor' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/classic-editor.json')),
-    'code-snippets' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/code-snippets.json')),
-    'wps-hide-login' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/wps-hide-login.json')),
-    'yoast-duplicate-post' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/yoast-duplicate-post.json')),
+    'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/adapter-packages/advanced-editor-tools/tests/conformance/entry.json')),
+    'classic-editor' => Canon::decode(Canon::read_file($root . '/adapter-packages/classic-editor/tests/conformance/entry.json')),
+    'code-snippets' => Canon::decode(Canon::read_file($root . '/adapter-packages/code-snippets/tests/conformance/entry.json')),
+    'wps-hide-login' => Canon::decode(Canon::read_file($root . '/adapter-packages/wps-hide-login/tests/conformance/entry.json')),
+    'yoast-duplicate-post' => Canon::decode(Canon::read_file($root . '/adapter-packages/yoast-duplicate-post/tests/conformance/entry.json')),
 ];
-$artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
+$artifactLock = \Duo\Tooling\ArtifactLibrary::load($root);
 
-$priorManifestDir = getenv('DUO_MANIFESTS_DIR');
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-$policy = Policy::load(null, $names);
+$policy = Policy::load(null, $names, adapterLibrary: $sourceLibrary);
 
 duo_check_same($names, array_column($policy->manifests, 'name'), 'the real policy loader accepts exactly the five shipped adapter manifests');
 
@@ -147,11 +153,11 @@ duo_check_same(
 );
 
 foreach (['wpforms', 'custom-post-type-ui'] as $rejected) {
-    duo_check(!is_file($root . "/manifests/$rejected.json"), "$rejected remains rejected instead of gaining an unsafe manifest");
+    duo_check($sourceLibrary->package($rejected) === null, "$rejected remains rejected instead of gaining an unsafe package");
 }
 duo_check(
-    is_file($root . '/manifests/redirection.json')
-        && is_file($root . '/sandbox/tests/offline/adapter/regress_redirection_adapter.php'),
+    $sourceLibrary->package('redirection') !== null
+        && is_file($root . '/adapter-packages/redirection/tests/offline/regress_redirection_adapter.php'),
     'Redirection left the rejected-candidate set only with its own exact adapter and regression evidence'
 );
 
@@ -177,9 +183,9 @@ foreach ($standaloneEntries as $name => $fixture) {
     duo_check_same($name, $fixture['manifest'] ?? null, "$name has an independently runnable live profile");
     duo_check(!isset($fixture['entry']['mode']), "$name standalone evidence uses the complete roundtrip path");
     duo_check_same(['core', $name], $fixture['entry']['pin'] ?? null, "$name live profile isolates core plus one adapter");
-    foreach (['seeds', 'postdeploy', 'checks'] as $phase) {
+    foreach (['seeds' => 'seed.sh', 'postdeploy' => 'postdeploy.sh', 'checks' => 'check.sh'] as $phase => $file) {
         duo_check(
-            is_file($root . "/sandbox/conformance/$phase/$name.sh"),
+            is_file($root . "/adapter-packages/$name/tests/conformance/$file"),
             "$name live profile has a separately diagnosable $phase hook"
         );
     }
@@ -303,7 +309,7 @@ duo_check_same(
     'Yoast Duplicate Post checkpoints the prefix-dependent merged role map before mutation'
 );
 duo_check(
-    is_file($root . '/manifests/providers/yoast-duplicate-post-role-capabilities.php'),
+    is_file($root . '/adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php'),
     'the shipped Yoast Duplicate Post role provider source exists beside its manifest identity'
 );
 
@@ -350,7 +356,7 @@ duo_check_same(
     array_column($snippetActions[0]['effects'] ?? [], 'kind'),
     'Code Snippets declares both irreversible external projections before mutation'
 );
-duo_check(is_file($root . '/manifests/providers/code-snippets-state.php'), 'the shipped provider source exists beside its manifest identity');
+duo_check(is_file($root . '/adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php'), 'the shipped provider source exists inside its package identity');
 
 $shortcodes = $policy->shortcode_attr_rules();
 $snippetRefRules = [
@@ -439,13 +445,20 @@ $loadMutation = static function (array $files): Policy {
         Canon::write_file("$dir/$name.json", Canon::encode($manifest));
     }
     register_shutdown_function(static function () use ($dir): void {
-        foreach (glob($dir . '/*.json') ?: [] as $file) {
-            @unlink($file);
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $entry) {
+            $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
         }
         @rmdir($dir);
     });
-    putenv('DUO_MANIFESTS_DIR=' . $dir);
-    return Policy::load(null, array_keys($files));
+    return Policy::load(
+        null,
+        array_keys($files),
+        adapterLibrary: \DuoTest\FrozenPolicy::adapterLibrary($dir)
+    );
 };
 
 $badRefs = $manifests['code-snippets'];
@@ -492,11 +505,5 @@ duo_check_throws(
     'the real loader refuses contradictory ownership regardless of pin order',
     'declare contradictory rules for options.code_snippets_settings'
 );
-
-if ($priorManifestDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv('DUO_MANIFESTS_DIR=' . $priorManifestDir);
-}
 
 duo_check_summary('ecosystem adapter batch');

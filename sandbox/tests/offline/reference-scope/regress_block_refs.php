@@ -475,7 +475,7 @@ check(
 // two ordered source IDs, then switch the same UUID ledger to divergent
 // greater-than-32-bit target IDs and prove apply + recapture are exact.
 $tecManifest = json_decode(
-    (string) file_get_contents(__DIR__ . '/../../../../manifests/the-events-calendar.json'),
+    (string) file_get_contents(__DIR__ . '/../../../../adapter-packages/the-events-calendar/package/manifest.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
@@ -576,7 +576,7 @@ check(str_contains($w, 'wp-image-999') && str_contains($w, 'core/image'), "B4: a
 check($tokens->unscopedBlockRefs === [], 'B4: id 999 is genuinely dangling (no row anywhere) -- neither drop queues an unscoped violation (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
 
 $coreManifest = json_decode(
-    (string) file_get_contents(__DIR__ . '/../../../../manifests/core.json'),
+    (string) file_get_contents(__DIR__ . '/../../../../platform/adapter-library/core/manifest.json'),
     true,
     512,
     JSON_THROW_ON_ERROR

@@ -181,7 +181,11 @@ $assertThrows(
 
 /** Build the smallest frozen envelope accepted by the real loader. */
 $frozenSnapshot = static function (array $manifests): array {
-    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
+    return FrozenPolicy::envelope(
+        $manifests,
+        FrozenPolicy::site($manifests, DUO_SPEC_VERSION),
+        FrozenPolicy::library()
+    );
 };
 
 $manifestA = manifest_a([
@@ -197,7 +201,7 @@ $manifestB['tables']['acme_b_room_meta'] = [
 ];
 $validManifests = [$manifestA, $manifestB];
 $assertAccepted(
-    static fn() => Policy::from_snapshot($frozenSnapshot($validManifests)),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($validManifests)),
     'a valid reference keyspace and one attached sidecar load through Policy::from_snapshot()'
 );
 $invalidSnapshot = $validManifests;
@@ -207,7 +211,7 @@ $invalidSnapshot[0]['taxonomies'] = [
     ],
 ];
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot($invalidSnapshot)),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($invalidSnapshot)),
     "manifest 'a'.taxonomies.bad_description.description_refs declares unknown reference keyspace 'user'",
     'Policy::from_snapshot() invokes the extracted cross-source keyspace grammar'
 );
@@ -223,26 +227,12 @@ Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
 manifest_fixture_code($loadManifests);
 Canon::write_file($loadManifests . '/a.json', Canon::encode($manifestA));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($manifestB));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$loadManifests");
+$loadLibrary = manifest_fixture_adapter_library($loadManifests);
 $assertAccepted(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $loadLibrary),
     'the live Policy::load() path invokes the extracted cross-source keyspace grammar'
 );
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($loadManifests . '/*') ?: [] as $file) {
-    if (is_file($file)) {
-        @unlink($file);
-    }
-}
-manifest_fixture_code_cleanup($loadManifests);
-@rmdir($loadManifests);
-@unlink($loadRoot . '/site.duo.json');
-@rmdir($loadRoot);
+manifest_fixture_remove_tree($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $finalizerSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/PolicyLoadFinalizer.php');

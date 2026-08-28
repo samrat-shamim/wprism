@@ -12,7 +12,8 @@
 
 **Known debts.**
 
-- `Adopt.php` hard-codes the ship list (`agent manifests recovery`); the move must not change those bytes.
+- `Adopt.php` assembles the adapter library into staging and tars exactly
+  `agent recovery`; tests, fixtures, evidence, and source capsules never ship.
 - Doctor/Triage/Pending overlap with agent Review and with `tools/doctor.sh` — three doctors, no shared vocabulary.
 
 **Sub-namespace plan.** Target `Duo\Orchestrator\Onboarding\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.

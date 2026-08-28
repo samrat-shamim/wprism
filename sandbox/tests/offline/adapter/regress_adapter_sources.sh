@@ -50,8 +50,16 @@ php -l ../../../../agent/src/Command/Cli.php >/dev/null || fail "agent/src/Comma
 php -l ../../../../cli/src/Plan/PlanSummary.php >/dev/null || fail "cli/src/Plan/PlanSummary.php has a syntax error"
 pass "no syntax errors"
 
-say "the shipped manifest library must be untouched by this suite"
-tree_hash() { (cd ../../../.. && find manifests -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256); }
+say "the shipped adapter package library must be untouched by this suite"
+tree_hash() {
+  (
+    cd ../../../..
+    {
+      find adapter-packages -path '*/package/*' -type f -print0
+      find platform/adapter-library -type f -print0
+    } | sort -z | xargs -0 shasum -a 256 | shasum -a 256
+  )
+}
 before="$(tree_hash)"
 
 say "running the offline harness (overlay, identity refusals, privilege boundary, uncertified diagnostics, frozen provenance)"
@@ -63,11 +71,11 @@ php regress_adapter_sources.php || harness_rc=$?
 after="$(tree_hash)"
 
 if [ "$before" = "$after" ]; then
-  pass "shipped manifest library is byte-identical after the run"
+  pass "shipped adapter package library is byte-identical after the run"
 else
-  printf '\033[1;31mFAIL: the suite mutated the shipped manifest library — fixtures must stay in scratch directories\033[0m\n'
+  printf '\033[1;31mFAIL: the suite mutated the shipped adapter package library — fixtures must stay in scratch directories\033[0m\n'
 fi
 [ "$harness_rc" -eq 0 ] || fail "regress_adapter_sources.php reported failing checks (exit $harness_rc; see output above)"
-[ "$before" = "$after" ] || fail "shipped manifest library containment check failed (see above)"
+[ "$before" = "$after" ] || fail "shipped adapter package library containment check failed (see above)"
 
 printf '\n\033[1;32m✔ REGRESS_ADAPTER_SOURCES PASSED\033[0m\n'

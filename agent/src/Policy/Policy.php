@@ -11,6 +11,11 @@ require_once __DIR__ . '/../Rebuild/NativeActions.php';
 // any manifest reaches a policy consumer, so it is required here for the same
 // reason NativeActions is.
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
+// Shipped executable paths belong to the adapter package that declares them.
+// Required here because this file is also loaded directly by offline policy
+// validators that never pass through agent/duo.php.
+require_once __DIR__ . '/AdapterLibrary.php';
+require_once __DIR__ . '/AdapterPackage.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 // DUO-3348 first extraction slice: the pure table/widget declaration grammar,
@@ -170,6 +175,9 @@ require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';
  * and unclassified is a loud abort at the call sites (never a silent guess).
  */
 final class Policy {
+    private const DEPLOYED_ADAPTER_LIBRARY_MARKER = 'adapter-library.deployed';
+    private const DEPLOYED_ADAPTER_LIBRARY_MARKER_BYTES = "duo-embedded-adapter-library-assembly/v1\n";
+
     private const MAX_DISCOVERED_TAXONOMIES = 4096;
     private const MAX_NATIVE_OPTION_COMPANIONS = 8;
     /**
@@ -237,10 +245,12 @@ final class Policy {
     public array $site = [];
     /** @var array<int, array> */
     public array $manifests = [];
-    /** External review state; null for legacy/custom manifest directories without a registry. */
+    /** External review state; null only for explicit legacy/custom flat libraries without reviewed data. */
     private ?ManifestDispositions $manifestDispositions = null;
     /** Which source installed each pinned adapter, and what that origin may do (DUO-3314). */
     private ?AdapterSources $adapterSources = null;
+    /** The shipped library whose package paths this policy executes and hashes. */
+    private ?AdapterLibrary $adapterLibrary = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
     /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
@@ -266,25 +276,101 @@ final class Policy {
      * manifest's option_namespaces declaration — unlike the meta hooks, an
      * interpreter has no implicit reach over every option in the table.
      *
-     * Interpreter CODE is part of the manifest artifact, never the engine:
-     * a declared name resolves to <manifests_dir>/interpreters/<name>.php,
+     * Interpreter CODE is part of the adapter package, never the engine:
+     * a declared name resolves through that package's closed runtime inventory,
      * which must define \Duo\Interpreters\<CamelCase(name)>. The engine holds
      * only this loading contract — no plugin names, no plugin logic. Trust
-     * boundary: the manifests dir is operator-controlled and ships/mounts
-     * with the agent itself (ro in the sandbox), so loading PHP from it is
+     * boundary: the embedded adapter library ships with the agent itself (ro
+     * in the sandbox), so loading PHP from it is
      * the same trust decision as running the agent.
      */
 
-    public static function manifests_dir(): string {
-        $env = getenv('DUO_MANIFESTS_DIR');
-        if ($env && is_dir($env)) {
-            return $env;
+    /** The one checked-in or installed shipped library; no path search or override. */
+    public static function shipped_adapter_library(): AdapterLibrary {
+        return self::shipped_adapter_library_at(dirname(__DIR__, 2));
+    }
+
+    /** Resolve either an explicitly assembled deployment or this source checkout. */
+    private static function shipped_adapter_library_at(string $agentRoot): AdapterLibrary {
+        $embedded = $agentRoot . '/adapter-library';
+        $marker = $agentRoot . '/' . self::DEPLOYED_ADAPTER_LIBRARY_MARKER;
+        if (file_exists($marker) || is_link($marker)) {
+            if (is_link($marker)
+                || !is_file($marker)
+                || file_get_contents($marker) !== self::DEPLOYED_ADAPTER_LIBRARY_MARKER_BYTES) {
+                throw new \RuntimeException("duo: deployed adapter library marker is invalid: $marker");
+            }
+            return AdapterLibrary::fromEmbeddedDirectory(
+                $embedded,
+                dirname($agentRoot) . '/duo-control/adapter-revocations.json'
+            );
         }
-        $local = dirname(__DIR__, 3) . '/manifests';
-        if (is_dir($local)) {
-            return $local;
+        if (file_exists($embedded) || is_link($embedded)) {
+            throw new \RuntimeException(
+                "duo: embedded adapter library exists without its deployment marker: $embedded"
+            );
         }
-        return '/duo-manifests';
+
+        $sourceRoot = dirname($agentRoot);
+        if (is_dir($sourceRoot . '/adapter-packages') && is_dir($sourceRoot . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($sourceRoot);
+        }
+
+        // An installed agent has exactly one authority root. Passing its
+        // expected location to the strict reader preserves that fact in the
+        // refusal instead of searching a neighboring or process-selected tree.
+        return AdapterLibrary::fromEmbeddedDirectory(
+            $embedded,
+            dirname($agentRoot) . '/duo-control/adapter-revocations.json'
+        );
+    }
+
+    /** The active production library boundary. */
+    public static function adapter_library_context(): AdapterLibrary {
+        return self::shipped_adapter_library();
+    }
+
+    /**
+     * Resolve the shipped physical library once per policy instance.
+     *
+     * Runtime execution and identity share one package/path answer instead of
+     * independently deriving interpreter, provider, and regenerator paths.
+     */
+    public function adapter_library(): AdapterLibrary {
+        if ($this->adapterLibrary !== null) {
+            return $this->adapterLibrary;
+        }
+        return $this->adapterLibrary = self::shipped_adapter_library();
+    }
+
+    /** The platform boundary belonging to this policy's resolved library. */
+    public function adapter_platform_boundary(): array {
+        return ManifestDispositions::platform_boundary_library($this->adapter_library());
+    }
+
+    /** The shipped package that owns one manifest name. */
+    public function adapter_package(string $name): AdapterPackage {
+        $package = $this->adapter_library()->package($name);
+        if ($package === null) {
+            throw new \RuntimeException(
+                "duo: shipped adapter package '$name' is absent from " . $this->adapter_library()->root()
+            );
+        }
+        return $package;
+    }
+
+    /**
+     * Resolve manifest-owned runtime through its explicitly selected package.
+     */
+    public function adapter_runtime_path(string $manifest, string $kind, string $id): string {
+        $package = $this->adapter_package($manifest);
+        return match ($kind) {
+            'interpreters' => $package->interpreterPath()
+                ?? throw new \RuntimeException("duo: adapter $manifest does not declare interpreter $id"),
+            'providers' => $package->providerPath($id),
+            'regenerators' => $package->regeneratorPath($id),
+            default => throw new \RuntimeException("duo: unknown adapter runtime kind '$kind'"),
+        };
     }
 
     /**
@@ -312,7 +398,7 @@ final class Policy {
     }
 
     /** Refuse unexercised runtime versions before any policy/repository read. */
-    private static function assert_supported_platform(): void {
+    private static function assert_supported_platform(?AdapterLibrary $adapterLibrary = null): void {
         // Pure manifest/compiler contexts and the shared offline WP stubs may
         // expose path helpers without loading WordPress core. A real loaded
         // target defines WPINC as well as ABSPATH before wp-cli dispatch, so
@@ -320,7 +406,10 @@ final class Policy {
         if (!defined('ABSPATH') || !defined('WPINC') || !function_exists('get_bloginfo')) {
             return;
         }
-        PlatformCompatibility::assert_supported(ManifestDispositions::platform_boundary());
+        $platform = ManifestDispositions::platform_boundary_library(
+            $adapterLibrary ?? self::shipped_adapter_library()
+        );
+        PlatformCompatibility::assert_supported($platform);
     }
 
     /**
@@ -385,14 +474,16 @@ final class Policy {
         ?string $repo,
         ?array $manifestNames = null,
         bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
-        ?string $adapterRepo = null
+        ?string $adapterRepo = null,
+        ?AdapterLibrary $adapterLibrary = null
     ): self {
         return self::load_with(
             null,
             $repo,
             $manifestNames,
             $allowUnsupportedSiteForReadOnlyCapabilities,
-            $adapterRepo
+            $adapterRepo,
+            $adapterLibrary
         );
     }
 
@@ -414,22 +505,26 @@ final class Policy {
      * reports the multisite refusal, because that is the one that fires first
      * here exactly as it fires first there.
      *
-     * `manifests_dir()` is returned rather than re-derived by the consumer:
-     * `DUO_MANIFESTS_DIR` can move under a process, and a resolution used
-     * against a different library than the one it was taken from is precisely
-     * the staleness the witness exists to refuse.
+     * The exact library object is retained by the resolution, so consumers
+     * cannot silently join the result to a different physical inventory.
      *
-     * @return array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources}
+     * @return array{dir:string, adapter_library:AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources}
      */
-    public static function resolve_library(?string $repo): array {
+    public static function resolve_library(?string $repo, ?AdapterLibrary $adapterLibrary = null): array {
         self::assert_single_site();
-        self::assert_supported_platform();
-        $dir = self::manifests_dir();
-        $sources = AdapterSources::discover($dir, $repo);
-        $dispositions = class_exists(ManifestDispositions::class)
-            ? ManifestDispositions::load($dir)
-            : null;
-        return ['dir' => $dir, 'dispositions' => $dispositions, 'sources' => $sources];
+        $adapterLibrary ??= self::shipped_adapter_library();
+        self::assert_supported_platform($adapterLibrary);
+        $dir = $adapterLibrary->root();
+        $sources = AdapterSources::discover_library($adapterLibrary, $repo);
+        $dispositions = !class_exists(ManifestDispositions::class)
+            ? null
+            : ManifestDispositions::load_library($adapterLibrary);
+        return [
+            'dir' => $dir,
+            'adapter_library' => $adapterLibrary,
+            'dispositions' => $dispositions,
+            'sources' => $sources,
+        ];
     }
 
     /**
@@ -445,11 +540,11 @@ final class Policy {
      * `sandbox/tests/offline/adapter/regress_adapter_survey_scale.php` asserts
      * that call-site set against the tree.
      *
-     * @param array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     * @param array{dir:string, adapter_library:AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources} $library
      * @param list<string>|list<array<string,mixed>> $manifestNames
      */
     public static function load_from_scan(array $library, ?string $repo, array $manifestNames): self {
-        return self::load_with($library, $repo, $manifestNames, false, null);
+        return self::load_with($library, $repo, $manifestNames, false, null, null);
     }
 
     /**
@@ -458,24 +553,29 @@ final class Policy {
      * substitutes those pieces and changes nothing else, including the order
      * every other refusal fires in.
      *
-     * @param ?array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} $library
+     * @param ?array{dir:string, adapter_library:AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources} $library
      */
     private static function load_with(
         ?array $library,
         ?string $repo,
         ?array $manifestNames,
         bool $allowUnsupportedSiteForReadOnlyCapabilities,
-        ?string $adapterRepo
+        ?string $adapterRepo,
+        ?AdapterLibrary $adapterLibrary
     ): self {
+        $selectedLibrary = $library === null
+            ? ($adapterLibrary ?? self::shipped_adapter_library())
+            : $library['adapter_library'];
         // A supplied library has already been through resolve_library(), which
         // runs both asserts FIRST, before it reads anything; running them
-        // again per pin would re-read capabilities/platform.json once per
+        // again per pin would re-read the resolved platform boundary once per
         // surveyed adapter to re-answer a question about the process.
         if ($library === null && !$allowUnsupportedSiteForReadOnlyCapabilities) {
             self::assert_single_site();
-            self::assert_supported_platform();
+            self::assert_supported_platform($selectedLibrary);
         }
         $p = new self();
+        $p->adapterLibrary = $selectedLibrary;
         if ($repo !== null) {
             $siteFile = rtrim($repo, '/') . '/site.duo.json';
             if (!is_file($siteFile)) {
@@ -492,13 +592,10 @@ final class Policy {
         $manifestValidatorVocabulary = self::manifest_validator_vocabulary();
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = PinResolver::normalize_manifest_pins($rawPins);
-        $dir = self::manifests_dir();
-        // A supplied library was resolved against the directory this process
-        // saw then; a `DUO_MANIFESTS_DIR` that moved since would silently
-        // resolve pins against one library and report them against another.
-        // Unreachable through AdapterScan, whose shape witness carries the
-        // same fact — kept because this is the entry point, and an invariant
-        // that only the caller enforces is one nobody enforces.
+        $dir = $p->adapterLibrary->root();
+        // A supplied resolution must carry the exact object root it names.
+        // AdapterScan's witness guards content and shape; this guards a caller
+        // assembling a logically inconsistent resolution array.
         if ($library !== null && $library['dir'] !== $dir) {
             throw new \RuntimeException(
                 'duo: a resolved adapter library was offered for a different manifest directory than the one this '
@@ -518,7 +615,7 @@ final class Policy {
         // certification elevation. Every property of AdapterSources is a
         // string or an array, so the shallow copy is a value copy.
         $p->adapterSources = $library === null
-            ? AdapterSources::discover($dir, $adapterRepo ?? $repo)
+            ? AdapterSources::discover_library($p->adapterLibrary, $adapterRepo ?? $repo)
             : clone $library['sources'];
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
         // The registry DOCUMENT is read here — or carried in by a resolved
@@ -532,14 +629,18 @@ final class Policy {
         // shipped subset after the loop, where the manifests are already in
         // hand (ManifestDispositions::assert_covers()).
         $p->manifestDispositions = $library === null
-            ? (class_exists(ManifestDispositions::class) ? ManifestDispositions::load($dir) : null)
+            ? (!class_exists(ManifestDispositions::class)
+                ? null
+                : ManifestDispositions::load_library($p->adapterLibrary))
             : $library['dispositions'];
         foreach ($pins as $pin) {
             $name = $pin['name'];
             // normalize_manifest_pins() has already proved this exact identity
             // path-free and canonical; never rewrite it into a different key.
             $key = $name;
-            $manifest = Canon::decode(Canon::read_file($p->adapterSources->file($key, $dir)));
+            $manifest = Canon::decode(Canon::read_file(
+                $p->adapterSources->file($key, $p->adapterLibrary ?? $dir)
+            ));
             // DUO-3371: the earliest point on the live load path where a
             // manifest's FILE name and its DECLARED name are both in hand, and
             // therefore the only place one identity can be enforced for both
@@ -620,9 +721,10 @@ final class Policy {
     }
 
     /** Reconstruct and fully validate a policy exported by export_snapshot(). */
-    public static function from_snapshot(array $snapshot): self {
+    public static function from_snapshot(array $snapshot, ?AdapterLibrary $adapterLibrary = null): self {
+        $adapterLibrary ??= self::shipped_adapter_library();
         self::assert_single_site();
-        self::assert_supported_platform();
+        self::assert_supported_platform($adapterLibrary);
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
         $snapshotFormat = $snapshot['format'] ?? null;
@@ -653,6 +755,7 @@ final class Policy {
         }
 
         $p = new self();
+        $p->adapterLibrary = $adapterLibrary;
         $p->site = $snapshot['site'];
         SitePolicyValidator::validate(
             $p->site,
@@ -688,7 +791,11 @@ final class Policy {
         // to disposition validation would demand an entry that cannot exist,
         // so one site-installed adapter would refuse every unrelated shipped
         // adapter along with itself — the exact failure DUO-3314 removes.
-        $p->adapterSources = AdapterSources::from_snapshot($snapshot['adapter_sources'], $p->manifests);
+        $p->adapterSources = AdapterSources::from_snapshot(
+            $snapshot['adapter_sources'],
+            $p->manifests,
+            $adapterLibrary
+        );
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
         $shipped = $p->adapterSources->shipped_manifests($p->manifests);
         $dispositions = $snapshot['dispositions'] ?? null;
@@ -709,7 +816,10 @@ final class Policy {
      * so nothing is out-of-tree and nothing is laundered).
      */
     public function adapter_sources(): AdapterSources {
-        return $this->adapterSources ??= AdapterSources::discover(self::manifests_dir(), null);
+        if ($this->adapterSources !== null) {
+            return $this->adapterSources;
+        }
+        return $this->adapterSources = AdapterSources::discover_library($this->adapter_library(), null);
     }
 
     /**
@@ -978,7 +1088,7 @@ final class Policy {
      * answered the second question with the first question's enumerators, so
      * a name an adapter declares env/runtime/derived was reported "invisible
      * to every installed adapter" — 10 of the 19 option names
-     * manifests/core.json itself declares, measured on a site holding
+     * `platform/adapter-library/core/manifest.json` itself declares, measured on a site holding
      * nothing else. Same ExactOptionResolver as the filtered views, so the
      * pin winner is identical to the per-name capture/apply path.
      *
@@ -1015,7 +1125,8 @@ final class Policy {
      * `polylang`/Yoast's `wpseo` are both 'env': excluded whole, except the
      * named sub-keys carved out below them).
      *
-     * This is the engine capability manifests/polylang.json's own notes
+     * This is the engine capability recorded in
+     * `adapter-packages/polylang/package/manifest.json`'s own notes,
      * long flagged as missing: "v0's options model classifies a whole
      * option name at once ... there is no way to keep force_lang/
      * default_lang/etc authored while excluding first_activation/version
@@ -1041,7 +1152,8 @@ final class Policy {
      * level dynamic-name resolution primitive... one new primitive, reusable
      * for any future active-theme-bound option, instead of a second bespoke
      * path beside nav_menu_locations." theme_mods_<stylesheet> is the proven
-     * case (see manifests/core.json's own declaration + note) but this
+     * case (see `platform/adapter-library/core/manifest.json`'s own
+     * declaration + note) but this
      * section is deliberately not theme_mods-specific: any manifest may
      * declare an entry under any key.
      *
@@ -1066,8 +1178,8 @@ final class Policy {
      *
      * First-declaring-manifest wins per declaration key, matching this
      * class's own established enumeration precedence elsewhere (no shipped
-     * manifest is expected to collide on a key here — only core.json is
-     * expected to ever declare theme_mods — but the tie-break is defined
+     * manifest is expected to collide on a key here — only the platform-owned
+     * core manifest is expected to ever declare theme_mods — but the tie-break is defined
      * for the same reason it is everywhere else in this file: consistency,
      * not because a real collision is anticipated).
      *
@@ -1102,8 +1214,9 @@ final class Policy {
      * used to be active, kept by WordPress itself so nothing is lost if the
      * site switches back (confirmed empirically, DUO-3264: this is the same
      * shape of residue as the nested sidebars_widgets/wp_classic_sidebars
-     * theme-switch bookkeeping already excluded in manifests/core.json's own
-     * note). $resolvedValues maps resolver name => this environment's own
+     * theme-switch bookkeeping already excluded in
+     * `platform/adapter-library/core/manifest.json`'s own note).
+     * $resolvedValues maps resolver name => this environment's own
      * live value (e.g. `['active_stylesheet' => get_option('stylesheet')]`)
      * — plural because a future second resolver is anticipated by the
      * ruling's own "reusable for any future active-theme-bound option"
@@ -1865,7 +1978,7 @@ final class Policy {
             if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
                 throw new \RuntimeException("duo: manifest '{$m['name']}' declares invalid interpreter name '$name'");
             }
-            $file = self::manifests_dir() . '/interpreters/' . $name . '.php';
+            $file = $this->adapter_runtime_path((string) $m['name'], 'interpreters', $name);
             if (!is_file($file)) {
                 throw new \RuntimeException(
                     "duo: manifest '{$m['name']}' wants interpreter '$name' but $file is missing — "
@@ -1898,7 +2011,7 @@ final class Policy {
      * a shared helper would need its own branching, buying nothing over two
      * short, independently-readable methods.
      *
-     * A declared name resolves to <manifests_dir>/regenerators/<name>.php,
+     * A declared name resolves through its adapter package's regenerator inventory,
      * which must define \Duo\Regenerators\<CamelCase(name)> with
      * regenerate(int $localId): void. Any exception it throws is the
      * caller's (Apply::regen_dependencies()) hard-failure signal — there is
@@ -1929,7 +2042,7 @@ final class Policy {
                         "duo: manifest '{$m['name']}' post_types.$postType declares invalid regenerator name '$name'"
                     );
                 }
-                $file = self::manifests_dir() . '/regenerators/' . $name . '.php';
+                $file = $this->adapter_runtime_path((string) $m['name'], 'regenerators', $name);
                 if (!is_file($file)) {
                     throw new \RuntimeException(
                         "duo: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $file is missing — "
@@ -1978,7 +2091,8 @@ final class Policy {
      * claims but whose per-name classification can't be a static exact/
      * pattern rule (ACF options-page fields: arbitrary field names, ref kind
      * determined by a shadow-key-pointed schema, exactly like post/term meta
-     * — see manifests/interpreters/acf.php's option_rule()). $allOptions is
+     * — see `adapter-packages/acf/package/runtime/interpreters/acf.php`'s
+     * option_rule()). $allOptions is
      * the full option-name classification context (mirroring $allMeta's
      * "owning scope, shadow keys and all" shape) — options have no single
      * owning entity to scope the map to. Live capture passes raw wp_options
@@ -1987,7 +2101,9 @@ final class Policy {
      *
      * Routes through option_rule_details_for_option() rather than the plain
      * meta_rule_for_interpreter_hook() every other meta_rule_for_*() uses —
-     * caught live (regress_acf_term_options_fields.sh's first run):
+     * caught live
+     * (`adapter-packages/acf/tests/live/regress_acf_term_options_fields.sh`'s
+     * first run):
      * OptionState::assert_rule_autoload() requires every options rule to
      * declare 'autoload' (or 'preserve'), and the static options path
      * always gets that via with_option_autoload()'s manifest-level
@@ -2478,7 +2594,8 @@ final class Policy {
      * every options rule to declare 'autoload' (or 'preserve') before a row
      * can be captured. An interpreter-returned options rule needs the exact
      * same treatment or it can never pass that check (caught live:
-     * regress_acf_term_options_fields.sh's first run failed capture outright
+     * `adapter-packages/acf/tests/live/regress_acf_term_options_fields.sh`'s
+     * first run failed capture outright
      * with "option '...' has autoload 'off' but policy declares NULL").
      * term_meta/user_meta rules have no such concept, so this is scoped to
      * the one hook name that does, not a general behavior change.
@@ -2977,7 +3094,8 @@ final class Policy {
      * declaration exists to yield to, since every shipped user is a PLUGIN
      * manifest asserting a fact about its own post type). menu_fields
      * needs the full DUO-3249 core-yields-to-plugin precedence instead:
-     * core.json declares 'locations' authored as its v0 baseline (every
+     * `platform/adapter-library/core/manifest.json` declares 'locations'
+     * authored as its v0 baseline (every
      * ordinary, non-Polylang site), and a pinned plugin manifest may
      * reclassify it — see menu_field_rule_details() below, which reuses
      * rule_details('menu_fields', $field) directly rather than
@@ -3009,8 +3127,9 @@ final class Policy {
      * flake.
      *
      * Owner ruling (issue comment 8e0edde6): the raw slot is a PROJECTION
-     * of state Duo already carries losslessly elsewhere — polylang.json's
-     * own sub_keys mechanism (DUO-3233/task #121) already propagates both
+     * of state Duo already carries losslessly elsewhere —
+     * `adapter-packages/polylang/package/manifest.json`'s own sub_keys
+     * mechanism (DUO-3233/task #121) already propagates both
      * `nav_menus` (which menu belongs at which location, PER LANGUAGE) and
      * `default_lang` inside the `polylang` option itself. So classifying
      * `locations` 'derived' under Polylang does not drop authored
@@ -3018,8 +3137,9 @@ final class Policy {
      * Polylang's own machinery treats as its mutable cache and rewrites at
      * will, which is exactly what made the flake possible. Default
      * 'authored' if nothing declares a rule at all (defensive fallback
-     * only — core.json's own menu_fields.locations declaration means this
-     * branch is not expected to be reached in practice).
+     * only — the platform core manifest's own menu_fields.locations
+     * declaration means this branch is not expected to be reached in
+     * practice).
      */
     public function menu_field_class(string $field): string {
         return $this->menu_field_rule($field)['class'] ?? 'authored';
@@ -3746,8 +3866,13 @@ final class Policy {
      * deliberate, separate human act (`wp duo policy-to-manifest` only
      * prints to stdout).
      */
-    public static function export_manifest(string $repo, string $matchRegex, string $name): array {
-        $policy = self::load($repo);
+    public static function export_manifest(
+        string $repo,
+        string $matchRegex,
+        string $name,
+        ?AdapterLibrary $adapterLibrary = null
+    ): array {
+        $policy = self::load($repo, adapterLibrary: $adapterLibrary);
         $sitePolicy = $policy->site['policy'] ?? [];
 
         // DUO-3247 made spec_version mandatory at load() — sourced from the

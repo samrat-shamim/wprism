@@ -138,9 +138,10 @@ $wpdb->seedTable('wp_posts', [
  * @return array<string,mixed>
  */
 function nf_manifest(string $root, bool $stripLintOk): array {
-    $manifest = json_decode((string) file_get_contents($root . '/manifests/ninja-forms.json'), true);
+    $library = \Duo\AdapterLibrary::fromSourceTree($root);
+    $manifest = json_decode((string) file_get_contents($library->package('ninja-forms')->manifestPath()), true);
     if (!is_array($manifest)) {
-        fwrite(STDERR, "FAIL: manifests/ninja-forms.json did not decode\n");
+        fwrite(STDERR, "FAIL: the ninja-forms package manifest did not decode\n");
         exit(1);
     }
     if (!$stripLintOk) {
@@ -155,7 +156,7 @@ function nf_manifest(string $root, bool $stripLintOk): array {
 }
 
 function nf_policy(array $manifest): Policy {
-    return Policy::from_snapshot(FrozenPolicy::envelope([$manifest], FrozenPolicy::site([$manifest])));
+    return FrozenPolicy::policy([$manifest], FrozenPolicy::site([$manifest]));
 }
 
 /**

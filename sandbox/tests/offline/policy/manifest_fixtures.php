@@ -70,6 +70,131 @@ function manifest_fixture_code_cleanup(string $dir): void {
 }
 
 /**
+ * Close a deliberately flat fixture into the explicit legacy-library shape.
+ *
+ * Production no longer reads DUO_MANIFESTS_DIR. Tests that intentionally
+ * exercise flat authoring bytes therefore hand Policy one AdapterLibrary
+ * object, including the platform-owned files and one reviewed entry per
+ * manifest. Runtime placeholders close only the physical inventory; suites
+ * that exercise a hook's class contract still write that hook themselves.
+ */
+function manifest_fixture_adapter_library(string $dir): \Duo\AdapterLibrary {
+    $dir = rtrim($dir, '/');
+    foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $relative) {
+        $path = "$dir/$relative";
+        if (!is_dir($path) && !mkdir($path, 0777, true) && !is_dir($path)) {
+            throw new \RuntimeException("could not create fixture adapter-library directory $path");
+        }
+    }
+
+    $source = \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
+    $platform = \Duo\Canon::decode(\Duo\Canon::read_file($source->platformBoundaryPath()));
+    $platform['platform']['agent_version'] = defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : '0.6.0';
+    $platform['platform']['spec_version'] = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 3;
+    \Duo\Canon::write_file("$dir/capabilities/platform.json", \Duo\Canon::encode($platform));
+    copy($source->authoritiesPath(), "$dir/capabilities/adapter-authorities.json");
+    file_put_contents("$dir/dispositions/profiles.json", "{}\n");
+
+    foreach (glob("$dir/*.json") ?: [] as $manifestFile) {
+        $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($manifestFile));
+        $name = (string) ($manifest['name'] ?? '');
+        if ($name === '') {
+            continue;
+        }
+        $unsupported = [[
+            'operation' => 'apply',
+            'reason' => 'synthetic fixture adapter supports no product capability claim',
+            'surface' => 'fixture.synthetic',
+        ]];
+        $defaultKeyspaces = [];
+        foreach (($manifest['tables'] ?? []) as $table => $rule) {
+            if (($rule['class'] ?? null) === 'authored_typed_snapshot_post_v1') {
+                $unsupported[] = [
+                    'operation' => 'apply',
+                    'reason' => 'intent-only fixture tables are deliberately unsupported',
+                    'surface' => "tables.$table",
+                ];
+            }
+            if (($rule['default_class'] ?? null) === 'authored') {
+                $defaultKeyspaces[] = [
+                    'reason' => 'synthetic fixture covers its declared default-authored keyspace',
+                    'status' => 'justified',
+                    'table' => $table,
+                ];
+            }
+        }
+        $disposition = [
+            'capabilities' => [
+                'deletion_semantics' => [
+                    'supported' => [],
+                    'unsupported' => ['nothing is deletable in this synthetic fixture'],
+                ],
+                'entity_sections' => [],
+                'field_sections' => [],
+                'lifecycle_phases' => [],
+                'operations' => ['apply'],
+            ],
+            'default_authored_keyspaces' => $defaultKeyspaces,
+            'reason' => 'Synthetic fixture entry: this library tests policy mechanics, not a product claim.',
+            'status' => 'experimental',
+            'supported_versions' => ['fixture' => true],
+            'unsupported' => $unsupported,
+        ];
+        \Duo\Canon::write_file("$dir/dispositions/$name.json", \Duo\Canon::encode($disposition));
+
+        $interpreter = $manifest['interpreter'] ?? null;
+        if (is_string($interpreter) && $interpreter !== '' && !is_file("$dir/interpreters/$interpreter.php")) {
+            file_put_contents("$dir/interpreters/$interpreter.php", "<?php\n");
+        }
+        foreach (($manifest['providers'] ?? []) as $provider) {
+            $id = $provider['id'] ?? null;
+            if (($provider['source'] ?? null) === 'manifest' && is_string($id) && $id !== ''
+                && !is_file("$dir/providers/$id.php")) {
+                file_put_contents("$dir/providers/$id.php", "<?php\n");
+            }
+        }
+        foreach (($manifest['post_types'] ?? []) as $postType) {
+            $regenerator = $postType['regen_dependency']['regenerator'] ?? null;
+            if (is_string($regenerator) && $regenerator !== ''
+                && !is_file("$dir/regenerators/$regenerator.php")) {
+                file_put_contents("$dir/regenerators/$regenerator.php", "<?php\n");
+            }
+        }
+    }
+
+    return \Duo\AdapterLibrary::fromLegacyFlatDirectory($dir);
+}
+
+/** Remove one caller-owned scratch tree materialized by this fixture helper. */
+function manifest_fixture_remove_tree(string $path): void {
+    if (is_dir($path) && !is_link($path)) {
+        foreach (new \FilesystemIterator($path) as $item) {
+            manifest_fixture_remove_tree($item->getPathname());
+        }
+        rmdir($path);
+        return;
+    }
+    if (file_exists($path) || is_link($path)) {
+        unlink($path);
+    }
+}
+
+/** Load a FrozenPolicy envelope against the explicit library that holds it. */
+function manifest_fixture_policy_from_snapshot(array $snapshot): \Duo\Policy {
+    $library = manifest_fixture_adapter_library(\DuoTest\FrozenPolicy::library());
+    return \Duo\Policy::from_snapshot($snapshot, $library);
+}
+
+/** Load live policy bytes from one explicit, deliberately flat fixture. */
+function manifest_fixture_policy_load(string $dir, ?string $repo, ?array $manifestNames = null): \Duo\Policy {
+    return \Duo\Policy::load(
+        $repo,
+        $manifestNames,
+        adapterLibrary: manifest_fixture_adapter_library($dir)
+    );
+}
+
+/**
  * Adapter A: an ordinary, well-formed plugin manifest. It owns a post type
  * (with a body mode, a phase, and a derived-field claim), an option
  * namespace, a table keyspace, and a provider. Everything manifest B tries

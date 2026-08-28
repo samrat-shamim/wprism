@@ -148,7 +148,7 @@ use DuoTest\FrozenPolicy;
 
 // ---------------------------------------------------------------- fixtures
 
-$policy = Policy::from_snapshot(FrozenPolicy::envelope([], FrozenPolicy::site([])));
+$policy = FrozenPolicy::policy([], FrozenPolicy::site([]));
 $compiled = CompiledRepository::create(['tree' => []]);
 
 /** The two entities the live repro drifted, in plan `drift` row shape. */

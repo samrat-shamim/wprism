@@ -229,11 +229,12 @@ foreach (['multisite_unsupported', 'site_mode_unsupported'] as $code) {
 // ---------------------------------------------------------------------------
 // 7. One whole-report blocker, zero per-adapter contamination.
 // ---------------------------------------------------------------------------
-$dispositions = Duo\ManifestDispositions::load($root . '/manifests');
+$adapterLibrary = Duo\AdapterLibrary::fromSourceTree($root);
+$dispositions = Duo\ManifestDispositions::load_library($adapterLibrary);
 duo_check($dispositions !== null, 'the shipped reviewed disposition registry loads');
 
 $coreManifest = json_decode(
-    (string) file_get_contents($root . '/manifests/core.json'),
+    (string) file_get_contents($adapterLibrary->package('core')?->manifestPath() ?? ''),
     true,
     flags: JSON_THROW_ON_ERROR
 );

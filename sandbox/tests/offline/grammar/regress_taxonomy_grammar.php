@@ -272,7 +272,7 @@ $assertThrows(
 // ------------------------------------------------------ frozen Policy entry point
 
 $assertAccepted(
-    static fn() => Policy::from_snapshot($frozenSnapshot([
+    static fn() => FrozenPolicy::fromEnvelope($frozenSnapshot([
         'name' => 'acme',
         'spec_version' => 2,
         'taxonomies' => ['acme_posts' => ['object_keyspace' => 'post']],
@@ -280,7 +280,7 @@ $assertAccepted(
     'a valid exact object_keyspace declaration loads through Policy::from_snapshot()'
 );
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot([
+    static fn() => FrozenPolicy::fromEnvelope($frozenSnapshot([
         'name' => 'acme',
         'spec_version' => 2,
         'taxonomies' => ['acme_posts' => ['object_keyspace' => 'user']],
@@ -289,7 +289,7 @@ $assertThrows(
     'Policy::from_snapshot() refuses an invalid exact object_keyspace declaration'
 );
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot([
+    static fn() => FrozenPolicy::fromEnvelope($frozenSnapshot([
         'name' => 'acme',
         'spec_version' => 2,
         'taxonomy_patterns' => [['match' => '^acme_', 'object_keyspace' => 'user']],
@@ -298,7 +298,7 @@ $assertThrows(
     'Policy::from_snapshot() refuses an invalid pattern object_keyspace declaration'
 );
 $assertAccepted(
-    static fn() => Policy::from_snapshot($frozenSnapshot([
+    static fn() => FrozenPolicy::fromEnvelope($frozenSnapshot([
         'name' => 'acme',
         'spec_version' => 2,
         'options' => [
@@ -317,7 +317,7 @@ $assertAccepted(
     'a valid object_type_from_option declaration loads through Policy::from_snapshot()'
 );
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot([
+    static fn() => FrozenPolicy::fromEnvelope($frozenSnapshot([
         'name' => 'acme',
         'spec_version' => 2,
         'options' => [

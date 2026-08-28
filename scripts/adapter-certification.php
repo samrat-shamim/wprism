@@ -7,20 +7,20 @@ declare(strict_types=1);
  *
  * Usage:
  *   php scripts/adapter-certification.php sign \
- *     --manifest-dir=manifests --repo=/site/repository --name=example \
+ *     --manifest-dir=. --repo=/site/repository --name=example \
  *     --bundle=/review/bundle --evidence-repo=/review/checkout \
  *     --authority=review-key --secret-key-file=/secure/review-key
  *   php scripts/adapter-certification.php sign-site \
- *     --manifest-dir=manifests --repo=/site/repository --name=example \
+ *     --manifest-dir=. --repo=/site/repository --name=example \
  *     --authority=acme-ops --secret-key-file=/secure/acme-ops \
  *     --reason='grammar verified by the site operator; not exercised'
  *   php scripts/adapter-certification.php verify \
- *     --manifest-dir=manifests --repo=/site/repository --name=example
+ *     --manifest-dir=. --repo=/site/repository --name=example
  *   php scripts/adapter-certification.php verify-frozen \
- *     --manifest-dir=manifests --name=example --manifest=/snapshot/example.json \
+ *     --manifest-dir=. --name=example --manifest=/snapshot/example.json \
  *     --envelope=/snapshot/example-certification.json
  *   php scripts/adapter-certification.php authorities-sign \
- *     --authorities=manifests/capabilities/adapter-authorities.json \
+ *     --authorities=platform/adapter-library/capabilities/adapter-authorities.json \
  *     --authority=acme-1a2b3c4d5e6f --secret-key-file=/secure/acme-root
  *
  * `sign` writes only the derived adapters/certifications/<name>.json path.
@@ -28,6 +28,8 @@ declare(strict_types=1);
  * body.  The class verifies all bundle assets and evidence-repository bound
  * inputs before the private key is used, then this command immediately
  * verifies the written certificate through the live verifier.
+ * `--manifest-dir` retains its wire-era option name, but `.` above is the
+ * source root containing adapter-packages/ and platform/adapter-library/.
  *
  * The two mutation-boundary primitives -- the atomic derived-path certificate
  * write and the mode-checked secret-key read -- now live in
@@ -300,9 +302,9 @@ try {
 
         case 'revocations-sign':
             // The out-of-band revocation channel (spec § v3.8). Prints the whole
-            // installable document; the operator drops it at the manifest
-            // library's capabilities/adapter-revocations.json, which is the one
-            // path the frozen verifier holds.
+            // installable document; the operator drops it at the durable
+            // WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json path, which
+            // live and frozen verification both read beside the embedded library.
             cert_cli_require($args, ['statement', 'authority', 'secret-key-file']);
             fwrite(STDOUT, AdapterCertification::signRevocations(
                 (string) file_get_contents(cert_cli_existing_file($args['statement'], '--statement')),

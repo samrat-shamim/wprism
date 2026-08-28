@@ -11,7 +11,7 @@
 declare(strict_types=1);
 
 $root = $argv[1] ?? dirname(__DIR__, 4);
-define('DUO_SPEC_VERSION', 2);
+define('DUO_SPEC_VERSION', 3);
 $duoAgentClassmap = require $root . '/agent/duo-classmap.php';
 if (!is_array($duoAgentClassmap)) {
     throw new \RuntimeException('regress_scope_contract: agent/duo-classmap.php did not return a map');
@@ -36,6 +36,7 @@ foreach ([
     require_once $root . '/agent/' . $duoAgentFile;
 }
 require_once "$root/cli/src/Refresh/RefreshPlan.php";
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
 function get_option($name): never { throw new RuntimeException("TARGET CONTACT: get_option($name)"); }
 function wp_upload_dir(...$args): never { throw new RuntimeException('TARGET CONTACT: wp_upload_dir'); }
@@ -43,6 +44,7 @@ function apply_filters(...$args): never { throw new RuntimeException('TARGET CON
 function is_multisite(): bool { return false; }
 
 use Duo\Canon;
+use Duo\AdapterLibrary;
 use Duo\CompiledRepository;
 use Duo\Deletion;
 use Duo\OptionState;
@@ -90,6 +92,21 @@ function put(string $path, string $content): void {
     if (!is_dir(dirname($path))) mkdir(dirname($path), 0777, true);
     file_put_contents($path, $content);
 }
+function scope_contract_copy_tree(string $source, string $destination): void {
+    foreach (new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    ) as $item) {
+        $relative = substr($item->getPathname(), strlen($source) + 1);
+        $target = $destination . '/' . $relative;
+        if ($item->isDir()) {
+            if (!is_dir($target)) mkdir($target, 0777, true);
+            continue;
+        }
+        if (!is_dir(dirname($target))) mkdir(dirname($target), 0777, true);
+        copy($item->getPathname(), $target);
+    }
+}
 function uuid(int $n): string { return sprintf('00000000-0000-4000-8000-%012d', $n); }
 /** @return array<string,mixed> */
 function front(string $id, string $type, string $slug): array {
@@ -124,7 +141,12 @@ function options(array $overrides): string {
 
 $manifestDir = "$tmp/manifests";
 mkdir($manifestDir, 0777, true);
-copy("$root/manifests/core.json", "$manifestDir/core.json");
+$sourceLibrary = AdapterLibrary::fromSourceTree($root);
+$corePackage = $sourceLibrary->package('core');
+if ($corePackage === null) {
+    throw new RuntimeException('regress_scope_contract: source adapter library has no core package');
+}
+copy($corePackage->manifestPath(), "$manifestDir/core.json");
 $fixtureManifest = [
     'name' => 'scope-contract-fixture',
     'spec_version' => 2,
@@ -166,7 +188,7 @@ $fixtureManifest = [
     ],
 ];
 put("$manifestDir/scope-contract-fixture.json", Canon::encode($fixtureManifest));
-putenv("DUO_MANIFESTS_DIR=$manifestDir");
+$adapterLibrary = manifest_fixture_adapter_library($manifestDir);
 
 $ids = [
     'page' => uuid(1), 'term' => uuid(2), 'attachment' => uuid(3), 'otherAttachment' => uuid(4),
@@ -236,7 +258,7 @@ put("$repo/state/deletions/{$ids['otherTombstone']}.json", Canon::encode([
     'source_path' => "posts/page/{$ids['otherTombstone']}--other-removed.md",
 ]));
 
-$policy = Policy::load($repo);
+$policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
 $compiled = RepositoryCompiler::compile($repo, $policy);
 
 // Menu locations are one shared authored namespace. A selected source menu
@@ -348,9 +370,13 @@ function fleet_copy(string $from, string $to): void {
  * opt-in list — the state a consumer site is in the moment an adapter it
  * already trusts starts declaring a type. $scope records a site decision.
  */
-function fleet_repo(string $tmp, string $repo, string $label, array $scope = []): string {
+function fleet_repo(string $tmp, string $repo, string $manifestDir, string $label, array $scope = []): string {
     $path = "$tmp/$label";
     fleet_copy($repo, $path);
+    $manifest = Canon::decode(Canon::read_file("$manifestDir/scope-contract-fixture.json"));
+    unset($manifest['actions'], $manifest['providers']);
+    unset($manifest['post_types']['duo_contract']['regen_dependency']);
+    put("$path/adapters/scope-contract-fixture.json", Canon::encode($manifest));
     $site = Canon::decode(Canon::read_file("$path/site.duo.json"));
     $site['policy']['post_types'] = ['post', 'page', 'attachment'];
     if ($scope !== []) {
@@ -373,13 +399,19 @@ function fleet_site_bytes(string $repo): string {
     return (string) file_get_contents("$repo/site.duo.json");
 }
 
-$fleetA = fleet_repo($tmp, $repo, 'fleet-a');
-$fleetB = fleet_repo($tmp, $repo, 'fleet-b');
+$fleetA = fleet_repo($tmp, $repo, $manifestDir, 'fleet-a');
+$fleetB = fleet_repo($tmp, $repo, $manifestDir, 'fleet-b');
 // The fleet member whose site RECORDED a decision about the same type. Two
 // acts write byte-identical `{"class":"runtime"}` there and the grammar has no
 // key that tells them apart (Policy.php:2794), so no fleet write may infer
 // that the site did not mean it.
-$fleetC = fleet_repo($tmp, $repo, 'fleet-c', ['post_type' => ['duo_contract' => ['class' => 'runtime']]]);
+$fleetC = fleet_repo(
+    $tmp,
+    $repo,
+    $manifestDir,
+    'fleet-c',
+    ['post_type' => ['duo_contract' => ['class' => 'runtime']]]
+);
 $fleetBefore = [
     $fleetA => fleet_site_bytes($fleetA),
     $fleetB => fleet_site_bytes($fleetB),
@@ -387,7 +419,10 @@ $fleetBefore = [
 ];
 foreach ([$fleetA, $fleetB, $fleetC] as $member) {
     expect_throw(
-        static fn() => RepositoryCompiler::compile($member, Policy::load($member)),
+        static fn() => RepositoryCompiler::compile(
+            $member,
+            Policy::load($member, adapterLibrary: $sourceLibrary)
+        ),
         'repository_entity_out_of_scope',
         'premise: a site that pins the adapter but never opted into its declared type cannot compile, so no '
         . 'scope contract exists for it at all'
@@ -409,7 +444,10 @@ check(
     . 'fully adopted — per-repository atomicity, not a per-fleet transaction nothing could offer'
 );
 expect_throw(
-    static fn() => RepositoryCompiler::compile($fleetB, Policy::load($fleetB)),
+    static fn() => RepositoryCompiler::compile(
+        $fleetB,
+        Policy::load($fleetB, adapterLibrary: $sourceLibrary)
+    ),
     'repository_entity_out_of_scope',
     'the untouched repository still refuses exactly as it did before the batch: nothing half-moved its policy'
 );
@@ -423,8 +461,8 @@ check(
     . 'had already moved — write-only-where-absent has no second effect'
 );
 
-$fleetPolicyA = Policy::load($fleetA);
-$fleetPolicyB = Policy::load($fleetB);
+$fleetPolicyA = Policy::load($fleetA, adapterLibrary: $sourceLibrary);
+$fleetPolicyB = Policy::load($fleetB, adapterLibrary: $sourceLibrary);
 $fleetContractA = ScopeContract::resolve(
     RepositoryCompiler::compile($fleetA, $fleetPolicyA),
     $fleetPolicyA,
@@ -457,7 +495,10 @@ check(
     . 'decided is adopted in the same write — adoption is per NODE, not per repository'
 );
 expect_throw(
-    static fn() => RepositoryCompiler::compile($fleetC, Policy::load($fleetC)),
+    static fn() => RepositoryCompiler::compile(
+        $fleetC,
+        Policy::load($fleetC, adapterLibrary: $sourceLibrary)
+    ),
     'repository_entity_out_of_scope',
     'so that repository still refuses its own out-of-scope entity after the fleet ran: a recorded site rule '
     . 'outranks every manifest, and the consequence is reported rather than resolved away'
@@ -477,7 +518,7 @@ check(
     'a second invocation over the same set writes no rule and no byte, so no repository\'s contract evidence '
     . 'moves under a re-run: idempotent by construction'
 );
-$fleetPolicyRepeat = Policy::load($fleetA);
+$fleetPolicyRepeat = Policy::load($fleetA, adapterLibrary: $sourceLibrary);
 check(
     ScopeContract::resolve(
         RepositoryCompiler::compile($fleetA, $fleetPolicyRepeat),
@@ -1844,9 +1885,7 @@ $runGit(['git', '-C', $strictGitSource, 'add', '.keep']);
 $runGit(['git', '-C', $strictGitSource, 'commit', '-m', 'fixture source']);
 $runGit(['git', '-C', $strictGitSource, 'worktree', 'add', '--detach', $strictGitWorktree, 'HEAD']);
 put("$strictGitWorktree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
-if (!is_dir("$strictGitWorktree/manifests")) mkdir("$strictGitWorktree/manifests", 0700, true);
-copy("$manifestDir/core.json", "$strictGitWorktree/manifests/core.json");
-copy("$manifestDir/scope-contract-fixture.json", "$strictGitWorktree/manifests/scope-contract-fixture.json");
+scope_contract_copy_tree($manifestDir, "$strictGitWorktree/manifests");
 $strictReceipt = RefreshPlan::materialize($optionsPlan, $strictGitWorktree);
 $runGit(['git', '-C', $strictGitWorktree, 'add', '--all']);
 $runGit(['git', '-C', $strictGitWorktree, 'commit', '-m', 'materialized option root']);
@@ -1969,7 +2008,7 @@ expect_throw(
 
 $fixtureManifest['actions'][0]['effects'][0]['id'] = 'scope-contract-page-action-revised';
 put("$manifestDir/scope-contract-fixture.json", Canon::encode($fixtureManifest));
-$changedPolicy = Policy::load($repo);
+$changedPolicy = Policy::load($repo, adapterLibrary: $adapterLibrary);
 $policyCompiled = RepositoryCompiler::compile($repo, $changedPolicy);
 $changedPolicyContract = ScopeContract::resolve($policyCompiled, $changedPolicy, ['post:' . $ids['page'], 'tombstone:' . $ids['tombstone']]);
 check($changedPolicyContract['source']['manifest_hash'] !== $changedBytes['source']['manifest_hash']

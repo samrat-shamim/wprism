@@ -5,6 +5,10 @@
 # DockerTransport can execute the normal `wp` and raw-control argv against a
 # Git-capable CLI image.  No service here publishes a port or owns a database,
 # volume, or long-lived container.
+#
+# The three read-only source roots mirror pair.yml: the agent resolves its
+# packaged adapters and platform contract from sibling mu-plugin paths, with
+# no process-global library selector.
 services:
   source:
     image: ${DUO3324_DRIVER_IMAGE}
@@ -16,7 +20,6 @@ services:
       WORDPRESS_DB_PASSWORD: wordpress
       WORDPRESS_DB_HOST: duo-shared-db
       WORDPRESS_DB_NAME: wp_${DUO3324_PAIR}1
-      DUO_MANIFESTS_DIR: /duo-manifests
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
         define('DISABLE_WP_CRON', true);
@@ -24,7 +27,8 @@ services:
       - source_wp:/var/www/html
       - ${DUO3324_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
       - ${DUO3324_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ${DUO3324_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3324_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${DUO3324_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ${DUO3324_SITE1}:/siterepo
 
   target:
@@ -39,7 +43,8 @@ services:
       - target_wp:/var/www/html
       - ${DUO3324_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
       - ${DUO3324_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ${DUO3324_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3324_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${DUO3324_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ${DUO3324_SITE2}:/siterepo
 
 networks:

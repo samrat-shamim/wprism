@@ -84,8 +84,8 @@ log="${DUO_PAIR_TEST_LOG:?}"
 {
   printf 'docker'
   for arg in "$@"; do printf ' <%s>' "$arg"; done
-  printf ' env[DUO_AGENT_SRC]=%s env[DUO_MANIFESTS_SRC]=%s\n' \
-    "${DUO_AGENT_SRC:-}" "${DUO_MANIFESTS_SRC:-}"
+  printf ' env[DUO_AGENT_SRC]=%s env[DUO_ADAPTER_PACKAGES_SRC]=%s env[DUO_PLATFORM_SRC]=%s\n' \
+    "${DUO_AGENT_SRC:-}" "${DUO_ADAPTER_PACKAGES_SRC:-}" "${DUO_PLATFORM_SRC:-}"
 } >> "$log"
 
 # The artifact-cache branch intentionally executes the real bounded shell
@@ -156,9 +156,18 @@ if [ -n "$theme_state_dir" ]; then
       : > "$theme_state_dir/active"
       exit 0
       ;;
-    *" wp theme install /artifacts-cache/theme-twentytwentyone-"*" --activate --force "*)
+    *" wp theme install /artifacts-cache/theme-twentytwentyone-"*" --force "*)
+      rm -f "$theme_state_dir/installed" "$theme_state_dir/active"
+      : > "$theme_state_dir/archive-installed"
+      exit 0
+      ;;
+    *" sh /duo-harness/artifact-archive-root.sh /var/www/html/wp-content/themes fixture-theme-source twentytwentyone "*)
+      [ -f "$theme_state_dir/archive-installed" ] || {
+        printf 'fake pinned archive root was not installed\n' >&2
+        exit 39
+      }
+      : > "$theme_state_dir/normalized"
       : > "$theme_state_dir/installed"
-      : > "$theme_state_dir/active"
       exit 0
       ;;
     *" wp theme activate twentytwentyone "*)
@@ -445,6 +454,18 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_siterepo.sh" "$bin_dir/../lib/pair_siterepo.sh"
 }
 
+copy_artifact_library_runtime() { # copy_artifact_library_runtime <case-root>
+  local case_root="$1"
+  mkdir -p "$case_root/adapter-packages" "$case_root/platform/artifact-library" \
+    "$case_root/tools/src"
+  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+  cp "$ROOT/sandbox/bin/artifact-library.sh" "$case_root/sandbox/bin/artifact-library.sh"
+  cp "$ROOT/tools/artifact-library.php" "$case_root/tools/artifact-library.php"
+  cp "$ROOT/tools/src/ArtifactLibrary.php" "$case_root/tools/src/ArtifactLibrary.php"
+  cp "$ROOT/platform/artifact-library/artifacts.lock.json" \
+    "$case_root/platform/artifact-library/artifacts.lock.json"
+}
+
 run_case() {
   local label="$1" pair="$2" codebind="$3" git_mode="${4:-canonical}"
   local artifacts="${5:-0}" wordpress_offline="${6:-0}"
@@ -455,10 +476,9 @@ run_case() {
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   canonical_root="$case_root/canonical"
   copy_pair_launcher "$case_root/sandbox/bin"
-  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
-  cp "$ROOT/sandbox/conformance/artifacts.lock.json" "$case_root/sandbox/conformance/artifacts.lock.json"
+  copy_artifact_library_runtime "$case_root"
   if [ -n "${DUO_PAIR_TEST_LOCK_OVERRIDE:-}" ]; then
-    cp "$DUO_PAIR_TEST_LOCK_OVERRIDE" "$case_root/sandbox/conformance/artifacts.lock.json"
+    cp "$DUO_PAIR_TEST_LOCK_OVERRIDE" "$case_root/platform/artifact-library/artifacts.lock.json"
   fi
   chmod +x "$case_root/sandbox/bin/pair.sh"
 
@@ -509,7 +529,8 @@ run_case() {
   assert_file_contains "$log" "$mount1" "$label did not probe wp1 nested MU mount"
   assert_file_contains "$log" "$mount2" "$label did not probe wp2 nested MU mount"
   assert_file_contains "$log" "env[DUO_AGENT_SRC]=$canonical_root/agent" "$label did not use the canonical agent bind source"
-  assert_file_contains "$log" "env[DUO_MANIFESTS_SRC]=$canonical_root/manifests" "$label did not use the canonical manifests bind source"
+  assert_file_contains "$log" "env[DUO_ADAPTER_PACKAGES_SRC]=$canonical_root/adapter-packages" "$label did not use the canonical adapter-package bind source"
+  assert_file_contains "$log" "env[DUO_PLATFORM_SRC]=$canonical_root/platform" "$label did not use the canonical platform bind source"
   local recipe_env="DUO_PAIR=$pair DUO_PORT1=9911 DUO_PORT2=9912 DUO_CLI_IMAGE=${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
   [ -z "$codebind" ] || recipe_env="$recipe_env DUO_CODEBIND_PLUGIN=$codebind"
   assert_file_contains "$output" "$recipe_env docker compose -p duo-$pair" \
@@ -562,13 +583,13 @@ run_artifact_theme_case() {
   export DUO_PAIR_TEST_ARTIFACT_CACHE="$cache_dir"
   export DUO_PAIR_TEST_ARTIFACT_RUNNER="$ROOT/sandbox/bin/artifact-cache-fetch.sh"
 
-  # run_case copies the shipped lock before launching; replace only this
+  # run_case copies the platform fragment before launching; replace only this
   # private copy with a same-shaped deterministic fixture matching the warm
   # cache bytes above.
-  mkdir -p "$case_root/sandbox/conformance"
-  printf '{"plugins":{},"themes":{"twentytwentyone":{"2.8":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
-    "$digest" > "$case_root/sandbox/conformance/artifacts.lock.json.override"
-  DUO_PAIR_TEST_LOCK_OVERRIDE="$case_root/sandbox/conformance/artifacts.lock.json.override"
+  mkdir -p "$case_root/platform/artifact-library"
+  printf '{"plugins":{},"themes":{"twentytwentyone":{"2.8":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture","archive_root":"fixture-theme-source"}}}}\n' \
+    "$digest" > "$case_root/platform/artifact-library/artifacts.lock.json.override"
+  DUO_PAIR_TEST_LOCK_OVERRIDE="$case_root/platform/artifact-library/artifacts.lock.json.override"
   export DUO_PAIR_TEST_LOCK_OVERRIDE
   run_case "$label" "$pair" "" canonical 1 1
   unset DUO_PAIR_TEST_THEME_STATE_DIR DUO_PAIR_TEST_THEME_FAILURES \
@@ -576,8 +597,14 @@ run_artifact_theme_case() {
   unset DUO_PAIR_TEST_ARTIFACT_RUNNER
 
   [ -f "$state_dir/active" ] || fail "$label did not activate the cached exact theme"
+  [ -f "$state_dir/normalized" ] || fail "$label did not normalize the platform-declared theme archive root"
   assert_file_contains "$case_root/output.log" 'source=cache-hit' \
     "$label did not report the warm-cache source path"
+  [ "$(grep -cF '<sh> </duo-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' "$case_root/docker.log")" = 2 ] \
+    || fail "$label did not normalize the exact platform theme archive root on both sides"
+  assert_before "$case_root/docker.log" \
+    '<sh> </duo-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' \
+    '<wp> <theme> <activate> <twentytwentyone>'
   assert_file_contains "$case_root/docker.log" '<-f> <pair.artifacts.yml> <-f> <pair.wordpress-offline.yml>' \
     "$label did not layer both artifact and WordPress.org-offline controls"
   if grep -F '<theme> <install> <twentytwentyone>' "$case_root/docker.log" >/dev/null; then
@@ -594,10 +621,10 @@ run_invalid_artifact_lock_preflight_case() {
   local canonical_root="$case_root/canonical"
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   copy_pair_launcher "$case_root/sandbox/bin"
-  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
-  jq '.plugins.woocommerce["11.0.0"].role = "unknown-role"' \
-    "$ROOT/sandbox/conformance/artifacts.lock.json" \
-    > "$case_root/sandbox/conformance/artifacts.lock.json"
+  copy_artifact_library_runtime "$case_root"
+  jq '.plugins["wpforms-lite"]["2.0.0.4"].role = "unknown-role"' \
+    "$ROOT/platform/artifact-library/artifacts.lock.json" \
+    > "$case_root/platform/artifact-library/artifacts.lock.json"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -610,9 +637,9 @@ run_invalid_artifact_lock_preflight_case() {
 
   if "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless --artifacts \
       >"$output" 2>&1; then
-    fail "$label accepted an artifact lock with an unknown role"
+    fail "$label accepted an artifact library with an unknown role"
   fi
-  assert_file_contains "$output" 'artifact lock is malformed' \
+  assert_file_contains "$output" 'artifact library is malformed' \
     "$label did not return the bounded preflight refusal"
   [ ! -e "$log" ] || [ ! -s "$log" ] \
     || fail "$label contacted Docker before refusing the malformed lock"
@@ -631,17 +658,17 @@ run_invalid_bootstrap_theme_preflight_case() {
     canonical_root="$case_root/canonical"
     mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
     copy_pair_launcher "$case_root/sandbox/bin"
-    cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+    copy_artifact_library_runtime "$case_root"
     case "$variant" in
       missing)
         jq 'del(.themes.twentytwentyone)' \
-          "$ROOT/sandbox/conformance/artifacts.lock.json" \
-          > "$case_root/sandbox/conformance/artifacts.lock.json"
+          "$ROOT/platform/artifact-library/artifacts.lock.json" \
+          > "$case_root/platform/artifact-library/artifacts.lock.json"
         ;;
       ambiguous)
         jq '.themes.twentytwentyone["2.9"] = .themes.twentytwentyone["2.8"]' \
-          "$ROOT/sandbox/conformance/artifacts.lock.json" \
-          > "$case_root/sandbox/conformance/artifacts.lock.json"
+          "$ROOT/platform/artifact-library/artifacts.lock.json" \
+          > "$case_root/platform/artifact-library/artifacts.lock.json"
         ;;
     esac
     chmod +x "$case_root/sandbox/bin/pair.sh"

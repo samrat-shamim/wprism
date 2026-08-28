@@ -5,12 +5,16 @@ The machine-readable map is [`tools/modules.json`](../../tools/modules.json); th
 Each module has a one-page charter next to this file.
 
 **Namespaces do not change in this move.** `agent/src` stays `namespace Duo;` and `cli/src` stays
-`namespace Duo\Orchestrator;`. Manifest interpreters, providers and regenerators name `\Duo\Policy`,
+`namespace Duo\Orchestrator;`. Adapter-package interpreters, providers and regenerators name `\Duo\Policy`,
 `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN, and `ArtifactPolicyIdentity::manifest_rows()`
 folds `hash_file('sha256', …)` of each of those hook files into the adapter's identity row
 (`agent/src/Policy/ArtifactPolicyIdentity.php:74`, `:92`, `:115`), so a namespace change rewrites hook bytes
 and moves every `adapter_digest` with them. Moving or renaming an `agent/src` class file costs nothing by
 itself: the row folds manifest JSON bytes, disposition bytes and those hook hashes, and nothing else.
+Those identity-bearing inputs now live under
+`adapter-packages/<slug>/package/`; the assembler embeds them under
+`agent/adapter-library/` with the core and compatibility inputs from
+`platform/adapter-library/`.
 The additive classmap (`agent/duo-classmap.php`,
 `cli/duo-classmap.php`) maps FQCN to path, which is what makes directory != namespace legal.
 Sub-namespaces migrate later, per module, Kernel first.
@@ -140,7 +144,9 @@ Counts below are that tool's own plan at `a6b0b9c` — quote `--plan`, not this 
 4. Four things the codemod cannot do, which are hand steps in the same PR:
    - `sandbox/tests/offline/policy/regress_manifest_validate.php:966` — `glob($repo.'/agent/src/*.php')` must become a
      recursive walk or `$engine` silently becomes the empty string and its symbol checks pass vacuously.
-   - `sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php:140` — `scandir($root.'/agent/src')` must become
+   - `adapter-packages/woocommerce/tests/offline/regress_woocommerce_contract.php`
+     (then `sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php:140`) —
+     `scandir($root.'/agent/src')` must become
      recursive, and its `!is_file(agent/src/WooCommerceContract.php)` assertion must become a
      "no `Woo*`-named file anywhere under `agent/src`" scan, or the DUO-3341 guarantee weakens to a
      directory listing of module names.
@@ -152,17 +158,21 @@ Counts below are that tool's own plan at `a6b0b9c` — quote `--plan`, not this 
      `mm_rewrite_layers_json()` rewriter for a hypothetical future reorganisation that recreates the file (it is
      exercised only against the synthetic fixtures in `tests/Tooling/MoveModulesTest.php` now that the real
      `tools/layers.json` is gone).
-5. **Leave `manifests/**` alone.** The move itself is free — nothing hashes an `agent/src` path. What is not
-   free is chasing the moved paths into `manifests/`: `ArtifactPolicyIdentity::manifest_rows()` folds each
+5. **Historical flat-library constraint at `a6b0b9c`: leave `manifests/**`
+   alone.** The move itself is free — nothing hashes an `agent/src` path. What
+   is not free is chasing the moved paths into `manifests/`:
+   `ArtifactPolicyIdentity::manifest_rows()` folds each
    named interpreter/provider/regenerator file's `hash_file('sha256', …)` into that adapter's row, so
    rewriting one hook file moves its `adapter_digest`, and a deployed site with a compiled artifact then
    refuses with `compiled_artifact_manifest_mismatch`, "compiled manifest/interpreter set does not match
    active pins" (`agent/src/Repository/CompiledArtifactReader.php:39-42`), until the artifact is recompiled
    and the reviewed pin updated (`wp duo manifest-pin` emits the copy-pasteable object). The codemod
    deliberately leaves `manifests/**` untouched and reports it (23 files, 7,352 mentions).
-6. Prose costs nothing: the codemod freely rewrites the `agent/src/X.php` mentions in `Makefile`,
+6. Historical move mechanics: prose cost nothing, so the codemod freely
+   rewrote the `agent/src/X.php` mentions in `Makefile`,
    `.gitignore`, `sandbox/conformance/run.sh`, `tools/doctor.sh`, `docs/**` and `spec/**`. The only mentions
-   that must stay stale are the ones inside `manifests/*.json` note strings and the hook files beside them —
+   that had to stay stale in that move were the ones inside `manifests/*.json`
+   note strings and the hook files beside them —
    those bytes are folded into the identity row per step 5, and rewriting them changes adapter digests for no
    functional gain. (Bare `agent/src` directory mentions — `phpstan.neon.dist`'s `paths:`, `.gitignore`
    prose — must *not* grow a module segment and are left alone by design.)

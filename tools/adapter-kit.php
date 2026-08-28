@@ -19,7 +19,7 @@ use RuntimeException;
  *
  * WHY THIS EXISTS
  * ---------------
- * `cli/src/Onboarding/Adopt.php` tars exactly `agent manifests recovery`, so
+ * `cli/src/Onboarding/Adopt.php` tars exactly `agent recovery`, so
  * nothing under `sandbox/` reaches anyone — yet that is where the entire
  * ability to PROVE an adapter lives. A third party writing an adapter today
  * has the manifest grammar and no harness, so they write their own $wpdb fake;
@@ -62,7 +62,8 @@ use RuntimeException;
  * It ships no product code. Nothing under `agent/`, `cli/` or `recovery/`
  * requires anything in it, and it is deliberately NOT added to Adopt's tar:
  * the drop-in stays dependency-free (AGENTS.md rule 1) and a managed site
- * still receives exactly `agent manifests recovery`.
+ * still receives exactly `agent recovery`; the adapter library is embedded
+ * beneath `agent/` and therefore crosses the same atomic install boundary.
  * `sandbox/tests/offline/guards/regress_adapter_test_kit.php` asserts both.
  *
  * Plain PHP, no composer, requirable without side effects (the same
@@ -141,7 +142,7 @@ final class AdapterKit
     public const ADOPT_PATH = 'cli/src/Onboarding/Adopt.php';
 
     /** The tar composition the kit asserts it is NOT part of. */
-    public const ADOPTION_TAR = ['agent', 'manifests', 'recovery'];
+    public const ADOPTION_TAR = ['agent', 'recovery'];
 
     /**
      * The adoption tar's component list, read out of Adopt.php.

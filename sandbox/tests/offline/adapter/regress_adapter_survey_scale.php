@@ -152,13 +152,16 @@ namespace {
         require $agent . '/src/Policy/ManifestDispositions.php';
         require $agent . '/src/Policy/Policy.php';
         require_once $agent . '/src/Adapter/AdapterSources.php';
+        require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
         $repo = (string) (getenv('DUO_ADAPTER_SURVEY_SCALE_REPO') ?: '');
         $repo = $repo === '' ? null : $repo;
         DuoSurveyProbe::$library = $scaleLibrary;
+        $adapterLibrary = manifest_fixture_adapter_library($scaleLibrary);
+        // Closing the fixture is setup, outside the measured product path. Arm
+        // the mutation only after that setup so it lands inside survey().
         DuoSurveyProbe::$mutateAt = (int) (getenv('DUO_ADAPTER_SURVEY_SCALE_MUTATE') ?: '0');
         DuoSurveyProbe::$mutateMode = (string) (getenv('DUO_ADAPTER_SURVEY_SCALE_MUTATE_MODE') ?: '');
-        putenv("DUO_MANIFESTS_DIR=$scaleLibrary");
 
         // Proof that the seams are live, through the same engine methods the
         // measurement counts, before any number is reported.
@@ -172,7 +175,7 @@ namespace {
         $movedBy = null;
         $rows = -1;
         try {
-            $survey = Duo\AdapterSources::survey($repo);
+            $survey = Duo\AdapterSources::survey_library($adapterLibrary, $repo);
             $rows = count($survey['adapters']);
             $statuses = array_count_values(array_column(array_column($survey['adapters'], 'grammar'), 'status'));
         } catch (Duo\CommandRefusalException $typed) {
@@ -202,7 +205,7 @@ namespace {
         // against the dependency set the memo's witness is taken over: a read
         // the witness does not name is a file whose change the memo cannot
         // see.
-        $witness = Duo\AdapterSources::scan_dependencies($scaleLibrary, $repo);
+        $witness = Duo\AdapterSources::scan_dependencies_library($adapterLibrary, $repo);
         $named = [];
         foreach ($witness['files'] as $file) {
             $named[(string) (realpath($file) ?: $file)] = true;
@@ -423,22 +426,21 @@ namespace {
         // What this suite exists to refuse is the QUADRATIC shape — a reviewed
         // read per (row, row) pair — and 2n is what proves it absent.
         duo_check(
-            $measurement['registry_reads'] === 2 * $n,
-            "the reviewed source is read once per surveyed subject per discover() — 2 x $n for $n adapters (survey "
-            . '+ scan handle), never once per ROW PAIR; counted ' . $measurement['registry_reads']
+            $measurement['registry_reads'] === 2 * $n + 2,
+            "the reviewed source is read once per surveyed subject per discover() — 2 x $n adapter entries plus "
+            . 'the two profile-document reads, never once per ROW PAIR; counted ' . $measurement['registry_reads']
         );
         duo_check(
-            $measurement['library_globs'] === 8,
-            "and the library directory is enumerated exactly 8 times for $n adapters — the survey's own collect scan, "
-            . "the handle's one discover, and the two witness passes that each name the adapters, the reviewed "
-            . 'subjects and the capabilities directory; counted ' . $measurement['library_globs']
+            $measurement['library_globs'] === 0,
+            "and the pre-closed AdapterLibrary is never rediscovered during a $n-adapter survey; counted "
+            . $measurement['library_globs'] . ' library globs'
         );
     }
 
     echo "\n== the counted work is LINEAR in the library, which is the sub-quadratic claim ==\n";
     $registryPerAdapter = [];
     foreach ($sizes as $n) {
-        $registryPerAdapter[$n] = ($measurements[$n]['registry_reads'] ?? 0) / max(1, $n);
+        $registryPerAdapter[$n] = (($measurements[$n]['registry_reads'] ?? 0) - 2) / max(1, $n);
     }
     duo_check(
         count($measurements) === count($sizes)
@@ -461,11 +463,11 @@ namespace {
     // counted.
     $perRow = [];
     foreach ($sizes as $n) {
-        $perRow[$n] = ($measurements[$n]['decodes'] ?? 0) / max(1, $n);
+        $perRow[$n] = (($measurements[$n]['decodes'] ?? 0) - 2) / max(1, $n);
     }
     duo_check(
         count(array_unique($perRow)) === 1 && (int) reset($perRow) === 4,
-        'decodes are exactly 4 per surveyed adapter and nothing beside them — two manifests and two reviewed '
+        'decodes are exactly 4 per surveyed adapter plus the two profile documents — two manifests and two reviewed '
         . 'documents, one pair per discover(): ' . implode(', ', array_map(
             static fn(int $n): string => "$n => " . ($measurements[$n]['decodes'] ?? '?') . ' decodes',
             $sizes
@@ -501,7 +503,7 @@ namespace {
             'every file the scan opened under the library or the repository is named by scan_dependencies()'
         );
         duo_check(
-            $repoMeasurement['registry_reads'] === 2 * 125 && $repoMeasurement['library_globs'] === 8,
+            $repoMeasurement['registry_reads'] === 2 * 125 + 2 && $repoMeasurement['library_globs'] === 0,
             'and the repository half changes none of the whole-library counts: '
             . $repoMeasurement['registry_reads'] . ' registry reads, ' . $repoMeasurement['library_globs'] . ' globs'
         );
@@ -591,6 +593,11 @@ namespace {
         ['agent/src/Adapter/AdapterSources.php'],
         $callers('AdapterScan::open(', 'agent/src/Adapter/AdapterScan.php'),
         'and a handle is opened only by AdapterSources::survey(), the read-only inventory'
+    );
+    duo_check_same(
+        ['agent/src/Adapter/AdapterSources.php'],
+        $callers('AdapterScan::open_library(', 'agent/src/Adapter/AdapterScan.php'),
+        'and the explicit-library handle is likewise opened only by the read-only inventory'
     );
 
     if (duo_check_failed() === 0) {

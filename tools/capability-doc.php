@@ -4,11 +4,11 @@
 declare(strict_types=1);
 
 /**
- * Generate/check Duo's product capability document and its README summary.
+ * Validate Duo's capability sources or render their aggregate projection.
  *
  * Usage:
- *   php tools/capability-doc.php generate   # rewrite docs/capabilities.md and the README block
- *   php tools/capability-doc.php --check    # regenerate in memory, byte-compare, exit 1 on drift
+ *   php tools/capability-doc.php render     # write the aggregate projection to stdout
+ *   php tools/capability-doc.php --check    # validate the complete library and cross-checks
  *   php tools/capability-doc.php            # same as --check
  *
  * WHAT THIS PROJECTS, AND WHAT IT DELIBERATELY NO LONGER PROVES
@@ -18,15 +18,16 @@ declare(strict_types=1);
  * predecessor (scripts/capability-registry.php) satisfied that by projecting
  * claims out of content-addressed certification bundles: a claim could not be
  * printed unless a current evidence record stood behind it. That apparatus is
- * gone. The single source is now exactly four files:
+ * gone. The single source is now exactly four logical inputs, whose physical
+ * paths come from AdapterLibrary:
  *
- *   manifests/*.json                      what each adapter DECLARES it covers
- *   manifests/dispositions/<name>.json    the reviewed status/reason per manifest
- *   manifests/capabilities/platform.json  the one platform/environment boundary
- *   agent/duo.php                         DUO_AGENT_VERSION / DUO_SPEC_VERSION
+ *   adapter-packages/<name>/package/manifest.json     what each adapter DECLARES it covers
+ *   adapter-packages/<name>/package/disposition.json  the reviewed status/reason per adapter
+ *   platform/adapter-library/capabilities/platform.json the platform/environment boundary
+ *   agent/duo.php                                      DUO_AGENT_VERSION / DUO_SPEC_VERSION
  *
- * So a status in the generated document now means: declared by the manifest,
- * reviewed into manifests/dispositions/ by a human who wrote down why, and
+ * So a status in the rendered document now means: declared by the manifest,
+ * reviewed in its package disposition by a human who wrote down why, and
  * exercised by the named conformance suites against a live pair. It does NOT mean a
  * bundle digest binds that claim to a closure, an artifact set, or a specific
  * run. No sentence emitted here may imply otherwise -- capdoc_preamble() and
@@ -38,23 +39,17 @@ declare(strict_types=1);
  * With the evidence chain removed, the checks in capdoc_build() are the whole
  * of what keeps the narrowed claim honest. Each one refuses rather than
  * papering over, and each mirrors a rule the agent itself enforces at load
- * time (agent/src/Policy/ManifestDispositions.php) — with the one exception the
- * first bullet states, where this file is the only enforcement there is — so
- * the document cannot describe a library the agent would reject:
+ * time (agent/src/Policy/ManifestDispositions.php) or a physical invariant
+ * AdapterLibrary enforces before projection, so the document cannot describe
+ * a library the agent would reject:
  *
  *   - dispositions coverage is an EXACT set, not a subset: a manifest cannot
  *     reach the document merely by existing beside the agent, and a reviewed
- *     entry cannot outlive its manifest. Since WP-1.2 this one does not mirror
- *     a load-time rule, it IS the rule. The agent proves coverage against the
- *     PINNED shipped subset (ManifestDispositions::assert_covers(), same
- *     refusal, same sentence) because that is the question a running site
- *     asks; the DIRECTORY-wide, bidirectional property is an authoring
- *     property with exactly one reader, `make release-gate` running this file.
- *     capdoc_cross_check() below is therefore load-bearing rather than a
- *     second opinion, capdoc_build() runs it BEFORE the byte-compare so a
- *     mismatched library fails whether or not the prose is current, and
- *     tests/Tooling/CapabilityDocCoverageTest.php watches it refuse in both
- *     directions.
+ *     entry cannot outlive its manifest. AdapterLibrary closes that physical
+ *     set for both package and temporary legacy layouts. capdoc_cross_check()
+ *     asserts the same property over the reassembled logical inputs before the
+ *     byte-compare, and tests/Tooling/CapabilityDocCoverageTest.php watches the
+ *     release gate refuse both directions.
  *   - a disposition naming a plugin must agree with that manifest's own
  *     `plugin`/`version_range` bytes (validate_entry()'s version cross-check),
  *     so the published range is the range the agent will actually admit.
@@ -70,6 +65,7 @@ declare(strict_types=1);
  *     drifting into two different truths.
  */
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 
 $repo = dirname(__DIR__);
@@ -84,15 +80,8 @@ $repo = dirname(__DIR__);
 // to the rule the agent enforces at load time rather than a lookalike. Canon
 // has no requires of its own; nothing else of the agent is loaded.
 require_once $repo . '/agent/src/Kernel/Canon.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 
-const CAPDOC_DOC_FILE = '/docs/capabilities.md';
-const CAPDOC_README_FILE = '/README.md';
-const CAPDOC_README_BEGIN = '<!-- BEGIN GENERATED CAPABILITY SUMMARY -->';
-const CAPDOC_README_END = '<!-- END GENERATED CAPABILITY SUMMARY -->';
-const CAPDOC_MANIFEST_DIR = '/manifests';
-const CAPDOC_DISPOSITIONS_DIR = '/manifests/dispositions';
-const CAPDOC_DISPOSITIONS_PROFILES = 'profiles';
-const CAPDOC_PLATFORM_FILE = '/manifests/capabilities/platform.json';
 const CAPDOC_BASELINE_FILE = '/docs/compatibility-baseline.json';
 const CAPDOC_DISPOSITIONS_FORMAT = 'duo-manifest-dispositions/v1';
 const CAPDOC_PLATFORM_FORMAT = 'duo-platform-boundary/v1';
@@ -116,6 +105,10 @@ function capdoc_read_json(string $path): array {
     return $decoded;
 }
 
+function capdoc_library(string $repo): AdapterLibrary {
+    return AdapterLibrary::fromSourceTree($repo);
+}
+
 /** @return array{agent_version:string,spec_version:int} */
 function capdoc_agent_defines(string $repo): array {
     $source = (string) file_get_contents($repo . '/agent/duo.php');
@@ -128,32 +121,17 @@ function capdoc_agent_defines(string $repo): array {
     return ['agent_version' => $version[1], 'spec_version' => (int) $spec[1]];
 }
 
-/** @return array<string,array> manifests keyed by file basename, sorted */
-function capdoc_manifests(string $dir): array {
+/** @return array<string,array> manifests keyed by package name, sorted */
+function capdoc_manifests(AdapterLibrary $library): array {
     $out = [];
-    foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
-        $name = basename($file, '.json');
-        if ($name === 'dispositions') {
-            // Refused, not skipped. WP-4.4 moved the reviewed claim source to
-            // manifests/dispositions/ and the agent now refuses a library that
-            // still carries this file (ManifestDispositions::load()); skipping
-            // it here — the pre-split behaviour — would let `make
-            // release-gate` pass over a library no agent will load.
-            throw new RuntimeException(
-                'manifests/dispositions.json is the pre-split reviewed claim source and is no longer read; the '
-                . 'reviewed entries live one per adapter under ' . CAPDOC_DISPOSITIONS_DIR . '/'
-            );
-        }
+    foreach ($library->packages() as $package) {
+        $name = $package->name();
+        $file = $package->manifestPath();
         $manifest = capdoc_read_json($file);
-        // This file keys the library by FILE BASENAME — capdoc_cross_check()
-        // compares that key set against the reviewed names — while the agent
-        // keys it by the manifest's own `name`
-        // (ManifestDispositions::entry(), assert_covers(), AdapterRegistry).
-        // The two are the same string for every shipped manifest; a
-        // divergence would silently give one manifest two identities, so it is
-        // refused here rather than rendered under whichever key won. The agent
-        // refuses the same disagreement on its own path, one adapter at a
-        // time, in AdapterSources::assert_declared_name().
+        // Package identity is the key capdoc_cross_check() compares against
+        // reviewed names. AdapterLibrary already refuses a basename/declared-
+        // name disagreement; this local assertion keeps that invariant visible
+        // at the projection boundary too.
         $declared = $manifest['name'] ?? null;
         if ($declared !== $name) {
             throw new RuntimeException(
@@ -170,45 +148,33 @@ function capdoc_manifests(string $dir): array {
  * The reviewed claim source, reassembled from its per-subject documents.
  *
  * WP-4.4 moved it out of one `dispositions.json` and into one document per
- * adapter (spec/repo-format.md § v3.4). This projector reads the directory
- * ITSELF rather than calling ManifestDispositions::load(), for the reason the
- * header states about every other input here: `make release-gate` must be able
- * to refuse a library the agent would reject, and a generator that shares the
- * agent's reader can only ever agree with it. What it must NOT do is drift on
- * the reassembly — the shape below is exactly what the agent's data() returns,
- * so `capdoc_cross_check()` and every projection over it read the same array
- * they read before the split, which is why the generated document is
- * byte-identical across the move.
+ * adapter (spec/repo-format.md § v3.4). AdapterLibrary supplies the reviewed
+ * document owned by each package plus the platform-owned profiles document.
+ * This function only reassembles their data into the historical projection
+ * shape; it does not rediscover either set. The shape is exactly what the
+ * agent's data() returns, keeping generated bytes stable across the move.
  */
-function capdoc_dispositions(string $repo): array {
-    $dir = $repo . CAPDOC_DISPOSITIONS_DIR;
-    if (!is_dir($dir)) {
-        throw new RuntimeException('missing reviewed claim source directory: ' . CAPDOC_DISPOSITIONS_DIR);
-    }
+function capdoc_dispositions(AdapterLibrary $library): array {
     $data = ['format' => CAPDOC_DISPOSITIONS_FORMAT, 'manifests' => [], 'profiles' => []];
-    foreach (glob($dir . '/*.json') ?: [] as $file) {
-        $name = basename($file, '.json');
-        if ($name === CAPDOC_DISPOSITIONS_PROFILES) {
-            $profiles = capdoc_read_json($file);
-            $data['profiles'] = $profiles;
-            continue;
-        }
-        $data['manifests'][$name] = capdoc_read_json($file);
+    $data['profiles'] = capdoc_read_json($library->profilesPath());
+    foreach ($library->packages() as $package) {
+        $data['manifests'][$package->name()] = capdoc_read_json($package->dispositionPath());
     }
     ksort($data['manifests'], SORT_STRING);
     if ($data['manifests'] === []) {
-        throw new RuntimeException(CAPDOC_DISPOSITIONS_DIR . '/ declares no reviewed adapter');
+        throw new RuntimeException('the adapter library declares no reviewed adapter');
     }
     return $data;
 }
 
 /** The one platform/environment boundary, proven to agree with its two other on-disk copies. */
-function capdoc_platform(string $repo): array {
-    $data = capdoc_read_json($repo . CAPDOC_PLATFORM_FILE);
+function capdoc_platform(string $repo, AdapterLibrary $library): array {
+    $data = capdoc_read_json($library->platformBoundaryPath());
     if (($data['format'] ?? null) !== CAPDOC_PLATFORM_FORMAT
         || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])) {
         throw new RuntimeException(
-            'manifests/capabilities/platform.json must be a ' . CAPDOC_PLATFORM_FORMAT . ' object'
+            'platform/adapter-library/capabilities/platform.json must be a '
+            . CAPDOC_PLATFORM_FORMAT . ' object'
         );
     }
     $platform = $data['platform'];
@@ -503,8 +469,9 @@ function capdoc_section_summary(string $section, mixed $value): string {
 function capdoc_preamble(array $platform): string {
     return 'Duo agent **' . $platform['agent_version'] . '** / repo spec **' . $platform['spec_version']
         . "**. This document is the whole of what Duo claims; nothing outside it is supported.\n\n"
-        . '**How to read a claim.** Each adapter below is *manifest-declared* — its own `manifests/<name>.json` '
-        . 'states the exact surfaces it covers — *disposition-reviewed* — `manifests/dispositions/` records a '
+        . '**How to read a claim.** Each adapter below is *manifest-declared* — its own '
+        . '`adapter-packages/<name>/package/manifest.json` states the exact surfaces it covers — '
+        . '*disposition-reviewed* — the sibling `package/disposition.json` records a '
         . 'status and the written reason a reviewer gave it — and *conformance-tested*, by the named suites running '
         . 'against a live WordPress pair in the sandbox. A status is that review plus those runs. It is **not** an '
         . 'attestation: no digest binds a claim here to a particular closure, artifact set, or test run, so treat '
@@ -516,7 +483,7 @@ function capdoc_preamble(array $platform): string {
         // A POINTER, and deliberately nothing more (WP-5.4, spec § v3.18).
         // This document projects from exactly four files (see the header at
         // :12-58) and that stays true: a grade VALUE here would make the prose
-        // depend on sandbox/conformance/production-readiness.json, which is
+        // depend on package-owned production-readiness evidence, which is
         // not shipped and is not one of the four. The link is fixed text, so
         // the byte-compare still measures this document against its own four
         // inputs — while the reader who needs to tell two `certified` adapters
@@ -697,8 +664,8 @@ function capdoc_profiles_section(array $profiles, array $platform): string {
 /** @param array<string,array> $manifests */
 function capdoc_doc(array $manifests, array $dispositions, array $platform): string {
     $out = "# Duo capability boundary\n\n";
-    $out .= '<!-- Generated by tools/capability-doc.php from manifests/*.json + manifests/dispositions/*.json; '
-        . "do not hand-edit. Run `php tools/capability-doc.php generate` after changing either. -->\n\n";
+    $out .= '<!-- Rendered on demand by tools/capability-doc.php from adapter-packages/*/package/{manifest,disposition}.json '
+        . "+ platform/adapter-library; this aggregate is not a checked-in adapter edit point. -->\n\n";
     $out .= capdoc_preamble($platform) . "\n";
     $out .= capdoc_platform_section($platform) . "\n";
     $out .= capdoc_index_table($manifests, $dispositions, $platform) . "\n";
@@ -717,137 +684,32 @@ function capdoc_doc(array $manifests, array $dispositions, array $platform): str
     return $out;
 }
 
-/** @param array<string,array> $manifests */
-function capdoc_readme_block(array $manifests, array $dispositions, array $platform): string {
-    $rows = '';
-    $excluded = [];
-    foreach (capdoc_order(array_keys($manifests)) as $name) {
-        $entry = $dispositions['manifests'][$name];
-        if ($entry['status'] === 'excluded') {
-            $excluded[] = $name;
-            continue;
-        }
-        $rows .= '| ' . $name . ' | ' . $entry['status'] . ' | '
-            . capdoc_cell(capdoc_plugin_label($name, $manifests[$name], $entry['supported_versions'] ?? [])) . ' | '
-            . capdoc_cell(capdoc_version_label($entry['supported_versions'] ?? [], $platform)) . " |\n";
-    }
-    $block = CAPDOC_README_BEGIN . "\n"
-        . "<!-- Generated by tools/capability-doc.php; do not hand-edit. -->\n\n"
-        . "| Manifest | Status | Plugin | Version range |\n|---|---|---|---|\n" . $rows . "\n"
-        . "Every claim above is declared by the adapter's own manifest, reviewed into "
-        . '`manifests/dispositions/` with a written reason, and exercised by named conformance suites against a '
-        . 'live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a '
-        . 'content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses '
-        . 'by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are '
-        . 'in [the generated capability document](docs/capabilities.md), and plugins always run unmodified.';
-    if ($excluded !== []) {
-        // Both the noun and its verbs inflect. Pluralizing only the noun read
-        // as "One excluded fixture manifest (duo-agency-cpt) ship with the
-        // agent ... and carry no product claim" the moment the excluded set
-        // fell to one, which is what deleting the four demo manifests did.
-        $one = count($excluded) === 1;
-        $block .= ' ' . ucfirst(capdoc_count_word(count($excluded))) . ' excluded fixture manifest'
-            . ($one ? '' : 's') . ' (' . implode(', ', $excluded)
-            . ($one ? ') ships' : ') ship') . ' with the agent for regression use only and '
-            . ($one ? 'carries' : 'carry') . ' no product claim.';
-    }
-    return $block . "\n" . CAPDOC_README_END;
-}
-
-function capdoc_count_word(int $count): string {
-    return [1 => 'one', 2 => 'two', 3 => 'three', 4 => 'four', 5 => 'five',
-            6 => 'six', 7 => 'seven', 8 => 'eight', 9 => 'nine', 10 => 'ten'][$count] ?? (string) $count;
-}
-
-function capdoc_expected_readme(string $repo, string $block): string {
-    $current = (string) file_get_contents($repo . CAPDOC_README_FILE);
-    $pattern = '/' . preg_quote(CAPDOC_README_BEGIN, '/') . '.*?' . preg_quote(CAPDOC_README_END, '/') . '/s';
-    if (preg_match($pattern, $current) !== 1) {
-        throw new RuntimeException(
-            'README.md has no ' . CAPDOC_README_BEGIN . ' … ' . CAPDOC_README_END . ' block to regenerate'
-        );
-    }
-    // preg_replace would interpret $ and \ sequences inside the generated
-    // block as backreferences; the block is data, so it is spliced by offset.
-    preg_match($pattern, $current, $match, PREG_OFFSET_CAPTURE);
-    return substr($current, 0, (int) $match[0][1]) . $block
-        . substr($current, (int) $match[0][1] + strlen((string) $match[0][0]));
-}
-
-/** @return array<string,string> path => expected bytes */
-function capdoc_build(string $repo): array {
-    $manifests = capdoc_manifests($repo . CAPDOC_MANIFEST_DIR);
-    $dispositions = capdoc_dispositions($repo);
-    $platform = capdoc_platform($repo);
+function capdoc_build(string $repo): string {
+    $library = capdoc_library($repo);
+    $manifests = capdoc_manifests($library);
+    $dispositions = capdoc_dispositions($library);
+    $platform = capdoc_platform($repo, $library);
     capdoc_cross_check($manifests, $dispositions);
-    $block = capdoc_readme_block($manifests, $dispositions, $platform);
-    return [
-        $repo . CAPDOC_DOC_FILE => capdoc_doc($manifests, $dispositions, $platform),
-        $repo . CAPDOC_README_FILE => capdoc_expected_readme($repo, $block),
-    ];
+    return capdoc_doc($manifests, $dispositions, $platform);
 }
 
-/** Name the drift instead of merely reporting it, so a failed gate is actionable from its own output. */
-function capdoc_drift(string $expected, string $actual): string {
-    $expectedLines = explode("\n", $expected);
-    $actualLines = explode("\n", $actual);
-    $count = max(count($expectedLines), count($actualLines));
-    for ($i = 0; $i < $count; $i++) {
-        $want = $expectedLines[$i] ?? '<end of file>';
-        $have = $actualLines[$i] ?? '<end of file>';
-        if ($want !== $have) {
-            return 'first difference at line ' . ($i + 1) . "\n"
-                . '    on disk:   ' . capdoc_excerpt($have) . "\n"
-                . '    generated: ' . capdoc_excerpt($want);
-        }
-    }
-    return 'files differ in trailing bytes only';
-}
-
-function capdoc_excerpt(string $line): string {
-    return mb_strlen($line) > 120 ? mb_substr($line, 0, 117) . '...' : $line;
-}
-
-function capdoc_run(string $repo, bool $check): void {
-    $expected = capdoc_build($repo);
-    if ($check) {
-        $stale = [];
-        foreach ($expected as $path => $content) {
-            $relative = str_replace($repo . '/', '', $path);
-            if (!is_file($path)) {
-                $stale[] = $relative . ': absent';
-                continue;
-            }
-            $actual = (string) file_get_contents($path);
-            if ($actual !== $content) {
-                $stale[] = $relative . ': ' . capdoc_drift($content, $actual);
-            }
-        }
-        if ($stale !== []) {
-            throw new RuntimeException(
-                "generated product prose is stale; run `php tools/capability-doc.php generate`\n  "
-                . implode("\n  ", $stale)
-            );
-        }
-        fwrite(STDOUT, "capability doc check: manifests, dispositions, and product prose agree\n");
+function capdoc_run(string $repo, bool $render): void {
+    $projection = capdoc_build($repo);
+    if ($render) {
+        fwrite(STDOUT, $projection);
         return;
     }
-    foreach ($expected as $path => $content) {
-        if (file_put_contents($path, $content) === false) {
-            throw new RuntimeException('could not write ' . $path);
-        }
-    }
-    fwrite(STDOUT, "generated docs/capabilities.md and the README capability summary\n");
+    fwrite(STDOUT, "capability doc check: package manifests, dispositions, and platform boundary agree\n");
 }
 
 try {
     $command = $argv[1] ?? '--check';
-    if ($command === 'generate') {
-        capdoc_run($repo, false);
-    } elseif ($command === '--check' || $command === 'check') {
+    if ($command === 'render') {
         capdoc_run($repo, true);
+    } elseif ($command === '--check' || $command === 'check') {
+        capdoc_run($repo, false);
     } else {
-        throw new RuntimeException('usage: php tools/capability-doc.php [generate|--check]');
+        throw new RuntimeException('usage: php tools/capability-doc.php [render|--check]');
     }
 } catch (Throwable $e) {
     capdoc_fail($e->getMessage());

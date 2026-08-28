@@ -59,6 +59,7 @@ require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../lib/agent_version.php';
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
 $root = dirname(__DIR__, 4);
 duo_test_define_agent_versions();
@@ -127,8 +128,8 @@ $wpforms = [
 /**
  * Load one synthetic manifest library through the REAL loader — the technique
  * `regress_attr_id_codec_grammar.php` and `regress_ecosystem_adapter_batch.php`
- * both use, and for the same reason: no dispositions file is written, so these
- * cases exercise grammar only.
+ * both use. The closed fixture library carries synthetic dispositions only to
+ * satisfy the physical inventory contract; these cases exercise grammar.
  *
  * @param array<string,array<string,mixed>> $files
  */
@@ -141,13 +142,13 @@ $load = static function (array $files): Policy {
         Canon::write_file("$dir/$name.json", Canon::encode($manifest));
     }
     register_shutdown_function(static function () use ($dir): void {
-        foreach (glob($dir . '/*.json') ?: [] as $file) {
-            @unlink($file);
-        }
-        @rmdir($dir);
+        manifest_fixture_remove_tree($dir);
     });
-    putenv('DUO_MANIFESTS_DIR=' . $dir);
-    return Policy::load(null, array_keys($files));
+    return Policy::load(
+        null,
+        array_keys($files),
+        adapterLibrary: manifest_fixture_adapter_library($dir)
+    );
 };
 
 /** @param array<string,mixed> $overlay */

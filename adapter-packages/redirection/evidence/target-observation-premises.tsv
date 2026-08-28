@@ -1,0 +1,9 @@
+# format duo-target-observation-premises/v1
+# expected observations=4 fixtures=2
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/check.sh	require_observed_nonempty "Redirection $side runtime observation"
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty "Redirection target database install"
+observation	tests/conformance/seed.sh	require_observed_nonempty "Redirection source database install"
+observation	tests/certify/version-matrix.sh	require_observed_nonempty 'Redirection 5.9.0 boundary native rows'
+fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_GROUP TARGET_GROUP
+fixture	tests/certify/version-matrix.sh	require_fixture_ids source_group target_group

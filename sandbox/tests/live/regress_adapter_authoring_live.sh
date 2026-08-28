@@ -17,7 +17,7 @@
 # outcomes, never green assertions.
 #
 # Candidate safety is deliberate: DUO_EXPECTED_SOURCE_SHA is mandatory and is
-# passed through to pair.sh, whose canonical agent/manifests source gate runs
+# passed through to pair.sh, whose canonical agent/adapter-packages/platform source gate runs
 # before database/container/repository mutation.  Run this from a checkout
 # whose canonical root is the candidate commit (or from a standalone clone),
 # not from a linked worktree whose canonical primary checkout is another SHA.
@@ -384,8 +384,8 @@ pass "--check-proposals validates only a throwaway lift and leaves site policy u
 
 # The shipped adapter's hand-authored executable and rationale blocks must
 # survive graduation.  The generated policy projection is compared separately;
-# no command writes to manifests/ and no generated file replaces it.
-SHIPPED_MANIFEST="../manifests/duo-agency-cpt.json"
+# no command writes to the package/ payload and no generated file replaces it.
+SHIPPED_MANIFEST="../adapter-packages/duo-agency-cpt/package/manifest.json"
 MANIFEST_GUARD=$(jq -cS '{actions,providers,notes}' "$SHIPPED_MANIFEST")
 MANIFEST_HASH=$(sha256sum "$SHIPPED_MANIFEST" | awk '{print $1}')
 POLICY_EXPORT_RAW=$(wp1 duo policy-to-manifest --repo=/siterepo --match='^_?duo_(agency|project)' --name=duo-agency-cpt)
@@ -410,9 +410,10 @@ diff -r "$STATE_BEFORE_GRADUATION" "$SITE1/state" >/dev/null || fail "manifest g
 pass "inline classifications graduated to the existing shipped adapter; actions/providers/notes stayed byte-stable"
 
 say "validate shipped pins and compare host catalog after graduation"
-MANIFEST_VALIDATE=$(host manifest-validate ../manifests --pins=core,duo-agency-cpt --site="$SITE1" --format=json)
+MANIFEST_VALIDATE=$(host manifest-validate .. --manifest=duo-agency-cpt \
+  --pins=core,duo-agency-cpt --site="$SITE1" --format=json)
 echo "$MANIFEST_VALIDATE" | jq -e '.status == "ok" and .pinned_set.status == "ok" and ([.manifests[] | select(.status != "ok")] | length == 0)' >/dev/null \
-  || fail "full manifest-validate --site --pins did not pass"
+  || fail "source-tree manifest-validate --manifest --site --pins did not pass"
 CATALOG=$(host adapter list --repo="$SITE1" --format=json)
 echo "$CATALOG" | jq -e '.format == "duo-adapter-catalog/v2" and ([.adapters[] | select(.name == "duo-agency-cpt")] | length == 1)' >/dev/null \
   || fail "host adapter catalog did not report duo-agency-cpt"

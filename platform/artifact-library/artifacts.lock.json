@@ -1,0 +1,27 @@
+{
+  "plugins": {
+    "wpforms-lite": {
+      "2.0.0.4": {
+        "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.4.zip",
+        "sha256": "3deaa115c6ed18fe3ef21f327239cf9573f78f97b1f4cc8204abfaf910689608",
+        "role": "exercise-fixture"
+      }
+    }
+  },
+  "themes": {
+    "twentytwentyone": {
+      "2.8": {
+        "url": "https://downloads.wordpress.org/theme/twentytwentyone.2.8.zip",
+        "sha256": "6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e",
+        "role": "exercise-fixture"
+      }
+    },
+    "twentytwentyfive": {
+      "1.5": {
+        "url": "https://downloads.wordpress.org/theme/twentytwentyfive.1.5.zip",
+        "sha256": "f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4",
+        "role": "exercise-fixture"
+      }
+    }
+  }
+}

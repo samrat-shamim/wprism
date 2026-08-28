@@ -21,8 +21,8 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   PAIR_COMPOSE=(docker compose -p "duo-${name}" -f pair.yml)
   local f
   for f in "$@"; do PAIR_COMPOSE+=(-f "$f"); done
-  # DUO-3277: every PAIR_COMPOSE invocation needs DUO_AGENT_SRC/
-  # DUO_MANIFESTS_SRC in the environment now, not just `up` -- pair.yml
+  # DUO-3277: every PAIR_COMPOSE invocation needs all three source roots in
+  # the environment now, not just `up` -- pair.yml
   # references them unconditionally, so `stop`/`start`/`destroy` (which
   # never went through cmd_up's own export) would otherwise hand compose
   # an EMPTY bind-mount source (":/var/www/html/...:ro", invalid spec) the
@@ -80,7 +80,8 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # pair.yml's duo-shared-db default would run GREEN against MariaDB while the
   # operator recorded it as MySQL evidence -- wrong-engine evidence is worse
   # than no evidence.
-  printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\nDUO_DB_HOST=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" "$DUO_DB_HOST" > .env
+  printf 'DUO_AGENT_SRC=%s\nDUO_ADAPTER_PACKAGES_SRC=%s\nDUO_PLATFORM_SRC=%s\nDUO_DB_HOST=%s\n' \
+    "$DUO_AGENT_SRC" "$DUO_ADAPTER_PACKAGES_SRC" "$DUO_PLATFORM_SRC" "$DUO_DB_HOST" > .env
 
 }
 

@@ -5,8 +5,8 @@ public adapter-authoring loop. It owns its pair name, ports, site repositories,
 and origin. It does not alter the offline suite count and is discoverable from
 `make regress-live-list`.
 
-Run it only from a checkout whose canonical agent/manifests source is the
-candidate commit:
+Run it only from a checkout whose canonical agent/adapter-packages/platform
+source is the candidate commit:
 
 ```sh
 DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \

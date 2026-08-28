@@ -8,8 +8,8 @@
  },
  "axes": {
   "manifest": "ArtifactPolicyIdentity::manifest_rows() and everything hashed from it: manifest_hash, adapter digests, resolved_adapters, the reviewed disposition folded into each row",
-  "platform": "manifests/capabilities/platform.json — the boundary certificates and attestations sign against",
-  "authority": "manifests/capabilities/adapter-authorities.json (shipped) and adapters/authorities.json (site) — the Ed25519 trust roots"
+  "platform": "platform/adapter-library/capabilities/platform.json in source and agent/adapter-library/platform/capabilities/platform.json when deployed — the boundary certificates and attestations sign against",
+  "authority": "platform/adapter-library/capabilities/adapter-authorities.json (shipped) and adapters/authorities.json (site) — the Ed25519 trust roots"
  },
  "anchors": [
   "agent/src/Adapter/AdapterCertification.php::verifyCertificate",
@@ -22,7 +22,7 @@
   "cli/src/Refresh/RefreshPlan.php::assertProductionCodeMatches",
   "recovery/CheckpointBundle.php::validatePriorVerification"
  ],
- "exclusions_are": "A site that exists in agent/, cli/ or recovery/, that a reviewer of a manifests/ change would plausibly expect to find in `sites`, and that the predicate does not select. The suite asserts each one still exists, still resolves to exactly one unit, is still NOT selected, and is not also registered — so widening an arm until one of these is selected fails the gate instead of passing unnoticed. `arm` records WHICH half of the predicate dropped it: `identity` means no token on the manifest/platform/authority axes, `decision` means the unit references an axis but compares nothing.",
+ "exclusions_are": "A site that exists in agent/, cli/ or recovery/, that a reviewer of an adapter package or platform-library identity change would plausibly expect to find in `sites`, and that the predicate does not select. The suite asserts each one still exists, still resolves to exactly one unit, is still NOT selected, and is not also registered — so widening an arm until one of these is selected fails the gate instead of passing unnoticed. `arm` records WHICH half of the predicate dropped it: `identity` means no token on the manifest/platform/authority axes, `decision` means the unit references an axis but compares nothing.",
  "exclusions": [
   {
    "site": "agent/src/Adapter/AdapterCertification.php::verifyFrozen",
@@ -267,7 +267,7 @@
    "note": "projects the certified evidence (platform_sha256 included) into an inventory row and deliberately keeps null and [] apart; compares nothing. The refusal is AdapterCertification::verifyCertificate."
   },
   {
-   "site": "agent/src/Adapter/AdapterSources.php::survey",
+   "site": "agent/src/Adapter/AdapterSources.php::survey_from",
    "axes": [
     "authority"
    ],
@@ -410,6 +410,35 @@
    ],
    "verdict": "carrier",
    "note": "stamps every adapter's digest and reviewed status into the adoption proposal. The staleness refusal is InitPlanner::assert_confirmed_proposal, which compares a digest over the WHOLE proposal — not a manifest hash, so the predicate does not select it; this entry is the reader's pointer to it."
+  },
+  {
+   "site": "agent/src/Policy/AdapterLibrary.php::assertCapabilityEntries",
+   "axes": [
+    "platform",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "The explicit legacy-flat reader refuses any unrecognized capability entry and any non-regular platform, authority, or revocation document. It keeps archived libraries closed even though production no longer discovers this layout."
+  },
+  {
+   "site": "agent/src/Policy/AdapterLibrary.php::fromLegacyFlatDirectory",
+   "axes": [
+    "platform",
+    "authority",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "The explicitly requested archive reader refuses a missing platform boundary, authority root, disposition, manifest, or declared runtime and rejects orphaned members. It is compatibility at an explicit migration boundary, never production discovery."
+  },
+  {
+   "site": "agent/src/Policy/AdapterLibrary.php::fromLogicalLayout",
+   "axes": [
+    "platform",
+    "authority",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "The common source/deployed constructor closes the logical library: platform and authority files are mandatory, core remains platform-owned, package names cannot collide, runtime inventory must be exact, and operator revocations cannot be shadowed by replaceable agent bytes."
   },
   {
    "site": "agent/src/Policy/ArtifactPolicyIdentity.php::manifest_rows",
@@ -581,6 +610,15 @@
    "note": "ANCHOR. A scoped mutation authority whose source omits or malforms manifest_hash is refused before any lease or target check runs — the scoped path's shape gate on manifest identity."
   },
   {
+   "site": "cli/src/Adapter/AdapterCatalog.php::inspect_row",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "Projects the selected AdapterLibrary's reviewed disposition and platform boundary into the catalog report. Per-file survey refusals are already rows, so this reporting layer catches them and compares no identity bytes itself."
+  },
+  {
    "site": "cli/src/Adapter/AdapterCatalog.php::render_adapter",
    "axes": [
     "platform"
@@ -645,6 +683,15 @@
    ],
    "verdict": "carrier",
    "note": "copies the repository's adapters/authorities.json and adapters/delegations.json into a throwaway root, so an unverified package is judged without being written into the repository first. It compares nothing and its throws are IO faults about the staging directory; the trust decision those bytes carry is taken by resolveVerified above, through verifyFile()."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterDraft.php::make_tmp_library",
+   "axes": [
+    "platform",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "Builds a private source-layout library for draft validation and refuses when the platform-owned core, platform boundary, profiles, or authority root cannot be copied exactly. A draft is never validated against an invented fallback boundary."
   },
   {
    "site": "cli/src/Adapter/AdapterProposals.php::declaredPair",
@@ -790,6 +837,14 @@
    "note": "refuses when capabilities/platform.json is absent or untyped (\"run this command from a complete duo checkout\"); the TYPED decode whose canonical hash every attestation binds."
   },
   {
+   "site": "cli/src/Contract/ContractAttestation.php::platformPath",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "carrier",
+   "note": "Resolves the platform boundary from the explicitly selected AdapterLibrary, retaining a string only for explicit migration fixtures. It returns a path; currentPlatformDigest() is the gate that validates and hashes its bytes."
+  },
+  {
    "site": "cli/src/Contract/ContractAttestation.php::refuseAuthorities",
    "axes": [
     "authority"
@@ -854,6 +909,15 @@
    ],
    "verdict": "gate",
    "note": "refuses projection_invalid — \"every projection facts.manifest_pins row needs a non-empty '<field>'\". Supplying observed pins is a promise that attribution is available for every surface; degrading silently to the blunt flip would under- or over-report drift, so it refuses (rule 9)."
+  },
+  {
+   "site": "cli/src/Onboarding/BootstrapEligibility.php::sourceComplete",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "Refuses local adoption eligibility unless the source has the platform-owned core and boundary plus a closed AdapterPackageProjection over every package capsule. This prevents staging an agent whose embedded library is incomplete."
   },
   {
    "site": "cli/src/Recovery/ScopedRollbackProfile.php::claimFields",

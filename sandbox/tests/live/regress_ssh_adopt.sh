@@ -200,14 +200,14 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt.XXXXXX")"
 trap cleanup EXIT
 
 # The scoped-promotion leg below used to begin by manufacturing a hermetic
-# manifest library and pushing its capabilities/ directory onto the target: the
+# adapter library and pushing its capabilities/ directory onto the target: the
 # generated attestation was candidate/expired on any tree that had not imported
 # current subject evidence, so every certified claim carried
 # `evidence_not_current` and promotion refused before it could exercise
-# anything. That attestation no longer exists, and the manifest library `duo
-# adopt` installs — this checkout's own, tarred whole — is already the reviewed
-# one. Nothing is manufactured, staged, or pushed for it; the product gate is
-# unchanged and is exercised where it lives.
+# anything. That attestation no longer exists, and `duo adopt` assembles this
+# checkout's reviewed package capsules directly inside the staged agent.
+# Nothing is manufactured or pushed separately; the product gate is unchanged
+# and is exercised where the embedded library lives.
 
 DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt-diagnostics.XXXXXX")"
 chmod 0700 "$DIAG_DIR"
@@ -270,7 +270,7 @@ pass "labeled standalone image, network, volume, and one-run SSH credential crea
 # fetch would leave the boundary again on the next release either way). Pin to
 # the newest exercised core the claim itself names, read from the shipped
 # boundary so estate and claim cannot drift apart.
-WP_CORE_VERSION="$(jq -r '.platform.compatibility.wordpress.last_verified' manifests/capabilities/platform.json)"
+WP_CORE_VERSION="$(jq -r '.platform.compatibility.wordpress.last_verified' platform/adapter-library/capabilities/platform.json)"
 [[ "$WP_CORE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || fail "platform.json names no usable last_verified WordPress core"
 
 say "start an independent database and initialize WordPress core"
@@ -300,7 +300,6 @@ docker run -d --name "$TARGET" --network "$NET" \
   --label "duo.live-run=$RUN_ID" \
   --label "duo.live-source=$SOURCE_SHA" \
   -p "127.0.0.1:${PORT}:22" \
-  -e DUO_MANIFESTS_DIR=/container-only-value \
   -v "$VOLUME:/var/www/html" \
   -v "$TMP/id_ed25519.pub:/tmp/authorized_key:ro" \
   --entrypoint sh "$IMAGE" -lc \
@@ -324,9 +323,7 @@ Host duo-adopt-fixture
   BatchMode yes
 EOF
 ssh_fixture 'echo duo-ssh-ready' | grep -qx duo-ssh-ready || fail "SSH transport did not become ready"
-ssh_fixture 'test -z "${DUO_MANIFESTS_DIR+x}"' \
-  || fail "fixture did not reproduce the fresh-SSH DUO_MANIFESTS_DIR gap"
-pass "fresh SSH login is reachable and does not inherit the container-only DUO_MANIFESTS_DIR"
+pass "fresh SSH login is reachable without a process-selected adapter library"
 
 say "install WordPress through the SSH boundary"
 ssh_fixture "cd /var/www/html && wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress-pass --dbhost=$DB --skip-check --quiet"
@@ -411,19 +408,30 @@ ssh_fixture 'test ! -e /var/www/html/wp-content/mu-plugins/duo && test ! -e /hom
   || fail "driver negotiation contacted or mutated the SSH target"
 pass "SSH driver reports adopt ready, create unsupported, and performs zero target mutation during negotiation"
 
+say "refuse legacy revocation retirement without a byte-identical durable copy"
+ssh_fixture 'mkdir -p /var/www/html/wp-content/mu-plugins/manifests/capabilities /var/www/html/wp-content/mu-plugins/duo-control; printf "%s\n" legacy-revocation > /var/www/html/wp-content/mu-plugins/manifests/capabilities/adapter-revocations.json; printf "%s\n" durable-mismatch > /var/www/html/wp-content/mu-plugins/duo-control/adapter-revocations.json'
+if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
+echo "$OUT"
+[ "$CODE" -ne 0 ] || fail "adopt retired a legacy revocation with no byte-identical durable copy"
+grep -q 'legacy adapter revocations require a byte-identical durable duo-control copy' <<<"$OUT" \
+  || fail "revocation migration refusal omitted its durable-copy requirement"
+ssh_fixture 'test "$(cat /var/www/html/wp-content/mu-plugins/manifests/capabilities/adapter-revocations.json)" = legacy-revocation; test "$(cat /var/www/html/wp-content/mu-plugins/duo-control/adapter-revocations.json)" = durable-mismatch; test ! -e /var/www/html/wp-content/mu-plugins/duo; test ! -e /home/duo/site; test ! -e /var/www/html/wp-content/mu-plugins/.duo-adopt-lock' \
+  || fail "revocation migration refusal changed the target or its two control documents"
+ssh_fixture 'rm -rf /var/www/html/wp-content/mu-plugins/manifests /var/www/html/wp-content/mu-plugins/duo-control'
+pass "legacy revocations cannot be silently discarded during cutover"
+
 say "adopt the pre-existing target through the product command"
 if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -eq 0 ] || fail "first duo adopt failed with exit $CODE"
-grep -q 'adopt: installed agent 0.5.0 + manifest library + rollback authority; created seed site.duo.json' <<<"$OUT" \
+grep -q 'adopt: installed agent 0.5.0 + embedded adapter library + rollback authority; created seed site.duo.json' <<<"$OUT" \
   || fail "first adopt did not report the installed version and seed creation"
 grep -q '\[PASS\] duo agent present' <<<"$OUT" || fail "doctor did not pass agent presence"
 grep -q '\[PASS\] repo path has site.duo.json (/home/duo/site)' <<<"$OUT" \
   || fail "doctor did not pass the seeded repo"
-ssh_fixture "test -f /var/www/html/wp-content/mu-plugins/duo/duo.php && test -f /var/www/html/wp-content/mu-plugins/duo-loader.php && test -f /var/www/html/wp-content/mu-plugins/manifests/core.json"
-[ "$(ssh_fixture "cd /var/www/html && wp eval 'echo \\Duo\\Policy::manifests_dir();'")" = "/var/www/html/wp-content/mu-plugins/manifests" ] \
-  || fail "fresh process did not select the installed sibling manifest library"
-ssh_fixture 'test ! -e /duo-manifests' || fail "adopt unexpectedly required the root-owned fallback"
+ssh_fixture "test -f /var/www/html/wp-content/mu-plugins/duo/duo.php && test -f /var/www/html/wp-content/mu-plugins/duo-loader.php && test -f /var/www/html/wp-content/mu-plugins/duo/adapter-library/platform/core/manifest.json && test ! -e /var/www/html/wp-content/mu-plugins/manifests"
+[ "$(ssh_fixture "cd /var/www/html && wp eval 'echo \\Duo\\Policy::adapter_library_context()->root();'")" = "/var/www/html/wp-content/mu-plugins/duo/adapter-library" ] \
+  || fail "fresh process did not select the installed embedded adapter library"
 ssh_fixture 'test -f /home/duo/site/.duo/control/recovery-runtime/rollback-control.php && test -f /home/duo/site/.duo/control/recovery-runtime/RecoveryExecutor.php && test -f /home/duo/site/.duo/control/recovery-runtime/CodeRelease.php && test -f /home/duo/site/.duo/control/recovery-config.json && test -f /home/duo/site/.duo/control/public-keys/fixture-key-1.pub && test -f /home/duo/site/.duo/control/target.json' \
   || fail "adopt did not provision the external rollback authority"
 ssh_fixture 'test -f /var/www/html/wp-content/mu-plugins/duo/scoped-promotion-control.json && test "$(stat -c %a /var/www/html/wp-content/mu-plugins/duo/scoped-promotion-control.json)" = 600 && php -r '\''$v=json_decode(file_get_contents($argv[1]),true,32,JSON_THROW_ON_ERROR); exit(($v["format"]??null)==="duo-scoped-promotion-control/v1" && ($v["control_root"]??null)==="/home/duo/site/.duo/control" ? 0 : 1);'\'' /var/www/html/wp-content/mu-plugins/duo/scoped-promotion-control.json' \
@@ -434,7 +442,7 @@ TARGET_ID="$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/duo
 [ "${#TARGET_ID}" -eq 32 ] || fail "rollback authority did not establish a stable target identity"
 ssh_fixture 'test ! -e /home/duo/site/.duo/control/rollback-signing.key && test ! -e /home/duo/site/.duo/control/private-keys' \
   || fail "adoption copied private signing material to the target"
-pass "agent, manifests, seed repo, public-key-only rollback authority, and doctor verify through SSH"
+pass "agent with embedded adapters, seed repo, public-key-only rollback authority, and doctor verify through SSH"
 
 ssh_fixture 'mv /var/www/html/wp-config.php /var/www/html/wp-config.broken; printf "%s\n" "<?php throw new RuntimeException(\"broken bootstrap\");" > /var/www/html/wp-config.php'
 ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/duo/site/.duo/control' \
@@ -478,14 +486,14 @@ grep -q 'retained existing site.duo.json' <<<"$OUT" || fail "rerun did not repor
   || fail "rerun overwrote existing site.duo.json"
 [ "$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/duo/site/.duo/control/target.json\"),true)[\"target_id\"];'")" = "$TARGET_ID" ] \
   || fail "rerun replaced the stable rollback target identity"
-pass "rerun updates stale code/manifests while retaining site policy and rollback target identity"
+pass "rerun updates stale code and embedded adapters while retaining site policy and rollback target identity"
 
 say "roll back the installed release when fresh policy verification fails"
 ssh_fixture 'cp /home/duo/site/site.duo.json /home/duo/site/site.duo.valid.json'
 ssh_fixture "sed -i \"s/DUO_AGENT_VERSION', '0.5.0/DUO_AGENT_VERSION', '0.0.0/\" /var/www/html/wp-content/mu-plugins/duo/duo.php"
 ssh_fixture "printf '%s\n' '{invalid-json' > /home/duo/site/site.duo.json"
 BEFORE_AGENT="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/duo/duo.php')"
-BEFORE_MANIFEST="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/manifests/core.json')"
+BEFORE_LIBRARY="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/duo/adapter-library/platform/core/manifest.json')"
 BEFORE_RUNTIME="$(ssh_fixture 'cksum /home/duo/site/.duo/control/recovery-runtime/rollback-control.php')"
 BEFORE_SITE="$(ssh_fixture 'cksum /home/duo/site/site.duo.json')"
 if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
@@ -495,8 +503,8 @@ grep -q 'adopt failed during policy verification' <<<"$OUT" \
   || fail "invalid existing policy did not fail at the named verification boundary"
 [ "$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/duo/duo.php')" = "$BEFORE_AGENT" ] \
   || fail "policy-verification failure did not restore the previous agent"
-[ "$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/manifests/core.json')" = "$BEFORE_MANIFEST" ] \
-  || fail "policy-verification failure did not restore the previous manifests"
+[ "$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/duo/adapter-library/platform/core/manifest.json')" = "$BEFORE_LIBRARY" ] \
+  || fail "policy-verification failure did not restore the previous embedded adapter library"
 [ "$(ssh_fixture 'cksum /home/duo/site/.duo/control/recovery-runtime/rollback-control.php')" = "$BEFORE_RUNTIME" ] \
   || fail "policy-verification failure did not restore the previous rollback runtime"
 [ "$(ssh_fixture 'cksum /home/duo/site/site.duo.json')" = "$BEFORE_SITE" ] \
@@ -504,12 +512,12 @@ grep -q 'adopt failed during policy verification' <<<"$OUT" \
 ssh_fixture 'mv /home/duo/site/site.duo.valid.json /home/duo/site/site.duo.json'
 "$DUO" --envs-file="$TMP/envs.json" adopt target >/dev/null \
   || fail "adopt did not recover after the valid policy was restored"
-pass "post-swap verification failure restores agent/manifests and leaves site policy unchanged"
+pass "post-swap verification failure restores the agent with its embedded adapters and leaves site policy unchanged"
 
 say "refuse a symlink destination without mutating the installed release"
 BEFORE_AGENT="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/duo/duo.php')"
 BEFORE_SITE="$(ssh_fixture 'cksum /home/duo/site/site.duo.json')"
-ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && mv manifests manifests-real && ln -s manifests-real manifests'
+ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && mkdir manifests-real && printf "%s\n" legacy > manifests-real/sentinel && ln -s manifests-real manifests'
 if OUT="$("$DUO" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -ne 0 ] || fail "adopt followed a symlink destination"
@@ -519,17 +527,17 @@ grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/manif
   || fail "symlink refusal changed the installed agent"
 [ "$(ssh_fixture 'cksum /home/duo/site/site.duo.json')" = "$BEFORE_SITE" ] \
   || fail "symlink refusal changed site.duo.json"
-ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm manifests && mv manifests-real manifests'
+ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm manifests && rm -rf manifests-real'
 pass "unsafe destination is a loud failure with agent and site policy unchanged"
 
-say "the adopted target carries the reviewed manifest library it will be gated on"
+say "the adopted target carries the reviewed embedded adapter library it will be gated on"
 # A premise check, not a fixture: `duo adopt` above installed this checkout's
-# manifests/ whole, so the reviewed dispositions and the platform boundary are
+# assembled adapter library whole, so the reviewed dispositions and platform boundary are
 # already there. Asserted before the scoped promotion so a library that failed
 # to land is diagnosed here rather than as an unexplained capability refusal
 # eight commands later. Nothing is written; the product gate is untouched.
-if ! ssh_fixture 'php -r '\''$m="/var/www/html/wp-content/mu-plugins/manifests"; $p=json_decode(file_get_contents("$m/capabilities/platform.json"),true,512,JSON_THROW_ON_ERROR); if(($p["format"]??null)!=="duo-platform-boundary/v1")exit(1); foreach(glob("$m/dispositions/*.json") as $f){$v=json_decode(file_get_contents($f),true,512,JSON_THROW_ON_ERROR); if(($v["status"]??null)==="certified"&&count($v["evidence"]["tests"]??[])<1)exit(1);} exit(0);'\'''; then
-  fail "the adopted target has no reviewed manifest library: platform boundary or disposition evidence citation is missing"
+if ! ssh_fixture 'php -r '\''$m="/var/www/html/wp-content/mu-plugins/duo/adapter-library"; $p=json_decode(file_get_contents("$m/platform/capabilities/platform.json"),true,512,JSON_THROW_ON_ERROR); if(($p["format"]??null)!=="duo-platform-boundary/v1")exit(1); $files=glob("$m/adapters/*/disposition.json")?:[]; $files[]="$m/platform/core/disposition.json"; foreach($files as $f){$v=json_decode(file_get_contents($f),true,512,JSON_THROW_ON_ERROR); if(($v["status"]??null)==="certified"&&count($v["evidence"]["tests"]??[])<1)exit(1);} exit(0);'\'''; then
+  fail "the adopted target has no reviewed embedded adapter library: platform boundary or disposition evidence citation is missing"
 fi
 pass "target carries the shipped platform boundary and a cited disposition for every certified claim"
 

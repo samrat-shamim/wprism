@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // CommandRefusal.php above: the offline refusal suites load this file against
 // pre-declared \Duo stubs and never run that bootstrap.
 require_once __DIR__ . '/../Kernel/SiteTopology.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
@@ -340,6 +341,20 @@ final class Cli {
             }
         }
         return $out;
+    }
+
+    /**
+     * In-process evidence may supply a closed library object. No WP-CLI
+     * docblock registers this key, so target operators cannot select paths.
+     */
+    private static function internal_adapter_library(array $assoc): ?AdapterLibrary {
+        if (!array_key_exists('adapter_library', $assoc)) {
+            return null;
+        }
+        if (!$assoc['adapter_library'] instanceof AdapterLibrary) {
+            throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+        }
+        return $assoc['adapter_library'];
     }
 
     /**
@@ -1108,7 +1123,8 @@ final class Cli {
                 $assoc['out'] ?? null,
                 isset($assoc['force-unresolved-refs']),
                 $scopeRequest,
-                $hostEnvironment
+                $hostEnvironment,
+                self::internal_adapter_library($assoc)
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capture');
@@ -1292,6 +1308,13 @@ final class Cli {
             ] + self::rebind_from_options($assoc);
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
+            }
+            // Object-only evidence seam: this key is intentionally absent
+            // from the WP-CLI docblock, so a target operator cannot redirect
+            // production discovery with a command-line path.
+            $adapterLibrary = self::internal_adapter_library($assoc);
+            if ($adapterLibrary !== null) {
+                $options['adapter_library'] = $adapterLibrary;
             }
             if ($viewRequest !== null
                 && (array_key_exists('scope-contract', $assoc)
@@ -1909,6 +1932,12 @@ final class Cli {
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
                 'scoped_promotion_receipt' => $assoc['scoped-promotion-receipt'] ?? '',
             ] + self::rebind_from_options($assoc);
+            // Same object-only seam as plan(); no registered WP-CLI flag can
+            // turn an arbitrary path into mutation authority.
+            $adapterLibrary = self::internal_adapter_library($assoc);
+            if ($adapterLibrary !== null) {
+                $opts['adapter_library'] = $adapterLibrary;
+            }
             if ((string) ($assoc['scoped-promotion-receipt'] ?? '') !== ''
                 && !array_key_exists('scope-request-b64', $assoc)) {
                 throw CommandRefusalException::applyRefused(
@@ -2131,6 +2160,7 @@ final class Cli {
                 'state_handoff' => isset($assoc['state-handoff']),
                 'lifecycle_phase' => $assoc['lifecycle-phase'] ?? 'all',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
+                'adapter_library' => self::internal_adapter_library($assoc),
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'deploy');
@@ -2942,7 +2972,7 @@ final class Cli {
     public function lint($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lint', '--repo');
-            $policy = Policy::load($repo);
+            $policy = Policy::load($repo, adapterLibrary: self::internal_adapter_library($assoc));
             $stateDir = rtrim($repo, '/') . '/state';
             $environment = Lint::live_environment(self::lint_probe($assoc['evidence'] ?? null));
             $findings = Lint::scan_tree($stateDir, $policy, $environment);
@@ -3556,6 +3586,7 @@ final class Cli {
      */
     public function adapter_survey($args, $assoc) {
         $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
+        $library = null;
         try {
             // This command advertises --format=json, so its refusals belong
             // inside DUO-3399's common envelope like every other one that
@@ -3565,10 +3596,14 @@ final class Cli {
             // throws by construction, so reaching here means an IO fault
             // about this command's own inputs — which is exactly the shape
             // the envelope exists to make machine-readable.
-            $survey = AdapterSources::survey($repo);
+            $library = Policy::adapter_library_context();
+            $survey = $library instanceof AdapterLibrary
+                ? AdapterSources::survey_library($library, $repo)
+                : AdapterSources::survey($repo);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'adapter-survey');
             WP_CLI::error($t->getMessage());
+            return;
         }
         $grammarErrors = 0;
         $grammarUnjudged = 0;
@@ -3587,7 +3622,7 @@ final class Cli {
             'format' => 'duo-adapter-catalog/v2',
             'spec_version' => DUO_SPEC_VERSION,
             'command' => 'survey',
-            'manifests_dir' => Policy::manifests_dir(),
+            'manifests_dir' => $library instanceof AdapterLibrary ? $library->root() : $library,
             'repo' => $repo,
             'sources' => $survey['sources'],
             'adapters' => $survey['adapters'],
@@ -3789,6 +3824,13 @@ final class Cli {
         $all = isset($assoc['all']);
         $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
         try {
+            // Object-only injection for in-process evidence/rendering callers.
+            // WP-CLI has no registered `--adapter_library` option, so a target
+            // operator cannot redirect production discovery to arbitrary disk.
+            $adapterLibrary = $assoc['adapter_library'] ?? null;
+            if ($adapterLibrary !== null && !$adapterLibrary instanceof AdapterLibrary) {
+                throw new \RuntimeException('duo: internal capabilities adapter library must be an AdapterLibrary');
+            }
             // Both selector gates move inside the boundary, keeping their
             // original order relative to each other and to the registry reads
             // below. This is the command an external reviewer polls for a
@@ -3815,8 +3857,9 @@ final class Cli {
                 $query['surface'] = (string) $assoc['surface'];
             }
             if ($all) {
-                $dir = Policy::manifests_dir();
-                $dispositions = ManifestDispositions::load($dir);
+                $library = $adapterLibrary ?? Policy::adapter_library_context();
+                $dir = $library->root();
+                $dispositions = ManifestDispositions::load_library($library);
                 if ($dispositions === null) {
                     throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
                 }
@@ -3825,13 +3868,22 @@ final class Cli {
                 // reviewed claim source into `dispositions/`, which this glob
                 // does not match, and ManifestDispositions::load() above has
                 // already refused a library that still carries the file.
-                foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
+                $manifestFiles = [];
+                foreach ($library->packages() as $package) {
+                    $manifestFiles[$package->name()] = $package->manifestPath();
+                }
+                foreach ($manifestFiles as $expectedName => $file) {
                     $manifest = Canon::decode(Canon::read_file($file));
                     // DUO-3371: this path loads the library without Policy::load(),
                     // so it must hold the same name==basename rule itself — a
                     // mismatch otherwise surfaces as a malformed registry claim
                     // that never says the name field is wrong.
-                    AdapterSources::assert_declared_name($manifest, basename($file, '.json'), AdapterSources::SHIPPED, $file);
+                    AdapterSources::assert_declared_name(
+                        $manifest,
+                        $expectedName,
+                        AdapterSources::SHIPPED,
+                        $file
+                    );
                     $manifests[] = $manifest;
                 }
                 // DUO-3339: real provenance, not the absent-sources default.
@@ -3851,7 +3903,9 @@ final class Cli {
                     $manifests,
                     $query,
                     null,
-                    AdapterSources::discover($dir, null)->diagnostics($manifests)
+                    AdapterSources::discover_library($library, null)->diagnostics($manifests),
+                    [],
+                    ManifestDispositions::platform_boundary_library($library)
                 );
             } else {
                 if ($repo === null || $repo === '') {
@@ -3876,7 +3930,13 @@ final class Cli {
                     [$policy] = AssessInventory::policy_for_assessment($repo);
                     $report = $policy->capability_report($query);
                 } else {
-                    $report = Policy::load($repo, null, true)->capability_report($query);
+                    $report = Policy::load(
+                        $repo,
+                        null,
+                        true,
+                        null,
+                        $adapterLibrary
+                    )->capability_report($query);
                 }
             }
         } catch (\Throwable $t) {
@@ -3954,8 +4014,9 @@ final class Cli {
      * --repo=<path>
      * [--manifests=<dir>] : Adapter manifest library to resolve the pins
      *                        against, for a host driving a target whose
-     *                        library is not the agent's default. Must be an
-     *                        existing directory; restored after the command.
+     *                        library is not the agent's default. This is the
+     *                        explicit legacy flat-library reader; it never
+     *                        changes the process's production library.
      * [--format=<format>] : Output format. Accepts json (machine-readable,
      *                        versioned by the document's own "format" field —
      *                        this is the shape `duo assess` consumes, so treat
@@ -3972,12 +4033,6 @@ final class Cli {
         // the top of the file because the offline refusal suites load
         // Cli.php against pre-declared \Duo stubs.
         require_once __DIR__ . '/../Assess/AssessInventory.php';
-        // Restored unconditionally: --manifests is a per-invocation selector,
-        // and Policy::manifests_dir() reads this variable on every call, so a
-        // leaked value would silently repoint every later load in this
-        // process (the same save/restore RefreshPlan and ManifestValidate
-        // already perform around their own library switches).
-        $previousManifests = getenv('DUO_MANIFESTS_DIR');
         // Definite assignment before the boundary, not after it: every
         // failure path below leaves this function through WP_CLI, so the
         // renderer is unreachable with an empty document, and initializing
@@ -3985,6 +4040,7 @@ final class Cli {
         $document = [];
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('assess-inventory', '--repo');
+            $library = Policy::shipped_adapter_library();
             if (isset($assoc['manifests'])) {
                 $dir = (string) $assoc['manifests'];
                 if ($dir === '' || !is_dir($dir)) {
@@ -3996,7 +4052,7 @@ final class Cli {
                         'assess-inventory received a --manifests value that is not a directory'
                     );
                 }
-                putenv('DUO_MANIFESTS_DIR=' . $dir);
+                $library = AdapterLibrary::fromLegacyFlatDirectory($dir);
             }
             // `true` follows the read-only capability path `capabilities` and
             // `adapter-observe` already take: an assessment must be able to
@@ -4015,7 +4071,7 @@ final class Cli {
             // as the policy the surfaces are projected against, and named as
             // such in the document (`adoption`) so the reader knows this is a
             // preview of adoption, not a repository in force.
-            [$policy, $adoption] = AssessInventory::policy_for_assessment((string) $repo);
+            [$policy, $adoption] = AssessInventory::policy_for_assessment((string) $repo, $library);
             $document = AssessInventory::report(
                 $policy,
                 ['repo' => (string) $repo, 'adoption' => $adoption]
@@ -4023,10 +4079,6 @@ final class Cli {
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'assess-inventory');
             WP_CLI::error($t->getMessage());
-        } finally {
-            $previousManifests === false
-                ? putenv('DUO_MANIFESTS_DIR')
-                : putenv('DUO_MANIFESTS_DIR=' . $previousManifests);
         }
 
         if (($assoc['format'] ?? '') === 'json') {

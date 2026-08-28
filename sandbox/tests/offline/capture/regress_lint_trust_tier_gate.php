@@ -265,7 +265,7 @@ function acme_policy(array $manifest, bool $outOfTree, ?string $withdrawn = null
         $envelope['adapter_sources']['out_of_tree'][(string) $manifest['name']]
             = acme_record($manifest, $withdrawn);
     }
-    return Policy::from_snapshot($envelope);
+    return FrozenPolicy::fromEnvelope($envelope);
 }
 
 /** @return list<string> "class path locator" per finding, in scan order. */

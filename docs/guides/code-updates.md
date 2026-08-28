@@ -111,7 +111,7 @@ knowing exactly what you are overriding — pass `--force-code-mismatch`.
 
 `outside_version_range` is the finding an ordinary WordPress auto-update
 produces, and its only two exits are heavy: widen the manifest's range (a
-reviewed edit across `manifests/<name>.json` and `manifests/dispositions/<name>.json`
+reviewed edit across a capsule's `package/manifest.json` and `package/disposition.json`
 that every deployed site then re-pins against) or force past it with no
 evidence at all. There is a third, and it is evidence-bound.
 
@@ -655,7 +655,8 @@ history, not deploy wall time.
    guarantee instant completion on a large catalog.
 6. **`woocommerce_db_version` and `woocommerce_version` update themselves** as
    a side effect. Duo never writes either, and never should: both are
-   `class: "env"` in `manifests/woocommerce.json`, so they are excluded from
+   `class: "env"` in
+   `adapter-packages/woocommerce/package/manifest.json`, so they are excluded from
    `state/` entirely. That is what makes "migrations re-run per environment"
    fall out for free rather than needing a shared migration ledger — every
    environment deploys the same git revision, notices its own staleness, and

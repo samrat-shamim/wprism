@@ -73,6 +73,7 @@ require_once $repo . '/agent/src/Kernel/Db.php';
 require_once $repo . '/agent/src/Kernel/ReferenceKindGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterSources.php';
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 require_once $repo . '/agent/src/Adapter/StructuredEvidence.php';
@@ -279,7 +280,8 @@ duo_check_same(
     'DUO_SPEC_VERSION is 3, read out of agent/duo.php — the section shipped AFTER the flip and the wire '
         . 'version did not move to admit it (spec/repo-format.md § v3.14)'
 );
-$platform = Canon::decode(Canon::read_file($repo . '/manifests/capabilities/platform.json'));
+$adapterLibrary = \Duo\AdapterLibrary::fromSourceTree($repo);
+$platform = Canon::decode(Canon::read_file($adapterLibrary->platformBoundaryPath()));
 duo_check_same(
     $N,
     $platform['platform']['spec_version'] ?? null,
@@ -464,15 +466,53 @@ duo_check_same(
 echo "\nPART 4 — the product path, and the deferral this rider is honest about\n";
 // ===========================================================================
 
+$platformRoot = $scratch . '/platform/adapter-library';
+mkdir($scratch . '/adapter-packages', 0777, true);
+mkdir($platformRoot . '/capabilities', 0777, true);
+mkdir($platformRoot . '/core', 0777, true);
+foreach ([
+    'capabilities/adapter-authorities.json',
+    'capabilities/platform.json',
+    'core/disposition.json',
+    'core/manifest.json',
+    'profiles.json',
+] as $relative) {
+    copy($repo . '/platform/adapter-library/' . $relative, $platformRoot . '/' . $relative);
+}
+$fixtureDisposition = [
+    'capabilities' => [
+        'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+        'entity_sections' => [],
+        'field_sections' => [],
+        'lifecycle_phases' => [],
+        'operations' => ['test-only'],
+    ],
+    'default_authored_keyspaces' => [],
+    'reason' => 'Structured-evidence grammar fixture, not a product support claim.',
+    'status' => 'excluded',
+    'supported_versions' => ['fixture' => true],
+    'unsupported' => [[
+        'operation' => 'all',
+        'reason' => 'Excluded fixtures are never production-ready.',
+        'surface' => 'production',
+    ]],
+];
+foreach (['acme-evidence', 'acme-broken'] as $name) {
+    mkdir($scratch . "/adapter-packages/$name/package", 0777, true);
+    Canon::write_file(
+        $scratch . "/adapter-packages/$name/package/disposition.json",
+        Canon::encode($fixtureDisposition)
+    );
+}
 Canon::write_file(
-    $scratch . '/acme-evidence.json',
+    $scratch . '/adapter-packages/acme-evidence/package/manifest.json',
     Canon::encode($adapter('acme-evidence', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION => $goodRecord]))
 );
 $broken = $adapter('acme-broken', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION => $goodRecord]);
 // The declaration the record addresses, DELETED — the exact edit the prose grep
 // cannot notice, because prose has no addresses.
 unset($broken['options']);
-Canon::write_file($scratch . '/acme-broken.json', Canon::encode($broken));
+Canon::write_file($scratch . '/adapter-packages/acme-broken/package/manifest.json', Canon::encode($broken));
 
 $validate = $run([PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]);
 duo_check(
@@ -493,9 +533,9 @@ duo_check($validate['exit'] !== 0, '...and the run fails, because a pin set hold
 // manifest's JSON into its `digest`. Redirection can declare the section
 // because it is newly authored and its first digest already includes it.
 $shippedManifests = [];
-foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
-    $decoded = Canon::decode(Canon::read_file($file));
-    $shippedManifests[basename($file, '.json')] = $decoded;
+foreach ($adapterLibrary->packages() as $package) {
+    $decoded = Canon::decode(Canon::read_file($package->manifestPath()));
+    $shippedManifests[$package->name()] = $decoded;
 }
 $adopters = array_values(array_filter(
     array_keys($shippedManifests),

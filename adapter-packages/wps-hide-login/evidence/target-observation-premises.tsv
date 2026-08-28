@@ -1,0 +1,7 @@
+# format duo-target-observation-premises/v1
+# expected observations=4 fixtures=0
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/check.sh	require_observed_nonempty "WPS Hide Login $side runtime observation"
+observation	tests/conformance/postdeploy.sh	require_observed_nonempty "WPS Hide Login hostile target seed"
+observation	tests/conformance/seed.sh	require_observed_nonempty "WPS Hide Login source seed"
+observation	tests/certify/version-matrix.sh	require_observed_nonempty "WPS Hide Login $label boundary APIs"

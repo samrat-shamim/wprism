@@ -9,7 +9,7 @@
  * regress_manifest_reclassification_policy.php (DUO-3249's own offline
  * test) — see that file's docblock for why: this proves the same
  * mechanism, generalized to a second section, not a new one. Uses FAKE
- * fixture manifests via DUO_MANIFESTS_DIR, never the real
+ * fixture manifests through an explicit flat AdapterLibrary, never the real
  * manifests/core.json or manifests/polylang.json — this file proves the
  * MECHANISM works in isolation; sandbox/tests/grind/grind_r3a_multilingual.sh is
  * the live proof against the real shipped manifests and a real Polylang
@@ -35,11 +35,10 @@ register_shutdown_function(function () use ($fixtureDir) {
     }
     rmdir($fixtureDir);
 });
-putenv("DUO_MANIFESTS_DIR=$fixtureDir");
-
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Policy;
 
@@ -83,7 +82,7 @@ write_manifest($fixtureDir, 'plugin', [
 // ======================================================================
 echo "\n== core alone: unaffected ==\n";
 
-$core = Policy::load(null, ['core']);
+$core = manifest_fixture_policy_load($fixtureDir, null, ['core']);
 check($core->menu_field_class('locations') === 'authored', 'locations stays authored with core alone');
 $d = $core->menu_field_rule_details('locations');
 check(($d['source'] ?? null) === 'core', 'source is core with core alone');
@@ -97,7 +96,7 @@ check($core->menu_field_class('nonexistent_field') === 'authored', "an undeclare
 // ======================================================================
 echo "\n== core + plugin, pinned core FIRST (the universal shipped convention) ==\n";
 
-$both = Policy::load(null, ['core', 'plugin']);
+$both = manifest_fixture_policy_load($fixtureDir, null, ['core', 'plugin']);
 check($both->menu_field_class('locations') === 'derived', "plugin's reclassification wins over core's own declaration (core pinned first)");
 $d = $both->menu_field_rule_details('locations');
 check(($d['source'] ?? null) === 'plugin', 'source is the plugin manifest, not core');
@@ -115,7 +114,7 @@ echo "\n== core + plugin, pinned REVERSED (plugin first, core last) — must be 
 // (accidentally) get this one right, masking the bug that only shows up
 // in the universal core-first convention tested above.
 
-$reversed = Policy::load(null, ['plugin', 'core']);
+$reversed = manifest_fixture_policy_load($fixtureDir, null, ['plugin', 'core']);
 check($reversed->menu_field_class('locations') === 'derived', 'plugin still wins with reversed pin order');
 $d = $reversed->menu_field_rule_details('locations');
 check(($d['source'] ?? null) === 'plugin', 'source is still the plugin manifest with reversed pin order');
@@ -128,7 +127,7 @@ write_manifest($fixtureDir, 'agree', [
     'spec_version' => DUO_SPEC_VERSION,
     'menu_fields' => ['locations' => ['class' => 'authored']],
 ]);
-$agreeing = Policy::load(null, ['core', 'agree']);
+$agreeing = manifest_fixture_policy_load($fixtureDir, null, ['core', 'agree']);
 check($agreeing->active_menu_field_reclassifications() === [], 'no reclassification reported when the plugin agrees with core\'s own class');
 
 // ======================================================================
@@ -142,7 +141,7 @@ write_manifest($fixtureDir, 'badfield', [
 $threw = false;
 $msg = '';
 try {
-    Policy::load(null, ['core', 'badfield']);
+    manifest_fixture_policy_load($fixtureDir, null, ['core', 'badfield']);
 } catch (\RuntimeException $e) {
     $threw = true;
     $msg = $e->getMessage();
@@ -161,7 +160,7 @@ write_manifest($fixtureDir, 'badclass', [
 $threw = false;
 $msg = '';
 try {
-    Policy::load(null, ['core', 'badclass']);
+    manifest_fixture_policy_load($fixtureDir, null, ['core', 'badclass']);
 } catch (\RuntimeException $e) {
     $threw = true;
     $msg = $e->getMessage();

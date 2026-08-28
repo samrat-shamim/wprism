@@ -1,0 +1,22 @@
+{
+  "plugins": {
+    "advanced-custom-fields": {
+      "5.12.6": {
+        "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.5.12.6.zip",
+        "sha256": "66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6",
+        "role": "refusal-fixture"
+      },
+      "6.0.0": {
+        "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.0.0.zip",
+        "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341",
+        "role": "certified-boundary"
+      },
+      "6.8.7": {
+        "url": "https://downloads.wordpress.org/plugin/advanced-custom-fields.6.8.7.zip",
+        "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/AdapterSources.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 
 /**
@@ -102,9 +103,8 @@ final class AdapterScan {
     public const REFUSAL_MOVED = 'adapter_library_moved';
 
     private ?string $repo;
-    /** The library this handle resolved against, as Policy resolved it. */
-    private string $manifestDir = '';
-    /** @var ?array{dir:string, dispositions:?ManifestDispositions, sources:AdapterSources} */
+    private AdapterLibrary $adapterLibrary;
+    /** @var ?array{dir:string, adapter_library:AdapterLibrary, dispositions:?ManifestDispositions, sources:AdapterSources} */
     private ?array $library = null;
     /**
      * A resolution that REFUSED, replayed per row instead of re-attempted.
@@ -123,8 +123,9 @@ final class AdapterScan {
     /** @var array<string,string> content digests, re-derived once at settle() */
     private array $content = [];
 
-    private function __construct(?string $repo) {
+    private function __construct(?string $repo, AdapterLibrary $adapterLibrary) {
         $this->repo = $repo;
+        $this->adapterLibrary = $adapterLibrary;
     }
 
     /**
@@ -137,7 +138,12 @@ final class AdapterScan {
      * also what keeps this constructor safe to call unconditionally.
      */
     public static function open(?string $repo): self {
-        return new self($repo);
+        return new self($repo, Policy::shipped_adapter_library());
+    }
+
+    /** Open a survey handle over exactly this closed library inventory. */
+    public static function open_library(AdapterLibrary $library, ?string $repo): self {
+        return new self($repo, $library);
     }
 
     /**
@@ -182,7 +188,7 @@ final class AdapterScan {
             return;
         }
         $this->assert_unmoved();
-        $dependencies = AdapterSources::scan_dependencies($this->manifestDir, $this->repo);
+        $dependencies = $this->dependencies();
         $content = self::content_witness($dependencies['files']);
         if ($content !== $this->content) {
             throw self::moved($this->content, $content, 'file content');
@@ -201,12 +207,11 @@ final class AdapterScan {
             return;
         }
         $this->resolved = true;
-        $this->manifestDir = Policy::manifests_dir();
-        $dependencies = AdapterSources::scan_dependencies($this->manifestDir, $this->repo);
-        $this->shape = self::shape_witness($dependencies);
+        $dependencies = $this->dependencies();
+        $this->shape = self::shape_witness($dependencies, $this->adapterLibrary);
         $this->content = self::content_witness($dependencies['files']);
         try {
-            $this->library = Policy::resolve_library($this->repo);
+            $this->library = Policy::resolve_library($this->repo, $this->adapterLibrary);
         } catch (\Throwable $t) {
             $this->failure = $t;
         }
@@ -214,7 +219,8 @@ final class AdapterScan {
 
     private function assert_unmoved(): void {
         $shape = self::shape_witness(
-            AdapterSources::scan_anchors($this->manifestDir, $this->repo)
+            $this->anchors(),
+            $this->adapterLibrary
         );
         if ($shape !== $this->shape) {
             throw self::moved($this->shape, $shape, 'directory or activation');
@@ -231,25 +237,34 @@ final class AdapterScan {
      * without it this check would answer from the same cached inode the
      * resolution saw and could never see a mid-process move.
      *
-     * The CURRENT `Policy::manifests_dir()` is an entry of its own: a process
-     * that moves `DUO_MANIFESTS_DIR` mid-survey has changed which library the
-     * next row would resolve against, which no stat of the OLD directory can
-     * see.
+     * The selected library root is an entry of its own, so replacing the
+     * embedded projection moves the witness even when its new tree has the
+     * same package names.
      *
      * @param array{anchors:list<string>, plugins:list<string>} $anchored a full
      *        dependency set is a superset of this and is accepted as one
      * @return array<string,string>
      */
-    private static function shape_witness(array $anchored): array {
+    private static function shape_witness(array $anchored, AdapterLibrary $adapterLibrary): array {
         clearstatcache(true);
         $witness = [
-            'library' => Policy::manifests_dir(),
+            'library' => $adapterLibrary->root(),
             'plugins' => implode(',', $anchored['plugins']),
         ];
         foreach ($anchored['anchors'] as $anchor) {
             $witness[$anchor] = self::stamp($anchor);
         }
         return $witness;
+    }
+
+    /** @return array{anchors:list<string>, files:list<string>, plugins:list<string>} */
+    private function dependencies(): array {
+        return AdapterSources::scan_dependencies_library($this->adapterLibrary, $this->repo);
+    }
+
+    /** @return array{anchors:list<string>, plugins:list<string>} */
+    private function anchors(): array {
+        return AdapterSources::scan_anchors_library($this->adapterLibrary, $this->repo);
     }
 
     /**

@@ -1,0 +1,69 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "contact-form-7",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/contact-form-7/package/manifest.json",
+      "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php",
+      "adapter-packages/contact-form-7/evidence/artifacts.lock.json",
+      "adapter-packages/contact-form-7/tests/certify/version-matrix.sh",
+      "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php"
+    ],
+    "clean-target": [
+      "adapter-packages/contact-form-7/tests/conformance/entry.json",
+      "adapter-packages/contact-form-7/tests/conformance/seed.sh",
+      "adapter-packages/contact-form-7/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/contact-form-7/tests/conformance/postdeploy.sh",
+      "adapter-packages/contact-form-7/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php",
+      "adapter-packages/contact-form-7/tests/conformance/seed.sh",
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "adapter-packages/contact-form-7/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/contact-form-7/tests/conformance/seed.sh",
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "adapter-packages/contact-form-7/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php",
+      "sandbox/tests/offline/apply/regress_fatal_mutations.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_capture_concurrency.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "adapter-packages/contact-form-7/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "agent/src/Kernel/PlainData.php",
+      "adapter-packages/contact-form-7/package/runtime/interpreters/contact-form-7.php",
+      "adapter-packages/contact-form-7/tests/conformance/seed.sh",
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "adapter-packages/contact-form-7/tests/offline/regress_contact_form_7_production_readiness.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/contact-form-7/package/manifest.json",
+      "adapter-packages/contact-form-7/tests/conformance/check.sh",
+      "adapter-packages/contact-form-7/tests/certify/version-matrix.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {
+    "derived-state": "The declared CF7 surface has no separately repaired adapter-owned derived-state store."
+  }
+}

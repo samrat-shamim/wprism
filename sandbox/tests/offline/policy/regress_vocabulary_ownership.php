@@ -17,7 +17,7 @@
  *
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Ledger,Tokens,
  * Snapshot,IdentityNotes}.php against manifest fixture files this test writes
- * into a scratch DUO_MANIFESTS_DIR — the same idiom as
+ * into an explicit scratch AdapterLibrary — the same idiom as
  * sandbox/tests/offline/adapter/regress_adapter_contract.php (DUO-3222/DUO-3243).
  *
  * Most of the file needs no database at all, which is itself the DUO-3318
@@ -248,26 +248,27 @@ function expect_throw(callable $fn, string $needle, string $msg): void {
     }
 }
 
-/** Fresh scratch manifests dir for one check; auto-removed at exit. */
-function fresh_manifests_dir(array $files): void {
+/** @var ?\Duo\AdapterLibrary the explicit scratch library for the current check */
+$GLOBALS['duo_test_adapter_library'] = null;
+
+/** Fresh scratch adapter library for one check; auto-removed at exit. */
+function fresh_manifests_dir(array $files): \Duo\AdapterLibrary {
     $root = sys_get_temp_dir() . '/duo_regress_vocab_ownership_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     foreach ($files as $name => $content) {
         Canon::write_file("$root/$name.json", Canon::encode($content));
     }
-    // The fixtures' code half (manifest A's declared regenerator) travels with
-    // their JSON half — see manifest_fixtures.php's manifest_fixture_code().
-    manifest_fixture_code($root);
-    register_shutdown_function(function () use ($root) {
-        manifest_fixture_code_cleanup($root);
-        foreach (glob("$root/*") ?: [] as $f) {
-            if (is_file($f)) {
-                unlink($f);
-            }
-        }
-        @rmdir($root);
-    });
-    putenv("DUO_MANIFESTS_DIR=$root");
+    register_shutdown_function(static fn() => manifest_fixture_remove_tree($root));
+    return $GLOBALS['duo_test_adapter_library'] = manifest_fixture_adapter_library($root);
+}
+
+/** Load through the fixture selected by fresh_manifests_dir(). */
+function load_current_policy(?string $repo, ?array $manifestNames = null): Policy {
+    $library = $GLOBALS['duo_test_adapter_library'] ?? null;
+    if (!$library instanceof \Duo\AdapterLibrary) {
+        throw new \RuntimeException('no explicit vocabulary-ownership fixture library is selected');
+    }
+    return Policy::load($repo, $manifestNames, adapterLibrary: $library);
 }
 
 /** Site repo carrying only the policy under test; pins are supplied by the caller. */
@@ -294,16 +295,11 @@ function fresh_site_repo(array $manifests, array $policy = []): string {
  * could not have reached.
  */
 function load_frozen(array $manifests): Policy {
-    // Published into the scratch library this suite already owns, not into one
-    // of FrozenPolicy's own: fresh_manifests_dir() points DUO_MANIFESTS_DIR at
-    // it for the Policy::load() half of every check below, and the two halves
-    // must read the same library to be comparable at all.
     // A real snapshot has been through Canon::decode(), so every object is
     // already a PHP array by the time from_snapshot() sees it.
-    return Policy::from_snapshot(FrozenPolicy::envelope(
+    return manifest_fixture_policy_from_snapshot(FrozenPolicy::envelope(
         $manifests,
-        FrozenPolicy::site($manifests, DUO_SPEC_VERSION),
-        (string) getenv('DUO_MANIFESTS_DIR')
+        FrozenPolicy::site($manifests, DUO_SPEC_VERSION)
     ));
 }
 
@@ -319,7 +315,7 @@ require __DIR__ . '/manifest_fixtures.php';
 function load_pair(array $b, ?array $a = null): Policy {
     $a ??= manifest_a();
     fresh_manifests_dir(['a' => $a, 'b' => $b]);
-    return Policy::load(null, ['a', 'b']);
+    return load_current_policy(null, ['a', 'b']);
 }
 
 function refuse_pair(array $b, string $needle, string $msg, ?array $a = null): void {
@@ -331,7 +327,7 @@ function refuse_solo(array $b, string $needle, string $msg): void {
     expect_throw(
         function () use ($b) {
             fresh_manifests_dir(['b' => $b]);
-            Policy::load(null, ['b']);
+            load_current_policy(null, ['b']);
         },
         $needle,
         $msg
@@ -407,8 +403,10 @@ expect_throw(
     'the one-owner refusal states the resolution path, and that v1 has no composition grammar for the surface'
 );
 $wholeRestatement = manifest_b();
-$wholeRestatement['post_types']['acme_thing'] = manifest_a()['post_types']['acme_thing'];
-load_pair($wholeRestatement);
+$wholeOwner = manifest_a();
+unset($wholeOwner['post_types']['acme_thing']['regen_dependency']);
+$wholeRestatement['post_types']['acme_thing'] = $wholeOwner['post_types']['acme_thing'];
+load_pair($wholeRestatement, $wholeOwner);
 check(true, 'a BYTE-IDENTICAL whole declaration is redundant rather than ambiguous and is allowed through (same allowance the option-rule and version-range guards already make)');
 
 refuse_pair(
@@ -474,13 +472,13 @@ expect_throw(
                 'tables' => ['acme_a_rooms' => ['class' => 'runtime']],
             ],
         ]);
-        Policy::load(null, ['a', 'core']);
+        load_current_policy(null, ['a', 'core']);
     },
     "manifests 'a' and 'core' both declare tables.acme_a_rooms",
     'core is not exempt from the one-owner rule — there is no ratified precedence layer for these surfaces to appeal to'
 );
 fresh_manifests_dir(['a' => manifest_a()]);
-Policy::load(fresh_site_repo(['a'], ['tables' => [
+load_current_policy(fresh_site_repo(['a'], ['tables' => [
     'acme_a_rooms' => array_merge(manifest_a()['tables']['acme_a_rooms'], [
         'slug_column' => 'room_label',
         'columns' => ['room_code' => ['class' => 'authored'], 'room_label' => ['class' => 'authored']],
@@ -513,8 +511,8 @@ refuse_pair(
         'id' => 'acme-a-cache', 'version' => '9.0.0', 'source' => 'manifest',
         'plugin' => 'acme-b/acme-b.php', 'capabilities' => ['flush'],
     ]]]),
-    "both declare provider id 'acme-a-cache'",
-    'B cannot claim A\'s provider id — a provider id names one concrete implementation'
+    'runtime provider acme-a-cache is declared by both a and b',
+    'the closed library refuses B claiming A\'s provider id before policy load'
 );
 refuse_pair(
     manifest_b(['actions' => [['kind' => 'provider', 'provider' => 'acme-a-cache', 'capability' => 'flush', 'args' => []]]]),
@@ -1020,13 +1018,13 @@ echo "\n== site.duo.json's own policy.tables override is held to the same gramma
 
 fresh_manifests_dir(['a' => manifest_a()]);
 expect_throw(
-    fn() => Policy::load(fresh_site_repo(['a'], ['tables' => [
+    fn() => load_current_policy(fresh_site_repo(['a'], ['tables' => [
         'acme_a_rooms' => ['class' => 'authored_snaphot', 'pk' => 'room_id', 'id_kind' => 'acme_room'],
     ]])),
     'the table class vocabulary is closed',
     'a site-policy table override is validated too — declared_tables() merges it LAST, so a malformed one is exactly as fatal as a malformed manifest'
 );
-Policy::load(fresh_site_repo(['a']));
+load_current_policy(fresh_site_repo(['a']));
 check(true, 'an ordinary site repo pinning the same manifest still loads cleanly');
 
 // ======================================================================

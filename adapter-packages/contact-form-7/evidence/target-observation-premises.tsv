@@ -1,0 +1,14 @@
+# format duo-target-observation-premises/v1
+# expected observations=6 fixtures=5
+# kind	package-relative source	literal premise assertion
+observation	tests/conformance/check.sh	require_observed_nonempty "$side Contact Form 7 native observation"
+observation	tests/conformance/check.sh	require_observed_nonempty "conf2 Contact Form 7 rendered response"
+observation	tests/conformance/check.sh	require_observed_nonempty "conf1 post-count before CF7 submission"
+observation	tests/conformance/check.sh	require_observed_nonempty "conf2 CF7 unit tag"
+observation	tests/conformance/seed.sh	require_observed_nonempty "conf1 Contact Form 7 seed output"
+observation	tests/certify/version-matrix.sh	require_observed_nonempty "CF7 $CF7_VERSION target legacy page"
+fixture	tests/conformance/check.sh	require_fixture_ids SOURCE_MAIN TARGET_MAIN SOURCE_LEGACY TARGET_LEGACY
+fixture	tests/conformance/postdeploy.sh	require_fixture_ids SOURCE_MAIN TARGET_MAIN TARGET_DEFAULT
+fixture	tests/conformance/seed.sh	require_fixture_ids PAGE_ID LEGACY_PAGE_ID LEGACY_STORAGE_PAGE_ID MULTIPLE_PAGE_ID
+fixture	tests/certify/version-matrix.sh	require_fixture_ids TARGET_FORM_ID TARGET_MODERN_ID TARGET_LEGACY_ID
+fixture	tests/certify/version-matrix.sh	require_fixture_values TARGET_OLD_ID

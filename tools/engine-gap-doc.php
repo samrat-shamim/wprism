@@ -76,10 +76,9 @@ declare(strict_types=1);
  * which is the honest picture of a boundary that moved without the adapter
  * shipping yet.
  *   - a coordinate whose head is not a real manifest grammar section: the head
- *     is checked against the top-level keys actually present across
- *     manifests/*.json rather than a hardcoded list, so this cannot become a
- *     second copy of agent/src/Policy/ManifestGrammar.php's vocabulary that
- *     drifts from it.
+ *     is checked against top-level keys in AdapterLibrary's package manifests
+ *     rather than a hardcoded list, so this cannot become a second copy of
+ *     agent/src/Policy/ManifestGrammar.php's vocabulary that drifts from it.
  *   - rejected rows that disagree on `probed_on`: the preamble states ONE
  *     probe date for the whole document, so two dates would make that sentence
  *     false.
@@ -93,11 +92,14 @@ declare(strict_types=1);
  * break one of those in half and fail the corpus for a formatting reason.
  */
 
+use Duo\AdapterLibrary;
+
 $repo = dirname(__DIR__);
+
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 
 const GAP_LEDGER_FILE = '/tools/engine-gaps.json';
 const GAP_DOC_FILE = '/docs/guides/adapter-authoring-limitations.md';
-const GAP_MANIFEST_DIR = '/manifests';
 const GAP_LEDGER_FORMAT = 'duo-engine-gaps/v1';
 
 /** The three lifecycle states a candidate row can be in; nothing else is a disposition. */
@@ -120,6 +122,10 @@ function gap_load(string $path): array {
     return $decoded;
 }
 
+function gap_library(string $repo): AdapterLibrary {
+    return AdapterLibrary::fromSourceTree($repo);
+}
+
 /**
  * Every top-level key present across the shipped manifest library.
  *
@@ -130,9 +136,10 @@ function gap_load(string $path): array {
  *
  * @return list<string>
  */
-function gap_manifest_sections(string $dir): array {
+function gap_manifest_sections(AdapterLibrary $library): array {
     $sections = [];
-    foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
+    foreach ($library->packages() as $package) {
+        $file = $package->manifestPath();
         $decoded = json_decode((string) file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
         if (is_array($decoded)) {
             foreach (array_keys($decoded) as $key) {
@@ -141,7 +148,7 @@ function gap_manifest_sections(string $dir): array {
         }
     }
     if ($sections === []) {
-        throw new RuntimeException('no manifests found under ' . $dir . '; coordinate heads cannot be checked');
+        throw new RuntimeException('the adapter library has no manifests; coordinate heads cannot be checked');
     }
     $names = array_keys($sections);
     sort($names, SORT_STRING);
@@ -458,7 +465,7 @@ function gap_preamble(array $ledger): string {
         . 'An entry is a platform boundary, not a plugin-specific branch request: the remedy must be a reusable '
         . "primitive with adversarial coverage before any affected adapter is promoted.\n\n"
         . 'The source probes below used official WordPress.org artifacts on ' . array_key_first($dates) . '. '
-        . 'They are deliberately separate from `manifests/dispositions/`: a rejected candidate is not shipped '
+        . 'They are deliberately separate from adapter package dispositions: a rejected candidate is not shipped '
         . "adapter identity and makes no capability claim.\n\n"
         . 'Every coordinate names its `primitive_required` from a closed vocabulary in the ledger, so two '
         . 'candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike '
@@ -514,7 +521,7 @@ function gap_candidate_section(array $row): string {
 /**
  * The shipped-but-not-promoted rows share one section because they share one
  * fact: the adapter is in the library, and the withheld operation is named in
- * `manifests/dispositions/` rather than hidden in a caveat here.
+ * its package disposition rather than hidden in a caveat here.
  */
 function gap_promotion_blocked_section(array $ledger): string {
     $rows = gap_rows($ledger, 'promotion_blocked');
@@ -531,7 +538,7 @@ function gap_promotion_blocked_section(array $ledger): string {
         }
     }
 
-    return $out . "\nThese are explicit promotion blockers in `manifests/dispositions/`, not silent caveats. "
+    return $out . "\nThese are explicit promotion blockers in adapter package dispositions, not silent caveats. "
         . '`conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, '
         . 'deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target '
         . "mutation, so none of these entries claims apply.\n\n";
@@ -601,9 +608,10 @@ function gap_render(array $ledger): string {
 /** @return array<string,string> path => expected bytes */
 function gap_build(string $repo): array {
     $ledger = gap_load($repo . GAP_LEDGER_FILE);
+    $library = gap_library($repo);
     gap_validate(
         $ledger,
-        gap_manifest_sections($repo . GAP_MANIFEST_DIR),
+        gap_manifest_sections($library),
         static fn(string $path): bool => file_exists($repo . '/' . ltrim($path, '/'))
     );
     return [$repo . GAP_DOC_FILE => gap_render($ledger)];

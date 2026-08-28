@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/AdapterSources.php';
 require_once __DIR__ . '/IdentityNamespaces.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Policy/ManifestDispositions.php';
 
 /**
@@ -44,8 +45,9 @@ final class SupersededSiteAdapterCertificate extends \RuntimeException {
  * A correctly-signed companion, under a currently-trusted authority, binding
  * exactly the bytes `adapters/<name>.json` carries now — whose statement was
  * exercised against a compatibility cell this agent no longer states the same
- * way. THE AGENT MOVED, NOT THE ADAPTER: `manifests/capabilities/platform.json`
- * is agent-owned and changes on an ordinary upgrade, and
+ * way. THE AGENT MOVED, NOT THE ADAPTER:
+ * `platform/adapter-library/capabilities/platform.json` is agent-owned and
+ * changes on an ordinary upgrade, and
  * assertPlatformBinding() re-binds the statement to it.
  *
  * WHAT MOVES IT IS NOW MUCH NARROWER THAN THE FILE (spec/repo-format.md § v3.6,
@@ -348,7 +350,7 @@ final class AdapterCertification {
      *     to the exact patch a live proof ran on. Acceptance is series
      *     membership — "a runtime is accepted only when it is inside [min, max)
      *     AND its MAJOR.MINOR is one of those exercised series"
-     *     (manifests/capabilities/platform.json, php axis note) — so the key is
+     *     (platform/adapter-library/capabilities/platform.json, php axis note) — so the key is
      *     bound and the patch is not. Re-measuring 8.3 on a newer patch is new
      *     evidence for the same cell, which is exactly what § v3.6 means by
      *     "recording a newly exercised PHP patch adds coverage and invalidates
@@ -482,15 +484,10 @@ final class AdapterCertification {
      * it; the agent's verdict is identical, because the trust comes from the
      * signature and not from the channel.
      *
-     * It lives under the MANIFEST DIRECTORY rather than in the site repository
-     * because that is the only path the frozen verifier holds
-     * (`AdapterSources.php:4156` calls verifyFrozen() with
-     * `Policy::manifests_dir()` and nothing else), and reaching the frozen path
-     * is the entire point of the channel. RESIDUAL, stated rather than
-     * softened: `Adopt.php:149` tars `agent manifests recovery`, so re-adopting
-     * an agent over a site replaces this file along with the library. The
-     * remedy is to re-install it after an adopt, or to point
-     * `DUO_MANIFESTS_DIR` at a library the adoption tar does not overwrite.
+     * Installed agents resolve it from the operator-owned `duo-control`
+     * directory through AdapterLibrary::revocationsPath(), outside the
+     * replaceable agent projection. Source and explicit legacy libraries keep
+     * their own capabilities path for authoring and deterministic fixtures.
      */
     private const REVOCATIONS_RELATIVE = 'capabilities/adapter-revocations.json';
     /**
@@ -811,8 +808,35 @@ final class AdapterCertification {
     }
 
     /** Agent-owned roots are optional; an absent file means no external trust. */
-    public static function hasAuthorities(string $manifestDir): bool {
-        return is_file(rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE);
+    public static function hasAuthorities(string|AdapterLibrary $manifestDir): bool {
+        return is_file(self::authoritiesPath($manifestDir));
+    }
+
+    /**
+     * Production trust paths come from the closed library inventory. String
+     * sources remain the explicit custom-library API until that authoring
+     * contract receives its own context object on the package-layout flag day.
+     */
+    private static function manifestRoot(string|AdapterLibrary $manifestDir): string {
+        return $manifestDir instanceof AdapterLibrary ? $manifestDir->root() : $manifestDir;
+    }
+
+    private static function authoritiesPath(string|AdapterLibrary $manifestDir): string {
+        return $manifestDir instanceof AdapterLibrary
+            ? $manifestDir->authoritiesPath()
+            : rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE;
+    }
+
+    private static function revocationsPath(string|AdapterLibrary $manifestDir): string {
+        return $manifestDir instanceof AdapterLibrary
+            ? $manifestDir->revocationsPath()
+            : rtrim($manifestDir, '/') . '/' . self::REVOCATIONS_RELATIVE;
+    }
+
+    private static function platformPath(string|AdapterLibrary $manifestDir): string {
+        return $manifestDir instanceof AdapterLibrary
+            ? $manifestDir->platformBoundaryPath()
+            : rtrim($manifestDir, '/') . '/' . self::PLATFORM_RELATIVE;
     }
 
     /**
@@ -840,7 +864,7 @@ final class AdapterCertification {
      * @return array{disposition:array,claim:array,provenance:array,envelope:array}
      */
     public static function verifyFile(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $repo,
         string $name,
         array $manifest,
@@ -890,7 +914,7 @@ final class AdapterCertification {
      * @return array{disposition:array,claim:array,provenance:array,envelope:array}
      */
     public static function verify_file(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $repo,
         string $name,
         array $manifest,
@@ -910,7 +934,7 @@ final class AdapterCertification {
      * @return array{disposition:array,claim:array,provenance:array,envelope:array}
      */
     public static function verifyFrozen(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $name,
         array $manifest,
         array $envelope
@@ -949,7 +973,7 @@ final class AdapterCertification {
 
     /** @return array{disposition:array,claim:array,provenance:array,envelope:array} */
     public static function verify_frozen(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $name,
         array $manifest,
         array $envelope
@@ -964,7 +988,7 @@ final class AdapterCertification {
      *
      * @return array<string, array{disposition:array,claim:array,provenance:array,envelope:array}>
      */
-    public static function verifyDirectory(string $manifestDir, string $repo): array {
+    public static function verifyDirectory(string|AdapterLibrary $manifestDir, string $repo): array {
         $root = self::repoRoot($repo, 'site repository');
         $directory = $root . '/' . self::CERTIFICATE_DIR;
         if (!file_exists($directory)) {
@@ -1012,7 +1036,7 @@ final class AdapterCertification {
      * (assets AND evidence-repository bound inputs) before calling Ed25519.
      */
     public static function sign(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $repo,
         string $name,
         string $bundleInput,
@@ -1127,11 +1151,11 @@ final class AdapterCertification {
      * @param string $reason the operator's stated basis, signed and reported
      * @param null|array<string,mixed> $authoredDisposition the author's own
      *        disposition entry — the exact document shape
-     *        `manifests/dispositions/<name>.json` carries — or null to derive
+     *        `adapter-packages/<name>/package/disposition.json` carries — or null to derive
      * @return string canonical duo-adapter-certification/v1 bytes
      */
     public static function sign_site(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $repo,
         string $name,
         string $authorityId,
@@ -1240,7 +1264,7 @@ final class AdapterCertification {
      * @return null|array{raw:string,created_at:string}
      */
     private static function verifiedExistingSiteCertificate(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $root,
         string $name,
         array $manifest,
@@ -1282,7 +1306,7 @@ final class AdapterCertification {
      * @param array<string,mixed> $authorityBinding
      */
     private static function siteCertificateCandidate(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $name,
         array $manifest,
         string $adapterRaw,
@@ -1363,24 +1387,17 @@ final class AdapterCertification {
      * a file-scope edge would make otherwise independent offline entry points
      * order-sensitive.
      *
-     * The manifest directory must be the one this process would load anyway.
-     * A verdict judged against a different library than the verifier will use
-     * is not a verdict about anything.
+     * The exact AdapterLibrary supplied to signing is also supplied to Policy.
+     * That object is the physical inventory the certificate verifier consumes;
+     * joining it to a process-global path would silently judge another library.
      */
-    private static function siteGrammarVerdict(string $manifestDir, string $repo, string $name): string {
+    private static function siteGrammarVerdict(string|AdapterLibrary $manifestDir, string $repo, string $name): string {
         require_once __DIR__ . '/../Policy/Policy.php';
-        $resolvedDeclared = realpath($manifestDir);
-        $resolvedLoaded = realpath(Policy::manifests_dir());
-        if ($resolvedDeclared === false || $resolvedLoaded === false
-            || !hash_equals($resolvedLoaded, $resolvedDeclared)) {
-            throw new \RuntimeException(
-                'duo: site adapter certification must be signed against the manifest library this process loads ('
-                . ($resolvedLoaded === false ? '(unresolvable)' : $resolvedLoaded) . '), not '
-                . ($resolvedDeclared === false ? '(unresolvable)' : $resolvedDeclared)
-            );
-        }
+        $library = $manifestDir instanceof AdapterLibrary
+            ? $manifestDir
+            : AdapterLibrary::fromLegacyFlatDirectory($manifestDir);
         try {
-            Policy::load($repo, [$name]);
+            Policy::load($repo, [$name], false, null, $library);
         } catch (\Throwable $t) {
             throw new \RuntimeException(
                 "duo: site adapter '$name' does not load, so there is no grammar verdict to certify: "
@@ -1600,7 +1617,8 @@ final class AdapterCertification {
         if ($entry === [] || array_is_list($entry)) {
             throw new \RuntimeException(
                 "duo: authored site adapter disposition for '$name' must be a JSON object holding one "
-                . 'disposition entry — the exact document manifests/dispositions/<name>.json carries'
+                . 'disposition entry — the exact document '
+                . 'adapter-packages/<name>/package/disposition.json carries'
             );
         }
         // THE ENVELOPE, NAMED (WP-6.6). An author who reached for
@@ -1622,7 +1640,7 @@ final class AdapterCertification {
                 . (is_string($entry['format']) ? $entry['format'] : var_export($entry['format'], true))
                 . "' ENVELOPE — --ratification-file takes the BARE entry, the object with {capabilities, "
                 . 'default_authored_keyspaces, evidence, reason, status, supported_versions, unsupported} that '
-                . 'manifests/dispositions/<name>.json carries at its top level. The envelope is the signer\'s: '
+                . 'adapter-packages/<name>/package/disposition.json carries at its top level. The envelope is the signer\'s: '
                 . 'it owns `format`, `profiles` and the single manifests key so an authored document cannot '
                 . "ratify a second adapter or smuggle a profile (spec/repo-format.md § v3.17). Remedy: $remedy"
             );
@@ -1805,7 +1823,7 @@ final class AdapterCertification {
      * @param array<string,mixed> $authorityBinding
      */
     private static function signStatement(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $name,
         array $manifest,
         string $adapterRaw,
@@ -1886,7 +1904,7 @@ final class AdapterCertification {
      * $rawAdapter is deliberately nullable only for frozen verification.
      */
     private static function verifyCertificate(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $name,
         array $manifest,
         string $certificateRaw,
@@ -2261,7 +2279,7 @@ final class AdapterCertification {
         return self::SIGNATURE_DOMAIN . Canon::encode($statement);
     }
 
-    private static function assertSiteManifest(string $name, array $manifest, string $manifestDir): void {
+    private static function assertSiteManifest(string $name, array $manifest, string|AdapterLibrary $manifestDir): void {
         if (($manifest['name'] ?? null) !== $name) {
             throw new \RuntimeException(
                 "duo: site adapter '$name' certification requires adapters/$name.json to declare the same name"
@@ -2329,10 +2347,10 @@ final class AdapterCertification {
      *        caller reopens no mutable site file (frozen verification)
      * @return array{0:array,1:string,2:string,3:string} [record, key id, canonical record digest, trust root]
      */
-    private static function authority(string $manifestDir, string $id, ?string $repoRoot): array {
+    private static function authority(string|AdapterLibrary $manifestDir, string $id, ?string $repoRoot): array {
         $id = self::keyId($id);
         $platform = self::authorityKeys(
-            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            self::authoritiesPath($manifestDir),
             'adapter certification authorities',
             true
         );
@@ -2403,7 +2421,7 @@ final class AdapterCertification {
      * WHAT A DELEGATION IS. A PLATFORM key's signed grant of a namespace
      * pattern, a tier set and a validity window to a VENDOR key, installed
      * site-side. It is the answer to the question the shipped trust root cannot
-     * answer at scale: `manifests/capabilities/adapter-authorities.json` is
+     * answer at scale: `platform/adapter-library/capabilities/adapter-authorities.json` is
      * reviewed by this project and moves on an agent release, so enrolling every
      * vendor there makes review the bottleneck for the whole ecosystem. A
      * delegation moves that decision to a key the project already reviewed,
@@ -2438,7 +2456,7 @@ final class AdapterCertification {
      * @return array<string,array<string,mixed>>
      */
     private static function delegatedKeys(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         ?string $repoRoot,
         array $platform,
         array $site
@@ -2521,7 +2539,7 @@ final class AdapterCertification {
      * @return array<string,mixed>
      */
     private static function verifyDelegation(
-        string $manifestDir,
+        string|AdapterLibrary $manifestDir,
         string $delegateId,
         array $delegation,
         object $typed,
@@ -2818,7 +2836,7 @@ final class AdapterCertification {
      *
      * @param array<string,mixed> $record the authority record being judged
      */
-    private static function assertNotRevoked(string $manifestDir, string $keyId, array $record): void {
+    private static function assertNotRevoked(string|AdapterLibrary $manifestDir, string $keyId, array $record): void {
         $channel = self::revocations($manifestDir);
         $entry = $channel['entries'][hash('sha256', self::publicKey($record))] ?? null;
         if ($entry === null) {
@@ -2920,8 +2938,8 @@ final class AdapterCertification {
      *
      * @return array{entries:array<string,array<string,mixed>>, issued:?int, inert:?array{message:string, signer:string}}
      */
-    private static function revocations(string $manifestDir): array {
-        $file = rtrim($manifestDir, '/') . '/' . self::REVOCATIONS_RELATIVE;
+    private static function revocations(string|AdapterLibrary $manifestDir): array {
+        $file = self::revocationsPath($manifestDir);
         $label = 'adapter certification authority revocations';
         $absent = ['entries' => [], 'inert' => null, 'issued' => null];
         if (!file_exists($file) && !is_link($file)) {
@@ -2968,7 +2986,7 @@ final class AdapterCertification {
         // lapsed window silently un-revoke a compromised key would make expiry a
         // way to RESURRECT the exact identities this document exists to burn.
         $platform = self::authorityKeys(
-            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            self::authoritiesPath($manifestDir),
             'adapter certification authorities',
             true
         );
@@ -3077,7 +3095,7 @@ final class AdapterCertification {
      *
      * @return ?array{message:string, signer:string}
      */
-    public static function revocation_channel(string $manifestDir): ?array {
+    public static function revocation_channel(string|AdapterLibrary $manifestDir): ?array {
         return self::revocations($manifestDir)['inert'];
     }
 
@@ -3173,10 +3191,10 @@ final class AdapterCertification {
      * delegation document is not one adapter's problem, and an operator who
      * installed one believes a vendor's adapters are certifiable here.
      */
-    public static function assert_site_delegations(string $manifestDir, string $repo): void {
+    public static function assert_site_delegations(string|AdapterLibrary $manifestDir, string $repo): void {
         $root = self::repoRoot($repo, 'site repository');
         $platform = self::authorityKeys(
-            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            self::authoritiesPath($manifestDir),
             'adapter certification authorities',
             true
         );
@@ -3224,7 +3242,7 @@ final class AdapterCertification {
             throw new \RuntimeException("duo: $label have an unsupported or malformed root");
         }
         // An EMPTY v2 registry is unrepresentable, and that is what lets the
-        // shipped `manifests/capabilities/adapter-authorities.json` stay the
+        // shipped `platform/adapter-library/capabilities/adapter-authorities.json` stay the
         // byte-identical `{"format": "duo-adapter-authorities/v1", "keys": {}}`
         // through the flag day: the envelope signature names a key INSIDE the
         // document, so a registry with no keys has nothing that could sign it,
@@ -3284,9 +3302,9 @@ final class AdapterCertification {
      * readable there, and a certificate naming one of its ids is not a site
      * certificate at all.
      */
-    private static function assertKeyIdNotPlatformOwned(string $manifestDir, string $id): void {
+    private static function assertKeyIdNotPlatformOwned(string|AdapterLibrary $manifestDir, string $id): void {
         $platform = self::authorityKeys(
-            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            self::authoritiesPath($manifestDir),
             'adapter certification authorities',
             true
         );
@@ -3801,8 +3819,8 @@ final class AdapterCertification {
         // flag day rather than the first enrollment. Per register row R-08 a
         // root chooses one binding at the moment its first certificate is
         // signed and never after; this change is possible only because the
-        // platform root has never signed one (`manifests/capabilities/
-        // adapter-authorities.json` is `{"keys":{}}`).
+        // platform root has never signed one (`platform/adapter-library/
+        // capabilities/adapter-authorities.json` is `{"keys":{}}`).
         //
         // Nothing is laundered by the narrowing. The certificate still binds
         // the record it was signed over, self-consistently by digest; the scope
@@ -3855,7 +3873,7 @@ final class AdapterCertification {
      * NARROWING (this change) admits certificates a wider binding refused, so it
      * can only be made while nothing in the field depends on the refusal. The
      * platform root has still signed nothing —
-     * `manifests/capabilities/adapter-authorities.json` is `{"keys": {}}`, which
+     * `platform/adapter-library/capabilities/adapter-authorities.json` is `{"keys": {}}`, which
      * `regress_authority_record_v2.php` asserts on every run beside this change
      * — and a SITE root's certificates only ever gain by it, because dropping a
      * member from an equality can turn a refusal into an acceptance and never
@@ -3870,8 +3888,8 @@ final class AdapterCertification {
     }
 
     /** @return array{0:object,1:string,2:array<string,mixed>} */
-    private static function currentPlatform(string $manifestDir): array {
-        $file = rtrim($manifestDir, '/') . '/' . self::PLATFORM_RELATIVE;
+    private static function currentPlatform(string|AdapterLibrary $manifestDir): array {
+        $file = self::platformPath($manifestDir);
         if (!is_file($file)) {
             throw new \RuntimeException(
                 'duo: current agent platform boundary is absent at capabilities/platform.json'

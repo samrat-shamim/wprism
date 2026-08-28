@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\ArtifactPolicyIdentity;
 use Duo\Canon;
@@ -91,7 +92,7 @@ final class SpecMigration {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]`
+     * `duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json] [--adapter-library=<root>]`
      *
      * Re-sign every certified site adapter in one invocation, under the key
      * each certificate already names.
@@ -126,6 +127,7 @@ final class SpecMigration {
     private static function recertify(array $args): int {
         $repoArg = null;
         $secretFile = null;
+        $libraryArg = null;
         $json = false;
         $seen = [];
         foreach ($args as $arg) {
@@ -142,6 +144,10 @@ final class SpecMigration {
             }
             if (str_starts_with($arg, '--secret-key-file=')) {
                 $secretFile = trim(substr($arg, strlen('--secret-key-file=')));
+                continue;
+            }
+            if (str_starts_with($arg, '--adapter-library=')) {
+                $libraryArg = trim(substr($arg, strlen('--adapter-library=')));
                 continue;
             }
             if (str_starts_with($arg, '-')) {
@@ -167,7 +173,7 @@ final class SpecMigration {
         }
 
         AdapterCertify::bootPublic();
-        $manifestDir = Policy::manifests_dir();
+        $manifestDir = self::adapterLibrary($libraryArg);
 
         $certificateDir = $repo . '/' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR;
         $certificates = self::certificateFiles($certificateDir);
@@ -342,6 +348,7 @@ final class SpecMigration {
      */
     public static function runRelease(array $args): int {
         $repoArg = null;
+        $libraryArg = null;
         $json = false;
         $held = ['artifact' => null, 'scope-contract' => null, 'snapshot' => null];
         $seen = [];
@@ -355,6 +362,10 @@ final class SpecMigration {
             }
             if ($arg === self::RELEASE_FLAG || $arg === '--format=json') {
                 $json = $json || $arg === '--format=json';
+                continue;
+            }
+            if (str_starts_with($arg, '--adapter-library=')) {
+                $libraryArg = trim(substr($arg, strlen('--adapter-library=')));
                 continue;
             }
             $matched = false;
@@ -401,7 +412,7 @@ final class SpecMigration {
 
         try {
             AdapterCertify::bootPublic();
-            $manifestDir = Policy::manifests_dir();
+            $manifestDir = self::adapterLibrary($libraryArg);
             // The preflight, CALLED and not restated (WP-1.5). Every movement
             // row below is its verdict; deriving a second answer here is the
             // drift that turns a controlled bump into an incident.
@@ -617,12 +628,33 @@ final class SpecMigration {
     }
 
     /** @return array<string,mixed> */
-    private static function target(string $manifestDir): array {
+    private static function target(string|AdapterLibrary $manifestDir): array {
         return [
             'agent_version' => DUO_AGENT_VERSION,
-            'manifests_dir' => $manifestDir,
+            'manifests_dir' => $manifestDir instanceof AdapterLibrary ? $manifestDir->root() : $manifestDir,
             'spec_version' => DUO_SPEC_VERSION,
         ];
+    }
+
+    /** Resolve an explicitly named source/embedded/archive library without process-global selection. */
+    private static function adapterLibrary(?string $path): AdapterLibrary {
+        if ($path === null) {
+            return Policy::adapter_library_context();
+        }
+        if ($path === '') {
+            throw new \RuntimeException('--adapter-library needs a non-empty directory path');
+        }
+        $root = realpath($path);
+        if ($root === false || !is_dir($root)) {
+            throw new \RuntimeException("adapter library '$path' is not a directory");
+        }
+        if (is_dir($root . '/adapter-packages') || is_dir($root . '/platform/adapter-library')) {
+            return AdapterLibrary::fromSourceTree($root);
+        }
+        if (is_dir($root . '/adapters') && is_dir($root . '/platform')) {
+            return AdapterLibrary::fromEmbeddedDirectory($root);
+        }
+        return AdapterLibrary::fromLegacyFlatDirectory($root);
     }
 
     /**

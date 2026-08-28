@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Policy/AdapterLibrary.php';
 
+use Duo\AdapterLibrary;
 use Duo\Canon;
 
 /**
@@ -28,16 +30,16 @@ use Duo\Canon;
  *
  * It emits a `duo-adapter-boundary-search/v1` document: which releases were
  * probed, in what order, what each one did, and — when the evidence supports
- * one — a proposed `sandbox/conformance/artifacts.lock.json` fragment in that
- * file's OWN three-role vocabulary, shaped so `validate_artifact_lock()`
- * (`sandbox/bin/fetch-artifact.sh:10-45`) accepts it unmodified.
+ * one — a proposed package-owned `evidence/artifacts.lock.json` fragment in
+ * the library's OWN three-role vocabulary, shaped so `ArtifactLibrary`
+ * accepts it unmodified.
  *
- * It never writes a manifest. The range in `manifests/<name>.json` and its
- * Canon-byte-equal restatement in `manifests/dispositions/<name>.json` are ONE
+ * It never writes a manifest. The range and Canon-byte-equal restatement in
+ * `adapter-packages/<name>/package/{manifest,disposition}.json` are ONE
  * reviewed human edit, because `ManifestDispositions.php:632-637` refuses the
  * pair the instant they disagree ("versions disagree with its manifest
- * contract"), and because AGENTS.md rule 2 makes a byte under `manifests/`
- * fleet-visible: every deployed site holding a compiled artifact starts
+ * contract"), and because the package payload is fleet-visible identity:
+ * every deployed site holding a compiled artifact starts
  * refusing `compiled_artifact_manifest_mismatch`. A search that could move
  * that byte would be an automated claim-widener. This one hands a reviewer the
  * sentence they need — "6.0.0 boots and round-trips; 5.12.6 fatals with this
@@ -53,7 +55,7 @@ use Duo\Canon;
  *      would fail on a plugin's release history changing under it, which is
  *      the one thing a version-boundary claim must be stable against.
  *   2. Resolution stays digest-pinned end to end. `fetch_artifact()` resolves
- *      against `artifacts.lock.json` and "a miss never falls through to a bare
+ *      against the package-owned artifact library and "a miss never falls through to a bare
  *      WP-CLI catalog install" (`fetch-artifact.sh:44-47`) — but a bisector
  *      probes versions that are BY DEFINITION not in the lock yet, so the
  *      recorded release list is its pin source. Same discipline (https URL,
@@ -74,7 +76,7 @@ use Duo\Canon;
  *
  * One probe is a full pair round-trip: fetch the digest-pinned artifact, reset
  * the environment, install and activate the exact version, run that plugin's
- * seed hook (`sandbox/tests/certify/matrix.d/<slug>.sh`), capture, deploy,
+ * package-owned seed hook (`adapter-packages/<slug>/tests/certify/version-matrix.sh`), capture, deploy,
  * apply, recapture, require byte-identity. Minutes, docker, two WordPress
  * installs. So this command is a PLANNER over an accumulating outcome record:
  * given the releases and the outcomes observed so far it either names the one
@@ -153,7 +155,7 @@ final class AdapterBoundary {
     ];
 
     /**
-     * The lock's roles, used exactly as `artifacts.lock.json` already uses
+     * The artifact roles, used exactly as package fragments already use
      * them. `exercise-fixture` is never PROPOSED: it means "installed to
      * exercise something", which is a statement about a test's intent rather
      * than about a version boundary, and no probe outcome implies it.
@@ -504,7 +506,7 @@ final class AdapterBoundary {
      * a green probe is a `certified-boundary` (an exact version proven to
      * install, round-trip and recapture byte-identically), a failing probe is a
      * `refusal-fixture` (an exact version proven not to). That mapping is read
-     * off `artifacts.lock.json` rather than invented — every bisection-shaped
+     * off the artifact library rather than invented — every bisection-shaped
      * block in it today is exactly this: the greens it certified and the
      * adjacent failures that bracket them.
      *
@@ -628,10 +630,13 @@ final class AdapterBoundary {
 
     private const REVIEW_REQUIRED = [
         'manifest_edit' => 'not-performed',
-        'files' => ['manifests/<name>.json', 'manifests/dispositions/<name>.json'],
+        'files' => [
+            'adapter-packages/<name>/package/manifest.json',
+            'adapter-packages/<name>/package/disposition.json',
+        ],
         'why' => 'The range and its restatement are ONE reviewed human edit. ManifestDispositions.php:632-637 '
             . 'refuses the pair the moment they disagree ("versions disagree with its manifest contract"), and '
-            . 'AGENTS.md rule 2 makes any byte under manifests/ fleet-visible: every deployed site holding a '
+            . 'the package payload is adapter identity: every deployed site holding a '
             . 'compiled artifact starts refusing compiled_artifact_manifest_mismatch until it is recompiled and '
             . 're-pinned. This document is evidence FOR that review, never an input to it.',
     ];
@@ -774,14 +779,25 @@ final class AdapterBoundary {
 
     /**
      * Read-only, and the only thing this command ever reads out of
-     * `manifests/`. It exists so the document can state the delta a reviewer
+     * the selected adapter package. It exists so the document can state the delta a reviewer
      * actually acts on; nothing here writes, and no code path in this file
      * opens a manifest for writing.
      *
      * @return array{min:string, max:string}
      */
     private static function readDeclaredRange(string $dir, string $name): array {
-        $path = rtrim($dir, '/') . '/' . $name . '.json';
+        $root = rtrim($dir, '/');
+        if (is_dir($root . '/adapter-packages') || is_dir($root . '/platform/adapter-library')) {
+            $package = AdapterLibrary::fromSourceTree($root)->package($name);
+            if ($package === null) {
+                throw new \RuntimeException("--manifest '$name' has no adapter package under $root");
+            }
+            $path = $package->manifestPath();
+        } else {
+            // `--manifests` remains an explicit compatibility input for an
+            // archived flat library; the production default never takes it.
+            $path = $root . '/' . $name . '.json';
+        }
         if (!is_file($path)) {
             throw new \RuntimeException("--manifest '$name' has no library file at $path");
         }
@@ -843,7 +859,7 @@ final class AdapterBoundary {
      * @return array{releases:string, outcomes:?string, anchor:string, from:?string, to:?string, manifest:?string, manifests:string, format:string}
      */
     private static function options(array $args): array {
-        $values = ['--manifests' => dirname(__DIR__, 3) . '/manifests', '--format' => 'human'];
+        $values = ['--manifests' => dirname(__DIR__, 3), '--format' => 'human'];
         $seen = [];
         foreach ($args as $arg) {
             if ($arg === 'boundary' && !isset($seen['boundary'])) {
@@ -951,7 +967,7 @@ final class AdapterBoundary {
         }
         $rows = $document['proposed_lock_rows'] ?? null;
         if (is_array($rows)) {
-            echo "proposed artifacts.lock.json rows (evidence for review, not an edit):\n";
+            echo "proposed package artifact rows (evidence for review, not an edit):\n";
             echo Canon::encode($rows);
         }
         foreach ((array) $document['evidence_limits'] as $limit) {

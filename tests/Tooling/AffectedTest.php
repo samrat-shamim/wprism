@@ -9,8 +9,8 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Pins tools/affected.php against the contract tools/offline.php's
- * `--changed[=BASE]` flag depends on (stdout is one leaf target name per
- * line, nothing else) plus a handful of known changed-file -> suite
+ * `--changed[=BASE]` flag depends on (stdout is one leaf or checked scoped
+ * task name per line, nothing else) plus a handful of known changed-file -> suite
  * mappings read directly out of the real sandbox/tests corpus.
  *
  * Every case here uses --paths=... so it is hermetic against the working
@@ -82,6 +82,43 @@ final class AffectedTest extends TestCase
         fclose($pipes[2]);
         $status = proc_close($process);
         return ['status' => $status, 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    /** @param list<string> $args
+     * @return array{status:int,stdout:string,stderr:string}
+     */
+    private static function invokeWithMemoryLimit(array $args, string $limit): array
+    {
+        $repo = self::repoRoot();
+        $cmd = [PHP_BINARY, '-d', 'memory_limit=' . $limit, $repo . '/tools/affected.php', ...$args];
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open($cmd, $descriptors, $pipes, $repo);
+        self::assertIsResource($process, 'could not launch memory-bounded tools/affected.php');
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+        return ['status' => $status, 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    /** @param list<string> $args
+     * @return array{status:int,path:string,stderr:string}
+     */
+    private static function invokeWithMemoryLimitToFile(array $args, string $limit): array
+    {
+        $repo = self::repoRoot();
+        $path = tempnam(sys_get_temp_dir(), 'duo-affected-output-');
+        self::assertIsString($path, 'could not allocate affected.php output fixture');
+        $cmd = [PHP_BINARY, '-d', 'memory_limit=' . $limit, $repo . '/tools/affected.php', ...$args];
+        $descriptors = [1 => ['file', $path, 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open($cmd, $descriptors, $pipes, $repo);
+        self::assertIsResource($process, 'could not launch file-backed memory-bounded tools/affected.php');
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+
+        return ['status' => $status, 'path' => $path, 'stderr' => $stderr];
     }
 
     /** @param list<string> $args
@@ -181,6 +218,43 @@ final class AffectedTest extends TestCase
         self::assertContains('regress-path-safety', $targets);
     }
 
+    public function testIntegrationScenarioMetadataSelectsTheWholeOfflineAggregate(): void
+    {
+        $targets = self::targets([
+            '--paths=integration-scenarios/polylang-tec-rewrite-coinstall/scenario.json',
+        ]);
+
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-adapter-packages', $targets);
+    }
+
+    public function testIntegrationScenarioOfflinePathAddsItsCheckedTaskToClosedFullSelection(): void
+    {
+        $path = 'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/'
+            . 'regress_woocommerce_hierarchy_lookups.php';
+        $result = self::invoke(['--paths=' . $path, '--json', '--explain']);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+        $target = 'integration-scenario:woocommerce-rewrite-coinstall:offline:'
+            . 'regress_woocommerce_hierarchy_lookups.php';
+
+        self::assertCount(self::expectedOfflineLeafCount() + 1, $decoded['targets']);
+        self::assertSame($decoded['targets'], array_values(array_unique($decoded['targets'])));
+        self::assertContains($target, $decoded['targets']);
+        self::assertSame([[
+            'target' => $target,
+            'kind' => 'integration-scenario',
+            'command' => ['php', $path],
+        ]], $decoded['tasks']);
+        self::assertSame(
+            [$target],
+            array_values(array_unique(array_column(array_filter(
+                $decoded['explain'],
+                static fn(array $row): bool => $row['target'] === $target
+            ), 'target')))
+        );
+    }
+
     public function testToolsChangeAlsoSelectsTheWholeCorpus(): void
     {
         // affected.php cannot trust its own output once its own logic (or
@@ -199,24 +273,22 @@ final class AffectedTest extends TestCase
         self::assertSame($sorted, $targets, 'target list must be sorted');
     }
 
-    public function testSuiteFileChangeSelectsItself(): void
+    public function testSuiteFileChangeHonorsClosedFullDecision(): void
     {
         $targets = self::targets(['--paths=sandbox/tests/offline/cli/regress_command_output.php']);
-        self::assertSame(['regress-command-output'], $targets);
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-command-output', $targets);
     }
 
     public function testNestedSuiteFileSelectsItsOwnTarget(): void
     {
-        // sandbox/tests/offline/guards/regress_suite_wiring.php is the first
-        // suite below the top level, and it is here deliberately: the whole
-        // target->file mapping used to be a non-recursive scandir(), under
-        // which this target has no primary file, prints a NOTICE, and selects
-        // for nothing. Reverting the recursion in af_suite_files() turns this
-        // assertion red.
-        self::assertSame(
-            ['regress-suite-wiring'],
-            self::targets(['--paths=sandbox/tests/offline/guards/regress_suite_wiring.php'])
-        );
+        // AdapterChangeScope does not assign sandbox files a narrower owner,
+        // so its closed full decision wins over the static index. The target
+        // still has to be in the resulting corpus; the pure primary-map cases
+        // below pin recursive discovery independently.
+        $targets = self::targets(['--paths=sandbox/tests/offline/guards/regress_suite_wiring.php']);
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-suite-wiring', $targets);
     }
 
     public function testPrimaryTargetMapCarriesRepoRelativePathsNotBasenames(): void
@@ -389,23 +461,22 @@ final class AffectedTest extends TestCase
         self::assertContains('regress-fatal-mutations-unit', $targets);
     }
 
-    public function testUnknownFileIsReportedUncoveredButExitsZero(): void
+    public function testUnknownFileHonorsClosedFullDecision(): void
     {
-        // Deliberately under NO root directory: the directory signal claims
-        // whole trees (docs/, manifests/, ...) by prefix, including paths
-        // that do not exist -- a deleted manifest must still select the
-        // suites that globbed it -- so a docs/ path is no longer uncovered.
         $result = self::invoke(['--paths=README-nonexistent-xyz.md']);
         self::assertSame(0, $result['status']);
-        self::assertSame('', trim($result['stdout']));
-        self::assertStringContainsString('no suite covers: README-nonexistent-xyz.md', $result['stderr']);
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertSame('', $result['stderr']);
     }
 
-    public function testQuietSuppressesTheUncoveredNotice(): void
+    public function testQuietDoesNotChangeClosedFullSelection(): void
     {
         $result = self::invoke(['--paths=README-nonexistent-xyz.md', '--quiet']);
         self::assertSame(0, $result['status']);
         self::assertSame('', $result['stderr']);
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
     }
 
     public function testExplainFormatNamesTargetChangedFileAndReason(): void
@@ -428,9 +499,108 @@ final class AffectedTest extends TestCase
         self::assertContains('regress-path-safety', $decoded['targets']);
     }
 
+    public function testLargeClosedFullJsonSelectionDoesNotMaterializeUnrequestedExplanationRows(): void
+    {
+        $paths = [];
+        for ($index = 0; $index < 800; $index++) {
+            $paths[] = sprintf('docs/affected-scale-%04d.md', $index);
+        }
+
+        $result = self::invokeWithMemoryLimit([
+            '--paths=' . implode(',', $paths),
+            '--json',
+        ], '128M');
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertCount(self::expectedOfflineLeafCount(), $decoded['targets']);
+        self::assertSame($paths, $decoded['changed_files']);
+        self::assertArrayNotHasKey('explain', $decoded);
+    }
+
+    public function testClosedFullJsonExplainRetainsEveryRequestedTargetPathReason(): void
+    {
+        $path = 'docs/affected-explain-probe.md';
+        $result = self::invoke(['--paths=' . $path, '--json', '--explain']);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(
+            json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
+            $result['stdout'],
+            'streaming must retain the established pretty-printed JSON bytes'
+        );
+
+        self::assertCount(self::expectedOfflineLeafCount(), $decoded['explain']);
+        self::assertSame($decoded['targets'], array_column($decoded['explain'], 'target'));
+        self::assertSame(
+            array_fill(0, self::expectedOfflineLeafCount(), $path),
+            array_column($decoded['explain'], 'file')
+        );
+        self::assertSame(
+            ['closed-full:uncovered_path'],
+            array_values(array_unique(array_column($decoded['explain'], 'why')))
+        );
+    }
+
+    public function testLargeClosedFullJsonExplainStreamsBelowSupportedMemoryCeiling(): void
+    {
+        $paths = [];
+        for ($index = 0; $index < 800; $index++) {
+            $paths[] = sprintf('docs/affected-explain-scale-%04d.md', $index);
+        }
+
+        $result = self::invokeWithMemoryLimitToFile([
+            '--paths=' . implode(',', $paths),
+            '--json',
+            '--explain',
+        ], '128M');
+        try {
+            self::assertSame(0, $result['status'], $result['stderr']);
+            self::assertSame('', $result['stderr']);
+
+            $handle = fopen($result['path'], 'r');
+            self::assertIsResource($handle);
+            $rows = 0;
+            $whyRows = 0;
+            while (($line = fgets($handle)) !== false) {
+                $rows += str_contains($line, '"target":') ? 1 : 0;
+                $whyRows += str_contains($line, '"why": "closed-full:uncovered_path"') ? 1 : 0;
+            }
+            fclose($handle);
+
+            $expectedRows = self::expectedOfflineLeafCount() * count($paths);
+            self::assertSame($expectedRows, $rows);
+            self::assertSame($expectedRows, $whyRows);
+            self::assertStringEndsWith("\n}\n", (string) file_get_contents(
+                $result['path'],
+                false,
+                null,
+                max(0, (int) filesize($result['path']) - 3)
+            ));
+        } finally {
+            @unlink($result['path']);
+        }
+    }
+
     public function testUnknownOptionExitsTwo(): void
     {
         self::assertSame(2, self::invoke(['--nonsense'])['status']);
+    }
+
+    public function testExplicitPathsRejectLossyNormalizationBeforeOwnershipClassification(): void
+    {
+        foreach ([
+            'adapter-packages/acf/../woocommerce/package/manifest.json',
+            'adapter-packages\\acf\\package\\manifest.json',
+            ' adapter-packages/acf/package/manifest.json',
+            'adapter-packages/acf//package/manifest.json',
+            '',
+        ] as $path) {
+            $result = self::invoke(['--paths=' . $path]);
+            self::assertSame(2, $result['status'], "non-canonical path unexpectedly selected work: $path");
+            self::assertSame('', $result['stdout']);
+            self::assertStringContainsString('non-canonical repo-relative path', $result['stderr']);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -550,6 +720,107 @@ final class AffectedTest extends TestCase
         self::assertSame('', af_normalize_path('sandbox/..'));
     }
 
+    public function testGitDiffParserPreservesRenameIdentityAndFlattensDependencyPaths(): void
+    {
+        self::loadTool();
+        $parsed = af_parse_diff_name_status(
+            "R100\0agent/src/Kernel/Old.php\0cli/src/Kernel/New.php\0"
+                . "M\0agent/src/Kernel/Canon.php\0"
+        );
+
+        self::assertSame([
+            ['from' => 'agent/src/Kernel/Old.php', 'to' => 'cli/src/Kernel/New.php'],
+            'agent/src/Kernel/Canon.php',
+        ], $parsed['changes']);
+        self::assertSame([
+            'agent/src/Kernel/Old.php',
+            'cli/src/Kernel/New.php',
+            'agent/src/Kernel/Canon.php',
+        ], $parsed['paths']);
+        self::assertSame(
+            'cross_root_rename',
+            \Duo\Tooling\AdapterChangeScopeDecision::decide($parsed['changes'])['reason_code']
+        );
+    }
+
+    public function testGitDiffDiscoveryFailureRefusesInsteadOfReturningNoChanges(): void
+    {
+        self::loadTool();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('git diff --name-status -M -z failed');
+        af_git_diff_changes(self::repoRoot(), 'refs/heads/duo-definitely-missing');
+    }
+
+    public function testGitStatusDiscoveryFailureRefusesInsteadOfReturningNoChanges(): void
+    {
+        self::loadTool();
+        $root = self::syntheticTestsTree([]);
+        mkdir($root, 0o777, true);
+        try {
+            af_git_status_changes($root);
+            self::fail('a non-repository status query returned an empty green change set');
+        } catch (\RuntimeException $failure) {
+            self::assertStringContainsString('git status --porcelain=v1 -z failed', $failure->getMessage());
+        } finally {
+            self::removeTree($root);
+        }
+    }
+
+    public function testGitStatusParserUsesDestinationThenSourceRenameOrder(): void
+    {
+        self::loadTool();
+        $parsed = af_parse_porcelain_status(
+            "R  cli/src/Kernel/New.php\0agent/src/Kernel/Old.php\0"
+                . "?? adapter-packages/acf/tests/offline/regress_new.php\0"
+        );
+
+        self::assertSame([
+            ['from' => 'agent/src/Kernel/Old.php', 'to' => 'cli/src/Kernel/New.php'],
+            'adapter-packages/acf/tests/offline/regress_new.php',
+        ], $parsed['changes']);
+        self::assertSame([
+            'agent/src/Kernel/Old.php',
+            'cli/src/Kernel/New.php',
+            'adapter-packages/acf/tests/offline/regress_new.php',
+        ], $parsed['paths']);
+    }
+
+    public function testGitDiscoveryRefusesEveryLossyRawPathShape(): void
+    {
+        self::loadTool();
+        $records = [
+            'diff path' => static fn(): array => af_parse_diff_name_status(
+                "A\0 adapter-packages/acf/rogue.php\0"
+            ),
+            'diff rename source' => static fn(): array => af_parse_diff_name_status(
+                "R100\0adapter-packages/acf/old.php \0adapter-packages/acf/new.php\0"
+            ),
+            'diff copy destination' => static fn(): array => af_parse_diff_name_status(
+                "C100\0adapter-packages/acf/source.php\0adapter-packages\\acf/copy.php\0"
+            ),
+            'status path' => static fn(): array => af_parse_porcelain_status(
+                "??  adapter-packages/acf/rogue.php\0"
+            ),
+            'status rename source' => static fn(): array => af_parse_porcelain_status(
+                "R  adapter-packages/acf/new.php\0adapter-packages/acf/old.php \0"
+            ),
+            'status copy destination' => static fn(): array => af_parse_porcelain_status(
+                "C  adapter-packages\\acf/copy.php\0adapter-packages/acf/source.php\0"
+            ),
+        ];
+
+        foreach ($records as $label => $parse) {
+            $message = null;
+            try {
+                $parse();
+            } catch (\RuntimeException $failure) {
+                $message = $failure->getMessage();
+            }
+            self::assertNotNull($message, "$label was lossily normalized instead of refused");
+            self::assertStringContainsString('non-canonical repo-relative path from git', $message, $label);
+        }
+    }
+
     public function testDirRelativeExtractorResolvesDotDotToACanonicalPath(): void
     {
         self::loadTool();
@@ -614,11 +885,14 @@ final class AffectedTest extends TestCase
     public function testRootedDirectoryLiteralsBecomeDirectoryDependencies(): void
     {
         self::loadTool();
-        $dirs = af_extract_dirs(self::repoRoot(), "\$dir = \$repo . '/manifests';\nglob(\$dir . '/*.json');");
-        self::assertContains('manifests', $dirs);
+        $dirs = af_extract_dirs(
+            self::repoRoot(),
+            "\$dir = \$repo . '/adapter-packages';\nscandir(\$dir);"
+        );
+        self::assertContains('adapter-packages', $dirs);
         self::assertContains(
-            'manifests/providers',
-            af_extract_dirs(self::repoRoot(), "glob(\$root . '/manifests/providers/*.php')")
+            'platform/adapter-library',
+            af_extract_dirs(self::repoRoot(), "scandir(\$root . '/platform/adapter-library')")
         );
     }
 
@@ -655,21 +929,63 @@ final class AffectedTest extends TestCase
         }
     }
 
-    public function testManifestChangesSelectTheSuitesThatGlobTheManifestTree(): void
+    public function testAdapterPackageChangesSelectOnlyItsClosedPackageAndScenarioTasks(): void
     {
-        // No suite spells an individual manifest: they all load the tree with
-        // glob()/scandir(), so only the directory signal can connect them.
-        // Both a top-level manifest and a provider under a subdirectory must
-        // reach it.
-        $core = self::targets(['--paths=manifests/core.json']);
-        self::assertGreaterThanOrEqual(20, count($core));
-        self::assertContains('regress-manifest-dispositions', $core);
-        self::assertContains('regress-adapter-sources', $core);
+        foreach ([
+            'adapter-packages/woocommerce/package/manifest.json',
+            'adapter-packages/woocommerce/tests/offline/regress_future_probe.php',
+        ] as $path) {
+            self::assertSame([
+                'adapter-package:woocommerce',
+                'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
+            ], self::targets(['--paths=' . $path]));
+        }
+    }
 
-        $provider = self::targets(['--paths=manifests/providers/woocommerce-cache.php']);
-        self::assertGreaterThanOrEqual(20, count($provider));
-        self::assertContains('regress-actions-providers', $provider);
-        self::assertContains('regress-adapter-sources', $provider);
+    public function testPlatformChangesStillReachTheirAggregateReaders(): void
+    {
+        $platform = self::targets(['--paths=platform/adapter-library/core/manifest.json']);
+        self::assertContains('regress-manifest-dispositions', $platform);
+        self::assertContains('regress-adapter-packages', $platform);
+    }
+
+    public function testAdapterJsonCarriesCheckedCommandsAndParticipantReasons(): void
+    {
+        $result = self::invoke([
+            '--paths=adapter-packages/polylang/package/manifest.json',
+            '--json',
+            '--explain',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame('adapter-package:polylang', $decoded['tasks'][0]['target']);
+        self::assertSame(
+            ['php', 'tools/adapter-package-tests.php', '--adapter=polylang'],
+            $decoded['tasks'][0]['command']
+        );
+        self::assertSame(
+            ['adapter-package', 'participant-scenario'],
+            array_column($decoded['explain'], 'why')
+        );
+        self::assertSame([
+            'integration-scenario:polylang-tec-rewrite-coinstall:live:regress_polylang_tec_rewrite_coinstall.sh',
+            'integration-scenario:woocommerce-rewrite-coinstall:live:regress_woocommerce_rewrite_coinstall.sh',
+        ], array_column($decoded['advisories'], 'target'));
+    }
+
+    public function testEngineChangesConservativelySelectPackageConsumers(): void
+    {
+        $result = self::invoke([
+            '--paths=agent/src/Kernel/PathSafety.php',
+            '--json',
+            '--explain',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+        $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertContains('regress-adapter-packages', $decoded['targets']);
+        self::assertContains('adapter-sdk-conservative', array_column($decoded['explain'], 'why'));
     }
 
     public function testSharedShellLibrariesSelectTheirConsumers(): void
@@ -731,7 +1047,16 @@ final class AffectedTest extends TestCase
 
         // Every root dir the extractors gate through is_file()/is_dir():
         // adding or removing a file there flips index entries.
-        foreach (['manifests', 'docs', 'scripts', 'spec', 'sandbox/bin', 'sandbox/conformance'] as $dir) {
+        foreach ([
+            'adapter-packages',
+            'platform',
+            'integration-scenarios',
+            'docs',
+            'scripts',
+            'spec',
+            'sandbox/bin',
+            'sandbox/conformance',
+        ] as $dir) {
             $prefix = $root . '/' . $dir . '/';
             $covered = false;
             foreach ($inputs as $file) {

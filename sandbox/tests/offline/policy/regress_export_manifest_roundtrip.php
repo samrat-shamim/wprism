@@ -43,11 +43,10 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
 }
 
-putenv("DUO_MANIFESTS_DIR=$manifestsDir");
-
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Policy;
 use Duo\Canon;
@@ -72,6 +71,7 @@ file_put_contents("$manifestsDir/core.json", json_encode([
     'post_meta' => (object) [],
     'term_meta' => (object) [],
 ], JSON_PRETTY_PRINT));
+$adapterLibrary = \DuoTest\FrozenPolicy::adapterLibrary($manifestsDir);
 
 // ======================================================================
 echo "\n== export_manifest() writes spec_version, sourced from the constant ==\n";
@@ -91,7 +91,7 @@ file_put_contents("$repoDir/site.duo.json", json_encode([
     ],
 ], JSON_PRETTY_PRINT));
 
-$exported = Policy::export_manifest($repoDir, '^test_export_', 'export-roundtrip-test');
+$exported = Policy::export_manifest($repoDir, '^test_export_', 'export-roundtrip-test', $adapterLibrary);
 check(($exported['spec_version'] ?? null) === DUO_SPEC_VERSION,
     'exported manifest declares spec_version === DUO_SPEC_VERSION (got: ' . var_export($exported['spec_version'] ?? null, true) . ')');
 // export_manifest() casts every section to (object), even non-empty
@@ -106,9 +106,10 @@ check(!isset($exported['options']->unrelated_option),
 echo "\n== the exported manifest is genuinely loadable by Policy::load() ==\n";
 
 file_put_contents("$manifestsDir/export-roundtrip-test.json", Canon::encode($exported));
+$adapterLibrary = \DuoTest\FrozenPolicy::adapterLibrary($manifestsDir);
 
 try {
-    $reloaded = Policy::load(null, ['export-roundtrip-test']);
+    $reloaded = Policy::load(null, ['export-roundtrip-test'], adapterLibrary: $adapterLibrary);
     check(true, 'Policy::load() accepted the exported manifest without throwing -- the actual round trip wp duo policy-to-manifest promises');
     check($reloaded->authored_options()['test_export_hero']['class'] === 'authored',
         'the reloaded policy carries the exported rule through intact');
@@ -128,8 +129,9 @@ unset($broken['spec_version']);
 // spec_version it exists to prove.
 $broken['name'] = 'export-roundtrip-broken';
 file_put_contents("$manifestsDir/export-roundtrip-broken.json", Canon::encode($broken));
+$adapterLibrary = \DuoTest\FrozenPolicy::adapterLibrary($manifestsDir);
 try {
-    Policy::load(null, ['export-roundtrip-broken']);
+    Policy::load(null, ['export-roundtrip-broken'], adapterLibrary: $adapterLibrary);
     check(false, 'load() should refuse a manifest with no spec_version (it did not -- this would have masked DUO-3284 entirely)');
 } catch (\Throwable $t) {
     check(str_contains($t->getMessage(), 'spec_version'),

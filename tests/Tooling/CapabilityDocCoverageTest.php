@@ -8,31 +8,28 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * `make release-gate` is where "the shipped library is exactly reviewed" is
- * enforced, and this is the proof that it actually refuses.
+ * enforced, and this is the proof that it actually refuses without requiring
+ * a checked-in aggregate adapter inventory.
  *
  * WHY THIS TEST EXISTS AT ALL
  * ---------------------------
- * Until WP-1.2 the bidirectional coverage rule was enforced twice: once by
+ * Until WP-1.2 the bidirectional coverage rule was enforced by
  * `ManifestDispositions::load()` on every `Policy::load()` (a whole-directory
  * glob and decode, O(library) for an O(pins) question, which refused every
- * unrelated pin over one unreviewed file) and once by capdoc_cross_check()
- * here. The runtime half is now scoped to the PINNED shipped subset
- * (`ManifestDispositions::assert_covers()`), so this tool's copy is no longer
- * a second opinion — it is the whole of the authoring rule, and a gate nobody
- * has ever watched fail is a gate nobody knows still works.
+ * unrelated pin over one unreviewed file). Runtime is now scoped to the PINNED
+ * shipped subset (`ManifestDispositions::assert_covers()`), while
+ * AdapterLibrary closes the complete authoring inventory before this tool
+ * projects it. A gate nobody has watched fail is a gate nobody knows works.
  *
- * No second implementation was added for the gate: capdoc_cross_check()
- * already computed the identical two-way comparison with the identical
- * sentence, and `capdoc_build()` calls it BEFORE the byte-compare, so a
- * mismatched library fails `--check` whether or not the generated prose is
- * current. A new checker beside it would be exactly the drift trap
- * tools/capability-doc.php's own header warns about.
+ * `capdoc_build()` resolves AdapterLibrary before rendering, so an
+ * incomplete package fails `--check` whether or not the generated prose is
+ * current.
  *
  * The tool resolves its inputs from `dirname(__DIR__)` of its own file and has
  * no --repo seam (deliberately: it is a release gate, not a library), so each
- * case runs against a COPY of the repository's four input files under a temp
+ * case runs against a COPY of the repository's logical inputs under a temp
  * root. Copying is also what keeps a red assertion from leaving an unreviewed
- * manifest in manifests/, which AGENTS.md rule 3 forbids and pair.sh refuses.
+ * package in adapter-packages/, which the source-tree reader closes strictly.
  */
 final class CapabilityDocCoverageTest extends TestCase
 {
@@ -43,38 +40,49 @@ final class CapabilityDocCoverageTest extends TestCase
     }
 
     /**
-     * A temp root carrying exactly the files tools/capability-doc.php reads:
-     * the four sources named in its header, plus the two generated documents
-     * it byte-compares and the Canon it requires.
+     * A temp root carrying exactly the inputs tools/capability-doc.php reads:
+     * the closed package adapter library, agent/version sources, the generated
+     * compatibility baseline and the agent readers it requires. Deliberately
+     * no README or docs/capabilities.md is staged: neither is an adapter input.
      */
     private function stagedRepo(): string
     {
         $repo = self::repoRoot();
         $root = sys_get_temp_dir() . '/duo_capdoc_' . bin2hex(random_bytes(6));
-        foreach (['tools', 'manifests/capabilities', 'manifests/dispositions', 'agent/src/Kernel', 'docs'] as $dir) {
+        foreach ([
+            'tools',
+            'agent/src/Kernel',
+            'agent/src/Policy',
+            'docs',
+        ] as $dir) {
             self::assertTrue(mkdir("$root/$dir", 0o777, true), "could not create $root/$dir");
         }
         foreach ([
             'tools/capability-doc.php',
             'agent/src/Kernel/Canon.php',
+            'agent/src/Policy/AdapterLibrary.php',
+            'agent/src/Policy/AdapterPackage.php',
             'agent/duo.php',
-            'manifests/capabilities/platform.json',
-            'docs/capabilities.md',
             'docs/compatibility-baseline.json',
-            'README.md',
         ] as $relative) {
             self::assertTrue(copy("$repo/$relative", "$root/$relative"), "could not stage $relative");
         }
-        foreach (glob("$repo/manifests/*.json") ?: [] as $manifest) {
-            self::assertTrue(copy($manifest, "$root/manifests/" . basename($manifest)));
-        }
-        // One reviewed document per subject since WP-4.4 (spec § v3.4): the
-        // staged library has to carry the whole directory, because
-        // capdoc_dispositions() reads the listing, not one file.
-        foreach (glob("$repo/manifests/dispositions/*.json") ?: [] as $document) {
-            self::assertTrue(copy($document, "$root/manifests/dispositions/" . basename($document)));
-        }
+        self::copyTree("$repo/adapter-packages", "$root/adapter-packages");
+        self::copyTree("$repo/platform", "$root/platform");
         return $root;
+    }
+
+    private static function copyTree(string $source, string $target): void
+    {
+        self::assertTrue(mkdir($target, 0o777, true), "could not create $target");
+        foreach (new \FilesystemIterator($source) as $item) {
+            $destination = $target . '/' . $item->getBasename();
+            if ($item->isDir() && !$item->isLink()) {
+                self::copyTree($item->getPathname(), $destination);
+                continue;
+            }
+            self::assertTrue(copy($item->getPathname(), $destination), "could not stage $destination");
+        }
     }
 
     private static function removeTree(string $path): void
@@ -128,18 +136,47 @@ final class CapabilityDocCoverageTest extends TestCase
         }
     }
 
+    public function testAValidAdapterEditNeedsNoCentralProjectionFile(): void
+    {
+        $root = $this->stagedRepo();
+        try {
+            $disposition = "$root/adapter-packages/wps-hide-login/package/disposition.json";
+            $bytes = (string) file_get_contents($disposition);
+            self::assertStringContainsString('"reason": "Certified for exact', $bytes);
+            $count = 0;
+            self::assertNotFalse(file_put_contents(
+                $disposition,
+                str_replace(
+                    '"reason": "Certified for exact',
+                    '"reason": "Review-only detail. Certified for exact',
+                    $bytes,
+                    $count
+                )
+            ));
+            self::assertSame(1, $count);
+
+            $result = self::check($root);
+            self::assertSame(0, $result['status'], "package-local edit failed source check:\n{$result['stderr']}");
+            self::assertFileDoesNotExist("$root/docs/capabilities.md");
+            self::assertFileDoesNotExist("$root/README.md");
+        } finally {
+            self::removeTree($root);
+        }
+    }
+
     public function testAManifestWithNoReviewedEntryFailsTheGate(): void
     {
         $root = $this->stagedRepo();
         try {
-            file_put_contents(
-                "$root/manifests/zz-unreviewed.json",
+            self::assertTrue(mkdir("$root/adapter-packages/zz-unreviewed/package", 0o777, true));
+            self::assertNotFalse(file_put_contents(
+                "$root/adapter-packages/zz-unreviewed/package/manifest.json",
                 (string) json_encode(['name' => 'zz-unreviewed', 'spec_version' => 2])
-            );
+            ));
             $result = self::check($root);
             self::assertSame(1, $result['status'], 'an unreviewed manifest must fail release-gate');
             self::assertStringContainsString(
-                'manifest disposition coverage mismatch; missing=[zz-unreviewed]',
+                'adapter zz-unreviewed disposition is not a readable regular file',
                 $result['stderr']
             );
         } finally {
@@ -169,12 +206,13 @@ final class CapabilityDocCoverageTest extends TestCase
     {
         $root = $this->stagedRepo();
         try {
-            self::assertFileExists("$root/manifests/wps-hide-login.json");
-            unlink("$root/manifests/wps-hide-login.json");
+            $manifest = "$root/adapter-packages/wps-hide-login/package/manifest.json";
+            self::assertFileExists($manifest);
+            unlink($manifest);
             $result = self::check($root);
             self::assertSame(1, $result['status'], 'a reviewed entry with no manifest must fail release-gate');
             self::assertStringContainsString(
-                'manifest disposition coverage mismatch; missing=[], extra=[wps-hide-login]',
+                'adapter wps-hide-login manifest is not a readable regular file',
                 $result['stderr']
             );
         } finally {

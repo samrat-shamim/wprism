@@ -74,7 +74,6 @@ require_once $repo . '/agent/src/Apply/TypedTableMaterializer.php';
 
 use Duo\AdapterContractGrammar;
 use Duo\AdapterSources;
-use Duo\Canon;
 use Duo\ManifestGrammar;
 use Duo\TypedTableMaterializer;
 use DuoTest\FakeWpdb;
@@ -119,13 +118,13 @@ $refuses = static function (array $entries, string $needle, string $label) use (
 // =====================================================================
 
 $pmproManifest = json_decode(
-    (string) file_get_contents($repo . '/manifests/paid-memberships-pro.json'),
+    (string) file_get_contents($repo . '/adapter-packages/paid-memberships-pro/package/manifest.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
 );
-$wooProvider = (string) file_get_contents($repo . '/manifests/providers/woocommerce-product-lookups.php');
-$snippetsProvider = (string) file_get_contents($repo . '/manifests/providers/code-snippets-state.php');
+$wooProvider = (string) file_get_contents($repo . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-product-lookups.php');
+$snippetsProvider = (string) file_get_contents($repo . '/adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php');
 
 // DEMAND 1: the id on the KEY side. PMPro now consumes the admitted primitive
 // directly, proving the verb has a shipped product owner after its compatibility
@@ -139,7 +138,7 @@ duo_check_same(
 duo_check(
     !isset($pmproManifest['providers'])
         && !isset($pmproManifest['actions'])
-        && !is_file($repo . '/manifests/providers/paid-memberships-pro-cache.php'),
+        && !is_file($repo . '/adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php'),
     'and the PMPro compatibility provider is actually retired rather than left digest-bound beside its replacement'
 );
 
@@ -465,17 +464,13 @@ duo_check_same(
     'the shipped adapter explicitly negotiates the post-v3 invalidate vocabulary before using it'
 );
 
-$scratch = sys_get_temp_dir() . '/duo_regress_invalidate_vocab_' . bin2hex(random_bytes(4));
-@mkdir($scratch, 0777, true);
-register_shutdown_function(static function () use ($scratch): void {
-    foreach (glob($scratch . '/*') ?: [] as $file) {
-        @unlink($file);
-    }
-    @rmdir($scratch);
-});
-Canon::write_file($scratch . '/paid-memberships-pro.json', Canon::encode($shipped));
-
-$cmd = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]));
+$cmd = implode(' ', array_map('escapeshellarg', [
+    PHP_BINARY,
+    $repo . '/cli/duo',
+    'manifest-validate',
+    $repo,
+    '--manifest=paid-memberships-pro',
+]));
 $pipes = [];
 $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 $stdout = is_resource($proc) ? (string) stream_get_contents($pipes[1]) : '';

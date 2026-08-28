@@ -45,13 +45,12 @@ These guides describe only what exists at the commit that publishes them.
   present tense and never demonstrated in a runnable code block. The checker
   enforces the other half of that rule: a command that does not exist is a hard
   failure *unless* the line carrying it also carries that literal label.
-- **Generated documents are linked, never copied.** The capability matrix
-  lives in [../capabilities.md](../capabilities.md), which
-  `php tools/capability-doc.php generate` writes from the manifests and
-  `manifests/dispositions/`. `make release-gate` is exactly
-  `capability-doc.php --check` then `classmap-generate.php --check`, so a
-  hand-edit of either generated document fails the gate. No guide restates a
-  row of the matrix; a stale hand-copy of a capability claim is worse than no
+- **Derived claims are rendered, never copied.**
+  [../capabilities.md](../capabilities.md) explains the model; `php
+  tools/capability-doc.php render` prints the exact matrix from capsule-owned
+  manifests and dispositions. `make release-gate` validates that source set
+  without checking in an aggregate adapter inventory. No guide restates a row
+  of the matrix; a stale hand-copy of a capability claim is worse than no
   claim.
 - **A boundary is documentation too.** Where Duo cannot do something, these
   guides say so plainly rather than routing around it. "No command does this
@@ -64,5 +63,5 @@ These guides describe only what exists at the commit that publishes them.
 - [spec/repo-format.md](../../spec/repo-format.md) — the site-repo and manifest
   format, normative.
 - [docs/adoption.md](../adoption.md) — the SSH adoption contract in full.
-- [docs/capabilities.md](../capabilities.md) — generated; the certified matrix.
+- [docs/capabilities.md](../capabilities.md) — capability semantics and the command that renders the current matrix.
 - [DESIGN.md](../../DESIGN.md) — why any of this is shaped the way it is.

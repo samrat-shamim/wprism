@@ -311,10 +311,11 @@ final class AssessReport {
      *
      * ## The window this must not break
      *
-     * Host ≠ target is a LEGITIMATE state. `duo adopt` tars `agent manifests
-     * recovery` (cli/src/Onboarding/Adopt.php), so a managed site answers from
-     * the dispositions of the checkout it was last adopted from. The moment an
-     * operator pulls a revision that edited `manifests/dispositions.json`,
+     * Host ≠ target is a LEGITIMATE state. `duo adopt` assembles the package
+     * library into `agent/` and tars `agent recovery`
+     * (cli/src/Onboarding/Adopt.php), so a managed site answers from the
+     * dispositions of the checkout it was last adopted from. The moment an
+     * operator pulls a revision that edited a package-owned disposition,
      * their checkout is ahead of every site they have not re-adopted yet —
      * exactly the state docs/adoption.md's upgrade runbook walks through, and
      * its steps 1 and 2 (drain, then re-adopt every environment in a pair)
@@ -360,7 +361,7 @@ final class AssessReport {
      * ## Direction of skew
      *
      * Not derivable. A sha256 carries no ordering, and
-     * `manifests/dispositions.json` moves independently of
+     * package-owned disposition documents move independently of
      * `DUO_AGENT_VERSION` (a reviewed-claim edit bumps no version), so there
      * is no second fact to break the tie. The remediation therefore names both
      * directions rather than guessing one.
@@ -501,7 +502,7 @@ final class AssessReport {
         return new CommandRefusalException(
             'assess_report_unbuildable',
             $message,
-            'rerun assess after repairing the target inventory or restoring manifests/dispositions/'
+            'rerun assess after repairing the target inventory or restoring the package-owned disposition documents'
         );
     }
 }

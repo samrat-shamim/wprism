@@ -50,6 +50,7 @@ define('DRAFT_SPEC', SPEC - 1);
 require $repo . '/agent/src/Kernel/Canon.php';
 require $repo . '/agent/src/Kernel/OptionState.php';
 require $repo . '/agent/src/Policy/Policy.php';
+require $repo . '/sandbox/tests/lib/frozen_policy.php';
 
 $root = sys_get_temp_dir() . '/duo_regress_adapter_draft_' . bin2hex(random_bytes(4));
 mkdir($root, 0777, true);
@@ -84,23 +85,17 @@ function wrj(string $path, array $data): void {
 }
 
 /**
- * Run the real host CLI as a subprocess with an explicit manifest library.
+ * Run the real host CLI as a subprocess.
  * @return array{exit:int, stdout:string, stderr:string}
  */
-function duo(array $args, ?string $lib = null): array {
+function duo(array $args): array {
     global $repo;
     $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/duo');
     foreach ($args as $arg) {
         $cmd .= ' ' . escapeshellarg($arg);
     }
-    $env = getenv();
-    if ($lib !== null) {
-        $env['DUO_MANIFESTS_DIR'] = $lib;
-    } else {
-        unset($env['DUO_MANIFESTS_DIR']);
-    }
     $pipes = [];
-    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (!is_resource($proc)) {
         throw new \RuntimeException("could not run: $cmd");
     }
@@ -114,7 +109,14 @@ function duo(array $args, ?string $lib = null): array {
 /** A minimal core-only manifest library every site.duo.json pins. */
 function make_lib(string $dir): string {
     wrj($dir . '/core.json', ['name' => 'core', 'spec_version' => SPEC, 'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) []]);
+    \DuoTest\FrozenPolicy::adapterLibrary($dir);
     return $dir;
+}
+
+/** Publish one manifest and close the explicit historical-layout test archive around it. */
+function publish_manifest(string $dir, string $name, array $manifest): void {
+    wr($dir . '/' . $name . '.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    \DuoTest\FrozenPolicy::adapterLibrary($dir);
 }
 
 /** A site.duo.json with the given policy sections. */
@@ -127,12 +129,26 @@ function make_site(string $repoDir, array $policy = []): void {
 }
 
 /** Decode a generated draft artifact (--format=json). */
-function gen_draft(string $repoDir, string $name, string $lib, array $extra = []): array {
-    $r = duo(array_merge(['adapter-draft', $repoDir, '--name=' . $name, '--format=json'], $extra), $lib);
+function gen_draft(string $repoDir, string $name, array $extra = []): array {
+    $r = duo(array_merge(['adapter-draft', $repoDir, '--name=' . $name, '--format=json'], $extra));
     if ($r['exit'] !== 0) {
         throw new \RuntimeException("adapter-draft failed ({$r['exit']}): {$r['stderr']}");
     }
     return json_decode($r['stdout'], true);
+}
+
+/** @return array<string,string> immutable source-library path => sha256 */
+function source_library_hashes(): array {
+    global $repo;
+    $hashes = [];
+    foreach (\Duo\AdapterLibrary::fromSourceTree($repo)->scanFiles() as $file) {
+        $sha256 = hash_file('sha256', $file);
+        if ($sha256 === false) {
+            throw new \RuntimeException("could not hash adapter source: $file");
+        }
+        $hashes[$file] = $sha256;
+    }
+    return $hashes;
 }
 
 /** Compare decoded JSON values with the engine's canonical semantic encoding. */
@@ -169,13 +185,12 @@ function unsupported_by_target(array $draft): array {
 echo "\n== 1. envelope + validate acceptance ==\n";
 {
     $t = "$root/t1";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo", ['options' => ['my_hero_id' => ['class' => 'authored', 'autoload' => 'preserve']]]);
     wrj("$t/repo/state/tables/nf3_forms/r1.json", ['table' => 'nf3_forms', 'columns' => ['id' => 1, 'slug' => 'contact', 'title' => 'Contact']]);
     wrj("$t/repo/state/tables/nf3_forms/r2.json", ['table' => 'nf3_forms', 'columns' => ['id' => 2, 'slug' => 'signup', 'title' => 'Signup']]);
     wr("$t/repo/state/posts/page/home.md", "---\n" . json_encode(['type' => 'page', 'meta' => ['hero_id' => 42]]) . "\n---\n<!-- wp:core/image {\"id\":42} -->\n<figure></figure>\n<!-- /wp:core/image -->\n");
 
-    $draft = gen_draft("$t/repo", 'nf-draft', $lib);
+    $draft = gen_draft("$t/repo", 'nf-draft');
     check(($draft['options']['my_hero_id']['class'] ?? null) === 'authored', 'classified option is a FACT in the real options section');
     check(!str_contains(json_encode($draft['_draft']), 'my_hero_id'), 'facts are NOT duplicated into _draft (facts live only in real sections)');
     check(isset($draft['_draft']), 'the draft carries a top-level _draft sidecar');
@@ -188,13 +203,13 @@ echo "\n== 1. envelope + validate acceptance ==\n";
     // Feed the draft to the REAL manifest-validate.
     $md = "$t/md";
     make_lib($md);
-    wr($md . '/nf-draft.json', json_encode($draft, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'nf-draft', $draft);
     $v = duo(['manifest-validate', $md, '--manifest=nf-draft', '--pins=nf-draft,core']);
     check($v['exit'] === 0, 'manifest-validate exits 0 on the draft (facts valid, sidecar inert)');
     check(str_contains($v['stdout'], 'draft:') && str_contains($v['stdout'], 'facts validated'), 'manifest-validate prints the _draft annotation distinguishing facts / proposals / unsupported');
     check(str_contains($v['stdout'], "run 'duo adapter-draft --check-proposals'"), 'the annotation points the author at --check-proposals');
 
-    $invalidName = duo(['adapter-draft', "$t/repo", '--name=../invalid', '--format=json'], $lib);
+    $invalidName = duo(['adapter-draft', "$t/repo", '--name=../invalid', '--format=json']);
     check($invalidName['exit'] === 2
         && str_contains($invalidName['stderr'], 'canonical lowercase adapter-name grammar')
         && !str_contains($invalidName['stdout'] . $invalidName['stderr'], '../invalid'),
@@ -230,7 +245,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
             '_meta' => (object) [],
         ],
     ];
-    wr($md . '/inert-draft.json', json_encode($draft, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'inert-draft', $draft);
     $v = duo(['manifest-validate', $md, '--manifest=inert-draft', '--pins=inert-draft,core']);
     check($v['exit'] === 0, 'a draft whose _draft table proposal names an UNDECLARED id_kind still validates ok (sidecar is inert)');
     check(!str_contains($v['stdout'], 'kind vocabulary is closed'), 'the closed-vocabulary refusal is NOT tripped by the renamed proposal');
@@ -243,7 +258,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
     unset($frag['proposed_refs']);
     $mutated['_draft']['proposals']['tables'][0]['candidate'] = $frag;
     $mutated['name'] = 'mutant-draft';
-    wr($md . '/mutant-draft.json', json_encode($mutated, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'mutant-draft', $mutated);
     $vm = duo(['manifest-validate', $md, '--manifest=mutant-draft', '--pins=mutant-draft,core']);
     check($vm['exit'] !== 0, 'MUTATION PROOF: un-renaming the trigger key makes manifest-validate FAIL — the rename is load-bearing');
     check(str_contains($vm['stdout'] . $vm['stderr'], 'kind vocabulary is closed'), 'the un-renamed proposal trips exactly the closed-vocabulary refusal the rename prevents');
@@ -252,7 +267,6 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
 echo "\n== 3. per-proposer evidence / confidence / questions ==\n";
 {
     $t = "$root/t3";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     wrj("$t/repo/state/tables/rooms/r1.json", ['table' => 'rooms', 'columns' => ['id' => 1, 'code' => 'A1']]);
     wrj("$t/repo/state/tables/rooms/r2.json", ['table' => 'rooms', 'columns' => ['id' => 2, 'code' => 'B2']]);
@@ -264,7 +278,7 @@ echo "\n== 3. per-proposer evidence / confidence / questions ==\n";
     wr("$t/repo/state/posts/page/{$entityTwo}--local.md", "---\n" . json_encode([
         'type' => 'page', 'meta' => ['related_id' => 101, 'mixed_ref' => [55, 56]],
     ]) . "\n---\n<!-- wp:core/gallery {\"parent_id\":10,\"ids\":[8,9],\"mixed\":[10,11]} -->\n<!-- /wp:core/gallery -->\n[gallery parent_id=\"10\" ids=\"8,9\" mixed=\"10,11\"]\n");
-    $draft = gen_draft("$t/repo", 'p-draft', $lib);
+    $draft = gen_draft("$t/repo", 'p-draft');
     $byTarget = [];
     $byLocator = [];
     foreach (($draft['_draft']['proposals'] ?? []) as $bucket) {
@@ -347,11 +361,10 @@ echo "\n== 3. per-proposer evidence / confidence / questions ==\n";
 echo "\n== 4. facts vs proposals vs unsupported ==\n";
 {
     $t = "$root/t4";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo", ['options' => ['brand_logo' => ['class' => 'authored', 'autoload' => 'preserve']]]);
     wrj("$t/repo/state/tables/orders/r1.json", ['table' => 'orders', 'columns' => ['id' => 1, 'total' => '10']]);
     wr("$t/repo/state/posts/page/g.md", "---\n" . json_encode(['type' => 'page', 'meta' => ['elementor_data' => 'a:2:{s:2:"id";i:7;s:4:"blob";s:5:"hello";}']]) . "\n---\nbody\n");
-    $draft = gen_draft("$t/repo", 'fpu-draft', $lib);
+    $draft = gen_draft("$t/repo", 'fpu-draft');
     check(($draft['options']['brand_logo']['class'] ?? '') === 'authored', 'a classified option is a FACT in the real options section');
     check(isset($draft['_draft']['proposals']['tables']), 'an observed new table is a PROPOSAL under _draft');
     $uns = $draft['_draft']['unsupported'] ?? [];
@@ -365,13 +378,12 @@ echo "\n== 4. facts vs proposals vs unsupported ==\n";
 echo "\n== 5. deletion candidates: required-cascade set matches Deletion::capability, inert + question ==\n";
 {
     $t = "$root/t5";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     wr("$t/repo/state/posts/page/a.md", "---\n" . json_encode(['type' => 'page', 'meta' => []]) . "\n---\nx\n");
     wrj("$t/repo/state/terms/category/c1.json", ['taxonomy' => 'category']);
     wrj("$t/repo/state/menus/main.json", ['name' => 'main']);
     wrj("$t/repo/state/tables/widgets/r1.json", ['table' => 'widgets', 'columns' => ['id' => 1]]);
-    $draft = gen_draft("$t/repo", 'del-draft', $lib);
+    $draft = gen_draft("$t/repo", 'del-draft');
     $del = [];
     foreach (($draft['_draft']['proposals']['deletions'] ?? []) as $c) {
         $del[$c['target']] = $c;
@@ -391,18 +403,17 @@ echo "\n== 5. deletion candidates: required-cascade set matches Deletion::capabi
 echo "\n== 6. human-edit preservation across re-observation ==\n";
 {
     $t = "$root/t6";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     wrj("$t/repo/state/tables/rooms/r1.json", ['table' => 'rooms', 'columns' => ['id' => 1, 'code' => 'A1']]);
     wrj("$t/repo/state/tables/rooms/r2.json", ['table' => 'rooms', 'columns' => ['id' => 2, 'code' => 'B2']]);
 
     // Generate and "save" to the site adapter overlay (the prior artifact).
-    $g1 = gen_draft("$t/repo", 'room-draft', $lib);
+    $g1 = gen_draft("$t/repo", 'room-draft');
     $adapter = "$t/repo/adapters/room-draft.json";
     wr($adapter, json_encode($g1, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
     // (a) regenerate with NO edit -> refreshed in place, edited:false.
-    $g2 = gen_draft("$t/repo", 'room-draft', $lib);
+    $g2 = gen_draft("$t/repo", 'room-draft');
     check(($g2['_draft']['_meta']['tables.rooms']['edited'] ?? null) === false, 'an unedited candidate is refreshed in place with edited:false');
     check(!empty($g2['_draft']['_meta']['tables.rooms']['generated_hash']), '_meta records the generator content hash');
 
@@ -410,7 +421,7 @@ echo "\n== 6. human-edit preservation across re-observation ==\n";
     $saved = json_decode(file_get_contents($adapter), true);
     $saved['_draft']['proposals']['tables'][0]['candidate']['columns']['code']['class'] = 'derived'; // human change
     wr($adapter, json_encode($saved, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $g3 = gen_draft("$t/repo", 'room-draft', $lib);
+    $g3 = gen_draft("$t/repo", 'room-draft');
     $t3 = null;
     foreach ($g3['_draft']['proposals']['tables'] as $c) {
         if ($c['target'] === 'tables.rooms') {
@@ -426,7 +437,7 @@ echo "\n== 6. human-edit preservation across re-observation ==\n";
     $saved2['_draft']['_meta']['tables.rooms']['ratified'] = true;
     $saved2['_draft']['proposals']['tables'][0]['candidate']['columns']['code']['class'] = 'env'; // sentinel
     wr($adapter, json_encode($saved2, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $g4 = gen_draft("$t/repo", 'room-draft', $lib);
+    $g4 = gen_draft("$t/repo", 'room-draft');
     $t4 = null;
     foreach ($g4['_draft']['proposals']['tables'] as $c) {
         if ($c['target'] === 'tables.rooms') {
@@ -440,7 +451,6 @@ echo "\n== 6. human-edit preservation across re-observation ==\n";
 echo "\n== 6b. generated-surface identity is structural, redacted, aggregate, and stable across reordering ==\n";
 {
     $t = "$root/t6b";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     $post = static function (array $meta): string {
         return "---\n" . json_encode(['type' => 'page', 'meta' => $meta]) . "\n---\nbody\n";
@@ -455,7 +465,7 @@ echo "\n== 6b. generated-surface identity is structural, redacted, aggregate, an
         'beta_cache' => 'a:1:{s:1:"z";s:1:"c";}',
     ]));
 
-    $g1 = gen_draft("$t/repo", 'structural-draft', $lib);
+    $g1 = gen_draft("$t/repo", 'structural-draft');
     $byLocator = unsupported_by_locator($g1);
     $alpha = $byLocator['post_meta.alpha_cache'] ?? null;
     $beta = $byLocator['post_meta.beta_cache'] ?? null;
@@ -492,7 +502,7 @@ echo "\n== 6b. generated-surface identity is structural, redacted, aggregate, an
         'aardvark_cache' => 'a:1:{s:1:"n";s:1:"d";}',
     ]));
 
-    $g2 = gen_draft("$t/repo", 'structural-draft', $lib);
+    $g2 = gen_draft("$t/repo", 'structural-draft');
     $after = unsupported_by_locator($g2);
     check(($after['post_meta.alpha_cache']['target'] ?? '') === $alphaTarget
         && ($after['post_meta.alpha_cache']['candidate']['capabilities'] ?? []) === ['human_alpha'],
@@ -509,12 +519,11 @@ echo "\n== 6b. generated-surface identity is structural, redacted, aggregate, an
 echo "\n== 6c. legacy ordinal drafts are retained inert, never position-mapped to a fresh surface ==\n";
 {
     $t = "$root/t6c";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     wr("$t/repo/state/posts/page/legacy.md", "---\n" . json_encode([
         'type' => 'page', 'meta' => ['legacy_cache' => 'a:1:{s:1:"x";s:1:"y";}'],
     ]) . "\n---\nbody\n");
-    $g1 = gen_draft("$t/repo", 'legacy-draft', $lib);
+    $g1 = gen_draft("$t/repo", 'legacy-draft');
     $legacy = $g1;
     $oldTarget = $legacy['_draft']['unsupported'][0]['target'];
     $legacy['_draft']['unsupported'][0]['target'] = 'unsupported.0';
@@ -525,7 +534,7 @@ echo "\n== 6c. legacy ordinal drafts are retained inert, never position-mapped t
     $legacy['_draft']['_meta']['unsupported.0'] = $legacyMeta;
     wr("$t/repo/adapters/legacy-draft.json", json_encode($legacy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-    $g2 = gen_draft("$t/repo", 'legacy-draft', $lib);
+    $g2 = gen_draft("$t/repo", 'legacy-draft');
     $targets = unsupported_by_target($g2);
     check(($targets['unsupported.0']['candidate']['id'] ?? '') === 'legacy-human',
         'a legacy ordinal candidate is preserved exactly as an inert candidate');
@@ -540,7 +549,6 @@ echo "\n== 6c. legacy ordinal drafts are retained inert, never position-mapped t
 echo "\n== 6d. prior manifest intent and graduated facts survive a policy export conservatively ==\n";
 {
     $t = "$root/t6d";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo", [
         'options' => [
             'equal_option' => ['class' => 'authored', 'autoload' => 'preserve'],
@@ -594,7 +602,7 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
         '_draft' => ['format' => 'duo-adapter-draft/v1', 'proposals' => (object) [], 'unsupported' => [], '_meta' => (object) []],
     ];
     wr("$t/repo/adapters/intent-draft.json", json_encode($prior, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $out = gen_draft("$t/repo", 'intent-draft', $lib);
+    $out = gen_draft("$t/repo", 'intent-draft');
 
     foreach (['plugin', 'version_range', 'actions', 'providers', 'notes', 'custom_declaration'] as $key) {
         check(array_key_exists($key, $out) && same_canon($out[$key], $prior[$key]),
@@ -624,7 +632,7 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
 
     $md = "$t/md";
     make_lib($md);
-    wr("$md/intent-draft.json", json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'intent-draft', $out);
     $v = duo(['manifest-validate', $md, '--manifest=intent-draft', '--pins=intent-draft,core']);
     check($v['exit'] === 0, 'the preserved intent and inert fact-conflict sidecar still pass the real manifest validator');
 }
@@ -632,14 +640,13 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
 echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/malformed authority ==\n";
 {
     $t = "$root/t6e";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     $uuid = '33333333-3333-4333-8333-333333333333';
     $token = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     wr("$t/repo/state/posts/page/safe.md", "---\n" . json_encode([
         'type' => 'page', 'meta' => ['safe_cache' => 'a:1:{s:1:"x";s:1:"y";}'],
     ]) . "\n---\nbody\n");
-    $g1 = gen_draft("$t/repo", 'safe-prior-draft', $lib);
+    $g1 = gen_draft("$t/repo", 'safe-prior-draft');
     $target = $g1['_draft']['unsupported'][0]['target'];
     $saved = $g1;
     $saved['_draft']['unsupported'][0]['candidate']['id'] = 'human-safe';
@@ -651,7 +658,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $saved['_draft']['unsupported'][0]['legacy_machine_trace'] = $uuid;
     $saved['_draft']['_meta'][$target]['ratified'] = true;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($saved, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $r = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $r = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($r['exit'] === 0, 'a prior candidate with unsafe machine evidence is safely regenerated by redaction');
     check($r['stderr'] === '', 'safe prior-candidate regeneration emits no PHP warnings or stderr diagnostics');
     check(!str_contains($r['stdout'], $uuid) && !str_contains($r['stdout'], $token),
@@ -668,7 +675,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $unsafe = $saved;
     $unsafe['_draft']['unsupported'][0]['candidate']['api_key'] = $token;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unsafe, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $secretRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $secretRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($secretRefusal['exit'] === 2 && str_contains($secretRefusal['stderr'], 'possible secret')
         && !str_contains($secretRefusal['stderr'] . $secretRefusal['stdout'], $token),
         'a secret in the prior semantic fragment fails closed without echoing the secret');
@@ -676,7 +683,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $secretNotes = $g1;
     $secretNotes['notes'] = ['operator_note' => $token];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($secretNotes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $notesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $notesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($notesRefusal['exit'] === 2 && str_contains($notesRefusal['stderr'], 'regenerated artifact contains a possible secret')
         && !str_contains($notesRefusal['stderr'] . $notesRefusal['stdout'], $token),
         'a secret in preserved top-level notes refuses rather than being replayed or silently redacted');
@@ -685,7 +692,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $capturedPath = "state/posts/page/{$uuid}--local.md";
     $coordinateNotes['notes'] = ['captured_path' => $capturedPath];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($coordinateNotes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $coordinateNotesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $coordinateNotesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($coordinateNotesRefusal['exit'] === 2
         && str_contains($coordinateNotesRefusal['stderr'], 'entity-local UUID/path')
         && !str_contains($coordinateNotesRefusal['stderr'] . $coordinateNotesRefusal['stdout'], $uuid)
@@ -696,7 +703,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $phpStub = '<?= "not-safe" ?>';
     $executableNotes['notes'] = ['example' => $phpStub];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($executableNotes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $executableNotesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $executableNotesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($executableNotesRefusal['exit'] === 2
         && str_contains($executableNotesRefusal['stderr'], 'executable/interpreter semantics')
         && !str_contains($executableNotesRefusal['stderr'] . $executableNotesRefusal['stdout'], $phpStub),
@@ -705,7 +712,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $unsafeCoordinate = $g1;
     $unsafeCoordinate['_draft']['unsupported'][0]['candidate']['legacy_locator'] = "state/posts/page/{$uuid}--unsafe.md";
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unsafeCoordinate, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $coordinateRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $coordinateRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($coordinateRefusal['exit'] === 2 && str_contains($coordinateRefusal['stderr'], 'entity-local UUID/path')
         && !str_contains($coordinateRefusal['stderr'] . $coordinateRefusal['stdout'], $uuid),
         'an entity-local path in a prior semantic fragment fails closed without replaying its UUID');
@@ -714,7 +721,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $untracked['_draft']['unsupported'][0]['candidate']['id'] = 'legacy-untracked-human';
     $untracked['_draft']['_meta'][$target] = ['edited' => false]; // valid shape, but no trustworthy content hash
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($untracked, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $untrackedOut = gen_draft("$t/repo", 'safe-prior-draft', $lib);
+    $untrackedOut = gen_draft("$t/repo", 'safe-prior-draft');
     $untrackedCandidate = unsupported_by_target($untrackedOut)[$target] ?? [];
     check(($untrackedCandidate['candidate']['id'] ?? '') === 'legacy-untracked-human'
         && ($untrackedOut['_draft']['_meta'][$target]['legacy_untracked'] ?? null) === true,
@@ -723,7 +730,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $malformed = $g1;
     $malformed['_draft']['_meta'][$target]['ratified'] = 'yes';
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $markerRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $markerRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($markerRefusal['exit'] === 2 && str_contains($markerRefusal['stderr'], '_meta.ratified must be a boolean'),
         'a malformed ratified authority marker fails closed instead of reading as unratified');
 
@@ -735,7 +742,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $malformed = $g1;
         $malformed['_draft']['_meta'][$target][$marker] = $badValue;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $markerRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+        $markerRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($markerRefusal['exit'] === 2 && str_contains($markerRefusal['stderr'], '_meta.' . $marker),
             "a malformed $marker authority marker fails closed rather than becoming fresh/untracked");
     }
@@ -743,28 +750,28 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $unknownMeta = $g1;
     $unknownMeta['_draft']['_meta'][$target]['old_authority'] = true;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unknownMeta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $unknownMetaRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $unknownMetaRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($unknownMetaRefusal['exit'] === 2 && str_contains($unknownMetaRefusal['stderr'], 'unrecognized authority'),
         'an unrecognized prior _meta authority field fails closed instead of being ignored');
 
     $wrongDraftFormat = $g1;
     $wrongDraftFormat['_draft']['format'] = 'duo-adapter-draft/v999';
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($wrongDraftFormat, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $formatRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $formatRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($formatRefusal['exit'] === 2 && str_contains($formatRefusal['stderr'], 'prior _draft.format must be duo-adapter-draft/v1'),
         'an unknown prior draft contract is refused rather than interpreted as v1');
 
     $unknownRoot = $g1;
     $unknownRoot['_draft']['future_authority'] = true;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unknownRoot, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $unknownRootRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $unknownRootRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($unknownRootRefusal['exit'] === 2 && str_contains($unknownRootRefusal['stderr'], 'unrecognized v1 field'),
         'an unknown prior _draft root field is refused rather than silently discarded');
 
     $unknownBucket = $g1;
     $unknownBucket['_draft']['proposals']['future_bucket'] = [];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unknownBucket, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $unknownBucketRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $unknownBucketRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($unknownBucketRefusal['exit'] === 2 && str_contains($unknownBucketRefusal['stderr'], 'unknown v1 bucket'),
         'an unknown prior proposal bucket is refused rather than re-bucketed');
 
@@ -774,7 +781,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         'status' => 'proposal', 'confidence' => 0.5, 'evidence' => [], 'questions' => [],
     ];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($wrongBucket, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $wrongBucketRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $wrongBucketRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($wrongBucketRefusal['exit'] === 2 && str_contains($wrongBucketRefusal['stderr'], 'different v1 proposal bucket'),
         'a prior candidate whose target family disagrees with its bucket is refused rather than moved');
 
@@ -785,7 +792,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $malformedCandidate = $g1;
         $malformedCandidate['_draft']['unsupported'][0][$field] = $badValue;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformedCandidate, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $candidateRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+        $candidateRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($candidateRefusal['exit'] === 2 && str_contains($candidateRefusal['stderr'], $message),
             "a malformed prior candidate $field is refused rather than silently normalized");
     }
@@ -798,7 +805,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $executablePrior = $g1;
         $executablePrior['_draft']['unsupported'][0]['candidate'][$executableKey] = $executableValue;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($executablePrior, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $executableRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+        $executableRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($executableRefusal['exit'] === 2
             && str_contains($executableRefusal['stderr'], 'executable/interpreter semantics')
             && !str_contains($executableRefusal['stdout'] . $executableRefusal['stderr'], $executableValue),
@@ -812,7 +819,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $colliding = $g1;
         $colliding['_draft']['unsupported'][0]['candidate'] = $collidingFragment;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($colliding, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $collisionRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+        $collisionRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($collisionRefusal['exit'] === 2 && str_contains($collisionRefusal['stderr'], 'colliding live/inert trigger keys'),
             'both insertion orders of a live/inert trigger collision refuse instead of silently dropping intent');
     }
@@ -820,12 +827,12 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $wrongName = $g1;
     $wrongName['name'] = 'other-draft';
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($wrongName, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $nameRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $nameRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($nameRefusal['exit'] === 2 && str_contains($nameRefusal['stderr'], 'must declare name'),
         'a name-mismatched prior artifact is refused rather than merged into this adapter');
 
     wr("$t/repo/adapters/safe-prior-draft.json", '{ invalid json');
-    $jsonRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $jsonRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($jsonRefusal['exit'] === 2 && str_contains($jsonRefusal['stderr'], 'invalid JSON'),
         'a malformed prior artifact is refused rather than silently ignored');
 
@@ -834,14 +841,14 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $malformedActions = $g1;
     $malformedActions['actions'] = ['not-an-action-object'];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformedActions, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $actionsRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $actionsRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($actionsRefusal['exit'] === 2 && str_contains($actionsRefusal['stderr'], 'actions[0] must be an object'),
         'an unpinned prior artifact with malformed actions is refused by the real Policy grammar before merge');
 
     $malformedFact = $g1;
     $malformedFact['user_meta'] = ['bad_prior_meta' => ['class' => 'not-a-class']];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformedFact, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $factRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json'], $lib);
+    $factRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($factRefusal['exit'] === 2 && str_contains($factRefusal['stderr'], 'user_meta.bad_prior_meta has an invalid or missing class'),
         'an unpinned prior artifact with a malformed fact rule is refused by the real Policy grammar before merge');
 }
@@ -849,7 +856,6 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
 echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed reports the engine's refusal ==\n";
 {
     $t = "$root/t7";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     // A liftable table (has an id column -> a structural pk) and a not-liftable one
     // (only a non-distinct string column -> no pk inferable offline).
@@ -857,9 +863,10 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     wrj("$t/repo/state/tables/nopk/r1.json", ['table' => 'nopk', 'columns' => ['label' => 'same']]);
     wrj("$t/repo/state/tables/nopk/r2.json", ['table' => 'nopk', 'columns' => ['label' => 'same']]);
 
-    // Snapshot the library file set to prove nothing is written live.
-    $before = glob($lib . '/*');
-    $r = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--format=json'], $lib);
+    // Snapshot every adapter/platform source byte to prove the private package
+    // check never writes into the authoring library it was launched from.
+    $before = source_library_hashes();
+    $r = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--format=json']);
     check($r['exit'] === 0, '--check-proposals runs and reports (exit 0)');
     $rep = json_decode($r['stdout'], true);
     $res = [];
@@ -872,14 +879,14 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
         && str_contains($res['deletions.table:liftable']['message'] ?? '', 'live-policy conditional')
         && !str_contains($res['deletions.table:liftable']['message'] ?? '', 'Class "Duo\\Snapshot" not found'),
         'a table deletion proposal is explicitly deferred because attached-meta cascade ownership is not available offline');
-    $after = glob($lib . '/*');
-    check($before === $after, '--check-proposals writes NOTHING live (the manifest library is unchanged)');
+    $after = source_library_hashes();
+    check($before === $after, '--check-proposals writes NOTHING live (adapter/platform source bytes are unchanged)');
     check(!is_dir("$t/repo/adapters"), '--check-proposals writes nothing into the site repo either');
 
     // A prior sidecar can carry human-authored structured proposals that the
     // offline proposers do not currently generate. They still must pass the
     // real destination/source/deletion contracts, not a shipped-only subset.
-    $prior = gen_draft("$t/repo", 'contract-check', $lib);
+    $prior = gen_draft("$t/repo", 'contract-check');
     $prior['_draft']['proposals']['actions'][] = [
         'target' => 'actions[0]',
         'candidate' => ['kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'draft_check']],
@@ -907,7 +914,7 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
         'status' => 'proposal', 'confidence' => 0.5, 'evidence' => [], 'questions' => [],
     ];
     wr("$t/repo/adapters/contract-check.json", json_encode($prior, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $contractCheck = duo(['adapter-draft', "$t/repo", '--name=contract-check', '--check-proposals', '--format=json'], $lib);
+    $contractCheck = duo(['adapter-draft', "$t/repo", '--name=contract-check', '--check-proposals', '--format=json']);
     check($contractCheck['exit'] === 0, 'structured prior proposals produce a bounded check report');
     $contractRows = [];
     foreach ((array) (json_decode($contractCheck['stdout'], true)['results'] ?? []) as $row) {
@@ -929,7 +936,7 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     // refused, as draft rows for tools/engine-gaps.json. The `tables.nopk`
     // fixture above is a real observed shape with no expressible identity, so it
     // is the row; `tables.liftable` is expressible and must NOT be one.
-    $gap = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--gap-report', '--format=json'], $lib);
+    $gap = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--gap-report', '--format=json']);
     check($gap['exit'] === 0, '--gap-report runs and reports (exit 0)');
     $gapReport = json_decode($gap['stdout'], true);
     check(($gapReport['format'] ?? '') === 'duo-adapter-draft-gap-report/v1', '--gap-report declares its own envelope');
@@ -954,10 +961,10 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     check(($gapReport['summary']['gaps'] ?? -1) === count($gapRows)
         && ($gapReport['summary']['checked'] ?? 0) > count($gapRows),
         'the summary counts gaps against every proposal checked, not only the refused ones');
-    $lastLib = glob($lib . '/*');
+    $lastLib = source_library_hashes();
     check($before === $lastLib, '--gap-report writes NOTHING live either');
 
-    $both = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--gap-report', '--format=json'], $lib);
+    $both = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--gap-report', '--format=json']);
     check($both['exit'] === 2 && str_contains($both['stderr'], 'two reports over one lift'),
         'asking for both reports at once is refused rather than silently answering one of the two questions');
 }
@@ -965,14 +972,13 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
 echo "\n== 8. guardrails: no PHP stubs; secret dropped to a question; no reserved top-level key ==\n";
 {
     $t = "$root/t8";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo", ['options' => ['ok_opt' => ['class' => 'authored', 'autoload' => 'preserve']]]);
     // A secret-shaped column value must be DROPPED to a question, never authored.
     wrj("$t/repo/state/tables/creds/r1.json", ['table' => 'creds', 'columns' => ['id' => 1, 'apikey' => 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789']]);
     wrj("$t/repo/state/tables/creds/r2.json", ['table' => 'creds', 'columns' => ['id' => 2, 'apikey' => 'ghp_ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210']]);
     wr("$t/repo/state/posts/page/g.md", "---\n" . json_encode(['type' => 'page', 'meta' => ['elementor_data' => 'a:1:{s:1:"x";i:1;}']]) . "\n---\nbody\n");
 
-    $r = duo(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json'], $lib);
+    $r = duo(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json']);
     check($r['exit'] === 0, 'generation succeeds');
     $raw = $r['stdout'];
     check(!str_contains($raw, 'ghp_ABCDEFG') && !str_contains($raw, 'ghp_ZYXWV'), 'a secret-shaped value NEVER appears in the draft output');
@@ -996,7 +1002,7 @@ echo "\n== 8. guardrails: no PHP stubs; secret dropped to a question; no reserve
 
     @mkdir("$t/repo/adapters", 0777, true);
     wr("$t/repo/adapters/guard-draft.json", $raw);
-    $second = duo(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json'], $lib);
+    $second = duo(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json']);
     $secondDraft = json_decode($second['stdout'], true);
     $redactedTable = null;
     foreach ((array) ($secondDraft['_draft']['proposals']['tables'] ?? []) as $candidate) {
@@ -1013,7 +1019,6 @@ echo "\n== 8. guardrails: no PHP stubs; secret dropped to a question; no reserve
 echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key; generated bytes are never pasted into evidence ==\n";
 {
     $t = "$root/t8b";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     // (fix 1) A credential-NAMED column whose value is suspicious-positive but NOT a
     // hard_match (24 hex chars). This can only be caught by Secrets::suspicious(),
@@ -1030,7 +1035,7 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
         'hard_blob' => 'a:1:{s:5:"token";s:40:"' . $hardToken . '";}',
     ]]) . "\n---\nbody\n");
 
-    $r = duo(['adapter-draft', "$t/repo", '--name=heur-draft', '--format=json'], $lib);
+    $r = duo(['adapter-draft', "$t/repo", '--name=heur-draft', '--format=json']);
     check($r['exit'] === 0, 'generation succeeds');
     $raw = $r['stdout'];
     // BITE for fix 1: only fires if suspicious() got the real key 'api_key'.
@@ -1067,7 +1072,6 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
 // be (`<prefix>_`).
 {
     $t = "$root/t9-seed-scope";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     $seed = "$t/coverage.json";
     wrj($seed, [
@@ -1089,7 +1093,7 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
             ],
         ],
     ]);
-    $scoped = gen_draft("$t/repo", 'wpforms', $lib, ['--seed=' . $seed, '--match=^_?wpforms_']);
+    $scoped = gen_draft("$t/repo", 'wpforms', ['--seed=' . $seed, '--match=^_?wpforms_']);
     $targets = static function (array $draft, string $section): array {
         return array_map(static fn (array $c): string => (string) $c['target'], $draft['_draft']['proposals'][$section] ?? []);
     };
@@ -1101,7 +1105,7 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
         $targets($scoped, 'tables') === ['tables.wpforms_tasks_meta'],
         'a --match-scoped seed proposes only the matching undeclared tables: ' . json_encode($targets($scoped, 'tables'))
     );
-    $unscoped = gen_draft("$t/repo", 'all', $lib, ['--seed=' . $seed]);
+    $unscoped = gen_draft("$t/repo", 'all', ['--seed=' . $seed]);
     check(
         count($targets($unscoped, 'option_namespaces')) === 3 && count($targets($unscoped, 'tables')) === 2,
         'an unscoped seed still proposes every invisible prefix and undeclared table'
@@ -1112,12 +1116,12 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
     // own — keys on the code rather than on the sentence.
     @mkdir("$t/repo/adapters", 0777, true);
     $out = "$t/repo/adapters/wpforms.json";
-    $first = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out], $lib);
+    $first = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out]);
     check($first['exit'] === 0 && is_file($out), '--out writes the draft (exit ' . $first['exit'] . ')');
     $narrowed = duo([
         'adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed,
         '--match=^_?wpforms_', '--out=' . $out, '--force',
-    ], $lib);
+    ]);
     $narrowedDraft = json_decode((string) file_get_contents($out), true);
     check(
         $narrowed['exit'] === 0
@@ -1127,13 +1131,13 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
             && $targets($narrowedDraft, 'tables') === ['tables.wpforms_tasks_meta'],
         'a scoped --force drops stale, unchanged, unratified machine proposals from the prior unscoped draft'
     );
-    $again = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out], $lib);
+    $again = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out]);
     check(
         $again['exit'] === 2 && str_contains($again['stderr'], '[draft_output_exists]')
             && str_contains($again['stderr'], 'never replaces a reviewed draft silently'),
         'a second --out to the same path refuses under its typed reason code (got: ' . trim($again['stderr']) . ')'
     );
-    $forced = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out, '--force'], $lib);
+    $forced = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out, '--force']);
     check($forced['exit'] === 0, '--force regenerates over it (exit ' . $forced['exit'] . ': ' . substr($forced['stderr'], 0, 200) . ')');
 }
 
@@ -1149,12 +1153,11 @@ echo "\n== 10. --evidence: a duo-adapter-probe/v1 document answers the NAMED que
 require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
 {
     $t = "$root/t10-evidence";
-    $lib = make_lib("$t/lib");
     make_site("$t/repo");
     wrj("$t/repo/state/tables/rooms/r1.json", ['table' => 'rooms', 'columns' => ['id' => 1, 'code' => 'A1']]);
     wrj("$t/repo/state/tables/rooms/r2.json", ['table' => 'rooms', 'columns' => ['id' => 2, 'code' => 'B2']]);
 
-    $bare = gen_draft("$t/repo", 'rooms-draft', $lib);
+    $bare = gen_draft("$t/repo", 'rooms-draft');
     $bareCandidate = ($bare['_draft']['proposals']['tables'] ?? [])[0] ?? [];
     check(
         H::json_has($bareCandidate['questions'] ?? [], '[table_schema]')
@@ -1207,7 +1210,7 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     $probePath = "$t/probe.json";
     wr($probePath, \Duo\Canon::encode($probe));
 
-    $answered = gen_draft("$t/repo", 'rooms-draft', $lib, ['--evidence=' . $probePath]);
+    $answered = gen_draft("$t/repo", 'rooms-draft', ['--evidence=' . $probePath]);
     $candidate = ($answered['_draft']['proposals']['tables'] ?? [])[0] ?? [];
     $rows = [];
     foreach (($candidate['evidence'] ?? []) as $row) {
@@ -1282,7 +1285,7 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     // Inertness is preserved: evidence rows carry no blind-walk trigger key.
     $md = "$t/md";
     make_lib($md);
-    wr($md . '/rooms-draft.json', json_encode($answered, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    publish_manifest($md, 'rooms-draft', $answered);
     $validated = duo(['manifest-validate', $md, '--manifest=rooms-draft', '--pins=rooms-draft,core']);
     check(
         $validated['exit'] === 0,
@@ -1294,7 +1297,7 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     $forged['tables']['rooms']['class'] = 'authored_snapshot';
     $forged['probe_hash'] = \Duo\AdapterProbe::hash_document($forged);
     wr("$t/forged.json", \Duo\Canon::encode($forged));
-    $refused = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/forged.json"], $lib);
+    $refused = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/forged.json"]);
     check(
         $refused['exit'] === 2 && str_contains($refused['stderr'], 'outside the closed probe vocabulary'),
         'a probe document carrying a `class` refuses the whole run (got: ' . trim($refused['stderr']) . ')'
@@ -1303,14 +1306,14 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     $tampered = $probe;
     $tampered['tables']['rooms']['primary_key'] = ['id'];
     wr("$t/tampered.json", \Duo\Canon::encode($tampered));
-    $stale = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/tampered.json"], $lib);
+    $stale = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/tampered.json"]);
     check(
         $stale['exit'] === 2 && str_contains($stale['stderr'], 'probe_hash does not describe the document'),
         'a hand-edited fact is refused rather than attached at confidence 1.0'
     );
 
     wr("$t/not-a-probe.json", json_encode(['format' => 'duo-coverage-report/v1']));
-    $wrongFormat = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/not-a-probe.json"], $lib);
+    $wrongFormat = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/not-a-probe.json"]);
     check(
         $wrongFormat['exit'] === 2 && str_contains($wrongFormat['stderr'], 'duo-adapter-probe/v1'),
         'a document of another format is refused by name'

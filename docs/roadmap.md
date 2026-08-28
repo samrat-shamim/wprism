@@ -22,13 +22,13 @@ promotion/capture locks), deletion tombstones with guards, secret scanning,
 version-pinned adapter contracts, and an evidence culture (conformance sweeps,
 grind scenarios, certification matrices) that has repeatedly caught silent-loss
 classes before they shipped. Above it sits the claim model: a manifest declares
-what it covers, a human reviews that into `manifests/dispositions/` with the
-reason written down, and the named conformance suites exercise it against a live
-pair. The generated capability document (`docs/capabilities.md`, plus the README
-block) is the single projection of that model — `make release-gate` byte-compares
-it against its four sources and fails on drift, so no product claim can be
-hand-written anywhere. What a status does NOT mean is that a digest binds it to
-an artifact set or a particular run.
+what it covers, a human reviews that into the same capsule's
+`package/disposition.json` with the reason written down, and package-local or
+participant-declared suites exercise it against a live pair. The capability
+tool renders an aggregate review projection from the capsule and platform
+sources; checked product pages describe the model without copying adapter rows.
+What a status does NOT mean is that a digest binds it to an artifact set or a
+particular run.
 
 The honest boundary has moved again — and in one direction it moved back.
 Proofs now include a real SSH-host adoption run (DUO-3257 phase 1), a signed

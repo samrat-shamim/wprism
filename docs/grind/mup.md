@@ -50,7 +50,7 @@ DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
 | `MUP_PAIR` | `mup` | `pair.sh` pair name. Grammar `[a-z][a-z0-9]*`. A custom name **requires** explicit ports, for the reason `conformance/run.sh` requires them: two sweeps on one port pair collide at bind time, loudly but confusingly late. |
 | `MUP_PORT1` / `MUP_PORT2` | `9400` / `9401` | Published host ports for side 1 and side 2. |
 | `MUP_KEEP` | unset | `1` leaves the pair and both site repos in place for inspection. |
-| `MUP_WOO_VERSION` | `11.0.0` | The pinned WooCommerce artifact. Must exist in `sandbox/conformance/artifacts.lock.json`. |
+| `MUP_WOO_VERSION` | `11.0.0` | The pinned WooCommerce artifact. Must exist in `adapter-packages/woocommerce/evidence/artifacts.lock.json`. |
 | `MUP_THEME_SLUG` / `MUP_THEME_VERSION` | `storefront` / resolved from the lock | The pinned storefront theme. See *Deliberate deviations* — Storefront is not pinned in this tree yet, so this is the one knob a first run has to set. |
 | `MUP_BOOTSTRAP` | `init` | `init` uses the product path (`duo init <env> --yes`); `manual` writes `site.duo.json` by hand and captures, the way `conformance/run.sh` does. |
 | `MUP_STEP11` | `required` | See *The step-11 transport gate*. |
@@ -128,7 +128,7 @@ created nothing to remove.
 | 8 | `duo release mup2 --from=<main sha> --plan-only --format=json` | The plan validates as `duo-authorization-plan/v1`; it cites the **accepted** `contract_digest`; its embedded recovery claim's `does_not_restore` is non-empty; the recovery profile is named **with the reason it was selected**; `effects.unknown_blocking` is empty; the plan authorizes at least one entity change; and `--plan-only` wrote nothing to `.duo/releases/`. A profile named without a reason is an assertion, not evidence, which is why the reason is asserted separately. |
 | 9 | `duo release mup2 --from=<main sha> --yes` | Exit 0; the run printed `authorization frozen: <path>` (the plan was durably bound before any mutation); and promote's own `promote phase:` receipts appear in the order `promotion-begin → checkpoint → lifecycle-retire → lifecycle-activate → apply`. When the artifact declares code, `code-stage` and `code-finalize` are additionally asserted to bracket the lifecycle *before* apply. Deploy-before-apply is read from the receipts, not from a comment. |
 | 10 | `duo verify mup2 --format=json` | `verdict: pass`, `convergence.status: pass`, both declared journeys `pass`, and `uncovered_surfaces` **present** as a list (an empty list is a report; a missing key is a silence). The grind then reads the target directly to confirm the release actually wrote the authored price and page body, and records the pre-recovery projection. |
-| 11 | Write a `post_type:shop_order` row on mup2 **after** the checkpoint; `duo recover mup2 --list` → `--restore=<id> --writers-excluded` | **The gate.** (a) The claim is printed *before* the first driven step — asserted by line number, because a claim printed after recovery started was read too late to stop. (b) The `maximum_loss_boundary` printed at recovery is byte-identical to the one the frozen plan printed. (c) The product price and page body are back at their pre-release values. (d) The post-checkpoint runtime row's fate matches the boundary **exactly**: a boundary of `writes committed after checkpoint <ts>` means the row must be **gone**, and a surviving row fails the test with that sentence quoted back. The runtime surface is chosen by the pinned manifest (`shop_order` is `class: runtime` in `manifests/woocommerce.json`), not by this script. |
+| 11 | Write a `post_type:shop_order` row on mup2 **after** the checkpoint; `duo recover mup2 --list` → `--restore=<id> --writers-excluded` | **The gate.** (a) The claim is printed *before* the first driven step — asserted by line number, because a claim printed after recovery started was read too late to stop. (b) The `maximum_loss_boundary` printed at recovery is byte-identical to the one the frozen plan printed. (c) The product price and page body are back at their pre-release values. (d) The post-checkpoint runtime row's fate matches the boundary **exactly**: a boundary of `writes committed after checkpoint <ts>` means the row must be **gone**, and a surviving row fails the test with that sentence quoted back. The runtime surface is chosen by the pinned manifest (`shop_order` is `class: runtime` in `adapter-packages/woocommerce/package/manifest.json`), not by this script. |
 | 12 | `duo assess mup2 --format=json` | For exactly the surfaces the frozen plan named in scope, the post-recovery projection is byte-identical to the pre-release one. Only the projected words are compared — `state_class`, `handling`, and the release projection's readiness / provenance / containment / recovery semantics — because a digest or timestamp differing between two assessments of an unchanged site is the clock moving, not the site moving. |
 | 13 | `duo rehearse mup2 --reap`, twice | The first receipt says `destroyed` or `detached`; the second says the same and exits 0. Repeated reap is idempotent, which is the property that makes a reap safe to retry. |
 
@@ -197,7 +197,7 @@ are outside this file.
 ## Deliberate deviations from §6.1
 
 1. **Storefront is not pinned in this tree.** §6.1 names Storefront;
-   `sandbox/conformance/artifacts.lock.json` pins only `twentytwentyone 2.8` and
+   `platform/artifact-library/artifacts.lock.json` pins only `twentytwentyone 2.8` and
    `twentytwentyfive 1.5`, and `sandbox/bin/fetch-artifact.sh` refuses an
    unpinned artifact rather than falling through to the wordpress.org catalog.
    The driver therefore refuses **at preflight, before any pair is created**,
@@ -241,10 +241,11 @@ live run knows what to look at rather than rediscovering it.
    in the report is the *plugin* window: `plugin_version_mismatch` and
    `plugin_not_active` are condition codes, not blockers
    (`cli/src/Assess/SurfaceCatalog.php:137-139`), so a WooCommerce outside
-   `manifests/woocommerce.json`'s `version_range` (`11.0.0` ≤ v < `12.0.0`)
+   `adapter-packages/woocommerce/package/manifest.json`'s `version_range`
+   (`11.0.0` ≤ v < `12.0.0`)
    projects `Ready with conditions` and step 3 fails for an adapter-window
    reason rather than a product one. Check `MUP_WOO_VERSION` against that range,
-   and that `manifests/dispositions/woocommerce.json` still reads
+   and that `adapter-packages/woocommerce/package/disposition.json` still reads
    `certified`, first.
 2. **`duo init` is preflight-gated.** `MUP_BOOTSTRAP=init` runs the product path;
    its proposal refuses when the target has no Git, and an installed but

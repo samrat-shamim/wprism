@@ -1,0 +1,17 @@
+{
+  "plugins": {
+    "duplicate-post": {
+      "4.6": {
+        "url": "https://downloads.wordpress.org/plugin/duplicate-post.4.6.zip",
+        "sha256": "d7a954adc571fd200e68c13d7f1a19d2b65b83cbdf1cc38c39c011d296e46123",
+        "role": "refusal-fixture"
+      },
+      "4.7": {
+        "url": "https://downloads.wordpress.org/plugin/duplicate-post.4.7.zip",
+        "sha256": "8cbeebf7c2ee982d2ae33833088ba8ac2391cc316a4dd71800a07f5fa128b418",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

@@ -59,6 +59,7 @@ require_once $duoRoot . '/cli/src/Adapter/AdapterCertify.php';
 require_once $duoRoot . '/cli/src/Adapter/SpecMigration.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
@@ -273,7 +274,7 @@ $keyPath = $keyDir . '/acme.key';
 file_put_contents($keyPath, base64_encode($secret) . "\n");
 chmod($keyPath, 0600);
 
-$manifestDir = Policy::manifests_dir();
+$manifestDir = AdapterLibrary::fromSourceTree($duoRoot);
 $reason = 'Acme Ltd approves these exact adapter bytes.';
 
 // ---------------------------------------------------- 1. the derived floor stands

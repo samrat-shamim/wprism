@@ -82,16 +82,20 @@ require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Kernel/OptionState.php';
 require_once $repo . '/agent/src/Policy/Policy.php';
 require_once $repo . '/agent/src/Policy/CrossManifestGuards.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/agent/src/Adapter/AdapterSources.php';
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 require_once $repo . '/agent/src/Adapter/IdentityNamespaces.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\CrossManifestGuards;
 use Duo\IdentityNamespaces;
 use Duo\Policy;
+
+$sourceLibrary = AdapterLibrary::fromSourceTree($repo);
 
 $scratch = $repo . '/sandbox/tmp/identity-namespaces-' . getmypid();
 
@@ -161,11 +165,9 @@ echo "\n== 1. the closed list: membership against the shipped library, and its l
 
 $shippedNames = [];
 $shippedKinds = [];
-foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
-    $base = basename($file, '.json');
-    if ($base === 'dispositions') {
-        continue;
-    }
+foreach ($sourceLibrary->packages() as $package) {
+    $file = $package->manifestPath();
+    $base = $package->name();
     $decoded = Canon::decode(Canon::read_file($file));
     $shippedNames[] = (string) ($decoded['name'] ?? $base);
     foreach ((array) ($decoded['tables'] ?? []) as $table) {
@@ -200,7 +202,8 @@ duo_check(
     . 'identity input on every adapter row, so the seventeenth adapter would invalidate the other sixteen\'s pins'
 );
 $underManifests = [];
-foreach (glob($repo . '/manifests/*.json') ?: [] as $file) {
+foreach ($sourceLibrary->packages() as $package) {
+    $file = $package->manifestPath();
     if (str_contains((string) file_get_contents($file), 'GRANDFATHERED')) {
         $underManifests[] = basename($file);
     }
@@ -274,12 +277,14 @@ duo_check_same(
     'DUO_SPEC_VERSION is 3 — the engine now sits AT the namespace gate (the flip, WP-4.12)'
 );
 $stampedAtGate = [];
-foreach (glob(dirname(__DIR__, 4) . '/manifests/*.json') ?: [] as $shipped) {
+foreach ($sourceLibrary->packages() as $package) {
+    $shipped = $package->manifestPath();
     $declared = json_decode((string) file_get_contents($shipped), true);
     if (is_array($declared) && ($declared['spec_version'] ?? null) >= IdentityNamespaces::NAMESPACED_SINCE) {
-        $stampedAtGate[] = basename($shipped, '.json');
+        $stampedAtGate[] = $package->name();
     }
 }
+usort($stampedAtGate, static fn(string $left, string $right): int => strcmp($left . '.json', $right . '.json'));
 duo_check_same(
     [
         'code-snippets',
@@ -376,7 +381,8 @@ duo_check_same(
 // would make its own reviewed override unloadable at v3 — a reviewed edit, and
 // this is where it is noticed.
 $providerNamespaceMisfits = [];
-foreach (glob($repo . '/manifests/*.json') ?: [] as $shippedFile) {
+foreach ($sourceLibrary->packages() as $package) {
+    $shippedFile = $package->manifestPath();
     $shippedManifest = json_decode((string) file_get_contents($shippedFile), true);
     if (!is_array($shippedManifest)) {
         continue;
@@ -475,7 +481,7 @@ $coexist = $siteRepo('coexist', [
     'acme-cache' => $manifest('acme-cache', DUO_SPEC_VERSION),
     'zeta-cache' => $manifest('zeta-cache', DUO_SPEC_VERSION),
 ], ['core', 'acme-cache', 'zeta-cache']);
-$sources = AdapterSources::discover(Policy::manifests_dir(), $coexist);
+$sources = AdapterSources::discover_library($sourceLibrary, $coexist);
 $loaded = $sources->names();
 sort($loaded, SORT_STRING);
 duo_check(
@@ -548,17 +554,18 @@ duo_check_same(
 
 echo "\n== 7. the release gate bites: a seventeenth unprefixed name cannot be added quietly ==\n";
 
-// A fixture library: the three shipped trees symlinked (nothing in them is
-// mutated, and copying 9M per run to prove a manifest-side property would be
-// paying for the wrong thing), with manifests/ copied for real so a
-// seventeenth adapter can appear in it.
+// A fixture library: the four engine trees are symlinked (nothing in them is
+// mutated), while package and platform sources are copied so a new adapter can
+// appear without touching the checkout.
 $gateRoot = $scratch . '/gate-root';
 mkdir($gateRoot, 0777, true);
 foreach (['agent', 'cli', 'recovery', 'docs'] as $tree) {
     symlink($repo . '/' . $tree, $gateRoot . '/' . $tree);
 }
-exec('cp -R ' . escapeshellarg($repo . '/manifests') . ' ' . escapeshellarg($gateRoot . '/manifests'), $_o, $copy);
-duo_check_same(0, $copy, 'the fixture library is a real copy of manifests/, so a file can be added to it');
+exec('cp -R ' . escapeshellarg($repo . '/adapter-packages') . ' ' . escapeshellarg($gateRoot . '/adapter-packages'), $_o, $copyPackages);
+exec('cp -R ' . escapeshellarg($repo . '/platform') . ' ' . escapeshellarg($gateRoot . '/platform'), $_o, $copyPlatform);
+duo_check_same(0, $copyPackages, 'the fixture library contains a mutable copy of every adapter package');
+duo_check_same(0, $copyPlatform, 'the fixture library contains a mutable copy of the platform adapter library');
 
 $runGate = static function (string $root) use ($repo): array {
     $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
@@ -587,9 +594,17 @@ duo_check_same(
 
 // The seventeenth. Any shipped manifest copied under a new unprefixed name is
 // enough: what the gate refuses is a library the reviewed list does not match.
-$seventeenth = Canon::decode(Canon::read_file($gateRoot . '/manifests/duo-agency-cpt.json'));
+exec(
+    'cp -R ' . escapeshellarg($gateRoot . '/adapter-packages/duo-agency-cpt') . ' '
+    . escapeshellarg($gateRoot . '/adapter-packages/zeta'),
+    $_o,
+    $copyCandidate
+);
+duo_check_same(0, $copyCandidate, 'the candidate starts as one complete package capsule');
+$zetaManifest = $gateRoot . '/adapter-packages/zeta/package/manifest.json';
+$seventeenth = Canon::decode(Canon::read_file($zetaManifest));
 $seventeenth['name'] = 'zeta';
-Canon::write_file($gateRoot . '/manifests/zeta.json', Canon::encode($seventeenth));
+Canon::write_file($zetaManifest, Canon::encode($seventeenth));
 $mutated = $runGate($gateRoot);
 duo_check_same(
     1,
@@ -604,6 +619,6 @@ duo_check(
     'and it names the identity, the register row, and the one file a reviewer has to edit to admit it — which '
     . 'is the reviewed act adding an unprefixed identity is meant to be'
 );
-unlink($gateRoot . '/manifests/zeta.json');
+ins_remove_tree($gateRoot . '/adapter-packages/zeta');
 
 duo_check_summary('regress_identity_namespaces');

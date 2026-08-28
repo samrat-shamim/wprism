@@ -28,7 +28,7 @@ binary and, per environment, whatever the transport itself needs (`ssh`,
 duo envs
 duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>] [--format=json]
 duo env reap <env> [--format=json]
-duo manifest-validate <manifests-dir> [--manifest=<name>[,...]] [--pins=<name>[,...]|--all] [--site=<site-repo>] [--no-code] [--format=json]
+duo manifest-validate <adapter-library> [--manifest=<name>[,...]] [--pins=<name>[,...]|--all] [--site=<site-repo>] [--no-code] [--format=json]
 duo manifest-validate --emit-schema
 duo adapter list [--repo=<site-repo>] [--format=json]
 duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
@@ -111,11 +111,12 @@ semantics remain the rehearsal implementation's.
   those print as an inline `ERROR: …` row instead of failing the whole
   listing), exit 1 if no `envs` were found anywhere.
 
-- **`duo manifest-validate <manifests-dir>`** — the one verb here that takes no
+- **`duo manifest-validate <adapter-library>`** — the one verb here that takes no
   environment, because it needs none: it runs the engine's real manifest
-  validators (`agent/src/Policy/Policy.php`'s load-time battery) over a directory of
-  manifest files with no WordPress, no database, and no transport. Each manifest
-  is loaded on its own, then the requested pin set is co-loaded so the
+  validators (`agent/src/Policy/Policy.php`'s load-time battery) over an
+  explicitly selected adapter library with no WordPress, no database, and no
+  transport. Each manifest is loaded on its own, then the requested pin set is
+  co-loaded so the
   cross-manifest guards run too; engine refusals are surfaced verbatim with
   their own coordinates, a per-manifest row carrying that manifest's file path
   and the pin-set row carrying the paths of everything co-loaded.
@@ -131,7 +132,10 @@ semantics remain the rehearsal implementation's.
   option two manifests declare differently), so without it a manifest that is
   valid on its real site can be refused here — and such a refusal is annotated
   as possibly site-resolvable rather than rewritten.
-  Point it only at a manifests directory you trust as much as the agent's own:
+  The normal argument is a source tree containing `adapter-packages/` and
+  `platform/adapter-library/`; an explicitly named flat directory is only a
+  legacy validation/import surface. Point it only at a library you trust as
+  much as the agent's own:
   a declared `interpreter`/`regenerator` is resolved, and resolving one LOADS
   that PHP (top level plus constructor), which is the only way to check its
   class contract. `--no-code` is the escape for a first look at an unfamiliar
@@ -168,7 +172,8 @@ semantics remain the rehearsal implementation's.
 - **`duo adapter list|inspect|doctor`** — the installed-adapter catalog, and
   the other verb here that needs no environment. It reports what is installed
   across the two adapter sources a WordPress-free process can reach — the
-  agent's own manifest library and, with `--repo=<site-repo>`, that
+  selected `AdapterLibrary` (the installed agent's embedded library in
+  production) and, with `--repo=<site-repo>`, that
   repository's own `adapters/` overlay — where each adapter came from, the
   executable authority its own declarations reach, and what is wrong with any
   of it. No WordPress, no database, no transport.
@@ -325,14 +330,16 @@ semantics remain the rehearsal implementation's.
   call. A changed TTL or mutation lease refuses before detach or destroy.
 
 - **`duo adopt <env>`** — installs or updates this checkout's complete Duo
-  agent and manifest library on a pre-existing SSH target, or performs the
-  initial install on an explicitly opted-in machine-local target, creating a minimal
-  core-only `site.duo.json` only when that file is absent, verifies
+  agent with its assembled embedded adapter library on a pre-existing SSH
+  target, or performs the initial install on an explicitly opted-in
+  machine-local target, creating a minimal core-only `site.duo.json` only when
+  that file is absent, verifies
   the exact installed agent version, policy load, rollback authority, and
   blocking `duo doctor` rows before committing the filesystem transaction.
   Existing site policy is retained. The target needs
-  no Git for adoption itself and the install does not rely on
-  `DUO_MANIFESTS_DIR` surviving into an SSH login. The separate `duo init`
+  no Git for adoption itself. Adoption embeds the selected source packages and
+  platform library in the installed agent, so no process environment chooses
+  its runtime library. The separate `duo init`
   workflow does require target Git. Local delivery is privileged: the exact
   `bootstrap` object below must come from the untracked machine-local overlay,
   static capability reporting remains target-free, and `adopt` then obtains a
@@ -716,7 +723,8 @@ semantics remain the rehearsal implementation's.
 
 - **`duo capabilities <env> [--operation=<op>] [--surface=<surface>]`
   `[--format=json]`** — resolves the repository's exact manifest pins against
-  [the reviewed dispositions](../manifests/dispositions/). It evaluates the
+  the reviewed dispositions in each
+  [`adapter-packages/<slug>/package/`](../adapter-packages/). It evaluates the
   adapter's authored status, the operation, the exact state surface, and the
   installed plugin version against the reviewed window. The document's
   `schema_version` is `duo-capability-report/v1` — the retired
@@ -1919,5 +1927,6 @@ above** (not touched directly — same reason as everything else on this
 page): the "Manifests (registry format)" section's own example manifest
 currently shows `"home": {"class": "env"}` and `"siteurl": {"class":
 "env"}` with no `required` key. Both need `"required": true` added (the
-real `manifests/core.json` this example is modeled on already has it) or
+real `platform/adapter-library/core/manifest.json` this example is modeled on
+already has it) or
 the example will no longer load under `validate_env_options()`.

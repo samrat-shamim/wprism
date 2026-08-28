@@ -161,23 +161,20 @@ namespace Duo {
         }
     }
 
-    /**
-     * Nothing on a refusal path may serialize through the canonical encoder
-     * any more — the common formatter owns every refusal byte.  The stub is
-     * deliberately present and deliberately unused: a reintroduced private
-     * catch path would encode through Canon, and this suite must then report
-     * the leaked bytes rather than a confusing "class not found" fatal.
-     */
-    final class Canon {
-        public static function encode($value): string {
-            return json_encode($value, JSON_UNESCAPED_SLASHES) . "\n";
-        }
-    }
-
     final class Policy {
         public static ?\Throwable $failure = null;
 
-        public static function load($repo, ?array $pins = null, bool $capabilities = false): array {
+        // Keep the test double's call boundary aligned with Policy::load().
+        // lint() passes the object-only adapter library by name, so omitting
+        // this parameter would replace the planted refusal with PHP's own
+        // "Unknown named parameter" Error before the backend is reached.
+        public static function load(
+            $repo,
+            ?array $manifestNames = null,
+            bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
+            ?string $adapterRepo = null,
+            ?AdapterLibrary $adapterLibrary = null
+        ): array {
             if (self::$failure !== null) {
                 throw self::$failure;
             }
@@ -251,9 +248,9 @@ namespace Duo {
      * DUO-3421: the one refusal CLASS halt_json_failure() publishes on its own
      * audited vocabulary, independent of the command allowlist. Declared here
      * like every other collaborator this suite stubs -- requiring the real
-     * agent/src/Publication/Publish.php would drag in the real Canon and collide with the
-     * stub above. The pin below asserts BOTH halves of the identity that makes
-     * this stub legitimate: that Cli's constant names exactly this fully
+     * agent/src/Publication/Publish.php would drag in unrelated publication
+     * behavior. The pin below asserts BOTH halves of the identity that makes
+     * this narrow stub legitimate: that Cli's constant names exactly this fully
      * qualified class, and that agent/src/Publication/Publish.php is where the engine
      * really declares it.
      */
@@ -261,6 +258,7 @@ namespace Duo {
 }
 
 namespace {
+    require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
     require __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
     require __DIR__ . '/../../../../agent/src/Kernel/CommandRefusal.php';
     require __DIR__ . '/../../../../agent/src/Delete/Deletion.php';

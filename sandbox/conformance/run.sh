@@ -3,9 +3,11 @@
 # manifest-treadmill answer): a generalized capture -> apply -> re-capture
 # round-trip harness, run per manifest against a FRESH, disposable env pair.
 # This is what CI runs; it knows nothing manifest-specific beyond what's
-# declared in conformance/manifests.json and three optional per-manifest
+# declared by each package's tests/conformance/entry.json and optional
 # hook files, each invoked at a fixed point in the flow below IF PRESENT —
-# this file never inspects what any of them actually do:
+# this file never inspects what any of them actually do. Adapter packages own
+# the same hook names under adapter-packages/<name>/tests/conformance/; the legacy
+# paths below remain the package fallback while the other adapters migrate:
 #   conformance/seeds/<name>.sh        conf1 only, before capture: author
 #                                       the manifest's representative content.
 #   conformance/postdeploy/<name>.sh   conf2 only, strictly after `wp duo
@@ -78,8 +80,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 MANIFEST="${1:-}"
-REG=conformance/manifests.json
-[ -n "$MANIFEST" ] || { echo "usage: run.sh <manifest-name> (see $REG for known names)" >&2; exit 1; }
+[ -n "$MANIFEST" ] || { echo "usage: run.sh <manifest-name>" >&2; exit 1; }
 
 CONF_PAIR="${CONF_PAIR:-conf}"
 [[ "$CONF_PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
@@ -108,11 +109,29 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 # a helper reaches only one of them. Full doctrine in the fragment itself.
 . conformance/asserts.sh
 
+# Package-first lookup makes the adapter directory the authority without
+# breaking the still-global adapters. A duplicate is ambiguous ownership, so
+# it refuses instead of silently choosing one copy.
+PACKAGE_CONFORMANCE="../adapter-packages/$MANIFEST/tests/conformance"
+conformance_hook() { # conformance_hook <package-basename> <legacy-path>
+  local package_path="$PACKAGE_CONFORMANCE/$1" legacy_path="$2"
+  if [ -e "$package_path" ] && [ -e "$legacy_path" ]; then
+    fail "duplicate conformance hook for '$MANIFEST': $package_path and $legacy_path"
+  fi
+  if [ -f "$package_path" ]; then
+    printf '%s\n' "$package_path"
+  else
+    printf '%s\n' "$legacy_path"
+  fi
+}
+
 # A scoped certificate may bind a single extracted fixture entry instead of
 # the all-adapter fixture index.  The harness remains generic: it accepts the
 # same entry shape and never learns a plugin name.  Keeping the fixture input
 # singular is what lets an unrelated adapter-fixture edit stay out of one
 # adapter's conservative evidence closure.
+PACKAGE_ENTRY="$PACKAGE_CONFORMANCE/entry.json"
+PLATFORM_ENTRY="conformance/entries/$MANIFEST.json"
 if [ -n "${CONFORMANCE_ENTRY_FILE:-}" ]; then
   [ -f "$CONFORMANCE_ENTRY_FILE" ] \
     || fail "CONFORMANCE_ENTRY_FILE is not a regular fixture entry: $CONFORMANCE_ENTRY_FILE"
@@ -121,9 +140,29 @@ if [ -n "${CONFORMANCE_ENTRY_FILE:-}" ]; then
     then .entry else error("entry must name the requested manifest") end
   ' "$CONFORMANCE_ENTRY_FILE") \
     || fail "CONFORMANCE_ENTRY_FILE must contain one exact named fixture entry for '$MANIFEST'"
+elif [ -f "$PACKAGE_ENTRY" ]; then
+  ENTRY=$(jq -ce --arg manifest "$MANIFEST" '
+    if (keys | sort) == ["entry", "manifest"] and .manifest == $manifest and (.entry | type) == "object"
+    then .entry else error("entry must name the requested manifest") end
+  ' "$PACKAGE_ENTRY") \
+    || fail "package conformance entry must contain one exact named fixture entry for '$MANIFEST': $PACKAGE_ENTRY"
+elif [ -f "$PLATFORM_ENTRY" ]; then
+  ENTRY=$(jq -ce --arg manifest "$MANIFEST" '
+    if (keys | sort) == ["entry", "manifest"] and .manifest == $manifest and (.entry | type) == "object"
+    then .entry else error("entry must name the requested manifest") end
+  ' "$PLATFORM_ENTRY") \
+    || fail "platform conformance entry must contain one exact named fixture entry for '$MANIFEST': $PLATFORM_ENTRY"
 else
-  ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
-    || fail "unknown manifest '$MANIFEST' (see $REG)"
+  fail "unknown manifest '$MANIFEST': no package or platform conformance entry"
+fi
+# Package-owned conformance resolves only that capsule's artifact fragment.
+# Core/FSE consume no adapter plugin artifacts, so their child pair and check
+# hooks inherit explicit platform-only authority. Named integration scenarios
+# set their declared participant context independently of this platform lane.
+if [ -f "../adapter-packages/$MANIFEST/evidence/artifacts.lock.json" ]; then
+  export DUO_ARTIFACT_PACKAGE="$MANIFEST"
+elif [ "$MANIFEST" = core ] || [ "$MANIFEST" = fse ]; then
+  export DUO_ARTIFACT_PLATFORM_ONLY=1
 fi
 jq -e '
   (.plugins | type == "array") and
@@ -180,8 +219,13 @@ if [ "$WORDPRESS_OFFLINE" = 1 ]; then
 fi
 # shellcheck source=../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
-validate_artifact_lock conformance/artifacts.lock.json \
-  || fail "artifact lock is malformed; conformance refused before pair reset"
+validate_artifact_library \
+  || fail "artifact library is malformed; conformance refused before pair reset"
+# Package checks run as child shells. Pin the repository root explicitly so
+# the exported artifact helpers never try to derive it from BASH_SOURCE after
+# function export has detached them from bin/artifact-library.sh.
+DUO_ARTIFACT_LIBRARY_ROOT="$(cd .. && pwd)"
+export DUO_ARTIFACT_LIBRARY_ROOT
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
@@ -209,7 +253,10 @@ export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
   require_duo_answered capture_duo_json_success require_observed_nonempty \
-  establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode
+  establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
+  artifact_library_repo_root artifact_library_package_context artifact_library_participant_context \
+  artifact_library_platform_context artifact_library_platform_emit artifact_library_emit \
+  validate_artifact_library artifact_library_jq
 
 # DUO-3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse
@@ -276,8 +323,8 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
     for spec in "${PLUGINS[@]}"; do
       slug=$(jq -r '.slug' <<<"$spec")
       version=$(jq -r '.version' <<<"$spec")
-      archive_root=$(jq -r --arg slug "$slug" --arg version "$version" \
-        '.plugins[$slug][$version].archive_root // $slug' conformance/artifacts.lock.json)
+      archive_root=$(artifact_library_jq -r --arg slug "$slug" --arg version "$version" \
+        '.plugins[$slug][$version].archive_root // $slug')
       [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
         || fail "pinned plugin archive root is malformed for $slug $version"
       artifact=$(fetch_artifact "$slug" "$version" "cli$side" plugin) \
@@ -297,8 +344,8 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
     for spec in "${THEMES[@]}"; do
       slug=$(jq -r '.slug' <<<"$spec")
       version=$(jq -r '.version' <<<"$spec")
-      archive_root=$(jq -r --arg slug "$slug" --arg version "$version" \
-        '.themes[$slug][$version].archive_root // $slug' conformance/artifacts.lock.json)
+      archive_root=$(artifact_library_platform_jq -r --arg slug "$slug" --arg version "$version" \
+        '.themes[$slug][$version].archive_root // $slug')
       [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
         || fail "pinned theme archive root is malformed for $slug $version"
       artifact=$(fetch_artifact "$slug" "$version" "cli$side" theme) \
@@ -341,8 +388,8 @@ cp site-repo.gitignore.template "$R1"/.gitignore
 git -C "$R1" init -q -b main
 git -C "$R1" remote add origin "../origin-${CONF_PAIR}.git"
 
-say "seed representative authored content on conf1 (conformance/seeds/$MANIFEST.sh)"
-SEED="conformance/seeds/$MANIFEST.sh"
+SEED=$(conformance_hook seed.sh "conformance/seeds/$MANIFEST.sh")
+say "seed representative authored content on conf1 ($SEED)"
 [ -f "$SEED" ] || fail "no seed script for '$MANIFEST' (expected $SEED)"
 bash "$SEED"
 
@@ -403,9 +450,9 @@ pass "capture-twice diff is empty"
 # compilation, plan, and recapture paths. Its hook verifies plugin APIs and
 # the canonical bytes those operations produced before this harness decides
 # whether the target-facing round-trip is in scope.
-CAPTURE_CHECK="conformance/capture-checks/$MANIFEST.sh"
+CAPTURE_CHECK=$(conformance_hook capture-check.sh "conformance/capture-checks/$MANIFEST.sh")
 if [ -f "$CAPTURE_CHECK" ]; then
-  say "manifest-specific capture acceptance (conformance/capture-checks/$MANIFEST.sh)"
+  say "manifest-specific capture acceptance ($CAPTURE_CHECK)"
   bash "$CAPTURE_CHECK"
 fi
 
@@ -486,9 +533,9 @@ pass "conf2 active plugins (${CANON_ACTIVE:-none}) and theme (template=$CONF2_TE
 # seed (conf2 isn't active yet at seed time) and never left to apply (apply
 # is content reconciliation, not a place to special-case one manifest's
 # activation-hook side effects).
-POSTDEPLOY="conformance/postdeploy/$MANIFEST.sh"
+POSTDEPLOY=$(conformance_hook postdeploy.sh "conformance/postdeploy/$MANIFEST.sh")
 if [ -f "$POSTDEPLOY" ]; then
-  say "post-deploy conf2 fixup (conformance/postdeploy/$MANIFEST.sh)"
+  say "post-deploy conf2 fixup ($POSTDEPLOY)"
   bash "$POSTDEPLOY"
   pass "post-deploy fixup applied"
 fi
@@ -543,9 +590,9 @@ pass "apply succeeded, side-effect canary clean"
 # generic recapture: a manifest may manufacture target-local state solely to
 # prove apply preserved it, but that witness is not source-authored canonical
 # state and must be checked and removed before byte identity is measured.
-POSTAPPLY="conformance/postapply/$MANIFEST.sh"
+POSTAPPLY=$(conformance_hook postapply.sh "conformance/postapply/$MANIFEST.sh")
 if [ -f "$POSTAPPLY" ]; then
-  say "post-apply target-local witness acceptance (conformance/postapply/$MANIFEST.sh)"
+  say "post-apply target-local witness acceptance ($POSTAPPLY)"
   bash "$POSTAPPLY"
   pass "post-apply target-local witnesses proved and removed"
 fi
@@ -580,9 +627,9 @@ rm -rf "$R2"/.tmp-conf2state
 # would then simply encode the same wrong bytes (the FSE exploration's
 # core methodological finding). Checks curl the live conf2 site and grep
 # rendered output, not state/, so they catch what a byte-diff cannot.
-CHECK="conformance/checks/$MANIFEST.sh"
+CHECK=$(conformance_hook check.sh "conformance/checks/$MANIFEST.sh")
 if [ -f "$CHECK" ]; then
-  say "manifest-specific render acceptance (conformance/checks/$MANIFEST.sh)"
+  say "manifest-specific render acceptance ($CHECK)"
   bash "$CHECK"
 fi
 

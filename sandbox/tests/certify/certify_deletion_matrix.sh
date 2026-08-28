@@ -39,6 +39,7 @@
 # so a failing run leaves it up for inspection.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> sandbox/
+DUO_CERTIFICATION_MANIFESTS_JSON='["core","woocommerce","ninja-forms","paid-memberships-pro"]'
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -141,7 +142,7 @@ $GIT_A add -A && $GIT_A commit -qm "A: seed product" && $GIT_A push -q origin ma
 $GIT_B pull -q origin main
 wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1 | jq .
 PRODUCT_B=$(wp2 post list --post_type=product --name=deletion-matrix-widget --field=ID)
-require_fixture_ids PRODUCT_B
+require_fixture_ids PRODUCT_B # duo-premise-owner: woocommerce
 echo "product: A=$PRODUCT_A B=$PRODUCT_B"
 
 say "PART 1 — place a real order on B against the product (populates wc_order_product_lookup via WooCommerce's own action-scheduler async job)"
@@ -154,7 +155,7 @@ ORDER_B=$(wp2 eval "
 \$order->save();
 echo \$order->get_id();
 ")
-require_fixture_ids ORDER_B
+require_fixture_ids ORDER_B # duo-premise-owner: woocommerce
 # WooCommerce debounces the analytics lookup-table sync a few seconds into
 # the future (observed: order-save time + ~5s), not immediately queued --
 # poll rather than a single fixed sleep, matching spike_d_woo.sh's own
@@ -163,7 +164,7 @@ LOOKUP_ROWS=0
 for _ in $(seq 1 8); do
   wp2 action-scheduler run >/dev/null
   LOOKUP_ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE product_id=$PRODUCT_B" --skip-column-names)
-  require_observed_nonempty "target WooCommerce order-product lookup count" "$LOOKUP_ROWS"
+  require_observed_nonempty "target WooCommerce order-product lookup count" "$LOOKUP_ROWS" # duo-premise-owner: woocommerce
   [ "$LOOKUP_ROWS" -ge "1" ] && break
   sleep 2
 done
@@ -176,7 +177,7 @@ PRODUCT_FILE=$(find siterepo/delmatrix2/state/posts/product -name '*--deletion-m
 PRODUCT_UUID=$(basename "$PRODUCT_FILE" | cut -d- -f1-5)
 EXPECTED_HASH=$(shasum -a 256 "$PRODUCT_FILE" | awk '{print $1}')
 EXPECTED_REVISION=$(wp2 eval 'echo \Duo\RepositoryCompiler::compile("/siterepo", \Duo\Policy::load("/siterepo"))->revision_hash();')
-require_observed_nonempty "target expected repository revision for deletion tombstone" "$EXPECTED_REVISION"
+require_observed_nonempty "target expected repository revision for deletion tombstone" "$EXPECTED_REVISION" # duo-premise-owner: woocommerce
 SOURCE_PATH="posts/product/$(basename "$PRODUCT_FILE")"
 PRODUCT_BACKUP="siterepo/delmatrix2/.tmp-unsupported-product.md"
 mkdir -p siterepo/delmatrix2/state/deletions
@@ -191,11 +192,11 @@ jq -n \
 
 set +e
 PLAN1_RC=0; PLAN1_ERR=$(wp2 duo plan --repo=/siterepo --format=json 2>&1) || PLAN1_RC=$?
-require_duo_answered "target WooCommerce deletion refusal plan" json "$PLAN1_ERR"
+require_duo_answered "target WooCommerce deletion refusal plan" json "$PLAN1_ERR" # duo-premise-owner: woocommerce
 APPLY1_RC=0; APPLY1_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || APPLY1_RC=$?
-require_duo_answered "target WooCommerce deletion refusal apply" human "$APPLY1_ERR"
+require_duo_answered "target WooCommerce deletion refusal apply" human "$APPLY1_ERR" # duo-premise-owner: woocommerce
 FORCE1_RC=0; FORCE1_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1) || FORCE1_RC=$?
-require_duo_answered "target WooCommerce forced deletion refusal apply" human "$FORCE1_ERR"
+require_duo_answered "target WooCommerce forced deletion refusal apply" human "$FORCE1_ERR" # duo-premise-owner: woocommerce
 set -e
 [ "$PLAN1_RC" -ne 0 ] && [ "$APPLY1_RC" -ne 0 ] && [ "$FORCE1_RC" -ne 0 ] \
   || fail "product deletion was accepted by plan/apply or the force flag"
@@ -207,18 +208,18 @@ pass "plan, apply, and forced apply all refuse unsupported product deletion"
 
 say "PART 1 — acceptance: product and order stayed untouched; restore supported tree"
 REMAINING=$(wp2 post list --post_type=product --name=deletion-matrix-widget --field=ID)
-require_observed_nonempty "target retained WooCommerce product id" "$REMAINING"
+require_observed_nonempty "target retained WooCommerce product id" "$REMAINING" # duo-premise-owner: woocommerce
 [ "$REMAINING" = "$PRODUCT_B" ] || fail "product changed across refused deletion"
 STILL=$(wp2 db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$ORDER_B" --skip-column-names)
-require_observed_nonempty "target retained WooCommerce order lookup count" "$STILL"
+require_observed_nonempty "target retained WooCommerce order lookup count" "$STILL" # duo-premise-owner: woocommerce
 [ "$STILL" = "$LOOKUP_ROWS" ] || fail "order's lookup row(s) were disturbed by the delete"
 ORDER_STATUS=$(wp2 wc shop_order get "$ORDER_B" --field=status --user=admin)
-require_observed_nonempty "target retained WooCommerce order status" "$ORDER_STATUS"
+require_observed_nonempty "target retained WooCommerce order status" "$ORDER_STATUS" # duo-premise-owner: woocommerce
 rm "siterepo/delmatrix2/state/deletions/$PRODUCT_UUID.json"
 rmdir siterepo/delmatrix2/state/deletions
 mv "$PRODUCT_BACKUP" "$PRODUCT_FILE"
 RETRY1=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-require_duo_answered "target WooCommerce deletion retry plan" json "$RETRY1"
+require_duo_answered "target WooCommerce deletion retry plan" json "$RETRY1" # duo-premise-owner: woocommerce
 echo "$RETRY1" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
   || fail "retry plan still shows pending deletes: $RETRY1"
 pass "PART 1 complete: product and order (status=$ORDER_STATUS) untouched; supported tree settles idempotently"
@@ -267,7 +268,7 @@ wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1 | 
 FORM_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_forms WHERE title='Deletion Matrix Form'" | tr -d '\r')
 FIELD_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_fields WHERE parent_id=$FORM_B AND label='Name'" | tr -d '\r')
 ACTION_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_nf3_actions WHERE parent_id=$FORM_B AND label='Success Message'" | tr -d '\r')
-require_fixture_ids FORM_B FIELD_B ACTION_B
+require_fixture_ids FORM_B FIELD_B ACTION_B # duo-premise-owner: ninja-forms
 pass "form/field/action converged with target-local ids form=$FORM_B field=$FIELD_B action=$ACTION_B"
 
 say "PART 2 — delete only the supported child rows on A; capture and apply their exact attached-meta cascades"
@@ -278,33 +279,33 @@ wp1 db query "
   DELETE FROM wp_nf3_actions WHERE id=$ACTION_A;
 " >/dev/null
 CHILD_CAPTURE=$(wp1 duo capture --repo=/siterepo --format=json | tail -1)
-require_duo_answered "source child deletion capture" json "$CHILD_CAPTURE"
+require_duo_answered "source child deletion capture" json "$CHILD_CAPTURE" # duo-premise-owner: ninja-forms
 [ "$(jq -r '.counts.deletion' <<<"$CHILD_CAPTURE")" = 2 ] \
   || fail "child removal did not capture exactly two tombstones: $CHILD_CAPTURE"
 $GIT_A add -A && $GIT_A commit -qm "A: delete supported Ninja Forms children" && $GIT_A push -q origin main
 $GIT_B pull -q origin main
 CHILD_APPLY=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | tail -1)
-require_duo_answered "target child deletion apply" json "$CHILD_APPLY"
+require_duo_answered "target child deletion apply" json "$CHILD_APPLY" # duo-premise-owner: ninja-forms
 echo "$CHILD_APPLY" | jq -e '.canary == "clean" and .verification.result == "pass"' >/dev/null \
   || fail "supported child deletion did not converge: $CHILD_APPLY"
 FIELD_COUNT_B=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_fields WHERE id=$FIELD_B" | tr -d '[:space:]')
-require_observed_nonempty "target nf3_fields deletion count" "$FIELD_COUNT_B"
+require_observed_nonempty "target nf3_fields deletion count" "$FIELD_COUNT_B" # duo-premise-owner: ninja-forms
 [ "$FIELD_COUNT_B" = 0 ] \
   || fail "supported nf3_fields deletion left the row behind"
 FIELD_META_COUNT_B=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_field_meta WHERE parent_id=$FIELD_B" | tr -d '[:space:]')
-require_observed_nonempty "target nf3_field_meta cascade count" "$FIELD_META_COUNT_B"
+require_observed_nonempty "target nf3_field_meta cascade count" "$FIELD_META_COUNT_B" # duo-premise-owner: ninja-forms
 [ "$FIELD_META_COUNT_B" = 0 ] \
   || fail "nf3_fields attached-meta cascade left rows behind"
 ACTION_COUNT_B=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_actions WHERE id=$ACTION_B" | tr -d '[:space:]')
-require_observed_nonempty "target nf3_actions deletion count" "$ACTION_COUNT_B"
+require_observed_nonempty "target nf3_actions deletion count" "$ACTION_COUNT_B" # duo-premise-owner: ninja-forms
 [ "$ACTION_COUNT_B" = 0 ] \
   || fail "supported nf3_actions deletion left the row behind"
 ACTION_META_COUNT_B=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_action_meta WHERE parent_id=$ACTION_B" | tr -d '[:space:]')
-require_observed_nonempty "target nf3_action_meta cascade count" "$ACTION_META_COUNT_B"
+require_observed_nonempty "target nf3_action_meta cascade count" "$ACTION_META_COUNT_B" # duo-premise-owner: ninja-forms
 [ "$ACTION_META_COUNT_B" = 0 ] \
   || fail "nf3_actions attached-meta cascade left rows behind"
 FORM_COUNT_B=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_forms WHERE id=$FORM_B" | tr -d '[:space:]')
-require_observed_nonempty "target retained nf3_forms parent count" "$FORM_COUNT_B"
+require_observed_nonempty "target retained nf3_forms parent count" "$FORM_COUNT_B" # duo-premise-owner: ninja-forms
 [ "$FORM_COUNT_B" = 1 ] \
   || fail "child deletion disturbed the retained parent form"
 pass "supported nf3_fields/nf3_actions tombstones converged with exact attached-meta cascades"
@@ -338,7 +339,7 @@ FORM_FILE=$(find siterepo/delmatrix2/state/tables/nf3_forms -name '*--deletion-m
 FORM_UUID=$(jq -r '.uuid' "$FORM_FILE")
 FORM_EXPECTED_HASH=$(shasum -a 256 "$FORM_FILE" | awk '{print $1}')
 FORM_EXPECTED_REVISION=$(wp2 eval 'echo \Duo\RepositoryCompiler::compile("/siterepo", \Duo\Policy::load("/siterepo"))->revision_hash();')
-require_observed_nonempty "target expected repository revision for parent refusal" "$FORM_EXPECTED_REVISION"
+require_observed_nonempty "target expected repository revision for parent refusal" "$FORM_EXPECTED_REVISION" # duo-premise-owner: ninja-forms
 FORM_SOURCE_PATH="tables/nf3_forms/$(basename "$FORM_FILE")"
 FORM_BACKUP="siterepo/delmatrix2/.tmp-unsupported-nf3-form.json"
 mkdir -p siterepo/delmatrix2/state/deletions
@@ -352,11 +353,11 @@ jq -n \
   > "siterepo/delmatrix2/state/deletions/$FORM_UUID.json"
 set +e
 PARENT_PLAN_RC=0; PARENT_PLAN_ERR=$(wp2 duo plan --repo=/siterepo --format=json 2>&1) || PARENT_PLAN_RC=$?
-require_duo_answered "target parent deletion refusal plan" json "$PARENT_PLAN_ERR"
+require_duo_answered "target parent deletion refusal plan" json "$PARENT_PLAN_ERR" # duo-premise-owner: ninja-forms
 PARENT_APPLY_RC=0; PARENT_APPLY_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || PARENT_APPLY_RC=$?
-require_duo_answered "target parent deletion refusal apply" human "$PARENT_APPLY_ERR"
+require_duo_answered "target parent deletion refusal apply" human "$PARENT_APPLY_ERR" # duo-premise-owner: ninja-forms
 PARENT_FORCE_RC=0; PARENT_FORCE_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1) || PARENT_FORCE_RC=$?
-require_duo_answered "target forced parent deletion refusal apply" human "$PARENT_FORCE_ERR"
+require_duo_answered "target forced parent deletion refusal apply" human "$PARENT_FORCE_ERR" # duo-premise-owner: ninja-forms
 set -e
 [ "$PARENT_PLAN_RC" -ne 0 ] && [ "$PARENT_APPLY_RC" -ne 0 ] && [ "$PARENT_FORCE_RC" -ne 0 ] \
   || fail "unsupported parent deletion was accepted by plan/apply or force"
@@ -365,13 +366,13 @@ for OUT in "$PARENT_PLAN_ERR" "$PARENT_APPLY_ERR" "$PARENT_FORCE_ERR"; do
     || fail "parent deletion refusal did not name table:nf3_forms: $OUT"
 done
 FORM_COUNT_AFTER_REFUSAL=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_nf3_forms WHERE id=$FORM_B" | tr -d '[:space:]')
-require_observed_nonempty "target nf3_forms parent count after refused deletion" "$FORM_COUNT_AFTER_REFUSAL"
+require_observed_nonempty "target nf3_forms parent count after refused deletion" "$FORM_COUNT_AFTER_REFUSAL" # duo-premise-owner: ninja-forms
 [ "$FORM_COUNT_AFTER_REFUSAL" = 1 ] \
   || fail "refused parent intent mutated the target form"
 rm "siterepo/delmatrix2/state/deletions/$FORM_UUID.json"
 mv "$FORM_BACKUP" "$FORM_FILE"
 FINAL_PLAN2=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-require_duo_answered "target parent restoration plan" json "$FINAL_PLAN2"
+require_duo_answered "target parent restoration plan" json "$FINAL_PLAN2" # duo-premise-owner: ninja-forms
 echo "$FINAL_PLAN2" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
   || fail "restored parent state did not settle: $FINAL_PLAN2"
 pass "PART 2 complete: child deletion converges; unsupported parent intent refuses before publication or mutation"
@@ -404,8 +405,8 @@ wp2 duo apply --repo=/siterepo --adopt-by-slug=posts --default-author=admin --fo
 LEVEL_B=$(wp2 db query --skip-column-names "SELECT id FROM wp_pmpro_membership_levels WHERE name='Deletion Matrix Level'" | tr -d '\r')
 PAGE_B=$(wp2 post list --post_type=page --name=deletion-matrix-restricted --field=ID)
 RESTRICTED_B=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_pmpro_memberships_pages WHERE membership_id=$LEVEL_B AND page_id=$PAGE_B" | tr -d '\r')
-require_fixture_ids LEVEL_B PAGE_B
-require_observed_nonempty "target initial PMPro restriction count" "$RESTRICTED_B"
+require_fixture_ids LEVEL_B PAGE_B # duo-premise-owner: paid-memberships-pro
+require_observed_nonempty "target initial PMPro restriction count" "$RESTRICTED_B" # duo-premise-owner: paid-memberships-pro
 [ "$RESTRICTED_B" = "1" ] || fail "restriction row did not converge on B (own local ids: level=$LEVEL_B page=$PAGE_B)"
 pass "level=$LEVEL_B, page=$PAGE_B, restriction row confirmed live on B with B's own local ids"
 
@@ -419,7 +420,7 @@ $GIT_B pull -q origin main
 
 say "PART 3 — B's plan shows the delete (NOT blocked — no guards declared on this table)"
 PLAN3=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-require_duo_answered "target PMPro deletion plan" json "$PLAN3"
+require_duo_answered "target PMPro deletion plan" json "$PLAN3" # duo-premise-owner: paid-memberships-pro
 echo "$PLAN3" | jq .
 echo "$PLAN3" | jq -e '(.delete | length) + (.delete_conflict | length) >= 1' >/dev/null \
   || fail "plan did not show the restriction row as pending delete: $PLAN3"
@@ -429,7 +430,7 @@ pass "plan shows the delete, correctly UNBLOCKED (empty guards declaration honor
 
 say "PART 3 — apply with --with-deletes alone succeeds (no force needed, nothing to force)"
 APPLY3_OUT=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | tail -1)
-require_duo_answered "target PMPro deletion apply" json "$APPLY3_OUT"
+require_duo_answered "target PMPro deletion apply" json "$APPLY3_OUT" # duo-premise-owner: paid-memberships-pro
 echo "$APPLY3_OUT" | jq .
 echo "$APPLY3_OUT" | jq -e '.canary == "clean"' >/dev/null || fail "apply canary not clean: $APPLY3_OUT"
 echo "$APPLY3_OUT" | jq -e '(.warnings // []) | map(select(contains("FORCED"))) | length == 0' >/dev/null \
@@ -438,16 +439,16 @@ pass "unguarded delete applied cleanly, no force needed, no FORCED warning (noth
 
 say "PART 3 — acceptance: restriction gone on B (both level and page themselves untouched — only the join row was ever deleted), retry idempotent"
 STILL_RESTRICTED_B=$(wp2 db query --skip-column-names "SELECT COUNT(*) FROM wp_pmpro_memberships_pages WHERE membership_id=$LEVEL_B AND page_id=$PAGE_B" | tr -d '\r')
-require_observed_nonempty "target PMPro restriction count after delete" "$STILL_RESTRICTED_B"
+require_observed_nonempty "target PMPro restriction count after delete" "$STILL_RESTRICTED_B" # duo-premise-owner: paid-memberships-pro
 [ "$STILL_RESTRICTED_B" = "0" ] || fail "restriction row still present on B"
 LEVEL_STILL_THERE=$(wp2 db query --skip-column-names "SELECT id FROM wp_pmpro_membership_levels WHERE id=$LEVEL_B" | tr -d '\r')
-require_observed_nonempty "target retained PMPro membership level id" "$LEVEL_STILL_THERE"
+require_observed_nonempty "target retained PMPro membership level id" "$LEVEL_STILL_THERE" # duo-premise-owner: paid-memberships-pro
 [ "$LEVEL_STILL_THERE" = "$LEVEL_B" ] || fail "the membership level itself was incorrectly removed (only the composite_ref row should be gone)"
 PAGE_STILL_THERE=$(wp2 post list --post_type=page --name=deletion-matrix-restricted --field=ID)
-require_observed_nonempty "target retained PMPro page id" "$PAGE_STILL_THERE"
+require_observed_nonempty "target retained PMPro page id" "$PAGE_STILL_THERE" # duo-premise-owner: paid-memberships-pro
 [ "$PAGE_STILL_THERE" = "$PAGE_B" ] || fail "the page itself was incorrectly removed (got: '$PAGE_STILL_THERE', expected: '$PAGE_B')"
 RETRY3=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-require_duo_answered "target PMPro deletion retry plan" json "$RETRY3"
+require_duo_answered "target PMPro deletion retry plan" json "$RETRY3" # duo-premise-owner: paid-memberships-pro
 echo "$RETRY3" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
   || fail "retry plan still shows pending deletes: $RETRY3"
 pass "PART 3 complete: unguarded composite_ref delete converges cleanly, level and page both survive untouched, retry settles idempotently"

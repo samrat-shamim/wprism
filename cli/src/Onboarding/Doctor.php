@@ -528,12 +528,12 @@ final class Doctor {
         // own _comment already claims "the agent pre-policy gate and duo doctor
         // block outside these values" and until now that sentence was false for
         // topology. 'single-site' is hard-coded rather than read from that file:
-        // tools/capability-doc.php:192-199 byte-compares the baseline object
-        // against manifests/capabilities/platform.json's `compatibility` (which
+        // tools/capability-doc.php's baseline comparison byte-compares the object
+        // against platform/adapter-library/capabilities/platform.json's `compatibility` (which
         // declares database/filesystem/php/process/wordpress), so a
         // `site_mode` key there would fail `make release-gate`. The declared value lives in that platform
         // boundary instead, as `"site_mode": "single-site"`
-        // (manifests/capabilities/platform.json:24), and the agent enforces it
+        // (platform/adapter-library/capabilities/platform.json:76), and the agent enforces it
         // through SiteTopology::assert_single_site().
         $siteMode = $facts['site_mode'] ?? null;
         $checks[] = self::check(

@@ -1,0 +1,22 @@
+{
+  "plugins": {
+    "contact-form-7": {
+      "5.9.8": {
+        "url": "https://downloads.wordpress.org/plugin/contact-form-7.5.9.8.zip",
+        "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4",
+        "role": "refusal-fixture"
+      },
+      "6.0": {
+        "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.0.zip",
+        "sha256": "a52609aefffe86c7be1a587c5d17e47d1ae72920471648db1ac616a0127a6b2d",
+        "role": "certified-boundary"
+      },
+      "6.1.7": {
+        "url": "https://downloads.wordpress.org/plugin/contact-form-7.6.1.7.zip",
+        "sha256": "aedc5cc878e1e62187882286e0711168491d744be547addc063311999ef1468d",
+        "role": "certified-boundary"
+      }
+    }
+  },
+  "themes": {}
+}

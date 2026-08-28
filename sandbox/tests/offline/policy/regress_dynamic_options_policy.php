@@ -5,8 +5,8 @@
  * of the owner ruling, issue comment 9fd882a6) — dynamic_options()/
  * resolve_dynamic_option()/dynamic_option_rule_for_name()/
  * dynamic_option_rule_for_prefix()/is_dynamic_option_residue(), and
- * validate_dynamic_options()'s load-time guard. Uses a FAKE fixture
- * manifest via DUO_MANIFESTS_DIR, never the real manifests/core.json —
+ * validate_dynamic_options()'s load-time guard. Uses an explicit FAKE flat
+ * adapter library, never the real core package payload —
  * this file proves the MECHANISM works in isolation; a real theme_mods_*
  * blob's own key-by-key shapes are grounded and proven live (DUO-3264's
  * own issue comments have the full empirical record: two real WordPress
@@ -41,8 +41,6 @@ register_shutdown_function(function () use ($fixtureDir) {
     }
     rmdir($fixtureDir);
 });
-putenv("DUO_MANIFESTS_DIR=$fixtureDir");
-
 $failures = 0;
 function check(bool $cond, string $msg): void {
     global $failures;
@@ -118,6 +116,7 @@ require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/../../lib/frozen_policy.php';
+require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Policy;
 use DuoTest\FrozenPolicy;
@@ -151,7 +150,7 @@ write_manifest($fixtureDir, 'core', [
     ],
 ]);
 
-$p = Policy::load(null, ['core']);
+$p = manifest_fixture_policy_load($fixtureDir, null, ['core']);
 
 // ======================================================================
 echo "\n== dynamic_options() enumeration ==\n";
@@ -215,7 +214,7 @@ function expect_load_failure(string $fixtureDir, string $manifestName, string $n
     $threw = false;
     $msg = '';
     try {
-        Policy::load(null, ['core', $manifestName]);
+        manifest_fixture_policy_load($fixtureDir, null, ['core', $manifestName]);
     } catch (\RuntimeException $e) {
         $threw = true;
         $msg = $e->getMessage();
@@ -272,7 +271,7 @@ try {
             'sub_keys' => ['x' => ['class' => 'authored']],
         ]],
     ]);
-    Policy::load(null, ['core', 'bad_toplevel_class_authored']);
+    manifest_fixture_policy_load($fixtureDir, null, ['core', 'bad_toplevel_class_authored']);
 } catch (\RuntimeException $e) {
     $threw = true;
     $msg = $e->getMessage();
@@ -315,16 +314,11 @@ echo "\n== DUO-3375: the frozen-snapshot entry point reaches the SAME verdict (l
 // Deliberately NOT published into $fixtureDir: this half freezes a `core` that
 // carries the dead field, and $fixtureDir's `core.json` is the clean fixture
 // every expect_load_failure() below still loads alongside its bad manifest.
-// FrozenPolicy's own library keeps the two cores apart; restore_fixture_dir()
-// hands DUO_MANIFESTS_DIR back afterwards.
+// FrozenPolicy's own explicit library keeps the two cores apart.
 // A real snapshot has already been through Canon::decode(), so every object is
 // a PHP array by the time from_snapshot() sees it.
 function frozen_snapshot(array $manifests): array {
     return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
-}
-
-function restore_fixture_dir(string $fixtureDir): void {
-    putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 }
 
 $cleanCoreManifest = [
@@ -345,7 +339,7 @@ $cleanCoreManifest = [
 $badCoreManifest = $cleanCoreManifest;
 $badCoreManifest['dynamic_options']['theme_mods']['class'] = 'authored';
 
-$frozenClean = Policy::from_snapshot(frozen_snapshot([$cleanCoreManifest]));
+$frozenClean = manifest_fixture_policy_from_snapshot(frozen_snapshot([$cleanCoreManifest]));
 check(
     ($frozenClean->dynamic_options()['theme_mods']['prefix'] ?? null) === 'theme_mods_',
     'a clean dynamic_options declaration loads through the frozen entry point too — the fix does not break the valid shape'
@@ -354,14 +348,13 @@ check(
 $frozenMsg = '';
 $frozenThrew = false;
 try {
-    Policy::from_snapshot(frozen_snapshot([$badCoreManifest]));
+    manifest_fixture_policy_from_snapshot(frozen_snapshot([$badCoreManifest]));
 } catch (\RuntimeException $e) {
     $frozenThrew = true;
     $frozenMsg = $e->getMessage();
 }
 check($frozenThrew, 'from_snapshot() ALSO refuses a top-level class — the two entry points reach the same verdict (DUO-3375 lockstep)');
 check(str_contains($frozenMsg, 'dynamic_options.theme_mods.class'), "from_snapshot()'s refusal names the dead field too (got: $frozenMsg)");
-restore_fixture_dir($fixtureDir);
 
 // ======================================================================
 echo "\n== DUO-3375: a valid declaration's canonical bytes are UNCHANGED (schema not widened) ==\n";

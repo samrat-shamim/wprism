@@ -6,7 +6,7 @@ re-verified against the branch that widened the claim, not copied from the
 plan documents — several had moved.
 
 **Status: this document is a hard prerequisite of the MySQL claim, not a
-retrospective.** `manifests/capabilities/platform.json`'s database axis now
+retrospective.** `platform/adapter-library/capabilities/platform.json`'s database axis now
 names MySQL 8.4 alongside MariaDB 11, with a PENDING note saying the live
 proof has not run. The five probe groups below are the assertions
 `sandbox/tests/live/regress_core_scope_database.sh` carries, in the order
@@ -346,6 +346,6 @@ they have run the claim's own note says so in the word PENDING.
 
 Sequence the live phase accordingly: §5 → §3 → §1 → §2 (raw SQL, no agent
 needed) first, then the agent-level round trips. If any probe fails, the
-remedy named in `manifests/capabilities/platform.json`'s database note applies
+remedy named in `platform/adapter-library/capabilities/platform.json`'s database note applies
 — drop the MySQL entry and restore a MariaDB-only engines map — never a
 fallback or a widened bound around the failure (AGENTS.md rule 9).

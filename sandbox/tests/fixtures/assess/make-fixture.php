@@ -33,8 +33,8 @@ declare(strict_types=1);
  *   DUO_LIBRARY_SKEW=1       the target answers from a DIFFERENT reviewed
  *                            library than this checkout ships — the
  *                            mid-upgrade window of docs/adoption.md, where an
- *                            operator has pulled a revision that edited
- *                            manifests/dispositions.json and has not
+ *                            operator has pulled a revision that edited an
+ *                            adapter disposition and has not
  *                            re-adopted the site yet (DUO-3484)
  *   DUO_MUTATE_CONTRACT=<f>  copy <f> over the site's contract.json during
  *                            the capabilities call — a concurrent reviewer
@@ -328,34 +328,38 @@ $adapterUnsupported = [
  *
  * A real target reports the hash of the library it was adopted with, so an
  * agreeing fixture has to carry the real number rather than a memorable one:
- * `duo assess` reads the host half from the live `manifests/dispositions/`
- * documents and there is no flag that redirects it. Before DUO-3484 this fixture
+ * `duo assess` reads the host half from the live source adapter library and
+ * there is no flag that redirects it. Before DUO-3484 this fixture
  * reported a hand-written `eeee…` and the suites still passed, which is the
  * defect: nothing compared the two numbers.
  */
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
-// Reassembled exactly as ManifestDispositions::data() does since WP-4.4 — one
-// document per subject plus the profiles map — so `registry_sha256` here is
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
+// Reassembled exactly as ManifestDispositions::data() does — one document per
+// package plus the platform-owned profiles map — so `registry_sha256` here is
 // still the number a running agent computes.
+$library = \Duo\AdapterLibrary::fromSourceTree($root);
 $dispositions = ['format' => 'duo-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
-foreach (glob($root . '/manifests/dispositions/*.json') ?: [] as $document) {
-    $subject = basename($document, '.json');
+foreach ($library->packages() as $package) {
+    $document = $package->dispositionPath();
     $decoded = json_decode((string) file_get_contents($document), true);
     if (!is_array($decoded)) {
         fwrite(STDERR, "make-fixture: $document is unreadable\n");
         exit(2);
     }
-    if ($subject === 'profiles') {
-        $dispositions['profiles'] = $decoded;
-        continue;
-    }
-    $dispositions['manifests'][$subject] = $decoded;
+    $dispositions['manifests'][$package->name()] = $decoded;
 }
 if ($dispositions['manifests'] === []) {
-    fwrite(STDERR, "make-fixture: manifests/dispositions/ is unreadable\n");
+    fwrite(STDERR, "make-fixture: adapter package dispositions are unreadable\n");
     exit(2);
 }
+$profiles = json_decode((string) file_get_contents($library->profilesPath()), true);
+if (!is_array($profiles)) {
+    fwrite(STDERR, "make-fixture: adapter disposition profiles are unreadable\n");
+    exit(2);
+}
+$dispositions['profiles'] = $profiles;
 ksort($dispositions['manifests'], SORT_STRING);
 $hostRegistrySha = hash('sha256', \Duo\Canon::encode($dispositions));
 // The skewed library: a different content address, and nothing else. What

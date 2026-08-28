@@ -73,7 +73,7 @@ docker exec "$DB" mariadb -uroot -proot-pass -e \
 # fetch would leave the boundary again on the next release either way). Pin to
 # the newest exercised core the claim itself names, read from the shipped
 # boundary so estate and claim cannot drift apart.
-WP_CORE_VERSION="$(jq -r '.platform.compatibility.wordpress.last_verified' manifests/capabilities/platform.json)"
+WP_CORE_VERSION="$(jq -r '.platform.compatibility.wordpress.last_verified' platform/adapter-library/capabilities/platform.json)"
 [[ "$WP_CORE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || fail "platform.json names no usable last_verified WordPress core"
 
 for volume in "$SOURCE_VOLUME" "$TARGET_VOLUME"; do

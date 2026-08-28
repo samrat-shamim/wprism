@@ -22,6 +22,7 @@ require_once __DIR__ . '/../Contract/ContractStore.php';
 require_once __DIR__ . '/../Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/CommandOutput.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Policy/Policy.php';
 
 use Duo\Canon;
 use Duo\CommandRefusalException;
@@ -158,6 +159,7 @@ final class AssessCommand {
      *
      * @param array<string,mixed> $options `operations`, `source_root`,
      *        `host_catalog`, `generated_at`, and optionally `manifests_dir`
+     *        or an `adapter_library` test seam
      * @return array{report:array<string,mixed>,catalog:array<string,mixed>,
      *         registry_reports:array<string,array<string,mixed>>,inventory:array<string,mixed>,
      *         seed:array<string,mixed>,site_repo:string,store:ContractStore,
@@ -805,13 +807,13 @@ final class AssessCommand {
     /**
      * The provenance of the reviewed dispositions this checkout ships.
      *
-     * Read host-side because that is the only place these bytes exist as
-     * files: `manifests/dispositions/` is the sole authored source of a
-     * capability claim (ManifestDispositions' own header), so the documents
-     * whose provenance a contract records are those. There is no second,
-     * generated registry to name inputs for any more, and the code that read
-     * one refused `capability_registry_unreadable` for a file that is now
-     * deleted — hence the reason code moved with the premise.
+     * Read host-side from the selected AdapterLibrary because reviewed
+     * disposition bytes are the sole authored source of a capability claim
+     * (ManifestDispositions' own header). There is no second, generated
+     * registry to name inputs for any more, and the code that read one refused
+     * `capability_registry_unreadable` for a file that is now deleted — hence
+     * the reason code moved with the premise. An explicit `manifests_dir`
+     * remains the preparatory sparse-fixture seam until the layout flag day.
      *
      * `registry_sha256` is computed exactly as `ManifestDispositions::sha256()`
      * computes it — sha256 over `Canon::encode()` of the DECODED document, not
@@ -831,25 +833,46 @@ final class AssessCommand {
      * @return array{registry_sha256:string,generated_from:array{dispositions_sha256:string}}
      */
     private static function registryProvenance(array $options): array {
-        $dir = (string) ($options['manifests_dir'] ?? dirname(__DIR__, 3) . '/manifests') . '/dispositions';
-        $files = is_dir($dir) ? (glob($dir . '/*.json') ?: []) : [];
-        sort($files, SORT_STRING);
-        // The literal, not ManifestDispositions::FORMAT: this command reads the
-        // library WITHOUT loading the agent's Policy tree (only Canon is
-        // imported above), exactly as it did when the whole document was one
-        // file carrying this string in its own bytes.
+        $documents = [];
+        if (array_key_exists('manifests_dir', $options)) {
+            $dir = rtrim((string) $options['manifests_dir'], '/') . '/dispositions';
+            foreach (is_dir($dir) ? (glob($dir . '/*.json') ?: []) : [] as $file) {
+                $documents[basename($file, '.json')] = $file;
+            }
+        } else {
+            $library = $options['adapter_library'] ?? \Duo\Policy::shipped_adapter_library();
+            if (!$library instanceof \Duo\AdapterLibrary) {
+                throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+            }
+            $documents['profiles'] = $library->profilesPath();
+            foreach ($library->packages() as $package) {
+                $documents[$package->name()] = $package->dispositionPath();
+            }
+        }
+        $logicalFiles = [];
+        foreach ($documents as $subject => $path) {
+            $logicalFiles[$subject . '.json'] = $path;
+        }
+        ksort($logicalFiles, SORT_STRING);
+
+        // The literal, not ManifestDispositions::FORMAT: this is the wire
+        // provenance format recorded in contracts, independent of which
+        // physical library layout supplies the documents.
         $decoded = ['format' => 'duo-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
         $raw = '';
-        $readable = $files !== [];
-        foreach ($files as $file) {
+        $readable = $logicalFiles !== [];
+        foreach ($logicalFiles as $logicalName => $file) {
             $bytes = @file_get_contents($file);
             $document = is_string($bytes) ? json_decode($bytes, true) : null;
             if (!is_array($document)) {
                 $readable = false;
                 break;
             }
-            $raw .= basename($file) . "\n" . $bytes;
-            $subject = basename($file, '.json');
+            // The LOGICAL filename preserves the pre-package raw provenance:
+            // moving subject bytes from dispositions/<subject>.json to a
+            // package's disposition.json is not itself a provenance change.
+            $raw .= $logicalName . "\n" . $bytes;
+            $subject = basename($logicalName, '.json');
             if ($subject === 'profiles') {
                 $decoded['profiles'] = $document;
                 continue;
@@ -860,7 +883,8 @@ final class AssessCommand {
             throw new CommandRefusalException(
                 'dispositions_unreadable',
                 'the reviewed manifest dispositions could not be read for their provenance',
-                'restore manifests/dispositions/ in this checkout, then rerun assess'
+                'restore adapter-packages/*/package/disposition.json and platform/adapter-library/core/disposition.json, '
+                    . 'then rerun assess'
             );
         }
 

@@ -799,7 +799,7 @@ function preflight_write(string $path, string $bytes): void {
 // executable: that is the product path an operator walks, and it is the one
 // state the checkout can be. Nothing here needs a bump — these cases are about
 // classification, not about movement.
-$fixtureLib = $root . '/manifests';
+$fixtureLib = $root;
 $sites = $scratch . '/fixtures';
 
 // F1: a certified site adapter, minted by the operator's own command.
@@ -829,12 +829,14 @@ chmod($scratch . '/keys/preflight.key', 0600);
     '--secret-key-file=' . $scratch . '/keys/preflight.key',
     '--reason=Reviewed for the migration-preflight fixture set.',
     '--pin',
+    '--adapter-library=' . $fixtureLib,
 ]);
 duo_check_same(0, $certifyExit, 'fixture: `duo adapter certify --pin` minted the certified fixture (' . trim($certifyErr) . ')');
 
 // The product path, end to end: the shipped executable, no test driver.
 [$dueExit, $duoOut, $duoErr] = preflight_run([
     PHP_BINARY, $root . '/cli/duo', 'adapter', 'doctor', '--migration', '--repo=' . $certified, '--format=json',
+    '--adapter-library=' . $fixtureLib,
 ]);
 $greenDocument = json_decode($duoOut, true);
 duo_check_same(0, $dueExit, 'F1 certified adapter: the SHIPPED `duo adapter doctor --migration` exits 0 on a site '
@@ -1107,7 +1109,11 @@ foreach ([
     [['adapter', 'doctor', '--migration', '--repo=' . $certified, '--repo=' . $certified], "duplicate flag '--repo'"],
     [['adapter', 'doctor', '--migration', '--repo=' . $certified, '--artifact=/nonexistent/x.json'], "--artifact '/nonexistent/x.json' is not a file"],
 ] as [$argv, $expected]) {
-    [$usageExit, , $usageErr] = preflight_run(array_merge([PHP_BINARY, $root . '/cli/duo'], $argv));
+    [$usageExit, , $usageErr] = preflight_run(array_merge(
+        [PHP_BINARY, $root . '/cli/duo'],
+        $argv,
+        ['--adapter-library=' . $fixtureLib]
+    ));
     duo_check_same(2, $usageExit, 'usage: `' . implode(' ', array_slice($argv, 0, 3)) . ' ...` exits 2, not 1');
     duo_check(
         str_contains($usageErr, $expected),

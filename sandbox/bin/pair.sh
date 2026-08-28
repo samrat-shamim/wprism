@@ -44,7 +44,7 @@
 #   `DUO_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
 #   the same budget warning for pairs already up.
 #
-# - `up`/`reset`/`start` print the agent/manifests bind-mount source they
+# - `up`/`reset`/`start` print the agent/adapter-packages/platform bind-mount source they
 #   will actually use (path + HEAD) before doing anything, and refuse if
 #   `DUO_EXPECTED_SOURCE_SHA` is set and that source is not exactly that
 #   commit, clean — DUO-3377's exact-source gate, see
@@ -109,9 +109,9 @@ source "lib/pair_siterepo.sh"
 
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
-# bind-mounted agent/manifests sources must always live, regardless of
+# bind-mounted agent/adapter-packages/platform sources must always live, regardless of
 # which worktree's own copy of THIS SCRIPT actually ran `up`. Per-issue
-# worktrees are always removed at close-gate; a pair whose agent/manifests
+# worktrees are always removed at close-gate; a pair whose agent/adapter-packages/platform
 # bind-mount source was resolved against a worktree (the historical bug --
 # `../agent` in pair.yml, relative to wherever pair.sh's own `cd
 # "$(dirname "$0")/.."` above landed) is left with a dead mount the moment
@@ -136,7 +136,7 @@ canonical_root() {
 # DUO-3277: `start` (unlike `up`) never touches container config -- compose
 # start just resumes whatever bind-mount sources were baked in when the
 # container was CREATED, so a pair created before this fix shipped (or a
-# pair whose agent/manifests source directory was deleted out from under
+# pair whose agent/adapter-packages/platform source directory was deleted out from under
 # it for any other reason) still hits a dead mount here even after the
 # canonicalize fix above, until someone runs `up` again to force the
 # recreate. Detect it here and say exactly what happened and how to
@@ -159,7 +159,7 @@ check_dead_mounts() { # check_dead_mounts <name>
   if [ "${#dead[@]}" -gt 0 ]; then
     fail "pair '$name' has a dead bind-mount source -- the checkout its containers were created against no longer exists on disk (DUO-3277's own worktree-bind-mount hazard: a pair started with 'up' before that fix shipped, or from a worktree since removed, still has the OLD source baked in):
 $(printf '  %s\n' "${dead[@]}")
-recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" from ANY checkout of this repo (worktree or canonical, doesn't matter now) -- this recreates the container against the canonical checkout's own agent/manifests (docker compose detects the config drift and recreates automatically); this pair's own database and webroot volumes are untouched either way"
+recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" from ANY checkout of this repo (worktree or canonical, doesn't matter now) -- this recreates the container against the canonical checkout's own agent/adapter-packages/platform (docker compose detects the config drift and recreates automatically); this pair's own database and webroot volumes are untouched either way"
   fi
 }
 
@@ -207,7 +207,7 @@ mounted_agent_source() { # mounted_agent_source <name>
       elif [ "$found" != "$source" ]; then
         fail "pair '$name' has DISAGREEING agent bind-mount sources baked into its two web containers, so there is no single answer to 'which code does this pair run' -- refusing before any pair mutation:
 $(printf '  %s\n' "${seen[@]}")
-recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" to recreate BOTH containers against this checkout's canonical agent/manifests (compose detects the config drift and recreates automatically); this pair's own databases and webroot volumes are untouched either way"
+recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" to recreate BOTH containers against this checkout's canonical agent/adapter-packages/platform (compose detects the config drift and recreates automatically); this pair's own databases and webroot volumes are untouched either way"
       fi
       break   # one agent mount per container; the rest of its mounts are other trees
     done <<< "$mounts"
@@ -216,7 +216,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
   [ -n "$found" ]
 }
 
-# DUO-3377: the exact-source gate. DUO-3277 made every pair's agent/manifests
+# DUO-3377: the exact-source gate. DUO-3277 made every pair's agent/adapter-packages/platform
 # bind mounts resolve to the CANONICAL checkout (canonical_root() above) no
 # matter which checkout ran this script -- exactly right for a pair that must
 # outlive a per-issue worktree, and silently wrong for EVIDENCE: a live
@@ -231,7 +231,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
 # DUO-3277 exists for are deliberately NOT candidate-bound: unset, every path
 # below behaves exactly as it did before this gate (it only PRINTS what is
 # being mounted, which every live evidence run wants recorded anyway). Set, a
-# run declares "the mounted agent/manifests bytes must be commit <sha>, with
+# run declares "the mounted agent/adapter-packages/platform bytes must be commit <sha>, with
 # no uncommitted changes", and any other answer refuses before the first
 # mutation -- no budget lock, no shared db, no DROP/CREATE, no site-repo
 # roots, no container create/start. A refusal costs seconds; a false verdict
@@ -243,7 +243,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
 # (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh) invoke pair.sh
 # as a subprocess. One exported variable reaches every subcommand from every
 # caller with no argv plumbing anywhere -- the same reasoning that put
-# DUO_AGENT_SRC/DUO_MANIFESTS_SRC into sandbox/.env in pair_compose_configure().
+# DUO_AGENT_SRC/DUO_ADAPTER_PACKAGES_SRC/DUO_PLATFORM_SRC into sandbox/.env in pair_compose_configure().
 #
 # Deliberately NOT applied to stop/destroy/list: those are teardown and
 # inspection, never evidence, and cleanup must never be blocked by a variable
@@ -265,7 +265,7 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   canonical="$(canonical_root)" || canonical=""
   selected="$(pair_identity_source_root)" || selected=""
   # The canonical root remains the shared budget-lock identity. The selected
-  # source controls only agent/manifests mounts and is normally canonical;
+  # source controls only agent/adapter-packages/platform mounts and is normally canonical;
   # evidence lanes may explicitly select their clean linked worktree.
   [ -n "$canonical" ] && PAIR_CANONICAL_ROOT="$canonical"
   [ -n "$selected" ] && PAIR_SOURCE_ROOT="$selected"
@@ -289,9 +289,9 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   # ...). Printing this to stdout would make it invisible in exactly the runs
   # whose evidence most needs to name its source.
   {
-    say "candidate source for '$subcommand' (DUO-3377): agent/manifests bind mounts"
+    say "candidate source for '$subcommand' (DUO-3377): agent/adapter-packages/platform bind mounts"
     if [ -n "$source_root" ]; then
-      echo "  mounted source: ${source_root}/{agent,manifests}${origin}"
+      echo "  mounted source: ${source_root}/{agent,adapter-packages,platform}${origin}"
     else
       echo "  mounted source: <unresolvable — git could not name this repo's canonical checkout>"
     fi
@@ -314,7 +314,7 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   if [ "${actual:0:${#expected}}" != "$expected" ]; then
     fail "candidate-source MISMATCH -- refusing before any pair mutation (no budget reservation, no database drop/create, no site-repo roots, no container create/start):
   expected (DUO_EXPECTED_SOURCE_SHA): $expected
-  actual mounted source:              ${source_root}/{agent,manifests}${origin}
+  actual mounted source:              ${source_root}/{agent,adapter-packages,platform}${origin}
   actual mounted source HEAD:         $actual
   this pair.sh copy is running from:  $(pwd)
 By default persistent pairs mount the canonical checkout. For evidence from a
@@ -328,9 +328,11 @@ Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout gen
   # with no agent/ straight through to an opaque compose mount error later.
   [ -d "$source_root/agent" ] \
     || fail "the expected commit matched but the agent bind-mount source is absent: $source_root/agent -- refusing before any pair mutation"
-  [ -d "$source_root/manifests" ] \
-    || fail "the expected commit matched but the manifests bind-mount source is absent: $source_root/manifests -- refusing before any pair mutation"
-  # Dirtiness is scoped to the two directories that are actually MOUNTED, not
+  [ -d "$source_root/adapter-packages" ] \
+    || fail "the expected commit matched but the adapter-packages bind-mount source is absent: $source_root/adapter-packages -- refusing before any pair mutation"
+  [ -d "$source_root/platform" ] \
+    || fail "the expected commit matched but the platform bind-mount source is absent: $source_root/platform -- refusing before any pair mutation"
+  # Dirtiness is scoped to the three directories that are actually MOUNTED, not
   # to the whole tree: this script itself writes sandbox/.env and
   # sandbox/siterepo/ into the checkout on every run, and a shared canonical
   # checkout routinely carries other agents' in-flight work -- a whole-tree
@@ -351,11 +353,11 @@ Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout gen
   dirt_err="$(mktemp "${TMPDIR:-/tmp}/duo-pair-source-dirt.XXXXXX")" \
     || fail "could not create a temporary file to capture git's own diagnostics -- refusing before any pair mutation"
   if ! dirt="$(git -C "$source_root" --no-optional-locks status --porcelain=v1 \
-      --untracked-files=all -- agent manifests 2>"$dirt_err")"; then
+      --untracked-files=all -- agent adapter-packages platform 2>"$dirt_err")"; then
     local why
     why="$(cat "$dirt_err" 2>/dev/null || true)"
     rm -f -- "$dirt_err"
-    fail "could not check the mounted source for uncommitted agent/manifests changes ($source_root) -- refusing before any pair mutation: ${why:-git status failed without a diagnostic}"
+    fail "could not check the mounted source for uncommitted agent/adapter-packages/platform changes ($source_root) -- refusing before any pair mutation: ${why:-git status failed without a diagnostic}"
   fi
   rm -f -- "$dirt_err"
   if [ -n "$dirt" ]; then
@@ -367,7 +369,7 @@ Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout gen
     while IFS= read -r dirt_line; do
       [ -n "$dirt_line" ] && dirt_lines+=("$dirt_line")
     done <<< "$dirt"
-    fail "candidate source is DIRTY -- refusing before any pair mutation. The agent/manifests bytes about to be mounted from $source_root do not correspond to $actual:
+    fail "candidate source is DIRTY -- refusing before any pair mutation. The agent/adapter-packages/platform bytes about to be mounted from $source_root do not correspond to $actual:
 $(printf '  %s\n' "${dirt_lines[@]}")
 remedy: commit or stash those changes, or produce this evidence from a clean standalone clone at the expected commit (git clone --branch <branch> $canonical /path/to/duo-wp-live-<issue>). Uncommitted mount bytes make the evidence unreproducible -- nothing records what they were"
   fi
@@ -589,20 +591,28 @@ cmd_up() {
   # every container operation. A refusal here has touched nothing at all.
   assert_candidate_source up
 
-  # The typed artifact registry is mutation authority for the explicit
+  # The typed artifact library is mutation authority for the explicit
   # artifact-backed bootstrap. Validate its complete closed shape before the
   # budget lock, shared database, pair roots, or Docker are touched; a later
   # fetch must not be the first place an unknown role/key is discovered.
   if [ "$artifacts" = 1 ]; then
-    validate_artifact_lock conformance/artifacts.lock.json \
-      || fail "up: artifact lock is malformed; no pair resources were changed"
-    PAIR_BOOTSTRAP_THEME_VERSION=$(jq -r '
+    validate_artifact_library \
+      || fail "up: artifact library is malformed; no pair resources were changed"
+    validate_artifact_platform_library \
+      || fail "up: platform artifact library is malformed; no pair resources were changed"
+    PAIR_BOOTSTRAP_THEME_VERSION=$(artifact_library_platform_jq -r '
       .themes.twentytwentyone | if type == "object" and length == 1 then keys[0] else empty end
-    ' conformance/artifacts.lock.json)
+    ')
     [[ "$PAIR_BOOTSTRAP_THEME_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
       || fail "up: the pinned bootstrap-theme registry entry is missing or ambiguous; no pair resources were changed"
+    PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT=$(artifact_library_platform_jq -r \
+      --arg version "$PAIR_BOOTSTRAP_THEME_VERSION" \
+      '.themes.twentytwentyone[$version].archive_root // "twentytwentyone"')
+    [[ "$PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
+      || fail "up: the pinned bootstrap-theme archive root is malformed; no pair resources were changed"
   else
     PAIR_BOOTSTRAP_THEME_VERSION=
+    PAIR_BOOTSTRAP_THEME_ARCHIVE_ROOT=
   fi
   PAIR_BOOTSTRAP_ARTIFACTS="$artifacts"
 
@@ -660,7 +670,7 @@ cmd_up() {
   fi
 
   say "pair '$name': web containers up"
-  # Persistent callers resolve agent/manifests against the canonical checkout;
+  # Persistent callers resolve agent/adapter-packages/platform against the canonical checkout;
   # exact evidence callers may explicitly select their linked worktree with
   # DUO_SOURCE_ROOT. If that source differs from whatever config an EXISTING pair
   # was created with (e.g. a pair `up`'d from a worktree before this fix,
@@ -1031,11 +1041,11 @@ and a docker compose project suffix.
 Environment:
   DUO_EXPECTED_SOURCE_SHA=<7-40 hex>
            DUO-3377's exact-source gate. up/reset/start always PRINT the
-           agent/manifests bind-mount source they will use (path + HEAD);
+           agent/adapter-packages/platform bind-mount source they will use (path + HEAD);
            with this set they additionally REFUSE — before any database
            drop/create, site-repo write, or container create/start —
            unless that source is exactly this commit with no uncommitted
-           agent/manifests changes. Bind every live evidence run with it
+           agent/adapter-packages/platform changes. Bind every live evidence run with it
            (`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`). Without an
            explicit source override, mounts resolve to the canonical checkout.
            Unset = unchanged behavior.
@@ -1043,7 +1053,7 @@ Environment:
            evidence). sandbox/conformance/run.sh passes it through as
            CONF_EXPECTED_SOURCE_SHA.
   DUO_SOURCE_ROOT=<absolute physical worktree path>
-           Select this repository worktree as the agent/manifests mount source.
+           Select this repository worktree as the agent/adapter-packages/platform mount source.
            The path must be the exact top-level physical path and share this
            repository's git common directory. Evidence runners set it together
            with DUO_EXPECTED_SOURCE_SHA; ordinary persistent pairs leave it unset.
@@ -1058,7 +1068,7 @@ Environment:
            exports DUO_DB_HOST so pair.yml and every subprocess compose call
            resolve it. Any other value is refused by name, at load, before any
            subcommand. Selecting `mysql` CLAIMS NOTHING: the shipped platform
-           contract (manifests/capabilities/platform.json) is still
+           contract (platform/adapter-library/capabilities/platform.json) is still
            MariaDB-only, so `wp duo ...` on such a pair refuses
            platform_unsupported / platform_database_engine_unsupported. That
            refusal is the lane's first datum; widening the claim needs live

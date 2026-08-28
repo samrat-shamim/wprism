@@ -198,12 +198,16 @@ $check(
 );
 
 $frozenSnapshot = static function (array $manifests): array {
-    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
+    return FrozenPolicy::envelope(
+        $manifests,
+        FrozenPolicy::site($manifests, DUO_SPEC_VERSION),
+        FrozenPolicy::library()
+    );
 };
 
 $snapshotManifests = [manifest_a(), manifest_b()];
 $assertAccepted(
-    static fn() => Policy::from_snapshot($frozenSnapshot($snapshotManifests)),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($snapshotManifests)),
     'a valid two-manifest snapshot passes the extracted grammar through Policy::from_snapshot()'
 );
 $badSnapshotManifests = [
@@ -219,7 +223,7 @@ $badSnapshotManifests = [
     ]),
 ];
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot($badSnapshotManifests)),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($badSnapshotManifests)),
     'reference kind vocabulary is closed',
     'Policy::from_snapshot() reaches ReferenceKindGrammar for a malformed ref kind'
 );
@@ -235,26 +239,12 @@ Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
 manifest_fixture_code($loadManifests);
 Canon::write_file($loadManifests . '/a.json', Canon::encode($snapshotManifests[0]));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($snapshotManifests[1]));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$loadManifests");
+$loadLibrary = manifest_fixture_adapter_library($loadManifests);
 $assertAccepted(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $loadLibrary),
     'the live Policy::load() path reaches ReferenceKindGrammar too'
 );
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($loadManifests . '/*') ?: [] as $file) {
-    if (is_file($file)) {
-        @unlink($file);
-    }
-}
-manifest_fixture_code_cleanup($loadManifests);
-@rmdir($loadManifests);
-@unlink($loadRoot . '/site.duo.json');
-@rmdir($loadRoot);
+manifest_fixture_remove_tree($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $finalizerSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/PolicyLoadFinalizer.php');

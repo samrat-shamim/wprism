@@ -158,13 +158,13 @@ $manifestA = manifest_a();
 $manifestA['tables']['acme_a_meta'] = $metaTable();
 $validManifests = [$manifestA, manifest_b()];
 $assertAccepted(
-    static fn() => Policy::from_snapshot($frozenSnapshot($validManifests)),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($validManifests)),
     'a valid discovery declaration loads through Policy::from_snapshot()'
 );
 $invalidSnapshot = $validManifests;
 $invalidSnapshot[0]['tables']['acme_a_meta']['keyspace']['patterns'][0]['match'] = '[';
 $assertThrows(
-    static fn() => Policy::from_snapshot($frozenSnapshot($invalidSnapshot)),
+    static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($invalidSnapshot)),
     "manifest 'a' table 'acme_a_meta' keyspace.patterns[0].match must be a valid regex",
     'Policy::from_snapshot() invokes the extracted discovery grammar'
 );
@@ -180,32 +180,20 @@ Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
 manifest_fixture_code($loadManifests);
 Canon::write_file($loadManifests . '/a.json', Canon::encode($manifestA));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($validManifests[1]));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$loadManifests");
+$adapterLibrary = manifest_fixture_adapter_library($loadManifests);
 $assertAccepted(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $adapterLibrary),
     'a valid discovery declaration loads through Policy::load()'
 );
 $loadInvalid = $manifestA;
 $loadInvalid['tables']['acme_a_meta']['keyspace']['keys'] = [''];
 Canon::write_file($loadManifests . '/a.json', Canon::encode($loadInvalid));
 $assertThrows(
-    static fn() => Policy::load($loadRoot),
+    static fn() => Policy::load($loadRoot, adapterLibrary: $adapterLibrary),
     "manifest 'a' table 'acme_a_meta' keyspace.keys must contain non-empty strings",
     'Policy::load() invokes the extracted discovery grammar'
 );
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
-foreach (glob($loadManifests . '/*') ?: [] as $file) {
-    @unlink($file);
-}
-manifest_fixture_code_cleanup($loadManifests);
-@rmdir($loadManifests);
-@unlink($loadRoot . '/site.duo.json');
-@rmdir($loadRoot);
+manifest_fixture_remove_tree($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $manifestValidatorSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php');

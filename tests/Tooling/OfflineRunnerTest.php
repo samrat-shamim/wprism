@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Duo\Tests\Tooling;
 
 use Duo\Tooling\OfflineRunner;
+use Duo\Tooling\OfflineScenarioDelegation;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -683,6 +684,145 @@ final class OfflineRunnerTest extends TestCase
         sort($targets);
 
         self::assertSame(['regress-command-output', 'regress-path-safety'], $targets);
+    }
+
+    public function testChangedAdapterListsOnlyItsPackageAndParticipantScenarioTasks(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/polylang/package/manifest.json',
+            '--list',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertSame([
+            'adapter-package:polylang',
+            'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
+        ], $targets);
+        self::assertNotContains('regress-adapter-packages', $targets);
+        self::assertStringContainsString(
+            'advisory task (not executed by changed mode): '
+                . 'integration-scenario:polylang-tec-rewrite-coinstall:live:',
+            $result['stderr']
+        );
+        self::assertStringContainsString(
+            'advisory task (not executed by changed mode): '
+                . 'integration-scenario:woocommerce-rewrite-coinstall:live:',
+            $result['stderr']
+        );
+    }
+
+    public function testChangedScenarioIsDelegatedOutOfThePackageAggregateExactlyOnce(): void
+    {
+        $scenario = 'integration-scenario:woocommerce-rewrite-coinstall:offline:'
+            . 'regress_woocommerce_hierarchy_lookups.php';
+        $argv = OfflineScenarioDelegation::makeArgv('make', 'regress-adapter-packages', [
+            'adapter-package:woocommerce',
+            $scenario,
+            'integration-scenario:woocommerce-rewrite-coinstall:live:'
+                . 'regress_woocommerce_rewrite_coinstall.sh',
+        ]);
+
+        self::assertSame([
+            'make',
+            '--no-print-directory',
+            OfflineScenarioDelegation::ENVIRONMENT . '=' . $scenario,
+            'regress-adapter-packages',
+        ], $argv);
+        self::assertSame([$scenario], OfflineScenarioDelegation::decode(substr(
+            $argv[2],
+            strlen(OfflineScenarioDelegation::ENVIRONMENT) + 1
+        )));
+        self::assertSame(
+            ['make', '--no-print-directory', 'regress-adapter-packages'],
+            OfflineScenarioDelegation::makeArgv('make', 'regress-adapter-packages', [])
+        );
+
+        $catalog = ['scenarios' => [[
+            'name' => 'woocommerce-rewrite-coinstall',
+            'gates' => [[
+                'class' => 'offline',
+                'path' => 'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/'
+                    . 'regress_woocommerce_hierarchy_lookups.php',
+            ], [
+                'class' => 'live',
+                'path' => 'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/'
+                    . 'regress_woocommerce_rewrite_coinstall.sh',
+            ]],
+        ]]];
+        self::assertSame(
+            [$scenario => true],
+            OfflineScenarioDelegation::checkedSet([$scenario], $catalog)
+        );
+        $makefile = (string) file_get_contents(self::repoRoot() . '/Makefile');
+        self::assertStringContainsString(
+            'ifneq ($(origin ' . OfflineScenarioDelegation::ENVIRONMENT . '),command line)',
+            $makefile
+        );
+        self::assertStringContainsString(
+            'unexport ' . OfflineScenarioDelegation::ENVIRONMENT,
+            $makefile
+        );
+    }
+
+    public function testChangedAdapterFilterCanSelectItsPackageTask(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/polylang/package/manifest.json',
+            '--filter=adapter-package:polylang',
+            '--list',
+        ]);
+
+        self::assertSame(0, $result['status'], $result['stderr']);
+        self::assertSame("adapter-package:polylang\n", $result['stdout']);
+    }
+
+    public function testChangedUnknownPathRunsTheClosedFullOfflineSelection(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=future-root/new.php',
+            '--list',
+        ]);
+        self::assertSame(0, $result['status'], $result['stderr']);
+
+        $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
+        self::assertContains('regress-adapter-packages', $targets);
+    }
+
+    public function testChangedAdapterExplainPrintsCheckedTaskCommands(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/woocommerce/package/manifest.json',
+            '--list',
+            '--explain',
+        ]);
+
+        self::assertSame(0, $result['status'], $result['stderr']);
+        self::assertMatchesRegularExpression(
+            '#^adapter-package:woocommerce\s+-\s+\S+php tools/adapter-package-tests\.php --adapter=woocommerce$#m',
+            $result['stdout']
+        );
+        self::assertStringContainsString(
+            'integration-scenarios/woocommerce-rewrite-coinstall/tests/offline/regress_woocommerce_hierarchy_lookups.php',
+            $result['stdout']
+        );
+        self::assertStringContainsString(
+            'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
+            $result['stderr']
+        );
+        self::assertStringContainsString('2 selected task(s) from ', $result['stderr']);
+    }
+
+    public function testChangedAdapterFilterThatMatchesNoScopedTaskIsAnError(): void
+    {
+        $result = self::invoke([
+            '--changed-paths=adapter-packages/woocommerce/package/manifest.json',
+            '--filter=zzz-no-such-scoped-task',
+        ]);
+
+        self::assertSame(2, $result['status']);
+        self::assertStringContainsString('nothing selected', $result['stderr']);
     }
 
     public function testExplainReportsANonEmptySerialGroup(): void

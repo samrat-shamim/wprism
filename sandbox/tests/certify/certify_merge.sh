@@ -93,6 +93,7 @@
 # human might want to look at.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> sandbox/
+DUO_CERTIFICATION_MANIFESTS_JSON='["core","woocommerce"]'
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -166,7 +167,7 @@ ABOUT_ID_B=$(wp2 post list --post_type=page --name=about --field=ID)
 TEAM_ID_B=$(wp2 post list --post_type=page --name=team --field=ID)
 HELLO_ID_B=$(wp2 post list --post_type=post --name=hello-duo --field=ID)
 SIZE_ATTR_ID_B=$(wp2 db query --skip-column-names "SELECT attribute_id FROM wp_woocommerce_attribute_taxonomies WHERE attribute_name='mergecert-size'" | tr -d '\r')
-require_fixture_ids ABOUT_ID_B TEAM_ID_B HELLO_ID_B SIZE_ATTR_ID_B
+require_fixture_ids ABOUT_ID_B TEAM_ID_B HELLO_ID_B SIZE_ATTR_ID_B # duo-premise-owner: woocommerce
 echo "env B local ids: about=$ABOUT_ID_B team=$TEAM_ID_B hello=$HELLO_ID_B attr=$SIZE_ATTR_ID_B (expected to differ from A's — identity lives in duo_map/the natural-key uuid, never these)"
 
 say "sanity: baseline is byte-identical across environments before any divergence"
@@ -369,9 +370,9 @@ $GIT_B pull -q origin main
 wp2 duo apply --repo=/siterepo --default-author=admin >/dev/null
 
 LABEL_A=$(wp1 db query --skip-column-names "SELECT attribute_label FROM wp_woocommerce_attribute_taxonomies WHERE attribute_name='mergecert-size'" | tr -d '\r')
-require_observed_nonempty "A WooCommerce attribute label after conflict resolution" "$LABEL_A"
+require_observed_nonempty "A WooCommerce attribute label after conflict resolution" "$LABEL_A" # duo-premise-owner: woocommerce
 LABEL_B=$(wp2 db query --skip-column-names "SELECT attribute_label FROM wp_woocommerce_attribute_taxonomies WHERE attribute_name='mergecert-size'" | tr -d '\r')
-require_observed_nonempty "B WooCommerce attribute label after conflict resolution" "$LABEL_B"
+require_observed_nonempty "B WooCommerce attribute label after conflict resolution" "$LABEL_B" # duo-premise-owner: woocommerce
 [ "$LABEL_A" = "$RESOLVED_LABEL" ] || fail "A: attribute label not merged (got: $LABEL_A)"
 [ "$LABEL_B" = "$RESOLVED_LABEL" ] || fail "B: attribute label not merged (got: $LABEL_B)"
 pass "both environments converged on the resolved attribute_label via WooCommerce's own table — typed-snapshot table entity merge proven end to end"

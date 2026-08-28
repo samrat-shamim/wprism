@@ -1,15 +1,18 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/AdapterLibrary.php';
+
 /**
- * External ratification data for the shipped manifest library.
+ * External ratification data for the resolved adapter library.
  *
- * A manifest cannot certify itself merely by existing beside the agent. The
- * separate `dispositions/` directory records the reviewed support boundary and
- * its evidence, one document per subject, while this loader makes omissions
- * and malformed claims loud. Custom/test manifest directories without a
- * dispositions directory keep their historical policy behavior, but expose no
- * reviewed capability claim.
+ * A manifest cannot certify itself merely by existing beside the agent. Each
+ * authoring capsule records its reviewed boundary in
+ * `adapter-packages/<name>/package/disposition.json`; core is platform-owned,
+ * and installation projects those inputs into `agent/adapter-library/`.
+ * Production reads those exact paths through AdapterLibrary, while the explicit
+ * legacy flat-layout reader below preserves historical custom/test behavior
+ * without granting an unreviewed capability claim.
  *
  * These reviewed bytes are the ONLY authored source of a product capability
  * claim: `claim_from_disposition()` below projects one, and AdapterRegistry
@@ -20,9 +23,9 @@ final class ManifestDispositions {
     public const FORMAT = 'duo-manifest-dispositions/v1';
 
     /**
-     * The reviewed claim source is a DIRECTORY of one document per subject
-     * (spec/repo-format.md § v3.4), not the single `dispositions.json` this
-     * class read until WP-4.4:
+     * Historically, WP-4.4 changed the reviewed claim source to a DIRECTORY of
+     * one document per subject (spec/repo-format.md § v3.4), replacing the
+     * single `dispositions.json` this class had read:
      *
      *   manifests/dispositions/<name>.json    one adapter's entry, verbatim
      *   manifests/dispositions/profiles.json  the profiles map
@@ -47,7 +50,8 @@ final class ManifestDispositions {
     public const DIRECTORY = 'dispositions';
 
     /**
-     * `profiles` is RESERVED inside that directory: it names the profiles map,
+     * In the explicit legacy split directory, `profiles` is RESERVED: it names
+     * the profiles map,
      * so no adapter can own it. AdapterSources::assert_name() admits it as a
      * slug, and the monolith could carry a `profiles` key under `manifests`
      * beside the sibling `profiles` map without ambiguity — the split cannot,
@@ -71,8 +75,7 @@ final class ManifestDispositions {
     /**
      * The document-name grammar, which is AdapterSources::assert_name()'s
      * (`:3156-3157`) restated rather than called: this file is reachable from
-     * partially-loaded offline contexts that never include AdapterSources (the
-     * same reason manifests_dir() below does not hard-call Policy), and a
+     * partially-loaded offline contexts that never include AdapterSources, and a
      * `require` here would grow the load graph of every context that only
      * wanted an entry.
      *
@@ -84,11 +87,14 @@ final class ManifestDispositions {
     private const NAME_PATTERN = '/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D';
 
     /**
-     * The agent's own platform/runtime boundary, shipped beside the manifest
-     * library at `capabilities/platform.json` rather than derived here: the
-     * bytes of this object are what a signed site-adapter certificate binds as
-     * `platform_sha256` (AdapterCertification::currentPlatform()), so it has
-     * exactly one on-disk representation and both readers name this constant.
+     * The agent's own platform/runtime boundary is authored at
+     * `platform/adapter-library/capabilities/platform.json` and installed at
+     * `agent/adapter-library/platform/capabilities/platform.json`, never
+     * derived here. The bytes of this object are what a signed site-adapter
+     * certificate binds as `platform_sha256`
+     * (AdapterCertification::currentPlatform()); AdapterLibrary supplies the
+     * current physical path, while this relative name serves only the explicit
+     * legacy flat-layout reader.
      */
     public const PLATFORM_FORMAT = 'duo-platform-boundary/v1';
     private const PLATFORM_RELATIVE = 'capabilities/platform.json';
@@ -136,21 +142,36 @@ final class ManifestDispositions {
     /** @var ?array<string,mixed> the profiles map, decoded once */
     private ?array $profiles;
 
+    /** @var ?array<string,string> subject => AdapterLibrary-owned disposition path */
+    private ?array $documentPaths;
+
+    /** AdapterLibrary-owned profiles path, or null for the legacy string source. */
+    private ?string $profilesPath;
+
     /**
      * @param ?list<string>         $names    prefilled for a frozen snapshot, null to resolve from disk
      * @param ?array<string,mixed>  $profiles prefilled for a frozen snapshot, null to resolve from disk
+     * @param ?array<string,string> $documentPaths exact object-owned document paths, null for string resolution
      */
-    private function __construct(string $dir, ?array $names, ?array $profiles) {
+    private function __construct(
+        string $dir,
+        ?array $names,
+        ?array $profiles,
+        ?array $documentPaths = null,
+        ?string $profilesPath = null
+    ) {
         $this->dir = $dir;
         $this->names = $names;
         $this->profiles = $profiles;
+        $this->documentPaths = $documentPaths;
+        $this->profilesPath = $profilesPath;
     }
 
     /**
-     * The reviewed registry DOCUMENT: its own root shape and its profiles,
-     * both of which are self-contained (validate_profiles() resolves each
-     * profile's `manifest` against the registry's own declared names, never
-     * against the directory).
+     * The explicit legacy registry DOCUMENT: its own root shape and its
+     * profiles, both of which are self-contained (validate_profiles() resolves
+     * each profile's `manifest` against the registry's own declared names,
+     * never against the directory).
      *
      * It deliberately no longer globs and decodes every `*.json` beside it.
      * That whole-directory read cost one decode per SHIPPED manifest on every
@@ -173,7 +194,8 @@ final class ManifestDispositions {
      *     directions, including a reviewed entry that outlived its manifest)
      *     is `make release-gate`: tools/capability-doc.php's
      *     capdoc_cross_check() already computes the identical two-way
-     *     comparison over manifests/ and exits 1 on any difference, and
+     *     comparison over `adapter-packages/<slug>/package/` plus
+     *     `platform/adapter-library/core/` and exits 1 on any difference, and
      *     sandbox/tests/offline/policy/regress_manifest_dispositions.php runs
      *     the real loader over the whole shipped library in the merge gate.
      *
@@ -214,6 +236,36 @@ final class ManifestDispositions {
         $profiles = $self->profiles();
         if ($profiles !== []) {
             self::validate_profiles($profiles, $self->names());
+        }
+        return $self;
+    }
+
+    /**
+     * Load the production reviewed source through its closed library object.
+     *
+     * The string entry point above remains an explicit legacy flat-layout
+     * reader for compatibility tests and callers that deliberately select that
+     * format. Production callers hand over the inventory they already
+     * validated, so neither profiles nor per-subject dispositions are
+     * rediscovered by joining physical path spellings here.
+     */
+    public static function load_library(AdapterLibrary $library): self {
+        $paths = [];
+        foreach ($library->packages() as $package) {
+            $paths[$package->name()] = $package->dispositionPath();
+        }
+        ksort($paths, SORT_STRING);
+        $names = array_keys($paths);
+        $self = new self(
+            dirname($library->profilesPath()),
+            $names,
+            null,
+            $paths,
+            $library->profilesPath()
+        );
+        $profiles = $self->profiles();
+        if ($profiles !== []) {
+            self::validate_profiles($profiles, $names);
         }
         return $self;
     }
@@ -271,6 +323,12 @@ final class ManifestDispositions {
     private function document(string $name): array {
         if (array_key_exists($name, $this->documents)) {
             return $this->documents[$name];
+        }
+        if ($this->documentPaths !== null) {
+            $file = $this->documentPaths[$name] ?? null;
+            return $this->documents[$name] = $file !== null
+                ? [true, Canon::decode(Canon::read_file($file))]
+                : [false, null];
         }
         if ($this->dir === '') {
             // A frozen snapshot carries every document it will ever have.
@@ -410,7 +468,7 @@ final class ManifestDispositions {
         self::validate_profiles($data['profiles'], array_keys($data['manifests']));
         $names = array_map('strval', array_keys($data['manifests']));
         sort($names, SORT_STRING);
-        $self = new self('', $names, $data['profiles']);
+        $self = new self('', $names, $data['profiles'], []);
         foreach ($data['manifests'] as $name => $entry) {
             $self->documents[(string) $name] = [true, $entry];
         }
@@ -443,8 +501,11 @@ final class ManifestDispositions {
     }
 
     /**
-     * The profiles map — `dispositions/profiles.json`, keyed independently of
-     * the adapter documents beside it.
+     * The profiles map supplied by AdapterLibrary — authored at
+     * `platform/adapter-library/profiles.json` and installed at
+     * `agent/adapter-library/platform/profiles.json` — keyed independently of
+     * the adapter documents. The explicit legacy flat reader resolves the old
+     * `dispositions/profiles.json` spelling through `$this->dir` instead.
      *
      * Absent means none. The monolith's root REQUIRED a `profiles` key and
      * accepted `{}`; a directory has no root to require a key of, so a library
@@ -458,8 +519,8 @@ final class ManifestDispositions {
         if ($this->profiles !== null) {
             return $this->profiles;
         }
-        $file = $this->dir . '/' . self::PROFILES_DOCUMENT . '.json';
-        if ($this->dir === '' || !is_file($file)) {
+        $file = $this->profilesPath ?? ($this->dir . '/' . self::PROFILES_DOCUMENT . '.json');
+        if (($this->dir === '' && $this->profilesPath === null) || !is_file($file)) {
             return $this->profiles = [];
         }
         $decoded = Canon::decode(Canon::read_file($file));
@@ -487,12 +548,31 @@ final class ManifestDispositions {
      * The version agreement is not decoration: a platform object naming a
      * different agent/spec version than the code reading it would let a claim
      * describe a runtime nobody is running. Loud, and before any claim is
-     * projected from it.
+     * projected from it. A non-null string explicitly selects the legacy flat
+     * root; production resolves the path through AdapterLibrary.
      *
      * @return array<string,mixed>
      */
     public static function platform_boundary(?string $dir = null): array {
-        $file = rtrim($dir ?? self::manifests_dir(), '/') . '/' . self::PLATFORM_RELATIVE;
+        if ($dir === null) {
+            if (!class_exists(Policy::class)) {
+                throw new \RuntimeException(
+                    'duo: the shipped adapter library must be selected explicitly when Policy is unavailable'
+                );
+            }
+            return self::platform_boundary_library(Policy::shipped_adapter_library());
+        }
+        $file = rtrim($dir, '/') . '/' . self::PLATFORM_RELATIVE;
+        return self::platform_boundary_file($file);
+    }
+
+    /** Resolve the production boundary only through AdapterLibrary's accessor. */
+    public static function platform_boundary_library(AdapterLibrary $library): array {
+        return self::platform_boundary_file($library->platformBoundaryPath());
+    }
+
+    /** @return array<string,mixed> */
+    private static function platform_boundary_file(string $file): array {
         $label = "agent platform boundary '$file'";
         if (!is_file($file)) {
             throw new \RuntimeException("duo: $label is absent; this manifest library declares no platform boundary");
@@ -512,22 +592,6 @@ final class ManifestDispositions {
             throw new \RuntimeException("duo: $label platform version disagrees with the loaded agent");
         }
         return $platform;
-    }
-
-    /**
-     * Resolve the manifest library without requiring Policy to be loaded: this
-     * file is reachable from partially-loaded offline contexts that never
-     * include Policy.php, and a hard `Policy::` call there would fatal.
-     */
-    private static function manifests_dir(): string {
-        if (class_exists(Policy::class)) {
-            return Policy::manifests_dir();
-        }
-        $env = getenv('DUO_MANIFESTS_DIR');
-        if ($env && is_dir($env)) {
-            return $env;
-        }
-        return dirname(__DIR__, 3) . '/manifests';
     }
 
     /**

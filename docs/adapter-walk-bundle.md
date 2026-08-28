@@ -14,7 +14,8 @@ Authority: `agent/src/Adapter/AdapterCertification.php`. Proof:
 ## 1. The site trust root — `adapters/authorities.json`
 
 Format `duo-adapter-authorities/v1`, canonical Duo JSON bytes, exactly the
-grammar of the shipped `manifests/capabilities/adapter-authorities.json`:
+grammar of the shipped
+`platform/adapter-library/capabilities/adapter-authorities.json`:
 
 ```json
 {
@@ -237,7 +238,7 @@ Enforced, and each has bitten a fixture:
 
 WP-5.3 / [spec/repo-format.md § v3.17](../spec/repo-format.md). `sign_site()`
 takes an optional seventh argument — one disposition **entry**, the exact
-document shape `manifests/dispositions/<name>.json` carries — and signs it in
+document shape `adapter-packages/<name>/package/disposition.json` carries — and signs it in
 place of the derivation. `duo adapter certify --ratification-file=<file>` is how
 an operator supplies one; `null` keeps the derivation, which stays the floor.
 
@@ -272,7 +273,7 @@ conformance bundle on disk. A site certificate does not use it.
 
 ```
 php scripts/adapter-certification.php sign \
-  --manifest-dir=<agent manifests> --repo=<site repo> --name=<n> \
+  --manifest-dir=<Duo source root> --repo=<site repo> --name=<n> \
   --bundle=<bundle dir> --evidence-repo=<site repo> \
   --authority=<key id> --secret-key-file=<file>
 ```

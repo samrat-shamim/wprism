@@ -66,6 +66,7 @@ require $repo . '/agent/src/Policy/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Canon;
+use Duo\AdapterLibrary;
 use Duo\NativeActions;
 use Duo\Policy;
 
@@ -104,32 +105,158 @@ function duo(array $args): array {
     return ['exit' => proc_close($proc), 'stdout' => $stdout, 'stderr' => $stderr];
 }
 
-/** Fresh scratch manifests dir for one check; auto-removed at exit. */
+/** Fresh scratch source adapter library for one check; auto-removed at exit. */
 function fixtures(array $files): string {
+    global $repo;
     $root = sys_get_temp_dir() . '/duo_regress_manifest_validate_' . bin2hex(random_bytes(4));
-    mkdir($root, 0777, true);
-    foreach ($files as $name => $content) {
-        Canon::write_file("$root/$name.json", is_string($content) ? $content : Canon::encode($content));
+    mkdir($root . '/adapter-packages', 0777, true);
+    mkdir($root . '/platform/adapter-library/capabilities', 0777, true);
+    mkdir($root . '/platform/adapter-library/core', 0777, true);
+    foreach ([
+        'capabilities/adapter-authorities.json',
+        'capabilities/platform.json',
+        'core/disposition.json',
+        'core/manifest.json',
+        'profiles.json',
+    ] as $relative) {
+        $source = $repo . '/platform/adapter-library/' . $relative;
+        file_put_contents($root . '/platform/adapter-library/' . $relative, (string) file_get_contents($source));
     }
-    // A manifests dir is JSON *and* the code its manifests name. manifest_a()
-    // declares a regenerator, and DUO-3327's check now resolves that file
-    // instead of leaving it to the first apply — so the fixture ships it.
-    manifest_fixture_code($root);
+    foreach ($files as $name => $content) {
+        $payload = "$root/adapter-packages/$name/package";
+        mkdir($payload, 0777, true);
+        $manifest = is_string($content) ? Canon::decode($content) : $content;
+        Canon::write_file("$payload/manifest.json", is_string($content) ? $content : Canon::encode($content));
+        Canon::write_file(
+            "$payload/disposition.json",
+            Canon::encode(fixture_disposition(is_array($manifest) ? $manifest : []))
+        );
+
+        if (!is_array($manifest)) {
+            continue;
+        }
+        if (is_string($manifest['interpreter'] ?? null)
+            && preg_match('/^[a-z0-9][a-z0-9_-]*$/D', $manifest['interpreter']) === 1) {
+            $interpreters = $payload . '/runtime/interpreters';
+            mkdir($interpreters, 0777, true);
+            $class = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $manifest['interpreter'])));
+            file_put_contents(
+                $interpreters . '/' . $manifest['interpreter'] . '.php',
+                "<?php\nnamespace Duo\\Interpreters;\nfinal class $class {\n"
+                    . "    public function __construct(private object \$policy) {}\n"
+                    . "    public function post_meta_rule(string \$key, array \$allMeta): ?array { return null; }\n"
+                    . "}\n"
+            );
+        }
+        foreach ((array) ($manifest['providers'] ?? []) as $provider) {
+            if (!is_array($provider) || ($provider['source'] ?? null) !== 'manifest'
+                || !is_string($provider['id'] ?? null)) {
+                continue;
+            }
+            $providers = $payload . '/runtime/providers';
+            if (!is_dir($providers)) {
+                mkdir($providers, 0777, true);
+            }
+            file_put_contents($providers . '/' . $provider['id'] . '.php', "<?php\n");
+        }
+        foreach ((array) ($manifest['post_types'] ?? []) as $rule) {
+            $regenerator = is_array($rule) && is_array($rule['regen_dependency'] ?? null)
+                ? ($rule['regen_dependency']['regenerator'] ?? null)
+                : null;
+            if ($regenerator === 'acme-a') {
+                manifest_fixture_code($payload . '/runtime');
+            }
+        }
+    }
     register_shutdown_function(function () use ($root) {
-        manifest_fixture_code_cleanup($root);
-        foreach (glob("$root/interpreters/*") ?: [] as $f) {
-            @unlink($f);
-        }
-        @rmdir("$root/interpreters");
-        foreach (glob("$root/*") ?: [] as $f) {
-            @chmod($f, 0644);
-            @unlink($f);
-        }
-        @rmdir($root);
+        remove_fixture_tree($root);
     });
     // The command reports realpath()s, and the system temp dir is a symlink on
     // some platforms — compare against the same resolved form it prints.
     return (string) realpath($root);
+}
+
+/** Reviewed fixture disposition: deliberately excluded, never a product claim. */
+function fixture_disposition(array $manifest): array {
+    $unsupported = [[
+        'operation' => 'all',
+        'reason' => 'Excluded fixtures are never production-ready.',
+        'surface' => 'production',
+    ]];
+    foreach ((array) ($manifest['tables'] ?? []) as $table => $rule) {
+        if (is_array($rule) && ($rule['class'] ?? null) === 'authored_typed_snapshot_post_v1') {
+            $unsupported[] = [
+                'operation' => 'all',
+                'reason' => 'Intent-only fixture tables are never production-ready.',
+                'surface' => "tables.$table",
+            ];
+        }
+    }
+    return [
+        'capabilities' => [
+            'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+            'entity_sections' => [],
+            'field_sections' => [],
+            'lifecycle_phases' => [],
+            'operations' => ['test-only'],
+        ],
+        'default_authored_keyspaces' => [],
+        'reason' => 'Manifest validation regression fixture, not a product support claim.',
+        'status' => 'excluded',
+        'supported_versions' => ['fixture' => true],
+        'unsupported' => $unsupported,
+    ];
+}
+
+function package_payload(string $root, string $name): string {
+    return "$root/adapter-packages/$name/package";
+}
+
+/** Materialize the strict compatibility shape for one explicit historical-flat check. */
+function legacy_fixture(string $sourceRoot): string {
+    $root = sys_get_temp_dir() . '/duo_regress_manifest_validate_legacy_' . bin2hex(random_bytes(4));
+    foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $directory) {
+        mkdir("$root/$directory", 0777, true);
+    }
+    $library = AdapterLibrary::fromSourceTree($sourceRoot);
+    file_put_contents($root . '/capabilities/platform.json', (string) file_get_contents($library->platformBoundaryPath()));
+    file_put_contents($root . '/capabilities/adapter-authorities.json', (string) file_get_contents($library->authoritiesPath()));
+    file_put_contents($root . '/dispositions/profiles.json', (string) file_get_contents($library->profilesPath()));
+    foreach ($library->packages() as $package) {
+        file_put_contents("$root/{$package->name()}.json", (string) file_get_contents($package->manifestPath()));
+        file_put_contents(
+            "$root/dispositions/{$package->name()}.json",
+            (string) file_get_contents($package->dispositionPath())
+        );
+        foreach ($package->shippablePaths() as $path) {
+            $relative = substr($path, strlen($package->root()) + 1);
+            if (!str_starts_with($relative, 'runtime/')) {
+                continue;
+            }
+            $destination = $root . '/' . substr($relative, strlen('runtime/'));
+            file_put_contents($destination, (string) file_get_contents($path));
+        }
+    }
+    register_shutdown_function(static function () use ($root): void {
+        remove_fixture_tree($root);
+    });
+    return (string) realpath($root);
+}
+
+function remove_fixture_tree(string $root): void {
+    if (!is_dir($root)) {
+        return;
+    }
+    $nodes = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($nodes as $node) {
+        $path = $node->getPathname();
+        @chmod($path, 0644);
+        $node->isDir() ? @rmdir($path) : @unlink($path);
+    }
+    @rmdir($root);
 }
 
 /**
@@ -221,10 +348,20 @@ function refuses(array $b, string $needle, string $msg): string {
         $result['exit'] === 1
             && ($row['status'] ?? null) === 'error'
             && str_contains($message, $needle)
-            && ($row['file'] ?? null) === "$dir/b.json",
+            && ($row['file'] ?? null) === package_payload($dir, 'b') . '/manifest.json',
         "$msg (exit {$result['exit']}, message: " . ($message === '' ? '<none>' : $message) . ')'
     );
     return $message;
+}
+
+/** A malformed package identity/runtime declaration refuses before row validation. */
+function refuses_library(array $b, string $needle, string $msg): void {
+    $dir = fixtures(['b' => $b]);
+    $result = duo([$dir, '--format=json']);
+    check(
+        $result['exit'] === 2 && str_contains($result['stderr'], $needle) && $result['stdout'] === '',
+        "$msg (exit {$result['exit']}, stderr: " . trim($result['stderr']) . ')'
+    );
 }
 
 /** The same fixture, well-formed: exit 0, and the manifest's own row ok. */
@@ -341,9 +478,9 @@ refuses(
 // ======================================================================
 echo "\n== the real-world smoke: every SHIPPED manifest validates through the command ==\n";
 
-$shipped = duo([$repo . '/manifests', '--format=json']);
+$shipped = duo([$repo, '--format=json']);
 $shippedReport = report($shipped);
-check($shipped['exit'] === 0, "the repository's own manifests/ directory validates clean (exit {$shipped['exit']})");
+check($shipped['exit'] === 0, "the repository's own adapter source tree validates clean (exit {$shipped['exit']})");
 check(
     ($shippedReport['format'] ?? null) === 'duo-manifest-validation/v1'
         && ($shippedReport['status'] ?? null) === 'ok',
@@ -363,7 +500,10 @@ check(
     ($cf7Row['status'] ?? null) === 'ok',
     'the shipped Contact Form 7 manifest remains a valid whole-type declaration'
 );
-$cf7Manifest = json_decode((string) file_get_contents($repo . '/manifests/contact-form-7.json'), true);
+$cf7Manifest = json_decode(
+    (string) file_get_contents($repo . '/adapter-packages/contact-form-7/package/manifest.json'),
+    true
+);
 check(
     is_array($cf7Manifest)
         && (($cf7Manifest['post_types']['wpcf7_contact_form'] ?? null) === []),
@@ -371,7 +511,7 @@ check(
 );
 // Addressed per subject since WP-4.4 (spec/repo-format.md § v3.4).
 $cf7Disposition = json_decode(
-    (string) file_get_contents($repo . '/manifests/dispositions/contact-form-7.json'),
+    (string) file_get_contents($repo . '/adapter-packages/contact-form-7/package/disposition.json'),
     true
 );
 check(
@@ -417,12 +557,12 @@ check(
     'each row carries the real file path of the manifest it judged'
 );
 
-$shippedText = duo([$repo . '/manifests']);
+$shippedText = duo([$repo]);
 check(
     $shippedText['exit'] === 0
         && str_contains($shippedText['stdout'], 'per manifest')
         && str_contains($shippedText['stdout'], 'pinned set')
-        && str_contains($shippedText['stdout'], $repo . '/manifests/core.json'),
+        && str_contains($shippedText['stdout'], $repo . '/platform/adapter-library/core/manifest.json'),
     'text mode reports the same verdict and names each manifest file'
 );
 
@@ -433,7 +573,7 @@ $smokeSite = site_repo(
     ['options' => ['blogname' => ['class' => 'authored', 'autoload' => 'yes']]],
     ['core', 'woocommerce']
 );
-$shippedWithSite = duo([$repo . '/manifests', '--site=' . $smokeSite, '--format=json']);
+$shippedWithSite = duo([$repo, '--site=' . $smokeSite, '--format=json']);
 $withSiteReport = report($shippedWithSite);
 check(
     $shippedWithSite['exit'] === 0
@@ -443,23 +583,36 @@ check(
     "the whole shipped library also validates clean WITH a site repo attached (exit {$shippedWithSite['exit']})"
 );
 
+// Historical refs can predate package capsules. Compatibility is explicit and
+// strict: the caller names the complete flat closure, and the same
+// AdapterLibrary object is passed through every Policy load. There is no
+// production fallback and no loose directory-of-JSON interpretation.
+$legacySource = fixtures(['b' => solo_b()]);
+$legacy = legacy_fixture($legacySource);
+$legacyRun = duo([$legacy, '--manifest=b', '--pins=b,core', '--format=json']);
+$legacyReport = report($legacyRun);
+check(
+    $legacyRun['exit'] === 0
+        && (row($legacyReport, 'b')['file'] ?? null) === "$legacy/b.json"
+        && ($legacyReport['pinned_set']['names'] ?? null) === ['b', 'core'],
+    'an explicitly named complete historical flat library remains readable through the bounded compatibility reader'
+);
+
 // ======================================================================
 echo "\n== acceptance 1: invalid keys, shapes, ranges, exclusivity, action names, provider declarations ==\n";
 
 // --- adapter IDENTITY (DUO-3371)
-// The manifests dir this command is pointed at is a SHIPPED library by every
+// The source tree this command is pointed at is a SHIPPED library by every
 // definition the engine has, so the file-name/declared-name rule DUO-3314 gave
 // the site source applies here too — and reaches this command for free, because
 // nothing in it reimplements a validator: the refusal below is the one
 // Policy::load() throws, verbatim, so the authoring surface and the load-time
 // surface cannot drift into two rules. The needle is the whole sentence for
 // exactly that reason.
-refuses(
+refuses_library(
     solo_b(['name' => 'renamed']),
-    "declares name 'renamed' but its file name is 'b' — a pin names the file while every downstream identity "
-        . '(dispositions, digests, diagnostics) keys off the declared name, so the two disagreeing is ambiguous '
-        . 'identity. Make the declared name match the file name',
-    'a manifest whose declared name disagrees with its file name is refused, naming both values and the fix'
+    'adapter package basename b disagrees with its declared name renamed',
+    'a package whose directory name disagrees with its declared name is refused before any manifest row is judged'
 );
 accepts(solo_b(), 'the same manifest, declaring the name its file already carries, validates clean');
 
@@ -468,7 +621,7 @@ refuses(
     solo_b(['actions' => [[
         'kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'acme_b'], 'sceduled' => true,
     ]]]),
-    "actions[0] contains unknown key(s): sceduled",
+    'actions[0] contains unknown key(s): sceduled',
     'an unknown action key is refused, naming the entry index and the key'
 );
 refuses(
@@ -476,7 +629,7 @@ refuses(
         'kind' => 'native', 'action' => 'transient.delete', 'args' => ['nmae' => 'acme_b'],
     ]]]),
     "actions[0].args contains unknown key(s) for native action 'transient.delete': nmae",
-    "an unknown native-action ARGUMENT key is refused, naming the action and the key"
+    'an unknown native-action ARGUMENT key is refused, naming the action and the key'
 );
 refuses(
     solo_b(['tables' => ['acme_b_slots' => array_merge(
@@ -790,13 +943,13 @@ refuses(
 );
 
 // --- PROVIDER DECLARATIONS
-refuses(
+refuses_library(
     solo_b(['providers' => [[
         'id' => 'Acme_B_Cache', 'version' => '1.0.0', 'source' => 'manifest',
         'plugin' => 'acme-b/acme-b.php', 'capabilities' => ['flush'],
     ]]]),
-    'providers[0].id must match ^[a-z][a-z0-9-]{0,63}$',
-    'a provider id outside its bounded charset is refused, printing the pattern it had to match'
+    'provider id is not a canonical lowercase ASCII slug',
+    'a provider id outside the package runtime charset is refused before an unsafe path can be constructed'
 );
 refuses(
     solo_b(['providers' => [[
@@ -843,12 +996,18 @@ check(
 check($result['exit'] === 1, 'a pin-set-only failure is still a failure (exit 1)');
 
 check(
-    ($report['pinned_set']['files'] ?? null) === ['a' => "$dir/a.json", 'b' => "$dir/b.json"],
+    ($report['pinned_set']['files'] ?? null) === [
+        'a' => package_payload($dir, 'a') . '/manifest.json',
+        'b' => package_payload($dir, 'b') . '/manifest.json',
+        'core' => $dir . '/platform/adapter-library/core/manifest.json',
+    ],
     'the pin-set row carries the file path of every co-loaded manifest — a cross-manifest refusal names manifests, so the row has to be what resolves those names to files'
 );
 $pinnedText = duo([$dir]);
 check(
-    str_contains($pinnedText['stdout'], "- a: $dir/a.json") && str_contains($pinnedText['stdout'], "- b: $dir/b.json"),
+    str_contains($pinnedText['stdout'], '- a: ' . package_payload($dir, 'a') . '/manifest.json')
+        && str_contains($pinnedText['stdout'], '- b: ' . package_payload($dir, 'b') . '/manifest.json')
+        && str_contains($pinnedText['stdout'], "- core: $dir/platform/adapter-library/core/manifest.json"),
     'and text mode prints those paths under the failure, not only in the JSON report'
 );
 
@@ -877,7 +1036,7 @@ check(
 );
 $report = report(duo([$dir, '--all', '--format=json']));
 check(
-    ($report['pinned_set']['names'] ?? null) === ['a', 'b'],
+    ($report['pinned_set']['names'] ?? null) === ['a', 'b', 'core'],
     '--all is the explicit spelling of the default pin set'
 );
 
@@ -991,7 +1150,7 @@ check(
 // set — sixteen "your manifest is broken" rows for one broken line that is in
 // none of them.
 $badSite = site_repo(['tables' => ['site_rooms' => ['class' => 'not_a_class']]], ['a', 'b']);
-$result = duo([$repo . '/manifests', '--site=' . $badSite]);
+$result = duo([$repo, '--site=' . $badSite]);
 check(
     $result['exit'] === 2
         && str_starts_with($result['stderr'], 'duo: manifest-validate: ')
@@ -1004,21 +1163,23 @@ check(
     'exactly one report and exactly one copy of the site\'s refusal — no per-manifest rows were produced at all'
 );
 
-// --- the pre-flight's empty-pin load still walks the manifests directory, so
-// a defect THERE also surfaces through it. That refusal must not wear the
-// --site headline: the site file is fine, and blaming it sends the author to
-// the wrong file.
-$dir = fixtures([
-    'a' => manifest_a(),
-    'dispositions' => ['format' => 'duo-dispositions/v1'],
-]);
+// --- A package-local disposition is lazy by adapter name, so the empty-pin
+// site pre-flight does not decode it. Its failure belongs to that adapter's
+// row, never to the --site input: the site file is fine, and blaming it sends
+// the author to the wrong file.
+$dir = fixtures(['a' => manifest_a()]);
+Canon::write_file(
+    package_payload($dir, 'a') . '/disposition.json',
+    Canon::encode(['format' => 'duo-dispositions/v1'])
+);
 $goodSite = site_repo(['tables' => new \stdClass()], ['a']);
-$result = duo([$dir, '--site=' . $goodSite]);
+$result = duo([$dir, '--site=' . $goodSite, '--format=json']);
+$badDispositionReport = report($result);
 check(
-    $result['exit'] === 2
-        && !str_contains($result['stderr'], 'site.duo.json this command cannot load')
-        && str_contains($result['stderr'], 'dispositions'),
-    'a broken MANIFESTS DIR surfacing through the site pre-flight is reported unprefixed — the --site headline is reserved for defects the engine attributes to site.duo.json'
+    $result['exit'] === 1
+        && $result['stderr'] === ''
+        && str_contains((string) (row($badDispositionReport, 'a')['message'] ?? ''), "manifest disposition 'a'"),
+    'a broken package disposition is reported on its adapter row — the --site headline is reserved for defects the engine attributes to site.duo.json'
 );
 
 // ======================================================================
@@ -1036,16 +1197,16 @@ check(
     'a manifest whose declared regenerator file is present, and defines the contract class, still loads clean'
 );
 
-unlink("$dir/regenerators/acme-a.php");
+$regenerator = package_payload($dir, 'a') . '/runtime/regenerators/acme-a.php';
+unlink($regenerator);
 $result = duo([$dir, '--format=json']);
-$report = report($result);
 check(
-    $result['exit'] === 1
-        && str_contains((string) (row($report, 'a')['message'] ?? ''), "wants regenerator 'acme-a' but $dir/regenerators/acme-a.php is missing"),
-    'a declared regenerator with no file is an ordinary per-manifest error naming the exact path it looked for'
+    $result['exit'] === 2
+        && str_contains($result['stderr'], 'runtime coverage disagrees in regenerators; missing=[acme-a]'),
+    'a declared regenerator with no file is a closed-package refusal before any manifest is judged'
 );
 
-file_put_contents("$dir/regenerators/acme-a.php", "<?php\nnamespace Duo\\Regenerators;\nfinal class NotAcmeA {}\n");
+file_put_contents($regenerator, "<?php\nnamespace Duo\\Regenerators;\nfinal class NotAcmeA {}\n");
 $result = duo([$dir, '--format=json']);
 $report = report($result);
 check(
@@ -1055,16 +1216,16 @@ check(
 );
 
 $withInterpreter = fixtures(['b' => solo_b(['interpreter' => 'acme-int'])]);
+$interpreterDir = package_payload($withInterpreter, 'b') . '/runtime/interpreters';
+unlink("$interpreterDir/acme-int.php");
 $result = duo([$withInterpreter, '--format=json']);
-$report = report($result);
 check(
-    $result['exit'] === 1
-        && str_contains((string) (row($report, 'b')['message'] ?? ''), "wants interpreter 'acme-int' but $withInterpreter/interpreters/acme-int.php is missing"),
-    'the same for a declared interpreter with no file — named at load, not at the first meta lookup on a live target'
+    $result['exit'] === 2
+        && str_contains($result['stderr'], 'runtime coverage disagrees in interpreters; missing=[acme-int]'),
+    'the same for a declared interpreter with no file — refused by the closed package inventory'
 );
 
-mkdir("$withInterpreter/interpreters", 0777, true);
-file_put_contents("$withInterpreter/interpreters/acme-int.php", "<?php\nnamespace Duo\\Interpreters;\nfinal class Wrong {}\n");
+file_put_contents("$interpreterDir/acme-int.php", "<?php\nnamespace Duo\\Interpreters;\nfinal class Wrong {}\n");
 $result = duo([$withInterpreter, '--format=json']);
 $report = report($result);
 check(
@@ -1074,7 +1235,7 @@ check(
 );
 
 file_put_contents(
-    "$withInterpreter/interpreters/acme-int.php",
+    "$interpreterDir/acme-int.php",
     "<?php\nnamespace Duo\\Interpreters;\nfinal class AcmeInt {\n"
         . "    public function __construct(private object \$policy) {}\n"
         . "    public function post_meta_rule(string \$key, array \$allMeta): ?array { return null; }\n}\n"
@@ -1097,9 +1258,9 @@ echo "\n== --no-code: the trust boundary that resolution creates, and the escape
 // must still trip the marker), and --no-code must not.
 $evilDir = fixtures(['b' => solo_b(['interpreter' => 'acme-evil'])]);
 $marker = $evilDir . '/EVIL_RAN';
-mkdir("$evilDir/interpreters", 0777, true);
+$evilInterpreterDir = package_payload($evilDir, 'b') . '/runtime/interpreters';
 file_put_contents(
-    "$evilDir/interpreters/acme-evil.php",
+    "$evilInterpreterDir/acme-evil.php",
     "<?php\nnamespace Duo\\Interpreters;\n"
         . "file_put_contents('" . $marker . "', 'top level ran');\n"
         . "final class AcmeEvil {\n"
@@ -1157,23 +1318,25 @@ check(
 $result = duo([$evilDir, '--no-code', '--manifest=b', '--format=json']);
 check($result['exit'] === 0, '--no-code composes with the ordinary selection flags');
 $missingRegen = fixtures(['a' => manifest_a()]);
-unlink("$missingRegen/regenerators/acme-a.php");
-$report = report(duo([$missingRegen, '--no-code', '--format=json']));
+unlink(package_payload($missingRegen, 'a') . '/runtime/regenerators/acme-a.php');
+$missingNoCode = duo([$missingRegen, '--no-code', '--format=json']);
 check(
-    (row($report, 'a')['status'] ?? null) === 'ok',
-    'a missing regenerator file passes under --no-code — which is precisely why the skip is reported: the flag really does buy less checking, not the same checking more safely'
+    $missingNoCode['exit'] === 2
+        && str_contains($missingNoCode['stderr'], 'runtime coverage disagrees in regenerators'),
+    '--no-code skips execution and contract checks, not the package inventory proof that declared code exists'
 );
-$report = report(duo([$missingRegen, '--format=json']));
+$missingDefault = duo([$missingRegen, '--format=json']);
 check(
-    (row($report, 'a')['status'] ?? null) === 'error',
-    'and the identical directory still fails without the flag, so the default has not quietly become the weaker one'
+    $missingDefault['exit'] === 2
+        && $missingDefault['stderr'] === $missingNoCode['stderr'],
+    'and the identical closed-package refusal fires before either code-resolution mode can diverge'
 );
 
 // ======================================================================
 echo "\n== acceptance 2: the deferred list is emitted on EVERY run, so silence never reads as validity ==\n";
 
 foreach ([
-    'a passing run' => duo([$repo . '/manifests', '--format=json']),
+    'a passing run' => duo([$repo, '--format=json']),
     'a failing run' => duo([fixtures(['b' => manifest_b(['tables' => ['acme_b_slots' => ['class' => 'nope']]])]), '--format=json']),
 ] as $label => $result) {
     $deferred = report($result)['deferred'] ?? [];
@@ -1187,7 +1350,7 @@ foreach ([
     }
     check($allDeferred, "$label reports every deferred check with its engine symbol, its surface, and why it cannot be answered offline (" . count($deferred) . ' entries)');
 }
-$text = duo([$repo . '/manifests']);
+$text = duo([$repo]);
 check(
     str_contains($text['stdout'], 'deferred — NOT checked here')
         && substr_count($text['stdout'], '[deferred]') === count($shippedReport['deferred']),
@@ -1295,10 +1458,10 @@ check(
     'the coverage note is a list of exactly the four boundaries, not prose a consumer has to parse'
 );
 
-$emitWithDir = duo([$repo . '/manifests', '--emit-schema']);
+$emitWithDir = duo([$repo, '--emit-schema']);
 check(
     $emitWithDir['exit'] === 2 && str_contains($emitWithDir['stderr'], 'duo: manifest-validate:'),
-    '--emit-schema refuses a manifests dir rather than implying the grammar came from those files'
+    '--emit-schema refuses an adapter library rather than implying the grammar came from those files'
 );
 
 // ======================================================================
@@ -2286,8 +2449,7 @@ $patternDir = fixtures(['b' => solo_b([
     'post_meta_patterns' => [['match' => '^acme_b_post_pat_', 'class' => 'authored']],
     'meta_patterns' => [['match' => '^acme_b_shared_meta_pat_', 'class' => 'authored']],
 ])]);
-putenv('DUO_MANIFESTS_DIR=' . $patternDir);
-$patternPolicy = Policy::load(null, ['b']);
+$patternPolicy = Policy::load(null, ['b'], false, null, AdapterLibrary::fromSourceTree($patternDir));
 $resolvers = [
     'options' => static fn(string $name): ?array => $patternPolicy->option_rule($name),
     'post_meta' => static fn(string $name): ?array => $patternPolicy->meta_rule_for_post($name, []),
@@ -2323,15 +2485,12 @@ $swappedDir = fixtures(['b' => solo_b([
     // The option pattern moved under the meta key, and nothing else changed.
     'meta_patterns' => [['match' => '^acme_b_option_pat_', 'class' => 'authored']],
 ])]);
-putenv('DUO_MANIFESTS_DIR=' . $swappedDir);
-$swappedPolicy = Policy::load(null, ['b']);
+$swappedPolicy = Policy::load(null, ['b'], false, null, AdapterLibrary::fromSourceTree($swappedDir));
 check(
     $swappedPolicy->option_rule('acme_b_option_pat_1') === null
         && $swappedPolicy->meta_rule_for_post('acme_b_option_pat_1', []) !== null,
     'and the published mapping is the WHOLE mapping: the same pattern under the other section\'s key resolves for that section and not for this one'
 );
-putenv('DUO_MANIFESTS_DIR');
-
 foreach (NativeActions::vocabulary() as $action) {
     $args = $action === 'transient.delete' ? ['name' => 'acme_b'] : [];
     accepts(
@@ -2452,28 +2611,28 @@ echo "\n== exit codes and the command's own fail-closed paths ==\n";
 foreach ([
     'no arguments at all' => [],
     'a directory that does not exist' => [sys_get_temp_dir() . '/duo-no-such-manifests-dir'],
-    'a path that is a file, not a directory' => [$repo . '/manifests/core.json'],
-    'an unsupported flag' => [$repo . '/manifests', '--strict'],
-    'an unsupported --format' => [$repo . '/manifests', '--format=yaml'],
-    'two positional directories' => [$repo . '/manifests', $repo . '/manifests'],
-    '--pins together with --all' => [$repo . '/manifests', '--pins=core', '--all'],
-    'a repeated --pins' => [$repo . '/manifests', '--pins=core', '--pins=woocommerce'],
-    'a repeated --format' => [$repo . '/manifests', '--format=json', '--format=json'],
-    '--manifest with an empty list' => [$repo . '/manifests', '--manifest='],
-    '--manifest naming a manifest the directory does not have' => [$repo . '/manifests', '--manifest=not-a-manifest'],
-    '--pins naming a manifest the directory does not have' => [$repo . '/manifests', '--pins=not-a-manifest'],
-    '--site with an empty value' => [$repo . '/manifests', '--site='],
-    '--site pointing at a path that does not exist' => [$repo . '/manifests', '--site=' . sys_get_temp_dir() . '/duo-no-such-site-repo'],
+    'a path that is a file, not a directory' => [$repo . '/platform/adapter-library/core/manifest.json'],
+    'an unsupported flag' => [$repo, '--strict'],
+    'an unsupported --format' => [$repo, '--format=yaml'],
+    'two positional directories' => [$repo, $repo],
+    '--pins together with --all' => [$repo, '--pins=core', '--all'],
+    'a repeated --pins' => [$repo, '--pins=core', '--pins=woocommerce'],
+    'a repeated --format' => [$repo, '--format=json', '--format=json'],
+    '--manifest with an empty list' => [$repo, '--manifest='],
+    '--manifest naming a manifest the library does not have' => [$repo, '--manifest=not-a-manifest'],
+    '--pins naming a manifest the library does not have' => [$repo, '--pins=not-a-manifest'],
+    '--site with an empty value' => [$repo, '--site='],
+    '--site pointing at a path that does not exist' => [$repo, '--site=' . sys_get_temp_dir() . '/duo-no-such-site-repo'],
     // The most likely mistake, and the one worth refusing loudest: a directory
     // that exists but is not a site repo would otherwise fail every manifest
     // row with the engine's "not a duo site repo?" message, which reads as
     // "your manifests are broken".
-    '--site pointing at a directory with no site.duo.json' => [$repo . '/manifests', '--site=' . $repo . '/manifests'],
-    'a repeated --site' => [$repo . '/manifests', '--site=' . $repo, '--site=' . $repo],
+    '--site pointing at a directory with no site.duo.json' => [$repo, '--site=' . $repo . '/adapter-packages'],
+    'a repeated --site' => [$repo, '--site=' . $repo, '--site=' . $repo],
     '--emit-schema together with --site' => ['--emit-schema', '--site=' . $repo],
     // A trust flag is the last place last-wins is acceptable, and the grammar
     // document has no code half to skip in the first place.
-    'a repeated --no-code' => [$repo . '/manifests', '--no-code', '--no-code'],
+    'a repeated --no-code' => [$repo, '--no-code', '--no-code'],
     '--emit-schema together with --no-code' => ['--emit-schema', '--no-code'],
 ] as $label => $args) {
     $result = duo($args);
@@ -2483,16 +2642,21 @@ foreach ([
     );
 }
 
-$emptyDir = fixtures([]);
+$emptyDir = sys_get_temp_dir() . '/duo_regress_manifest_validate_empty_' . bin2hex(random_bytes(4));
+mkdir($emptyDir, 0777, true);
+register_shutdown_function(static function () use ($emptyDir): void {
+    @rmdir($emptyDir);
+});
 $result = duo([$emptyDir]);
 check(
-    $result['exit'] === 2 && str_contains($result['stderr'], 'contains no manifest'),
-    'a directory with no manifests is an IO refusal, never a vacuous "0 checked, 0 errors" pass'
+    $result['exit'] === 2 && str_contains($result['stderr'], 'dispositions directory'),
+    'an incomplete historical flat library is an IO refusal, never a vacuous "0 checked, 0 errors" pass'
 );
 
 $unreadableDir = fixtures(['a' => manifest_a(), 'b' => manifest_b()]);
-chmod("$unreadableDir/b.json", 0000);
-if (is_readable("$unreadableDir/b.json")) {
+$unreadableManifest = package_payload($unreadableDir, 'b') . '/manifest.json';
+chmod($unreadableManifest, 0000);
+if (is_readable($unreadableManifest)) {
     // Running as a user that ignores the mode bits (root, or a filesystem that
     // does not honor them). Say so rather than reporting a check that was never
     // actually performed.
@@ -2500,13 +2664,15 @@ if (is_readable("$unreadableDir/b.json")) {
 } else {
     $result = duo([$unreadableDir]);
     check(
-        $result['exit'] === 2 && str_contains($result['stderr'], 'is not readable'),
+        $result['exit'] === 2
+            && str_contains($result['stderr'], 'not a readable regular file')
+            && str_contains($result['stderr'], $unreadableManifest),
         'an unreadable manifest file is an IO refusal (exit 2), named by path — never a silently skipped manifest'
     );
 }
-chmod("$unreadableDir/b.json", 0644);
+chmod($unreadableManifest, 0644);
 
-$result = duo([$repo . '/manifests', '--format=json']);
+$result = duo([$repo, '--format=json']);
 check($result['exit'] === 0 && $result['stderr'] === '', 'a clean run writes nothing to stderr and exits 0');
 
 // ======================================================================
@@ -2545,13 +2711,16 @@ check(
 );
 
 echo "\n== the site copy of a SHIPPED name: an unstated override is a typed stop naming the pin verb (T6 walk S4) ==\n";
-// An operator building an override copies manifests/woocommerce.json into
-// adapters/, edits it, and validates — before stating the override in
+// An operator building an override copies the packaged WooCommerce manifest
+// into adapters/, edits it, and validates — before stating the override in
 // site.duo.json. That is the shadow refusal, and it is the documented stop:
 // the loader refuses the whole site source, so no manifest is judged. What
 // this command owes the author is the reason CODE and the remediation that
 // names `duo adapter pin … --source=site`, not only "rename or remove".
-$shipped = json_decode((string) file_get_contents($repo . '/manifests/woocommerce.json'), true);
+$shipped = json_decode(
+    (string) file_get_contents($repo . '/adapter-packages/woocommerce/package/manifest.json'),
+    true
+);
 $shipped['options']['woocommerce_store_address_2'] = ['autoload' => 'preserve', 'class' => 'authored'];
 $overrideSite = site_repo([], ['core', 'woocommerce']);
 mkdir($overrideSite . '/adapters', 0777, true);

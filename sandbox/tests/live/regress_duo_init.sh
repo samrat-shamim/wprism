@@ -270,43 +270,48 @@ assert_init_plan() {
 # claim source and no branch state can expire them, so the mounted library is a
 # straight hermetic COPY (sandbox/tests/offline/adapter/certification_fixture.php, shared with
 # regress_adapter_sources.php). What is kept from that episode is the mount
-# discipline: this pair still never mounts the primary checkout's own manifest
-# directory, so nothing a case does can reach the shipped bytes.
+# discipline: this pair still never mounts the primary checkout's own package
+# or platform directory, so nothing a case does can reach the shipped bytes.
 #
 # Manufactured and asserted BEFORE the first Docker mutation, and never on the
 # shipped library: a fixture whose manufacture silently failed would report the
 # ENGINE as broken (DUO-3381's premise-before-behavior family).
-say "manufacture the hermetic manifest library this pair will mount"
-SHIPPED_LIBRARY_BEFORE=$(library_digest "$REPO_ROOT/manifests")
+say "manufacture the hermetic source adapter library this pair will mount"
+SHIPPED_PACKAGES_BEFORE=$(library_digest "$REPO_ROOT/adapter-packages")
+SHIPPED_PLATFORM_BEFORE=$(library_digest "$REPO_ROOT/platform")
 rm -rf "$HERMETIC_ROOT"
-HERMETIC_MANIFESTS=$(php sandbox/tests/offline/adapter/certification_fixture.php "$HERMETIC_ROOT") \
-  || fail "fixture manufacture failed: could not build a hermetic manifest library under $HERMETIC_ROOT"
-[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
-  || fail "fixture manufacture failed: hermetic library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
+HERMETIC_SOURCE=$(php sandbox/tests/offline/adapter/certification_fixture.php --source-tree "$HERMETIC_ROOT") \
+  || fail "fixture manufacture failed: could not build a hermetic source adapter library under $HERMETIC_ROOT"
+[ "$HERMETIC_SOURCE" = "$HERMETIC_ROOT" ] \
+  || fail "fixture manufacture failed: hermetic source landed at $HERMETIC_SOURCE, not at this run's owned scratch"
 jq -e -s '[.[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
-  "$HERMETIC_MANIFESTS"/dispositions/*.json >/dev/null \
+  "$HERMETIC_SOURCE"/adapter-packages/*/package/disposition.json >/dev/null \
   || fail "fixture manufacture failed: a certified disposition cites no evidence"
 jq -e '.format == "duo-platform-boundary/v1"' \
-  "$HERMETIC_MANIFESTS/capabilities/platform.json" >/dev/null \
+  "$HERMETIC_SOURCE/platform/adapter-library/capabilities/platform.json" >/dev/null \
   || fail "fixture manufacture failed: the hermetic library has no platform boundary"
-diff -r "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null \
+diff -r "$REPO_ROOT/adapter-packages" "$HERMETIC_SOURCE/adapter-packages" >/dev/null \
+  || fail "fixture manufacture failed: the hermetic adapter packages are not shipped bytes"
+diff -r "$REPO_ROOT/platform" "$HERMETIC_SOURCE/platform" >/dev/null \
   || fail "fixture manufacture failed: the hermetic library is not the shipped library byte for byte"
-[ "$SHIPPED_LIBRARY_BEFORE" = "$(library_digest "$REPO_ROOT/manifests")" ] \
-  || fail "fixture manufacture failed: building the fixture modified the shipped manifest library"
-pass "hermetic manifest library built at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
+[ "$SHIPPED_PACKAGES_BEFORE" = "$(library_digest "$REPO_ROOT/adapter-packages")" ] \
+  && [ "$SHIPPED_PLATFORM_BEFORE" = "$(library_digest "$REPO_ROOT/platform")" ] \
+  || fail "fixture manufacture failed: building the fixture modified the shipped source adapter library"
+pass "hermetic source adapter library built at $HERMETIC_SOURCE (shipped bytes unchanged)"
 
 # pair.sh deliberately binds durable pairs to the primary checkout, and
-# pair_compose_configure() re-resolves DUO_AGENT_SRC/DUO_MANIFESTS_SRC from the canonical
+# pair_compose_configure() re-resolves all three source mounts from the canonical
 # root inside its own process for exactly that reason — so the long-lived wp1/
 # wp2 web containers it creates below mount the canonical agent and library no
 # matter what this suite exports, and nothing here tries to change that. This
 # pair is disposable evidence for the current issue worktree, so every CLI
-# invocation the suite actually drives is an ephemeral `run --rm` container,
-# which resolves these two from the environment: this checkout's agent, and the
-# hermetic library sealed above. Exported before bring-up so the mount source
+# invocation the suite actually drives is an ephemeral `run --rm` container;
+# it resolves this checkout's agent plus the hermetic package and platform
+# siblings from the environment. Exported before bring-up so the mount source
 # is fixed and asserted before the first container exists.
 export DUO_AGENT_SRC="$REPO_ROOT/agent"
-export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
+export DUO_ADAPTER_PACKAGES_SRC="$HERMETIC_SOURCE/adapter-packages"
+export DUO_PLATFORM_SRC="$HERMETIC_SOURCE/platform"
 
 say "boot disposable authenticated Docker target on owned ports $PORT1/$PORT2"
 unset DUO_CLI_IMAGE || true
@@ -327,7 +332,6 @@ wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 git1() { "${COMPOSE[@]}" run --rm -T --entrypoint git cli1 -C /siterepo "$@"; }
 PAIR_COMPOSE=("${COMPOSE[@]}")
-export DUO_ARTIFACT_LOCKFILE="$REPO_ROOT/sandbox/conformance/artifacts.lock.json"
 # shellcheck source=../../bin/fetch-artifact.sh
 . "$REPO_ROOT/sandbox/bin/fetch-artifact.sh"
 repo_host() { bash sandbox/bin/pair.sh repo-host "$PAIR" "$1" >/dev/null; }
@@ -1452,12 +1456,12 @@ say "the host holds the release archives the golden path will lock against"
 # downloads.wordpress.org one, because a wp-org-release's identity is its
 # canonical url plus its archive digest, never the host that served it. The
 # archive_sha256 assertion below is what proves that -- it must equal
-# conformance/artifacts.lock.json's own pin for this release.
+# the WooCommerce capsule's own artifact pin for this release.
 rm -rf "$CODE_MIRROR"
 mkdir -p "$CODE_MIRROR/plugin" "$CODE_MIRROR/cache" "$CODE_MIRROR/cache-empty"
 "${COMPOSE[@]}" run --rm -T -u root --entrypoint cat cli1 "$WOO_ARTIFACT" \
   >"$CODE_MIRROR/plugin/woocommerce.11.0.0.zip"
-WOO_PINNED_SHA256=$(jq -r '.plugins.woocommerce."11.0.0".sha256' "$DUO_ARTIFACT_LOCKFILE")
+WOO_PINNED_SHA256=$(artifact_library_jq -r '.plugins.woocommerce."11.0.0".sha256')
 [[ "$WOO_PINNED_SHA256" =~ ^[0-9a-f]{64}$ ]] \
   || fail "the artifact lock has no usable WooCommerce 11.0.0 digest pin"
 [ "$(sha256sum "$CODE_MIRROR/plugin/woocommerce.11.0.0.zip" | awk '{print $1}')" = "$WOO_PINNED_SHA256" ] \

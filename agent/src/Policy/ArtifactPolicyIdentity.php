@@ -83,7 +83,7 @@ final class ArtifactPolicyIdentity {
             ];
             $interpreter = $manifest['interpreter'] ?? null;
             if (is_string($interpreter) && $interpreter !== '') {
-                $file = Policy::manifests_dir() . '/interpreters/' . basename($interpreter) . '.php';
+                $file = $policy->adapter_runtime_path($name, 'interpreters', basename($interpreter));
                 $row['interpreter'] = [
                     'name' => $interpreter,
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
@@ -101,7 +101,7 @@ final class ArtifactPolicyIdentity {
                 if ($id === '') {
                     continue;
                 }
-                $file = Policy::manifests_dir() . '/providers/' . basename($id) . '.php';
+                $file = $policy->adapter_runtime_path($name, 'providers', basename($id));
                 $providerHashes[] = [
                     'id' => $id,
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
@@ -124,7 +124,7 @@ final class ArtifactPolicyIdentity {
                     continue;
                 }
                 $seenRegenerators[$regenerator] = true;
-                $file = Policy::manifests_dir() . '/regenerators/' . basename($regenerator) . '.php';
+                $file = $policy->adapter_runtime_path($name, 'regenerators', basename($regenerator));
                 $regeneratorHashes[] = [
                     'name' => $regenerator,
                     'sha256' => is_file($file) ? hash_file('sha256', $file) : null,

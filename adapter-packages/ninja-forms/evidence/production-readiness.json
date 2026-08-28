@@ -1,0 +1,80 @@
+{
+  "format": "duo-adapter-production-readiness-record/v1",
+  "adapter": "ninja-forms",
+  "readiness": "ready",
+  "covered": {
+    "contract-dependency": [
+      "adapter-packages/ninja-forms/package/manifest.json",
+      "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php",
+      "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php",
+      "adapter-packages/ninja-forms/evidence/artifacts.lock.json",
+      "adapter-packages/ninja-forms/tests/certify/version-matrix.sh",
+      "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_form_cache_provider.php",
+      "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_production_readiness.php"
+    ],
+    "clean-target": [
+      "adapter-packages/ninja-forms/tests/conformance/entry.json",
+      "adapter-packages/ninja-forms/tests/conformance/seed.sh",
+      "adapter-packages/ninja-forms/tests/conformance/check.sh"
+    ],
+    "dirty-target": [
+      "adapter-packages/ninja-forms/tests/conformance/postdeploy.sh",
+      "adapter-packages/ninja-forms/tests/conformance/check.sh"
+    ],
+    "identity-references": [
+      "adapter-packages/ninja-forms/tests/conformance/seed.sh",
+      "adapter-packages/ninja-forms/tests/conformance/postdeploy.sh",
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "adapter-packages/ninja-forms/tests/certify/version-matrix.sh"
+    ],
+    "native-behavior": [
+      "adapter-packages/ninja-forms/tests/conformance/seed.sh",
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "adapter-packages/ninja-forms/tests/certify/version-matrix.sh"
+    ],
+    "derived-state": [
+      "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php",
+      "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_form_cache_provider.php",
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "adapter-packages/ninja-forms/tests/certify/version-matrix.sh"
+    ],
+    "deletion": [
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php",
+      "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_production_readiness.php"
+    ],
+    "failure-recovery": [
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_form_cache_provider.php",
+      "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"
+    ],
+    "concurrency-idempotence": [
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "sandbox/tests/live/regress_capture_concurrency.sh"
+    ],
+    "lifecycle": [
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "adapter-packages/ninja-forms/tests/certify/version-matrix.sh"
+    ],
+    "data-boundary": [
+      "adapter-packages/ninja-forms/package/manifest.json",
+      "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php",
+      "adapter-packages/ninja-forms/tests/conformance/seed.sh",
+      "adapter-packages/ninja-forms/tests/conformance/postdeploy.sh",
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_form_cache_provider.php",
+      "adapter-packages/ninja-forms/tests/offline/regress_ninja_forms_production_readiness.php"
+    ],
+    "scope-platform": [
+      "adapter-packages/ninja-forms/package/manifest.json",
+      "adapter-packages/ninja-forms/package/runtime/interpreters/ninja-forms.php",
+      "adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php",
+      "adapter-packages/ninja-forms/tests/conformance/check.sh",
+      "adapter-packages/ninja-forms/tests/certify/version-matrix.sh",
+      "sandbox/tests/live/regress_multisite_refusal.sh"
+    ]
+  },
+  "gaps": {},
+  "blocked": {},
+  "not_applicable": {}
+}

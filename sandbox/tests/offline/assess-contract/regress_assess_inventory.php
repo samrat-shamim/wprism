@@ -128,7 +128,7 @@ register_shutdown_function(static function () use ($scratch): void {
 });
 $repo = $scratch . '/repo';
 
-// The real shipped library: Policy::manifests_dir() already resolves to it,
+// The real shipped library: Policy resolves one closed source/embedded object,
 // so the pinned adapter row, its digest and its reviewed status are the real
 // registry's answers rather than a fixture's idea of them.
 file_put_contents($repo . '/site.duo.json', json_encode([
@@ -220,7 +220,12 @@ for ($i = 0; $i < 52; $i++) {
 }
 
 $survey = [
-    'sources' => [['source' => 'shipped', 'path' => Policy::manifests_dir(), 'scanned' => true, 'note' => 'fixture']],
+    'sources' => [[
+        'source' => 'shipped',
+        'path' => Policy::shipped_adapter_library()->root(),
+        'scanned' => true,
+        'note' => 'fixture',
+    ]],
     'adapters' => [['name' => 'core', 'source' => 'shipped', 'grammar' => ['status' => 'ok', 'message' => null]]],
     'not_installed' => [],
     'refusals' => [],
@@ -579,7 +584,10 @@ duo_check(!\Duo\InitPlanner::is_adoption_seed($siteRepo), 'a repository pinning 
 [$seedPolicy, $seedAdoption] = AssessInventory::policy_for_assessment($siteRepo);
 duo_check($seedAdoption === null && $seedPolicy instanceof Policy, 'policy_for_assessment() on an init-owned repository returns its own policy and no adoption block');
 duo_check_same(
-    (string) (json_decode((string) file_get_contents($repoRoot . '/manifests/dispositions/core.json'), true)['status'] ?? ''),
+    (string) (json_decode(
+        (string) file_get_contents($repoRoot . '/platform/adapter-library/core/disposition.json'),
+        true
+    )['status'] ?? ''),
     $manifestRow['status'],
     'status is the reviewed disposition status, quoted'
 );
@@ -734,8 +742,10 @@ duo_check(
     'the verb routes its refusals through the shared duo-command-refusal/v1 envelope'
 );
 duo_check(
-    str_contains($cli, '[--manifests=<dir>]') && str_contains($cli, "putenv('DUO_MANIFESTS_DIR')"),
-    'the verb accepts a manifest library selector and restores the previous one'
+    str_contains($cli, '[--manifests=<dir>]')
+        && str_contains($cli, 'AdapterLibrary::fromLegacyFlatDirectory($dir)')
+        && !str_contains($cli, "putenv('DUO_MANIFESTS_DIR')"),
+    'the verb accepts an explicit legacy library object without repointing process-global runtime state'
 );
 duo_check(
     substr_count($cli, 'public function assess_inventory(') === 1,
@@ -749,10 +759,8 @@ echo "\n== engine-adapter boundary: no plugin name inside agent/src/Assess/ ==\n
 // joins it without this file being edited. `core` is excluded: it is the
 // engine's own baseline manifest, not a third-party plugin.
 $forbidden = [];
-foreach (glob($repoRoot . '/manifests/*.json') ?: [] as $file) {
-    // No `dispositions.json` skip: WP-4.4 moved the reviewed claim source
-    // into manifests/dispositions/, which this glob does not match.
-    $manifest = json_decode((string) file_get_contents($file), true);
+foreach (Policy::shipped_adapter_library()->packages() as $package) {
+    $manifest = json_decode((string) file_get_contents($package->manifestPath()), true);
     if (!is_array($manifest)) {
         continue;
     }

@@ -282,6 +282,37 @@ SH;
     );
     unlink($temporaryLink);
 
+    $topologyMethod = new ReflectionMethod(BootstrapEligibilityReport::class, 'topologyScript');
+    $revocationMu = $root . '/revocation-mu';
+    $revocationRepo = $root . '/revocation-repo';
+    mkdir($revocationMu . '/manifests/capabilities', 0700, true);
+    $revocationBytes = "{\"format\":\"fixture-revocations\"}\n";
+    file_put_contents($revocationMu . '/manifests/capabilities/adapter-revocations.json', $revocationBytes);
+    $missingDurable = $transport->captureRaw(
+        (string) $topologyMethod->invoke(null, $wpRoot, $revocationMu, $revocationRepo)
+    );
+    local_bootstrap_ok(
+        $missingDurable['exit'] === 0 && trim($missingDurable['stdout']) === 'legacy_revocation_unmigrated',
+        'read-only eligibility refuses a legacy revocation without a durable control copy'
+    );
+    mkdir($revocationMu . '/duo-control', 0700);
+    file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', "mismatch\n");
+    $mismatchedDurable = $transport->captureRaw(
+        (string) $topologyMethod->invoke(null, $wpRoot, $revocationMu, $revocationRepo)
+    );
+    local_bootstrap_ok(
+        $mismatchedDurable['exit'] === 0 && trim($mismatchedDurable['stdout']) === 'legacy_revocation_unmigrated',
+        'read-only eligibility refuses a durable revocation with different bytes'
+    );
+    file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', $revocationBytes);
+    $matchedDurable = $transport->captureRaw(
+        (string) $topologyMethod->invoke(null, $wpRoot, $revocationMu, $revocationRepo)
+    );
+    local_bootstrap_ok(
+        $matchedDurable['exit'] === 0 && trim($matchedDurable['stdout']) === 'safe',
+        'the read-only filesystem probe accepts the byte-identical durable revocation bridge'
+    );
+
     $eligibility = BootstrapEligibilityReport::inspect($transport, 'fixture', 'local', $source);
     if (!$eligibility->ready()) {
         fwrite(STDERR, json_encode($eligibility->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
@@ -300,7 +331,9 @@ SH;
         static function () use (&$verifiedInsideTransaction, $mu, $repo): bool {
             $verifiedInsideTransaction = is_file($mu . '/duo/duo.php')
                 && is_file($mu . '/duo-loader.php')
-                && is_file($mu . '/manifests/core.json')
+                && is_file($mu . '/duo/adapter-library/platform/core/manifest.json')
+                && !file_exists($mu . '/manifests')
+                && !is_link($mu . '/manifests')
                 && is_file($repo . '/site.duo.json')
                 && is_file($repo . '/.duo/control/target.json')
                 && is_dir($repo . '/.duo/rollback');
@@ -315,8 +348,10 @@ SH;
     $wpLog = (string) file_get_contents($root . '/wp.log');
     local_bootstrap_ok(
         str_contains($wpLog, 'DUO_BOOTSTRAP_WPMU_PLUGIN_DIR')
-            && str_contains($wpLog, 'DUO_CONTROL_PLANE'),
-        'eligibility and post-swap verification both use isolated plugin-free WordPress bootstraps'
+            && str_contains($wpLog, 'DUO_CONTROL_PLANE')
+            && str_contains($wpLog, 'adapter_library_context')
+            && str_contains($wpLog, '/duo/adapter-library'),
+        'isolated post-swap verification proves the exact embedded adapter-library root'
     );
     local_bootstrap_ok(
         (\Duo\Recovery\RollbackControl::inspectReadOnly($repo . '/.duo/control')['quiescent'] ?? false) === true,

@@ -20,6 +20,7 @@ require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 require_once __DIR__ . '/../Review/Lint.php';
 require_once __DIR__ . '/../Review/LintTrustGate.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Publication/Publish.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../Scope/ScopedApply.php';
@@ -65,7 +66,8 @@ final class CapturePublicationWorkflow {
         ?string $initialConfigIdentity = null,
         ?callable $onInitialPayloadReady = null,
         ?array $scopeRequest = null,
-        ?string $hostEnvironment = null
+        ?string $hostEnvironment = null,
+        ?AdapterLibrary $adapterLibrary = null
     ): array {
         Canary::suppress_cron_spawn();
         // Policy's v1 single-site boundary must run before any destination
@@ -105,7 +107,7 @@ final class CapturePublicationWorkflow {
         if ($initialBaseline) {
             InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.duo.json', (string) $initialConfigIdentity);
         }
-        $policy = Policy::load($repo);
+        $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
         if ($initialBaseline) {
             InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.duo.json', (string) $initialConfigIdentity);
         }
@@ -251,7 +253,10 @@ final class CapturePublicationWorkflow {
                 // Recovery above is governed solely by its durable old
                 // intent/marker/receipt. Only after it is reconciled may the
                 // new contract bind the now-current source revision.
-                $scopedPrevious = RepositoryCompiler::compile_for_diff($repoPath, Policy::load($repoPath));
+                $scopedPrevious = RepositoryCompiler::compile_for_diff(
+                    $repoPath,
+                    Policy::load($repoPath, adapterLibrary: $adapterLibrary)
+                );
                 $scopeContract = ScopedCaptureProjector::contractForRequest(
                     $scopeRequest,
                     $scopedPrevious,
@@ -308,7 +313,10 @@ final class CapturePublicationWorkflow {
             // proof the previous revision's own priming was leaking forward
             // into the new one's classification instead of a fresh lookup.
             $previous = $scopedPrevious ?? (!$initialBaseline && is_dir($c->repo() . '/state')
-                ? RepositoryCompiler::compile_for_diff($c->repo(), Policy::load($repo))
+                ? RepositoryCompiler::compile_for_diff(
+                    $c->repo(),
+                    Policy::load($repo, adapterLibrary: $adapterLibrary)
+                )
                 : null);
             $previousOptions = $previous?->tree()['options/core']['data'] ?? null;
             $previousUserLogins = [];
@@ -331,7 +339,7 @@ final class CapturePublicationWorkflow {
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
                 $lock, $initialBaseline, $scoped, $scopeContract,
                 $scopeSourceTreeSha256, $repoPath, $onInitialPayloadReady,
-                $hostEnvironment,
+                $hostEnvironment, $adapterLibrary,
                 &$publicationPhase
             ): array {
                 // All map/state mutations which can happen while deciding
@@ -618,7 +626,7 @@ final class CapturePublicationWorkflow {
                         $candidate['media']
                     );
                     try {
-                        $currentPolicy = Policy::load($repoPath);
+                        $currentPolicy = Policy::load($repoPath, adapterLibrary: $adapterLibrary);
                         $currentSource = RepositoryCompiler::compile_for_diff(
                             $repoPath,
                             $currentPolicy,

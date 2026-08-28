@@ -17,7 +17,7 @@
  *   1. the null it computes is the SAME null the engine would compute — the
  *      verdict published per guard is `lock_index()`'s own return value, and
  *      an explanation that disagrees with it is refused rather than printed;
- *   2. computing that null decides NOTHING. `manifests/ninja-forms.json:17`
+ *   2. computing that null decides NOTHING. `adapter-packages/ninja-forms/package/manifest.json`
  *      records the conclusion in prose — "Duo … does not advertise
  *      table:nf3_forms deletion" — and that sentence was written by a human.
  *      This tool reproduces the FACT under it and must not be able to reach
@@ -207,8 +207,8 @@ echo "\n== 2. the Ninja Forms conclusion, as a COMPUTED null ==\n";
 // The proposal is not hand-typed: it is derived from the manifest's own
 // declared refs into nf3_form, which is exactly the reverse-reference set an
 // author writing `table:nf3_forms` guards would have to cover.
-$ninjaForms = json_decode((string) file_get_contents($repoRoot . '/manifests/ninja-forms.json'), true);
-duo_check(is_array($ninjaForms), 'manifests/ninja-forms.json is readable');
+$ninjaForms = json_decode((string) file_get_contents($repoRoot . '/adapter-packages/ninja-forms/package/manifest.json'), true);
+duo_check(is_array($ninjaForms), 'the Ninja Forms package manifest is readable');
 duo_check(
     !isset($ninjaForms['deletions']['table:nf3_forms']),
     'table:nf3_forms deletion is NOT declared — the prose conclusion this report reproduces the fact under'
@@ -309,10 +309,10 @@ duo_check(
 // --------------------------------------------------------------------------
 echo "\n== 3. the contrast: core's shipped, advertised guards compute an index ==\n";
 // --------------------------------------------------------------------------
-// Fed from manifests/core.json's own guards, unedited. A guard field added
+// Fed from the platform-owned core manifest's own guards, unedited. A guard field added
 // there that this report does not model fails here rather than in an author's
 // terminal — the closed GUARD_KEYS set is checked against the shipped set.
-$core = json_decode((string) file_get_contents($repoRoot . '/manifests/core.json'), true);
+$core = json_decode((string) file_get_contents($repoRoot . '/platform/adapter-library/core/manifest.json'), true);
 $postGuards = $core['deletions']['post:post']['guards'] ?? [];
 duo_check_same(
     ['comments.comment_post_ID', 'posts.post_parent'],

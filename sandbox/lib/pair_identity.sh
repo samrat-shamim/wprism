@@ -43,7 +43,9 @@ pair_identity_export_source_mounts() {
   fi
   PAIR_SOURCE_ROOT="$root"
   export PAIR_SOURCE_ROOT
-  export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
+  export DUO_AGENT_SRC="$root/agent"
+  export DUO_ADAPTER_PACKAGES_SRC="$root/adapter-packages"
+  export DUO_PLATFORM_SRC="$root/platform"
 }
 
 pair_identity_validate_name() { # pair_identity_validate_name <name>

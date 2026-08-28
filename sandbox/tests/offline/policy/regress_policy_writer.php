@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/PolicyWriter.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -87,11 +88,10 @@ Canon::write_file($repo . '/site.duo.json', Canon::encode([
     'spec_version' => DUO_SPEC_VERSION,
     'policy' => $sitePolicy + ['post_types' => [], 'taxonomies' => []],
 ]));
-$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-putenv("DUO_MANIFESTS_DIR=$manifests");
+$adapterLibrary = \DuoTest\FrozenPolicy::adapterLibrary($manifests);
 
-$loadedPolicy = Policy::load($repo);
-$facade = Policy::export_manifest($repo, '^export_', 'facade-fixture');
+$loadedPolicy = Policy::load($repo, adapterLibrary: $adapterLibrary);
+$facade = Policy::export_manifest($repo, '^export_', 'facade-fixture', $adapterLibrary);
 $expectedFacade = PolicyWriter::export_manifest(
     $loadedPolicy->site['policy'],
     '^export_',
@@ -102,24 +102,20 @@ $expectedFacade = PolicyWriter::export_manifest(
 $check(Canon::encode($facade) === Canon::encode($expectedFacade),
     'Policy::export_manifest() delegates to PolicyWriter with byte-identical canonical output');
 file_put_contents($manifests . '/facade-fixture.json', Canon::encode($facade));
+$adapterLibrary = \DuoTest\FrozenPolicy::adapterLibrary($manifests);
 try {
-    Policy::load(null, ['facade-fixture']);
+    Policy::load(null, ['facade-fixture'], adapterLibrary: $adapterLibrary);
     $check(true, 'the facade export remains loadable through Policy::load()');
 } catch (Throwable $e) {
     $check(false, 'the facade export remains loadable through Policy::load() (threw: ' . $e->getMessage() . ')');
 }
 
 $assertThrows(
-    fn() => Policy::export_manifest($repo, '[', 'facade-fixture'),
+    fn() => Policy::export_manifest($repo, '[', 'facade-fixture', $adapterLibrary),
     "invalid --match regex '['",
     'Policy::export_manifest() preserves invalid match refusal through the facade'
 );
 
-if ($previousManifestsDir === false) {
-    putenv('DUO_MANIFESTS_DIR');
-} else {
-    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
-}
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
 foreach ($it as $file) {
     $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());

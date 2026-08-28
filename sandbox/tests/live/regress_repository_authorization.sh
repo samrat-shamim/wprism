@@ -49,7 +49,9 @@ jq -s '{format:"duo-options/v1",records:(
     stylesheet: {state:"present",autoload:"yes",value:"twentytwentyfive"},
     template: {state:"present",autoload:"yes",value:"twentytwentyfive"}
   }
-)}' ../manifests/core.json ../manifests/woocommerce.json ../manifests/ninja-forms.json \
+)}' ../platform/adapter-library/core/manifest.json \
+  ../adapter-packages/woocommerce/package/manifest.json \
+  ../adapter-packages/ninja-forms/package/manifest.json \
   > "$HOST_REPO/state/options/core.json"
 
 POST_UUID=11111111-1111-4111-8111-111111111111

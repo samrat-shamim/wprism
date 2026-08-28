@@ -69,6 +69,7 @@ foreach ([
         require_once $path;
     }
 }
+require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
 use Duo\Canon;
 use Duo\JsonRefs;
@@ -265,8 +266,25 @@ function write_fixture_inputs(string $root, ?array $manifest = null): void {
 
 function load_fixture_policy(string $root, ?array $manifest = null): Policy {
     write_fixture_inputs($root, $manifest);
-    putenv("DUO_MANIFESTS_DIR=$root/manifests");
-    return Policy::load($root);
+    return Policy::load(
+        $root,
+        adapterLibrary: manifest_fixture_adapter_library("$root/manifests")
+    );
+}
+
+/** Reconstruct one frozen case against exactly the fixture bytes it carries. */
+function load_fixture_snapshot(string $root, array $snapshot): Policy {
+    $libraryRoot = $root . '/frozen-' . bin2hex(random_bytes(6));
+    foreach ($snapshot['manifests'] ?? [] as $manifest) {
+        $name = (string) ($manifest['name'] ?? '');
+        if ($name !== '') {
+            put_json("$libraryRoot/$name.json", $manifest);
+        }
+    }
+    return Policy::from_snapshot(
+        $snapshot,
+        manifest_fixture_adapter_library($libraryRoot)
+    );
 }
 
 function post_front(string $uuid): array {
@@ -410,7 +428,6 @@ $tmp = sys_get_temp_dir() . '/duo3316-contract-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0777, true);
 register_shutdown_function(static function () use ($tmp): void {
     remove_tree($tmp);
-    putenv('DUO_MANIFESTS_DIR');
 });
 
 echo "\n== manifest load: valid full form + attached structured sidecar ==\n";
@@ -463,7 +480,7 @@ check(
 );
 
 echo "\n== normal/frozen policy loads ==\n";
-$frozen = Policy::from_snapshot($policy->export_snapshot());
+$frozen = load_fixture_snapshot($tmp, $policy->export_snapshot());
 check($frozen instanceof Policy, 'frozen Policy::from_snapshot accepts the same validated declaration');
 $frozenDescription = $frozen->description_refs_for_taxonomy('dks_term_relation');
 check(
@@ -494,7 +511,7 @@ check(
         === ['kind' => 'post'],
     'normal policy snapshot preserves the legacy description declaration bytes'
 );
-$legacyFrozen = Policy::from_snapshot($legacyPolicy->export_snapshot());
+$legacyFrozen = load_fixture_snapshot($tmp, $legacyPolicy->export_snapshot());
 $legacyFrozenRule = $legacyFrozen->description_refs_for_taxonomy('dks_term_relation');
 check(
     ($legacyFrozenRule['json_refs'][0]['path'] ?? null) === '$.*'
@@ -570,9 +587,11 @@ put_json("$tmp/manifests/{$second['name']}.json", $second);
 $twoManifestSite = fixture_site();
 $twoManifestSite['manifests'] = [$first['name'], $second['name']];
 put_json("$tmp/site.duo.json", $twoManifestSite);
-putenv("DUO_MANIFESTS_DIR=$tmp/manifests");
 expect_throw(
-    fn() => Policy::load($tmp),
+    fn() => Policy::load(
+        $tmp,
+        adapterLibrary: manifest_fixture_adapter_library("$tmp/manifests")
+    ),
     'conflicting duplicate taxonomy description reference grammars are refused at manifest load'
 );
 
@@ -650,7 +669,7 @@ expect_throw(fn() => load_fixture_policy($tmp, $invalid), 'malformed attached ke
 echo "\n== frozen-policy refusal mirrors normal load ==\n";
 $snapshot = $policy->export_snapshot();
 $snapshot['manifests'][0]['taxonomies']['dks_term_relation']['object_keyspace'] = 'comment';
-expect_throw(fn() => Policy::from_snapshot($snapshot), 'frozen policy refuses an invalid object_keyspace before consumers run');
+expect_throw(fn() => load_fixture_snapshot($tmp, $snapshot), 'frozen policy refuses an invalid object_keyspace before consumers run');
 
 $snapshot = $policy->export_snapshot();
 $snapshot['manifests'][0]['taxonomies']['dks_term_relation']['description_refs'] = [
@@ -658,7 +677,7 @@ $snapshot['manifests'][0]['taxonomies']['dks_term_relation']['description_refs']
     'key_refs' => ['path' => '$.links.by_term', 'kind' => 'term'],
 ];
 expect_throw(
-    fn() => Policy::from_snapshot($snapshot),
+    fn() => load_fixture_snapshot($tmp, $snapshot),
     'frozen policy refuses a json_refs scalar path that is an ancestor of a key_refs map path'
 );
 
@@ -669,7 +688,7 @@ $conflictingFrozen['taxonomies']['dks_term_relation']['description_refs']['key_r
 $snapshot['site']['manifests'] = ['duo3316-fixture', 'duo3316-conflicting-description'];
 $snapshot['manifests'][] = $conflictingFrozen;
 expect_throw(
-    fn() => Policy::from_snapshot($snapshot),
+    fn() => load_fixture_snapshot($tmp, $snapshot),
     'frozen policy refuses conflicting duplicate taxonomy description reference grammars'
 );
 
@@ -678,7 +697,7 @@ $snapshot['manifests'][0]['options']['dks_structured_option']['json_refs'] = [
     ['path' => '$.term_id', 'kind' => 'term'],
 ];
 expect_throw(
-    fn() => Policy::from_snapshot($snapshot),
+    fn() => load_fixture_snapshot($tmp, $snapshot),
     'frozen policy refuses a whole-value reference declaration on a sub-keyed option parent'
 );
 
@@ -687,7 +706,7 @@ $snapshot['manifests'][0]['options']['dks_structured_option']['sub_keys']['paylo
     'nested' => ['class' => 'authored'],
 ];
 expect_throw(
-    fn() => Policy::from_snapshot($snapshot),
+    fn() => load_fixture_snapshot($tmp, $snapshot),
     'frozen policy refuses nested sub_keys instead of accepting a dead declaration'
 );
 
@@ -700,7 +719,7 @@ $snapshot['manifests'][0]['dynamic_options']['dks_dynamic'] = [
     'key_refs' => ['path' => '$.term_map', 'kind' => 'term'],
 ];
 expect_throw(
-    fn() => Policy::from_snapshot($snapshot),
+    fn() => load_fixture_snapshot($tmp, $snapshot),
     'frozen policy refuses a whole-value reference declaration on a dynamic sub-keyed option parent'
 );
 
@@ -717,7 +736,7 @@ $legacyPattern = [
 $snapshot['site']['manifests'] = ['duo3316-fixture', 'duo3316-legacy-pattern'];
 $snapshot['manifests'][] = $legacyPattern;
 expect_throw(
-    fn() => Policy::from_snapshot($snapshot),
+    fn() => load_fixture_snapshot($tmp, $snapshot),
     'frozen policy refuses omitted legacy-post versus explicit-term pattern ownership'
 );
 

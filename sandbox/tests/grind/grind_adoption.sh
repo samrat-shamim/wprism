@@ -46,6 +46,8 @@ exec 3>&1
 
 SANDBOX="$(pwd -P)"
 REPO_ROOT="$(cd .. && pwd -P)"
+# shellcheck source=../../bin/artifact-library.sh
+. "$SANDBOX/bin/artifact-library.sh"
 DUO="$REPO_ROOT/cli/duo"
 FIXTURES="$SANDBOX/tests/fixtures/adapter-walk"
 
@@ -66,7 +68,7 @@ PORT2="${ADOPT_PORT2:-9601}"
 SITUATIONS="${ADOPT_SITUATIONS:-A1,A2,A3,A4,A5,A6,A7,A8,A9,A10}"
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 
-# Pinned subjects (sandbox/conformance/artifacts.lock.json). Every install is an
+# Pinned subjects (the convention-discovered artifact library). Every install is an
 # exact artifact; fetch-artifact.sh refuses an unpinned version.
 WOO_VERSION="${ADOPT_WOO_VERSION:-11.0.0}"
 WOO_OLD_VERSION="${ADOPT_WOO_OLD_VERSION:-10.9.4}"
@@ -144,8 +146,8 @@ situation_pair() {
   local label="$1"; shift
   say "$label — fresh pair '$PAIR' on :$PORT1/:$PORT2"
   if ! dry; then
-    validate_artifact_lock "$SANDBOX/conformance/artifacts.lock.json" \
-      || fail "artifact lock is malformed; the grind refused before pair reset"
+    validate_artifact_library \
+      || fail "artifact library is malformed; the grind refused before pair reset"
     docker build -q -f init-cli.Dockerfile -t "$DUO_CLI_IMAGE" . >/dev/null \
       || fail "could not build the Git-enabled cli image $DUO_CLI_IMAGE from sandbox/init-cli.Dockerfile"
   else
@@ -394,7 +396,7 @@ shop_journeys() {
 }
 
 # create_order <side> <product-id> <email> — one WooCommerce order through the
-# plugin's own API (wc_create_order), as sandbox/conformance/seeds/woocommerce.sh
+# plugin's own API (wc_create_order), as adapter-packages/woocommerce/tests/conformance/seed.sh
 # does; prints the order id.
 create_order() {
   local side="$1" pid="$2" email="$3"
@@ -1378,7 +1380,8 @@ situation_a10() {
   local override="$HOST_R1/adapters/woocommerce.json"
   run mkdir -p "$HOST_R1/adapters"
   if ! dry; then
-    jq '.options.woocommerce_duo_site_override_probe = {class: "authored", autoload: "preserve"}' "$REPO_ROOT/manifests/woocommerce.json" > "$override"
+    jq '.options.woocommerce_duo_site_override_probe = {class: "authored", autoload: "preserve"}' \
+      "$REPO_ROOT/adapter-packages/woocommerce/package/manifest.json" > "$override"
   fi
   duo_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce --source=site
   adapter_catalog "$S" override
@@ -1450,8 +1453,8 @@ preflight() {
       "plugins:$WPFORMS_SLUG:$WPFORMS_VERSION"; do
     local kind="${pin%%:*}" rest="${pin#*:}" slug version
     slug="${rest%%:*}"; version="${rest#*:}"
-    jq -e --arg k "$kind" --arg s "$slug" --arg v "$version" '.[$k][$s][$v]' conformance/artifacts.lock.json >/dev/null \
-      || fail "conformance/artifacts.lock.json has no pin for $kind $slug $version"
+    artifact_library_jq -e --arg k "$kind" --arg s "$slug" --arg v "$version" '.[$k][$s][$v]' >/dev/null \
+      || fail "artifact library has no pin for $kind $slug $version"
   done
   local situation
   for situation in ${SITUATIONS//,/ }; do
@@ -1509,7 +1512,6 @@ trap 'exit 143' TERM
 
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
-export DUO_ARTIFACT_LOCKFILE="$SANDBOX/conformance/artifacts.lock.json"
 COMPOSE_FILES=("$SANDBOX/pair.yml" "$SANDBOX/pair.http.yml" "$SANDBOX/pair.artifacts.yml")
 PAIR_UP_FLAGS=(--http --artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then

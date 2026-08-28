@@ -975,7 +975,7 @@ $check(
 );
 
 $ninjaManifest = json_decode(
-    (string) file_get_contents(__DIR__ . '/../../../../manifests/ninja-forms.json'),
+    (string) file_get_contents(__DIR__ . '/../../../../adapter-packages/ninja-forms/package/manifest.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
@@ -1362,7 +1362,7 @@ $check(
     'observed comparison: Apply delegates four-way hash classification while planner owns its conflict evidence'
 );
 $optionSectionStart = strpos($builderSource, "            if (\$uuid === 'options/core' && \$envE !== null) {");
-$optionSectionEnd = strpos($builderSource, "            if (\$envE !== null) {", $optionSectionStart);
+$optionSectionEnd = strpos($builderSource, '            if ($envE !== null) {', $optionSectionStart);
 $optionSection = substr($builderSource, $optionSectionStart, $optionSectionEnd - $optionSectionStart);
 $check(
     str_contains($optionSection, 'ApplyPlanner::classify_option_deletions(')
@@ -1400,12 +1400,10 @@ $check(ApplyPlanner::rebind_binding([]) === null, 'rebind_binding: absent flags 
 $binding = ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600/', 'rebind_from_uploads' => 'http://localhost:9600/wp-content/uploads/']);
 $check($binding === ['home' => 'http://localhost:9600', 'uploads' => 'http://localhost:9600/wp-content/uploads'], 'rebind_binding: both URLs, trailing slash trimmed');
 $lone = null;
-try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600']); }
-catch (\Duo\CommandRefusalException $e) { $lone = $e->reasonCode; }
+try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600']); } catch (\Duo\CommandRefusalException $e) { $lone = $e->reasonCode; }
 $check($lone === 'invalid_arguments', 'rebind_binding: a lone home URL refuses (a binding needs both)');
 $bad = null;
-try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'localhost:9600', 'rebind_from_uploads' => 'http://localhost:9600/u']); }
-catch (\Duo\CommandRefusalException $e) { $bad = $e->reasonCode; }
+try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'localhost:9600', 'rebind_from_uploads' => 'http://localhost:9600/u']); } catch (\Duo\CommandRefusalException $e) { $bad = $e->reasonCode; }
 $check($bad === 'invalid_arguments', 'rebind_binding: a non-URL home refuses');
 
 // The foreign-bound observation equals the repository → the entity is the

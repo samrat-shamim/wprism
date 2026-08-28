@@ -73,13 +73,17 @@ require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
 use Duo\ArtifactPolicyIdentity;
+use Duo\AdapterLibrary;
 use Duo\Canon;
 use Duo\ManifestDispositions;
 use Duo\Policy;
 
 $repo = dirname(__DIR__, 4);
-$manifestDir = $repo . '/manifests';
-$subjectDir = $manifestDir . '/' . ManifestDispositions::DIRECTORY;
+$adapterLibrary = AdapterLibrary::fromSourceTree($repo);
+$manifestPath = static function (string $name) use ($adapterLibrary): string {
+    return $adapterLibrary->package($name)?->manifestPath()
+        ?? throw new RuntimeException("shipped adapter package '$name' is absent");
+};
 
 /**
  * One stable scratch root under sandbox/tmp (AGENTS.md rule 3), cleared before
@@ -146,7 +150,11 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * their manifests and executable sets, while Yoast gained Woo's permalink
  * reindex trigger. PMPro's reviewed engine-absorption move later replaced its
  * provider with generic invalidation; the manifest-provider runtime then moved
- * eight more manifest identities.
+ * eight more manifest identities. Moving the shipped packages later exposed
+ * six runtime files whose relative WpCliChildProcess dependency was no longer
+ * valid in either supported layout. Correcting those paths moved five of the
+ * same ten adapter digests again; regress_spec_v3_digest_neutrality.php pins
+ * every corrected runtime file byte and the five resulting digests.
  * Rule 2 makes all ten fleet-visible BY DESIGN.
  *
  * The six unaffected frozen digests above are NOT regenerated — this is an overlay, and
@@ -185,14 +193,35 @@ const SPLIT_REVIEWED_MANIFEST_HASH = '41547ea08901dd1d804850db3485a2f712be089452
 const SPLIT_REVIEWED_REGISTRY_SHA = 'a9b7fdbb8d7c62e78ac8ca1c10a395aa0dc54079fb54cef2809c71babf395f2e';
 const SPLIT_REVIEWED_SNAPSHOT_SHA = '783cc9483f6f45c5676f80e5987553292c69867f12297ec2b8e747d7d68f748f';
 
-putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
-$shippedRegistry = ManifestDispositions::load($manifestDir);
+/**
+ * The second reviewed overlay: six runtime dependency-path corrections inside
+ * five adapters. Keep the prior ten-adapter literals above intact so this
+ * suite proves both transitions and cannot misattribute these identity moves
+ * to disposition splitting or physical package relocation.
+ */
+const SPLIT_PACKAGE_DEPENDENCY_MOVED_ADAPTERS = [
+    'elementor',
+    'ninja-forms',
+    'polylang',
+    'woocommerce',
+    'yoast',
+];
+const SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS = [
+    'elementor' => 'c13aceb84019223e88f292168655d7f435ae2ab92e68cc84ca38602f86b94383',
+    'ninja-forms' => '8100c32a2f46e91ad4daae9c80ab61d33092b54d7810e533aedd265d4ae166c9',
+    'polylang' => 'ec697d7e5baa1b2847e16e7aceeacf3942d8a3d73297313f9d50d7128b068f75',
+    'woocommerce' => '40f089f1f19db8846074c2ac6858aad69a009c2b5eb1d5f04c68bcdd16967c39',
+    'yoast' => '3edb81748cf3e84923779a74a913f339889a8f9cd430342dabdcfa0dbd3ceae2',
+];
+const SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH = '8d3f7ba1afe8dc9e63a6991da2ad412d8718796b0c31278b4a8dca97fda672c4';
+
+$shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
     'the shipped library loads its reviewed claim source from the per-subject directory'
 );
 $shippedNames = array_keys($frozenDigests);
-$shippedPolicy = Policy::load(null, $shippedNames);
+$shippedPolicy = Policy::load(null, $shippedNames, adapterLibrary: $adapterLibrary);
 $observed = [];
 foreach (ArtifactPolicyIdentity::resolved_adapters($shippedPolicy) as $row) {
     $observed[(string) $row['name']] = (string) $row['digest'];
@@ -202,11 +231,27 @@ $expectedDigests = $frozenDigests;
 foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
+foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
 ksort($expectedDigests, SORT_STRING);
 duo_check_same(
     10,
     count(SPLIT_REVIEWED_MOVED_ADAPTERS),
     'the reviewed overlay names exactly ten post-split adapters; another identity move is a new reviewed re-pin, never a fixture refresh'
+);
+$packageDependencyMovedNames = [];
+foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_REVIEWED_MOVED_DIGESTS[$name] ?? $frozenDigests[$name] ?? null;
+    if ($priorDigest !== $digest) {
+        $packageDependencyMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    SPLIT_PACKAGE_DEPENDENCY_MOVED_ADAPTERS,
+    $packageDependencyMovedNames,
+    'the package dependency-path overlay changes exactly five prior digest literals, preserving the earlier values '
+    . 'as evidence of the second intentional identity transition rather than overwriting them'
 );
 duo_check_same(
     $expectedDigests,
@@ -227,13 +272,15 @@ duo_check_same(
     . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_REVIEWED_MANIFEST_HASH,
+    SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved only with the ten '
-    . 'reviewed manifests, not because disposition storage split into per-subject files'
+    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
+    . 'address only with the five adapters whose package runtime dependency bytes were intentionally corrected, '
+    . 'not because disposition storage split or the files relocated'
 );
 duo_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
+        && SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH !== SPLIT_REVIEWED_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '
@@ -257,10 +304,10 @@ duo_check_same(
 // Taken over a ONE-PIN policy because a snapshot's manifest list is checked
 // against the site's own pins (Policy.php:653-655), and the 16-pin policy above
 // was loaded without a site file to state them.
-$corePolicy = Policy::load(null, ['core']);
+$corePolicy = Policy::load(null, ['core'], adapterLibrary: $adapterLibrary);
 duo_check_same(
     ArtifactPolicyIdentity::manifest_hash($corePolicy),
-    ArtifactPolicyIdentity::manifest_hash(Policy::from_snapshot($corePolicy->export_snapshot())),
+    ArtifactPolicyIdentity::manifest_hash(Policy::from_snapshot($corePolicy->export_snapshot(), $adapterLibrary)),
     'and the v6 snapshot round trip reproduces manifest_hash, so from_snapshot() reads the reassembled document the '
     . 'way it read the monolith'
 );
@@ -290,7 +337,11 @@ $walk = static function ($value, string $path) use (&$walk, &$numberMembers, &$n
         $nonAsciiMembers[] = $path;
     }
 };
-foreach (glob($subjectDir . '/*.json') ?: [] as $document) {
+$reviewedDocuments = [$adapterLibrary->profilesPath()];
+foreach ($adapterLibrary->packages() as $package) {
+    $reviewedDocuments[] = $package->dispositionPath();
+}
+foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
@@ -317,24 +368,24 @@ duo_check_same(
  * @param array<string,mixed> $manifest
  * @param array<string,mixed> $entry
  */
-$probeLibrary = static function (string $label, array $manifest, array $entry) use ($scratchRoot, $manifestDir): string {
+$probeLibrary = static function (string $label, array $manifest, array $entry) use ($scratchRoot, $adapterLibrary): AdapterLibrary {
     $dir = $scratchRoot . '/' . $label . '/manifests';
-    if (!is_dir($dir . '/capabilities') && !mkdir($dir . '/capabilities', 0777, true)) {
-        throw new RuntimeException("cannot create the probe library at $dir");
-    }
-    if (!is_dir($dir . '/dispositions') && !mkdir($dir . '/dispositions', 0777, true)) {
-        throw new RuntimeException("cannot create the probe disposition directory at $dir");
+    foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $relative) {
+        if (!is_dir("$dir/$relative") && !mkdir("$dir/$relative", 0777, true)) {
+            throw new RuntimeException("cannot create the probe library at $dir/$relative");
+        }
     }
     Canon::write_file($dir . '/' . $manifest['name'] . '.json', Canon::encode($manifest));
     Canon::write_file($dir . '/dispositions/' . $manifest['name'] . '.json', Canon::encode($entry));
-    copy($manifestDir . '/capabilities/platform.json', $dir . '/capabilities/platform.json');
-    return $dir;
+    Canon::write_file($dir . '/dispositions/profiles.json', "{}\n");
+    copy($adapterLibrary->platformBoundaryPath(), $dir . '/capabilities/platform.json');
+    copy($adapterLibrary->authoritiesPath(), $dir . '/capabilities/adapter-authorities.json');
+    return AdapterLibrary::fromLegacyFlatDirectory($dir);
 };
 
 /** That library's one adapter digest, taken exactly as a repository pin takes it. */
-$probeDigest = static function (string $dir, string $name): string {
-    putenv("DUO_MANIFESTS_DIR=$dir");
-    $rows = ArtifactPolicyIdentity::resolved_adapters(Policy::load(null, [$name]));
+$probeDigest = static function (AdapterLibrary $library, string $name): string {
+    $rows = ArtifactPolicyIdentity::resolved_adapters(Policy::load(null, [$name], adapterLibrary: $library));
     return (string) $rows[0]['digest'];
 };
 
@@ -452,11 +503,14 @@ duo_check(
 // ---------------------------------------------------------------------------
 echo "\nPART 3 — THE REFUSALS: every rule fires from the split form, in its own wording\n";
 // ---------------------------------------------------------------------------
-$coreManifest = Canon::decode(Canon::read_file($manifestDir . '/core.json'));
-$coreEntry = Canon::decode(Canon::read_file($subjectDir . '/core.json'));
+$coreManifest = Canon::decode(Canon::read_file($manifestPath('core')));
+$coreEntry = Canon::decode(Canon::read_file(
+    $adapterLibrary->package('core')?->dispositionPath()
+        ?? throw new RuntimeException("shipped adapter package 'core' is absent")
+));
 
 /** A one-subject library whose reviewed documents are written by $publish. */
-$reviewedLibrary = static function (string $label, callable $publish) use ($scratchRoot, $manifestDir): string {
+$reviewedLibrary = static function (string $label, callable $publish) use ($scratchRoot, $adapterLibrary, $manifestPath): string {
     $dir = $scratchRoot . '/' . $label . '/manifests';
     if (!is_dir($dir . '/capabilities') && !mkdir($dir . '/capabilities', 0777, true)) {
         throw new RuntimeException("cannot create the probe library at $dir");
@@ -464,8 +518,8 @@ $reviewedLibrary = static function (string $label, callable $publish) use ($scra
     if (!is_dir($dir . '/dispositions') && !mkdir($dir . '/dispositions', 0777, true)) {
         throw new RuntimeException("cannot create the probe disposition directory at $dir");
     }
-    copy($manifestDir . '/core.json', $dir . '/core.json');
-    copy($manifestDir . '/capabilities/platform.json', $dir . '/capabilities/platform.json');
+    copy($manifestPath('core'), $dir . '/core.json');
+    copy($adapterLibrary->platformBoundaryPath(), $dir . '/capabilities/platform.json');
     $publish($dir . '/dispositions');
     return $dir;
 };
@@ -612,9 +666,9 @@ duo_check_same(
     }),
     'a profile naming a subject the directory does not declare refuses at load, in the profile rule wording'
 );
-$goodProfile = $reviewedLibrary('good-profile', static function (string $documents) use ($coreEntry, $repo): void {
+$goodProfile = $reviewedLibrary('good-profile', static function (string $documents) use ($coreEntry, $adapterLibrary): void {
     Canon::write_file($documents . '/core.json', Canon::encode($coreEntry));
-    copy($repo . '/manifests/dispositions/profiles.json', $documents . '/profiles.json');
+    copy($adapterLibrary->profilesPath(), $documents . '/profiles.json');
 });
 duo_check_same(
     ['fse'],
@@ -684,5 +738,4 @@ duo_check(
     . 'this library refuses everywhere else'
 );
 
-putenv('DUO_MANIFESTS_DIR=' . $manifestDir);
 duo_check_summary('disposition split');

@@ -4,17 +4,17 @@
 declare(strict_types=1);
 
 /**
- * Generate/check docs/adapter-grades.md — the COMPUTED evidence grade that
- * sits beside the reviewed certification word (spec/repo-format.md § v3.18).
+ * Validate or render the COMPUTED evidence grade that sits beside the reviewed
+ * certification word (spec/repo-format.md § v3.18).
  *
  * Usage:
- *   php tools/adapter-grade.php generate   # rewrite docs/adapter-grades.md
- *   php tools/adapter-grade.php --check    # regenerate in memory, byte-compare, exit 1 on drift
+ *   php tools/adapter-grade.php render     # write the aggregate projection to stdout
+ *   php tools/adapter-grade.php --check    # validate all package-owned evidence inputs
  *   php tools/adapter-grade.php            # same as --check
  *
  * WHAT PROBLEM THIS SOLVES
  * ------------------------
- * `manifests/dispositions/<name>.json` carries a three-value status
+ * `adapter-packages/<name>/package/disposition.json` carries a three-value status
  * (`certified`, `experimental`, `excluded`) and every read surface projects it
  * BINARY: `AdapterRegistry::report():427-429` raises
  * `authored_state_not_certified` for anything that is not the exact string
@@ -29,22 +29,23 @@ declare(strict_types=1);
  * Three machine-readable evidence records already exist and project into
  * nothing:
  *
- *   coverage breadth  sandbox/conformance/production-readiness.json — which of
- *                     the 12 reviewed scenario families carry evidence files
+ *   coverage breadth  adapter-packages/<slug>/evidence/production-readiness.json
+ *                     (core: platform/adapter-evidence/production-readiness.json) —
+ *                     which of the 12 reviewed scenario families carry files
  *   exercise depth    the certification bundle's per-test pass map, reaching a
  *                     claim as `provenance.proof.bundle.exercised` +
  *                     `.tests` (AdapterCertification::verifyBundleManifest()
  *                     proves every cited test is a named PASSING bundle test,
  *                     and derivedDisposition() carries the map into
  *                     `provenance.proof.bundle`)
- *   platform reach    manifests/capabilities/platform.json's per-axis
+ *   platform reach    platform/adapter-library/capabilities/platform.json's per-axis
  *                     `verified` series, against the cells the claim states
  *                     after § v3.5 narrowing — the same cells a certificate
  *                     binds as exercised since § v3.6/WP-4.7
  *
- * This file is the one definition of what those three add up to, and the
- * projection of that definition into prose that `make release-gate`
- * byte-compares. It is tools/capability-doc.php's discipline (:11-58) and
+ * This file is the one definition of what those three add up to, and can
+ * project that definition into prose on demand. It is
+ * tools/capability-doc.php's discipline (:11-58) and
  * tools/engine-gap-doc.php's shape, deliberately, because the repo has one
  * generated-document pattern rather than three.
  *
@@ -80,7 +81,7 @@ declare(strict_types=1);
  * WHY THE MODEL LIVES IN tools/ AND NOT IN agent/src
  * --------------------------------------------------
  * Two of the three inputs are not shipped — `cli/src/Onboarding/Adopt.php`
- * tars exactly `agent manifests recovery`, so the readiness ledger under
+ * embeds the projected adapter library inside `agent/`, so the readiness ledger under
  * sandbox/ reaches no site — and the grade has exactly one reader today: `make
  * release-gate` running this file. That is the same argument
  * tools/capability-doc.php makes for keeping its directory-wide coverage check
@@ -104,7 +105,9 @@ declare(strict_types=1);
  * test passed. This file counts what those have already proved.
  */
 
+use Duo\AdapterLibrary;
 use Duo\ManifestDispositions;
+use Duo\Tooling\AdapterProductionReadiness;
 
 $repo = dirname(__DIR__);
 
@@ -115,18 +118,12 @@ $repo = dirname(__DIR__);
 // the load graph of every context that only …"), so the caller carries its
 // dependency, exactly as agent/duo.php does. Nothing else of the agent loads.
 require_once $repo . '/agent/src/Kernel/Canon.php';
+require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
+require_once $repo . '/tools/src/AdapterProductionReadiness.php';
 
-const GRADE_DOC_FILE = '/docs/adapter-grades.md';
-const GRADE_LEDGER_FILE = '/sandbox/conformance/production-readiness.json';
-const GRADE_MANIFEST_DIR = '/manifests';
-const GRADE_DISPOSITIONS_DIR = '/manifests/dispositions';
-const GRADE_PLATFORM_FILE = '/manifests/capabilities/platform.json';
 const GRADE_LEDGER_FORMAT = 'duo-adapter-production-readiness/v1';
 const GRADE_PLATFORM_FORMAT = 'duo-platform-boundary/v1';
-
-/** The profiles document is a map of independently reviewed profiles, not a manifest subject. */
-const GRADE_PROFILES_DOCUMENT = 'profiles';
 
 /** The three axes, in the order every projection prints them. */
 const GRADE_AXES = ['coverage_breadth', 'exercise_depth', 'platform_reach'];
@@ -160,6 +157,10 @@ function grade_read_json(string $path): array {
         throw new RuntimeException('JSON root must be an object: ' . $path);
     }
     return $decoded;
+}
+
+function grade_library(string $repo): AdapterLibrary {
+    return AdapterLibrary::fromSourceTree($repo);
 }
 
 /**
@@ -291,7 +292,10 @@ function grade_coverage_breadth(?array $ledger, string $name): ?array {
         $exercised,
         $outstanding,
         $excluded,
-        'sandbox/conformance/production-readiness.json → adapters.' . $name . ': the reviewed scenario families '
+        ($name === 'core'
+            ? 'platform/adapter-evidence/production-readiness.json'
+            : 'adapter-packages/' . $name . '/evidence/production-readiness.json')
+        . ': the reviewed scenario families '
         . 'whose `covered` bucket names at least one evidence file, against the ledger\'s own taxonomy minus the '
         . 'families reviewed `not_applicable`'
     );
@@ -362,7 +366,7 @@ function grade_exercise_depth(?array $bundleProof, string $name): ?array {
  * The unit is one cell of one compatibility axis that publishes a `verified`
  * series, because that series IS the machine-readable witness: each key is a
  * feature-release line and its value the exact patch a full live proof ran on
- * (manifests/capabilities/platform.json's own notes). An axis without one is
+ * (platform/adapter-library/capabilities/platform.json's own notes). An axis without one is
  * EXCLUDED and named, never counted as a gap — the database axis says in the
  * document itself that it deliberately publishes no series because "each entry
  * already names exactly one measured line", and scoring that as unwitnessed
@@ -434,7 +438,7 @@ function grade_platform_reach(?array $stated, array $boundary): ?array {
         $exercised,
         $outstanding,
         $excluded,
-        'manifests/capabilities/platform.json → compatibility.*.verified: the exercised-series cells this claim '
+        'platform/adapter-library/capabilities/platform.json → compatibility.*.verified: the exercised-series cells this claim '
         . 'states after § v3.5 narrowing (ManifestDispositions::narrowed_environment(), the same projection a '
         . 'certificate binds as its exercised cells under § v3.6); an axis publishing no `verified` series carries '
         . 'no per-cell witness and is excluded rather than counted against the claim'
@@ -453,8 +457,8 @@ function grade_platform_reach(?array $stated, array $boundary): ?array {
  * THERE IS NO `format` MEMBER, deliberately. A `duo-adapter-grade/vN` string
  * would name a wire generation that does not exist: this record is never
  * serialised, never signed and never written to disk — the only thing that
- * leaves this process is the rendered prose. `manifests/capabilities/
- * platform.json`'s own note states the rule being followed ("an invariant with
+ * leaves this process is the rendered prose. `platform/adapter-library/capabilities/platform.json`'s own note
+ * states the rule being followed ("an invariant with
  * no reader is decoration"), and a format identifier with no document to
  * identify is the same defect with a heavier cost, since the next reader would
  * reasonably take it for a contract.
@@ -554,15 +558,16 @@ function grade_units(array $units): string {
 /**
  * Every graded subject, in the order the document prints them.
  *
- * The subject set is the dispositions DIRECTORY, so a manifest cannot reach
- * this document by existing beside the agent and a reviewed subject cannot be
- * left out of it — the same exact-set property tools/capability-doc.php holds,
- * asked here of the grade rather than of the prose.
+ * The subject set is AdapterLibrary's closed package inventory, so a manifest
+ * cannot reach this document without its package-owned disposition and a
+ * reviewed subject cannot be left out — the same exact-set property
+ * tools/capability-doc.php holds, asked here of the grade rather than prose.
  *
  * @return list<array<string,mixed>>
  */
-function grade_subjects(string $repo): array {
-    $platformDocument = grade_read_json($repo . GRADE_PLATFORM_FILE);
+function grade_subjects(string $repo, ?AdapterLibrary $library = null): array {
+    $library ??= grade_library($repo);
+    $platformDocument = grade_read_json($library->platformBoundaryPath());
     if (($platformDocument['format'] ?? null) !== GRADE_PLATFORM_FORMAT
         || !is_array($platformDocument['platform'] ?? null)) {
         throw new RuntimeException('the platform boundary has an unsupported or malformed root');
@@ -570,29 +575,20 @@ function grade_subjects(string $repo): array {
     $boundary = $platformDocument['platform'];
     grade_assert_underived($boundary, 'the platform boundary');
 
-    $ledger = grade_read_json($repo . GRADE_LEDGER_FILE);
+    $ledger = AdapterProductionReadiness::load($repo);
     if (($ledger['format'] ?? null) !== GRADE_LEDGER_FORMAT || !is_array($ledger['adapters'] ?? null)) {
         throw new RuntimeException('the readiness ledger has an unsupported or malformed root');
     }
     grade_assert_underived($ledger, 'the readiness ledger');
 
-    $documents = glob($repo . GRADE_DISPOSITIONS_DIR . '/*.json') ?: [];
-    sort($documents, SORT_STRING);
     $subjects = [];
     $reviewed = [];
-    foreach ($documents as $document) {
-        $name = basename($document, '.json');
-        if ($name === GRADE_PROFILES_DOCUMENT) {
-            continue;
-        }
+    foreach ($library->packages() as $package) {
+        $name = $package->name();
         $reviewed[$name] = true;
-        $disposition = grade_read_json($document);
+        $disposition = grade_read_json($package->dispositionPath());
         grade_assert_underived($disposition, "the disposition for '$name'");
-        $manifestFile = $repo . GRADE_MANIFEST_DIR . '/' . $name . '.json';
-        if (!is_file($manifestFile)) {
-            throw new RuntimeException("the disposition for '$name' describes a manifest that is not on disk");
-        }
-        $manifest = grade_read_json($manifestFile);
+        $manifest = grade_read_json($package->manifestPath());
         $subjects[] = [
             'name' => $name,
             'status' => (string) ($disposition['status'] ?? 'unsupported'),
@@ -635,28 +631,29 @@ function grade_subjects(string $repo): array {
 }
 
 /** @param list<array<string,mixed>> $subjects */
-function grade_render(array $subjects, string $repo): string {
+function grade_render(array $subjects, string $repo, ?AdapterLibrary $library = null): string {
     $out = "# Adapter evidence grades\n\n";
-    $out .= '<!-- Generated by tools/adapter-grade.php from sandbox/conformance/production-readiness.json + '
-        . 'manifests/dispositions/*.json + manifests/capabilities/platform.json; do not hand-edit. '
-        . "Run `php tools/adapter-grade.php generate` after changing any of them. -->\n\n";
+    $out .= '<!-- Rendered on demand by tools/adapter-grade.php from adapter package readiness records + '
+        . 'adapter-packages/*/package/disposition.json + platform/adapter-library/capabilities/platform.json; '
+        . "this aggregate is not a checked-in adapter edit point. -->\n\n";
     $out .= '**A grade is computed; a status is reviewed. They are different claims and neither replaces the '
         . 'other.** [docs/capabilities.md](capabilities.md) carries the reviewed word — `certified`, '
         . '`experimental`, `excluded` — which means exactly what it meant before this document existed: declared '
-        . 'by the manifest, reviewed into `manifests/dispositions/` by a human who wrote down why, and exercised '
+        . 'by the manifest, reviewed in its sibling `package/disposition.json` by a human who wrote down why, and exercised '
         . 'by the named conformance suites. The grade beside it is arithmetic over evidence records that already '
         . 'existed, re-derived on every run of `tools/adapter-grade.php` and stored nowhere. Nothing here widens, '
         . 'narrows or qualifies a status, and no grade is an endorsement: a `complete` grade says every unit the '
         . "three axes count is exercised, and says nothing at all about how good the adapter is.\n\n";
     $out .= "## The three axes\n\n";
     $out .= "| Axis | Unit | Where it comes from |\n|---|---|---|\n";
-    $out .= '| Coverage breadth | one reviewed scenario family | `sandbox/conformance/production-readiness.json` '
+    $out .= '| Coverage breadth | one reviewed scenario family | `adapter-packages/*/evidence/production-readiness.json` '
+        . '(core: `platform/adapter-evidence/production-readiness.json`) '
         . "— the families whose `covered` bucket names evidence files, against that ledger's own 12-family "
         . "taxonomy minus the families reviewed `not_applicable` |\n";
     $out .= '| Exercise depth | one named test recorded passing | the certification bundle\'s per-test pass map, '
         . 'reaching a claim as `provenance.proof.bundle.exercised` + `.tests`; a hand-authored disposition cites '
         . "reviewed suites and carries no per-test verdict record, so this axis is silent for every row below |\n";
-    $out .= '| Platform reach | one exercised-series cell | `manifests/capabilities/platform.json` — the '
+    $out .= '| Platform reach | one exercised-series cell | `platform/adapter-library/capabilities/platform.json` — the '
         . '`verified` cells the claim states after § v3.5 narrowing, which is the same set a certificate binds as '
         . "exercised under § v3.6; an axis publishing no series carries no per-cell witness and is excluded |\n\n";
     $out .= 'An axis with no evidence document for a subject is **silent** and leaves the arithmetic; an axis '
@@ -724,86 +721,42 @@ function grade_render(array $subjects, string $repo): string {
         . 'still be very different adapters, and the reviewed reason in '
         . "[docs/capabilities.md](capabilities.md) is where that difference is written down.\n\n";
     $out .= 'Generated from ' . count($subjects) . ' reviewed subjects against agent '
-        . grade_agent_version($repo) . ".\n";
+        . grade_agent_version($repo, $library) . ".\n";
 
     return $out;
 }
 
 /** The agent version the boundary restates, read from the boundary rather than re-derived (AGENTS.md rule 8). */
-function grade_agent_version(string $repo): string {
-    $platform = grade_read_json($repo . GRADE_PLATFORM_FILE);
+function grade_agent_version(string $repo, ?AdapterLibrary $library = null): string {
+    $library ??= grade_library($repo);
+    $platform = grade_read_json($library->platformBoundaryPath());
 
     return (string) ($platform['platform']['agent_version'] ?? '');
 }
 
-/** @return array<string,string> path => expected bytes */
-function grade_build(string $repo): array {
-    return [$repo . GRADE_DOC_FILE => grade_render(grade_subjects($repo), $repo)];
+function grade_build(string $repo): string {
+    $library = grade_library($repo);
+    return grade_render(grade_subjects($repo, $library), $repo, $library);
 }
 
-/** Name the drift instead of merely reporting it, so a failed gate is actionable from its own output. */
-function grade_drift(string $expected, string $actual): string {
-    $expectedLines = explode("\n", $expected);
-    $actualLines = explode("\n", $actual);
-    $count = max(count($expectedLines), count($actualLines));
-    for ($i = 0; $i < $count; $i++) {
-        $want = $expectedLines[$i] ?? '<end of file>';
-        $have = $actualLines[$i] ?? '<end of file>';
-        if ($want !== $have) {
-            return 'first difference at line ' . ($i + 1) . "\n"
-                . '    on disk:   ' . grade_excerpt($have) . "\n"
-                . '    generated: ' . grade_excerpt($want);
-        }
-    }
-
-    return 'files differ in trailing bytes only';
-}
-
-function grade_excerpt(string $line): string {
-    return mb_strlen($line) > 120 ? mb_substr($line, 0, 117) . '...' : $line;
-}
-
-function grade_run(string $repo, bool $check): void {
-    $expected = grade_build($repo);
-    if ($check) {
-        $stale = [];
-        foreach ($expected as $path => $content) {
-            $relative = str_replace($repo . '/', '', $path);
-            if (!is_file($path)) {
-                $stale[] = $relative . ': absent';
-                continue;
-            }
-            $actual = (string) file_get_contents($path);
-            if ($actual !== $content) {
-                $stale[] = $relative . ': ' . grade_drift($content, $actual);
-            }
-        }
-        if ($stale !== []) {
-            throw new RuntimeException(
-                "the generated evidence grades are stale; run `php tools/adapter-grade.php generate`\n  "
-                . implode("\n  ", $stale)
-            );
-        }
-        fwrite(STDOUT, "adapter grade check: docs/adapter-grades.md agrees with the evidence it is derived from\n");
+function grade_run(string $repo, bool $render): void {
+    $projection = grade_build($repo);
+    if ($render) {
+        fwrite(STDOUT, $projection);
         return;
     }
-    foreach ($expected as $path => $content) {
-        if (file_put_contents($path, $content) === false) {
-            throw new RuntimeException('could not write ' . $path);
-        }
-    }
-    fwrite(STDOUT, "generated docs/adapter-grades.md\n");
+    fwrite(STDOUT, "adapter grade check: package-owned evidence and computed grade inputs agree\n");
 }
 
 function grade_main(string $repo, array $argv): void {
     try {
         $command = $argv[1] ?? '--check';
-        if ($command === 'generate') {
-            grade_run($repo, false);
-        } elseif ($command === '--check' || $command === 'check') {
+        if ($command === 'render') {
             grade_run($repo, true);
+        } elseif ($command === '--check' || $command === 'check') {
+            grade_run($repo, false);
         } else {
-            throw new RuntimeException('usage: php tools/adapter-grade.php [generate|--check]');
+            throw new RuntimeException('usage: php tools/adapter-grade.php [render|--check]');
         }
     } catch (Throwable $e) {
         grade_fail($e->getMessage());

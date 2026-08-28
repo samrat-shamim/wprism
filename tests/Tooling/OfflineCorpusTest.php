@@ -226,6 +226,36 @@ final class OfflineCorpusTest extends TestCase
         self::assertNotContains('regress-live-one', $derived['targets']);
     }
 
+    public function testAdapterPackageSuitesDoNotChangeTheGlobalCorpus(): void
+    {
+        $baseline = OfflineCorpus::derive($this->fixtureRoot());
+        $root = $this->fixtureRoot('', [
+            'adapter-packages/acf/tests/offline/regress_acf_owned.php' => "<?php\n",
+            'adapter-packages/acf/tests/conformance/regress_acf_live.sh' => "#!/usr/bin/env bash\n",
+            'adapter-packages/acf/tests/live/regress_acf_pair.sh' => "#!/usr/bin/env bash\n",
+            'adapter-packages/acf/tests/spike/spike_acf_probe.sh' => "#!/usr/bin/env bash\n",
+        ]);
+
+        $derived = OfflineCorpus::derive($root);
+
+        self::assertSame([], $derived['refusals']);
+        self::assertSame($baseline['targets'], $derived['targets']);
+        self::assertSame(
+            OfflineCorpus::render($baseline['targets']),
+            OfflineCorpus::render($derived['targets']),
+            'package authors must not regenerate a global file when they add tests'
+        );
+    }
+
+    public function testAStaticSandboxPackageRunnerRemainsAGlobalCorpusRow(): void
+    {
+        $root = $this->fixtureRoot(
+            "\nregress-adapter-packages:\n\tphp sandbox/tests/offline/domain/regress_adapter_packages.php\n",
+            ['sandbox/tests/offline/domain/regress_adapter_packages.php' => "<?php\n"]
+        );
+        self::assertContains('regress-adapter-packages', OfflineCorpus::derive($root)['targets']);
+    }
+
     public function testIncludeFoldReadsRulesOutOfTheIncludedFragment(): void
     {
         $root = $this->fixtureRoot('', [

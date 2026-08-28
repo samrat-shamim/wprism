@@ -144,6 +144,7 @@ $expectedApi = [
         $parameter('forceUnresolvedRefs', 'bool', false, false),
         $parameter('scopeRequest', '?array', false),
         $parameter('hostEnvironment', '?string', false),
+        $parameter('adapterLibrary', '?Duo\\AdapterLibrary', false),
     ]],
     'run_initial_baseline' => ['array', [
         $parameter('repo', 'string'),

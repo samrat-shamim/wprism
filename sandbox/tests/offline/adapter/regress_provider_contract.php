@@ -14,7 +14,7 @@ declare(strict_types=1);
  * regress_woocommerce_regen_engine.php uses for the regeneration dispatch).
  *
  * Same idiom as regress_adapter_contract.php: real, unmodified engine files
- * against a scratch DUO_MANIFESTS_DIR holding real fixture bytes.
+ * against an explicit AdapterLibrary holding caller-owned fixture bytes.
  *
  * What this deliberately does NOT cover, because it genuinely needs a live
  * WordPress: the shipped providers' own invoke() bodies (WooCommerce's cache
@@ -28,6 +28,8 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__, 4);
 define('DUO_SPEC_VERSION', 2);
+require __DIR__ . '/../../lib/agent_version.php';
+duo_test_define_agent_versions();
 // wpdb::get_results()'s output mode, which Ledger's own checked reads pass.
 define('ARRAY_A', 'ARRAY_A');
 
@@ -239,6 +241,7 @@ require $root . '/agent/src/Adapter/Providers.php';
 // two-renderer lockstep for plan rows, so it is driven directly below.
 require $root . '/cli/src/Plan/PlanSummary.php';
 require __DIR__ . '/../../lib/frozen_policy.php';
+require __DIR__ . '/certification_fixture.php';
 // Providers::invoke() now reads the capability's own declared `option:`
 // surfaces either side of the call, so the invocation drives below need a
 // $wpdb that INTERPRETS that read against seeded rows rather than one that
@@ -255,18 +258,11 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     }
 };
 
-// ---- scratch manifests dir with a real manifest-shipped provider file ----
-$dir = sys_get_temp_dir() . '/duo-provider-contract-' . getmypid();
-@mkdir($dir . '/providers', 0700, true);
-register_shutdown_function(static function () use ($dir): void {
-    // Every manifest $policyFor() freezes is also published here, because the
-    // v6 wire proves shipped membership against the trusted library rather than
-    // taking the snapshot's word for it — so the glob, not just probe.json.
-    array_map('unlink', glob($dir . '/*.json') ?: []);
-    array_map('unlink', glob($dir . '/providers/*.php') ?: []);
-    array_map('unlink', glob($dir . '/providers/*.php.hidden') ?: []);
-    @rmdir($dir . '/providers');
-    @rmdir($dir);
+// ---- explicit scratch library with a real manifest-shipped provider file ----
+$scratchRoot = sys_get_temp_dir() . '/duo-provider-contract-' . getmypid();
+$dir = duo_cert_project_library(\Duo\AdapterLibrary::fromSourceTree($root), $scratchRoot);
+register_shutdown_function(static function () use ($scratchRoot): void {
+    duo_cert_remove_tree($scratchRoot);
 });
 file_put_contents($dir . '/providers/probe-cache.php', <<<'PHP'
 <?php
@@ -363,7 +359,7 @@ PHP);
 // wp-plugins/probe/ (anchored, negotiates clean), while ProbeCache's own
 // file lives in the manifests providers/ dir (posing it as plugin-sourced
 // must therefore refuse).
-define('WP_PLUGIN_DIR', $dir . '/wp-plugins');
+define('WP_PLUGIN_DIR', $scratchRoot . '/wp-plugins');
 // DUO-3339: this harness models a target that HAS WordPress loaded — that is
 // what makes negotiating plugin state meaningful here at all — and
 // Providers::runtime_negotiation_available() reads exactly the four symbols
@@ -371,14 +367,9 @@ define('WP_PLUGIN_DIR', $dir . '/wp-plugins');
 // it the plan-time diagnosis correctly short-circuits to no findings (the
 // group below pins that short-circuit in its own process, where the constant
 // genuinely is absent).
-define('ABSPATH', $dir . '/wp/');
-@mkdir($dir . '/wp-plugins/probe', 0700, true);
-register_shutdown_function(static function () use ($dir): void {
-    array_map('unlink', glob($dir . '/wp-plugins/probe/*.php') ?: []);
-    @rmdir($dir . '/wp-plugins/probe');
-    @rmdir($dir . '/wp-plugins');
-});
-file_put_contents($dir . '/wp-plugins/probe/duo-provider.php', <<<'PHP'
+define('ABSPATH', $scratchRoot . '/wp/');
+@mkdir(WP_PLUGIN_DIR . '/probe', 0700, true);
+file_put_contents(WP_PLUGIN_DIR . '/probe/duo-provider.php', <<<'PHP'
 <?php
 namespace Duo\Providers;
 
@@ -405,8 +396,7 @@ final class ProbeSupplied {
     }
 }
 PHP);
-require_once $dir . '/wp-plugins/probe/duo-provider.php';
-putenv('DUO_MANIFESTS_DIR=' . $dir);
+require_once WP_PLUGIN_DIR . '/probe/duo-provider.php';
 // Loaded up front so the per-case reset below can address the fixture's static
 // override slots; Providers::negotiate() require_once's the same file itself.
 require_once $dir . '/providers/probe-cache.php';
@@ -446,6 +436,7 @@ final class ProbeIndex {
 }
 PHP);
 require_once $dir . '/providers/probe-index.php';
+file_put_contents($dir . '/regenerators/probe-lookups.php', "<?php\n// Test-owned packaging fixture; negotiation never invokes this regenerator.\n");
 
 $manifest = [
     'name' => 'probe',
@@ -466,16 +457,66 @@ $manifest = [
         'args' => ['groups' => ['probe-group']],
     ]],
 ];
-// Published into $dir rather than a library of FrozenPolicy's own: $dir is
-// where this suite's manifest-shipped provider code lives, and Policy resolves
-// `providers[].source: "manifest"` under DUO_MANIFESTS_DIR, so the frozen
-// policy and its provider files must share one directory.
-$policyFor = static function (array $manifest) use ($dir): \Duo\Policy {
-    return \Duo\Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope(
-        [$manifest],
-        \DuoTest\FrozenPolicy::site([$manifest]),
-        $dir
-    ));
+// The probe joins the projected source packages only inside this scratch
+// library. Its disposition bytes are structural here; reviewed cases freeze
+// their own authored disposition below.
+copy($dir . '/dispositions/core.json', $dir . '/dispositions/probe.json');
+
+/** @var array<string,\Duo\AdapterLibrary> */
+$providerLibraries = [];
+$libraryFor = static function (array $manifest) use ($dir, &$providerLibraries): \Duo\AdapterLibrary {
+    $key = hash('sha256', \Duo\Canon::encode($manifest));
+    file_put_contents($dir . '/probe.json', \Duo\Canon::encode($manifest));
+    if (isset($providerLibraries[$key])) {
+        return $providerLibraries[$key];
+    }
+    $declared = [];
+    foreach ((array) ($manifest['providers'] ?? []) as $provider) {
+        if (($provider['source'] ?? null) === 'manifest' && is_string($provider['id'] ?? null)) {
+            $declared[] = $provider['id'];
+        }
+    }
+    $hidden = [];
+    foreach (['probe-cache', 'probe-index'] as $provider) {
+        $path = $dir . '/providers/' . $provider . '.php';
+        if (!in_array($provider, $declared, true) && is_file($path)) {
+            $away = dirname($dir) . '/.' . $provider . '.php';
+            rename($path, $away);
+            $hidden[$away] = $path;
+        }
+    }
+    $declaredRegenerators = [];
+    foreach ((array) ($manifest['post_types'] ?? []) as $postType) {
+        $regenerator = is_array($postType) && is_array($postType['regen_dependency'] ?? null)
+            ? ($postType['regen_dependency']['regenerator'] ?? null)
+            : null;
+        if (is_string($regenerator)) {
+            $declaredRegenerators[] = $regenerator;
+        }
+    }
+    $regeneratorPath = $dir . '/regenerators/probe-lookups.php';
+    if (!in_array('probe-lookups', $declaredRegenerators, true) && is_file($regeneratorPath)) {
+        $away = dirname($dir) . '/.probe-lookups.php';
+        rename($regeneratorPath, $away);
+        $hidden[$away] = $regeneratorPath;
+    }
+    try {
+        return $providerLibraries[$key] = \Duo\AdapterLibrary::fromLegacyFlatDirectory($dir);
+    } finally {
+        foreach ($hidden as $away => $path) {
+            rename($away, $path);
+        }
+    }
+};
+
+$policyFor = static function (array $manifest) use ($libraryFor): \Duo\Policy {
+    return \Duo\Policy::from_snapshot([
+        'adapter_sources' => \DuoTest\FrozenPolicy::adapterSources(),
+        'dispositions' => null,
+        'format' => \DuoTest\FrozenPolicy::SNAPSHOT_FORMAT,
+        'manifests' => [$manifest],
+        'site' => \DuoTest\FrozenPolicy::site([$manifest]),
+    ], $libraryFor($manifest));
 };
 $reset = static function (): void {
     $GLOBALS['duo_test_plugins'] = ['probe/probe.php' => ['Version' => '1.5.0']];
@@ -1118,7 +1159,7 @@ $reviewedPolicy = \Duo\Policy::from_snapshot([
         'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
     ],
     'manifests' => [$manifest],
-]);
+], $libraryFor($manifest));
 $v6Snapshot = $reviewedPolicy->export_snapshot();
 $check(!array_key_exists('capabilities', $v6Snapshot)
     && ($v6Snapshot['format'] ?? null) === 'duo-policy-snapshot/v6',
@@ -1132,7 +1173,7 @@ $v5Snapshot['format'] = 'duo-policy-snapshot/v5';
 $v5Snapshot['capabilities'] = ['format' => 'duo-capability-registry/v2', 'manifests' => []];
 $v5Refusal = '';
 try {
-    \Duo\Policy::from_snapshot($v5Snapshot);
+    \Duo\Policy::from_snapshot($v5Snapshot, $reviewedPolicy->adapter_library());
 } catch (\Throwable $t) {
     $v5Refusal = $t->getMessage();
 }
@@ -1167,7 +1208,7 @@ foreach ([
 ] as $label => $mutate) {
     $v4Refusal = '';
     try {
-        \Duo\Policy::from_snapshot($mutate($v6Snapshot));
+        \Duo\Policy::from_snapshot($mutate($v6Snapshot), $reviewedPolicy->adapter_library());
     } catch (\Throwable $t) {
         $v4Refusal = $t->getMessage();
     }
@@ -1264,7 +1305,7 @@ $reset();
 // symbols that say WordPress is loaded, so the short-circuit is proved in a
 // child process that defines three of them and omits ABSPATH — a constant
 // cannot be undefined once set.
-$gateProbe = $dir . '/gate-probe.php';
+$gateProbe = $scratchRoot . '/gate-probe.php';
 file_put_contents($gateProbe, <<<'PROBE'
 <?php
 // Deliberately NO define('ABSPATH', ...) — that is the whole subject.
@@ -1276,6 +1317,7 @@ function is_multisite(): bool { return false; }
 $root = dirname(__DIR__, 1);
 PROBE
 . "\n\$engine = " . var_export($root, true) . ";\n"
+. "\n\$libraryDir = " . var_export($dir, true) . ";\n"
 . <<<'PROBE'
 require $engine . '/agent/src/Kernel/Canon.php';
 require $engine . '/agent/src/Kernel/OptionState.php';
@@ -1283,12 +1325,31 @@ require $engine . '/agent/src/Policy/Policy.php';
 require $engine . '/agent/src/Code/CodeCompatibility.php';
 require $engine . '/agent/src/Promotion/Deploy.php';
 require $engine . '/agent/src/Adapter/Providers.php';
-putenv('DUO_MANIFESTS_DIR=' . __DIR__);
 $manifest = json_decode(getenv('DUO_PROBE_MANIFEST'), true);
-// __DIR__ is the parent's scratch manifests dir. The v6 wire proves shipped
+// $libraryDir is the parent's scratch package projection. The v6 wire proves shipped
 // membership against that library instead of trusting the snapshot, so publish
-// the frozen bytes before freezing them; the parent's shutdown glob removes it.
-file_put_contents(__DIR__ . '/' . $manifest['name'] . '.json', Duo\Canon::encode($manifest));
+// the frozen bytes before freezing them; the parent's shutdown removes it.
+file_put_contents($libraryDir . '/' . $manifest['name'] . '.json', Duo\Canon::encode($manifest));
+$index = $libraryDir . '/providers/probe-index.php';
+$hiddenIndex = dirname($libraryDir) . '/.probe-index.php';
+$regenerator = $libraryDir . '/regenerators/probe-lookups.php';
+$hiddenRegenerator = dirname($libraryDir) . '/.probe-lookups.php';
+if (is_file($index)) {
+    rename($index, $hiddenIndex);
+}
+if (is_file($regenerator)) {
+    rename($regenerator, $hiddenRegenerator);
+}
+try {
+    $library = Duo\AdapterLibrary::fromLegacyFlatDirectory($libraryDir);
+} finally {
+    if (is_file($hiddenIndex)) {
+        rename($hiddenIndex, $index);
+    }
+    if (is_file($hiddenRegenerator)) {
+        rename($hiddenRegenerator, $regenerator);
+    }
+}
 $policy = Duo\Policy::from_snapshot([
     'format' => 'duo-policy-snapshot/v6',
     'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
@@ -1299,7 +1360,7 @@ $policy = Duo\Policy::from_snapshot([
         'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
     ],
     'manifests' => [$manifest],
-]);
+], $library);
 echo json_encode([
     'gate' => Duo\Providers::runtime_negotiation_available(),
     'problems' => count(Duo\Providers::problems($policy)),

@@ -3,6 +3,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/src/AdapterChangeScopeDecision.php';
+
 /**
  * Changed-files -> offline-suite selector (WP-6a).
  *
@@ -14,9 +16,13 @@ declare(strict_types=1);
  * That is not fast enough to run on every edit while iterating, so this tool
  * answers a narrower question: given a set of changed files, which of those
  * targets could possibly be affected? `tools/offline.php --changed[=BASE]`
- * shells out to `php tools/affected.php --base=BASE`, treats stdout as the
- * work list (one target name per line), and intersects it with the real
- * leaf set -- so this file's only hard contract is that stdout line format.
+ * shells out to `php tools/affected.php --base=BASE --json`, treats the
+ * `targets` members as the work list, and intersects ordinary targets with
+ * the real leaf set. A closed single-adapter decision may also return scoped
+ * adapter and offline-scenario tasks with checked commands. Live/certify
+ * scenario gates are separate advisory metadata, never executable targets;
+ * plain output still emits one executable target name per line for human and
+ * shell callers.
  *
  * SOURCE OF TRUTH FOR THE LEAF LIST
  * ----------------------------------
@@ -64,7 +70,8 @@ declare(strict_types=1);
  *       leading `../` count in front of it (verified against every
  *       require_once line in sandbox/tests/*.php).
  *   (b) ANY literal repo-relative path token matching
- *       `(agent|cli|recovery|manifests|scripts|sandbox|docs|spec)/....(php|
+ *       `(agent|adapter-packages|platform|integration-scenarios|cli|recovery|
+ *       scripts|sandbox|docs|spec)/....(php|
  *       json|sh|md|yml|Dockerfile)`, `cli/duo`, or `Makefile` -- this also
  *       catches non-require references (file_get_contents+eval of cli/duo,
  *       assert_file_contains($path, ...), `source "$ROOT/sandbox/lib/x.sh"`)
@@ -76,8 +83,8 @@ declare(strict_types=1);
  *       Code's own internal require chain never spells
  *       "agent/src/Kernel/PathSafety.php" itself, so only the class token proves
  *       the dependency.
- *   (d) a rooted DIRECTORY literal (`$repo . '/manifests'`,
- *       `'manifests/providers'`) recorded as a whole-directory dependency,
+ *   (d) a rooted DIRECTORY literal (`$repo . '/adapter-packages'`,
+ *       `'platform/adapter-library'`) recorded as a whole-directory dependency,
  *       matched by prefix at selection time -- the one shape exact-path
  *       matching structurally cannot express, because a suite that does
  *       `glob($dir . '/*.json')` never spells any individual member. See
@@ -127,17 +134,30 @@ declare(strict_types=1);
  *  - Plain PHP, no composer runtime deps, cwd-independent, PHP 8.3+ syntax.
  *  - Never reads/writes agent/, cli/, sandbox/bin/, or the Makefile itself;
  *    only sandbox/tmp/affected-index.json is ever written.
- *  - Always exits 0 (tools/offline.php merges this process's stdout+stderr
+ *  - Selection exits 0; a closed scenario/ownership classification failure
+ *    exits 1 so tools/offline.php cannot turn malformed gate metadata green.
+ *    tools/offline.php merges this process's stdout+stderr
  *    when it shells out, so a non-zero exit would be read as a hard
- *    failure of `--changed`); malformed CLI usage is the sole exception
- *    (exit 2), matching tools/doctor.sh's convention.
+ *    failure of `--changed`. Malformed CLI usage exits 2, matching
+ *    tools/doctor.sh's convention.
  *
  * Usage:
  *   php tools/affected.php [--base=REF] [--paths=a,b] [--all]
  *                           [--explain] [--json] [--quiet] [--rebuild-index]
  */
 
-const AF_ROOT_DIRS = ['agent', 'cli', 'recovery', 'manifests', 'scripts', 'sandbox', 'docs', 'spec'];
+const AF_ROOT_DIRS = [
+    'agent',
+    'adapter-packages',
+    'platform',
+    'integration-scenarios',
+    'cli',
+    'recovery',
+    'scripts',
+    'sandbox',
+    'docs',
+    'spec',
+];
 const AF_ROOT_EXTS = ['php', 'json', 'sh', 'md', 'yml', 'Dockerfile'];
 const AF_SRC_DIRS = ['agent/src', 'cli/src', 'recovery'];
 
@@ -258,6 +278,32 @@ function af_normalize_path(string $path): string
         $segments[] = $segment;
     }
     return ($absolute ? '/' : '') . implode('/', $segments);
+}
+
+/** Explicit CLI paths are ownership evidence, so lossy cleanup is a refusal. */
+function af_is_canonical_explicit_path(string $path): bool
+{
+    if ($path === '' || $path[0] === '/' || str_contains($path, "\0") || str_contains($path, '\\')) {
+        return false;
+    }
+
+    foreach (explode('/', $path) as $segment) {
+        if ($segment === '' || $segment === '.' || $segment === '..') {
+            return false;
+        }
+    }
+
+    return af_normalize_path($path) === $path;
+}
+
+/** Git's -z formats are unquoted, so any cleanup here would change ownership evidence. */
+function af_canonical_git_path(string $path, string $source): string
+{
+    if (!af_is_canonical_explicit_path($path)) {
+        throw new RuntimeException("non-canonical repo-relative path from $source");
+    }
+
+    return $path;
 }
 
 // -------------------------------------------------------- make db parsing
@@ -718,21 +764,18 @@ const AF_DIR_SIGNAL_EXCLUDED = [
  * Whole-DIRECTORY dependencies, the signal that exact-path matching
  * structurally cannot express.
  *
- * Several offline leaves load a tree wholesale rather than naming its
- * members -- `$dir = $repo . '/manifests'; glob($dir . '/*.json')`,
- * `glob($root . '/manifests/providers/*.php')`, `scandir(...)` loops. No individual
- * manifest is ever spelled, so no ref key can exist for it, and every one of
- * the ~87 files under manifests/ selected zero suites -- the highest-traffic
- * false negative there was, since manifests are product data edited
- * constantly.
+ * The adapter aggregate discovers package tests and payloads by scanning
+ * `adapter-packages/`, while policy suites close `platform/adapter-library/`.
+ * Neither can spell every future capsule member, so exact-path references alone
+ * would miss newly added package tests, evidence, and runtime files.
  *
  * Rather than enumerate call shapes (glob/scandir/opendir/::load/find/ls,
  * each with its own indirection through a local variable assigned on an
  * earlier line), this takes any rooted directory LITERAL and lets three
  * cheap gates do the filtering:
  *   1. the token must look like a path, not prose -- either it has more than
- *      one segment (`manifests/providers`) or it is directly preceded by a
- *      slash (`$repo . '/manifests'`), so the English word "docs" or "spec"
+ *      one segment (`adapter-packages/woocommerce`) or it is directly preceded
+ *      by a slash (`$repo . '/adapter-packages'`), so the English word "docs" or "spec"
  *      in a comment cannot register the whole tree;
  *   2. it must actually be a directory on disk (which is also what rejects
  *      `agent/src/Kernel/Canon.php`: the greedy match consumes the filename, is_dir
@@ -740,8 +783,8 @@ const AF_DIR_SIGNAL_EXCLUDED = [
  *   3. it must not be an already-precisely-covered tree (see above).
  *
  * Gate 1 is deliberately loose for a single-segment token: it must accept
- * `$repo . '/manifests'` (regress_manifest_dispositions.php:68's shape, and
- * the whole reason this signal exists), which is lexically indistinguishable
+ * `$repo . '/adapter-packages'` (regress_adapter_packages.php's discovery
+ * shape, and the whole reason this signal exists), which is lexically indistinguishable
  * from a same-shaped literal meant for somewhere else -- e.g.
  * regress_adapter_sources.php's `copy_tree(dirname($fixture) . '/docs', ...)`
  * registers a dependency on the repo's docs/ tree it does not really have.
@@ -1195,8 +1238,9 @@ function af_build_index(string $root): array
  *    logic is fingerprinted first.
  *
  *  - The rest of AF_ROOT_DIRS. Every extracted token is gated through
- *    is_file()/is_dir(), so ADDING or REMOVING a file under manifests/,
- *    docs/, scripts/, spec/, sandbox/bin/ or sandbox/conformance/ flips
+ *    is_file()/is_dir(), so ADDING or REMOVING a file under adapter-packages/,
+ *    platform/, integration-scenarios/, docs/, scripts/, spec/, sandbox/bin/
+ *    or sandbox/conformance/ flips
  *    index entries without touching anything the old walk covered.
  *
  * sandbox/tmp is skipped: it is gitignored scratch, it holds this very cache
@@ -1299,52 +1343,153 @@ function af_get_index(string $root, bool $rebuild): array
 
 // ------------------------------------------------------------ changed files
 
-function af_unquote_status_field(string $field): string
+/**
+ * Parse `git diff --name-status -M -z` without flattening rename identity.
+ *
+ * Dependency matching still needs both path spellings, while the closed
+ * ownership decision needs the structured from/to pair to detect a move
+ * across ownership roots.
+ *
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_parse_diff_name_status(string $output): array
 {
-    $field = trim($field);
-    if (strlen($field) >= 2 && $field[0] === '"' && str_ends_with($field, '"')) {
-        return stripcslashes(substr($field, 1, -1));
+    $fields = explode("\0", $output);
+    if ($fields !== [] && end($fields) === '') {
+        array_pop($fields);
     }
-    return $field;
-}
-
-/** @return list<string> repo-relative paths */
-function af_git_diff_paths(string $root, string $base): array
-{
-    $result = af_exec(['git', '-C', $root, 'diff', '--name-only', $base . '...HEAD'], $root);
-    if ($result['exit'] !== 0) {
-        $result = af_exec(['git', '-C', $root, 'diff', '--name-only', $base], $root);
-    }
-    if ($result['exit'] !== 0) {
-        fwrite(STDERR, "affected: NOTICE `git diff --name-only $base...HEAD` failed, "
-            . "continuing with working-tree changes only\n");
-        return [];
-    }
-    return array_map('af_normalize_path', af_lines($result['out']));
-}
-
-/** @return list<string> repo-relative paths, tracked + untracked working-tree changes */
-function af_git_status_paths(string $root): array
-{
-    $result = af_exec(['git', '-C', $root, 'status', '--porcelain', '--untracked-files=all'], $root);
-    if ($result['exit'] !== 0) {
-        return [];
-    }
+    $changes = [];
     $paths = [];
-    foreach (af_lines($result['out']) as $line) {
-        if (strlen($line) < 4) {
+    for ($offset = 0; $offset < count($fields);) {
+        $status = $fields[$offset++];
+        if (preg_match('/^R[0-9]{1,3}$/D', $status) === 1) {
+            if (!isset($fields[$offset], $fields[$offset + 1])) {
+                throw new RuntimeException('truncated rename record from git diff --name-status');
+            }
+            $from = af_canonical_git_path($fields[$offset++], 'git diff --name-status rename source');
+            $to = af_canonical_git_path($fields[$offset++], 'git diff --name-status rename destination');
+            $changes[] = ['from' => $from, 'to' => $to];
+            $paths[] = $from;
+            $paths[] = $to;
             continue;
         }
-        $rest = substr($line, 3);
-        $fields = str_contains($rest, ' -> ') ? explode(' -> ', $rest, 2) : [$rest];
-        foreach ($fields as $field) {
-            $path = af_normalize_path(af_unquote_status_field($field));
-            if ($path !== '') {
+        if (preg_match('/^C[0-9]{1,3}$/D', $status) === 1) {
+            if (!isset($fields[$offset], $fields[$offset + 1])) {
+                throw new RuntimeException('truncated copy record from git diff --name-status');
+            }
+            $from = af_canonical_git_path($fields[$offset++], 'git diff --name-status copy source');
+            $to = af_canonical_git_path($fields[$offset++], 'git diff --name-status copy destination');
+            foreach ([$from, $to] as $path) {
+                $changes[] = $path;
                 $paths[] = $path;
             }
+            continue;
         }
+        if (preg_match('/^[A-Z?]{1,2}$/D', $status) !== 1 || !isset($fields[$offset])) {
+            throw new RuntimeException('malformed record from git diff --name-status');
+        }
+        $path = af_canonical_git_path($fields[$offset++], 'git diff --name-status');
+        $changes[] = $path;
+        $paths[] = $path;
     }
-    return $paths;
+
+    return ['changes' => $changes, 'paths' => $paths];
+}
+
+/**
+ * Parse `git status --porcelain=v1 -z`; rename records place the destination
+ * in the status field and the source in the following NUL field.
+ *
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_parse_porcelain_status(string $output): array
+{
+    $fields = explode("\0", $output);
+    if ($fields !== [] && end($fields) === '') {
+        array_pop($fields);
+    }
+    $changes = [];
+    $paths = [];
+    for ($offset = 0; $offset < count($fields); $offset++) {
+        $record = $fields[$offset];
+        if (strlen($record) < 4 || $record[2] !== ' ') {
+            throw new RuntimeException('malformed record from git status --porcelain=v1');
+        }
+        $status = substr($record, 0, 2);
+        $to = af_canonical_git_path(substr($record, 3), 'git status --porcelain=v1');
+        if (str_contains($status, 'R')) {
+            if (!isset($fields[$offset + 1])) {
+                throw new RuntimeException('truncated rename record from git status --porcelain=v1');
+            }
+            $from = af_canonical_git_path($fields[++$offset], 'git status --porcelain=v1 rename source');
+            $changes[] = ['from' => $from, 'to' => $to];
+            $paths[] = $from;
+            $paths[] = $to;
+            continue;
+        }
+        if (str_contains($status, 'C')) {
+            if (!isset($fields[$offset + 1])) {
+                throw new RuntimeException('truncated copy record from git status --porcelain=v1');
+            }
+            $from = af_canonical_git_path($fields[++$offset], 'git status --porcelain=v1 copy source');
+            foreach ([$from, $to] as $path) {
+                $changes[] = $path;
+                $paths[] = $path;
+            }
+            continue;
+        }
+        $changes[] = $to;
+        $paths[] = $to;
+    }
+
+    return ['changes' => $changes, 'paths' => $paths];
+}
+
+/**
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_git_diff_changes(string $root, string $base): array
+{
+    $result = af_exec(['git', '-C', $root, 'diff', '--name-status', '-M', '-z', $base . '...HEAD'], $root);
+    if ($result['exit'] !== 0) {
+        $result = af_exec(['git', '-C', $root, 'diff', '--name-status', '-M', '-z', $base], $root);
+    }
+    if ($result['exit'] !== 0) {
+        $diagnostic = trim($result['err'] !== '' ? $result['err'] : $result['out']);
+        throw new RuntimeException(
+            "git diff --name-status -M -z failed for base '$base'"
+                . ($diagnostic === '' ? '' : ': ' . $diagnostic)
+        );
+    }
+    return af_parse_diff_name_status($result['out']);
+}
+
+/**
+ * @return array{
+ *   changes:list<string|array{from:string,to:string}>,
+ *   paths:list<string>
+ * }
+ */
+function af_git_status_changes(string $root): array
+{
+    $result = af_exec(['git', '-C', $root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], $root);
+    if ($result['exit'] !== 0) {
+        $diagnostic = trim($result['err'] !== '' ? $result['err'] : $result['out']);
+        throw new RuntimeException(
+            'git status --porcelain=v1 -z failed'
+                . ($diagnostic === '' ? '' : ': ' . $diagnostic)
+        );
+    }
+    return af_parse_porcelain_status($result['out']);
 }
 
 // ------------------------------------------------------------------- main
@@ -1394,22 +1539,128 @@ function af_main(array $argv): int
         return 0;
     }
 
+    /** @var list<string|array{from:string,to:string}> $ownershipChanges */
+    $ownershipChanges = [];
     if ($explicitPaths !== null) {
         $changed = [];
         foreach (explode(',', $explicitPaths) as $raw) {
-            $raw = af_normalize_path($raw);
-            if ($raw !== '') {
-                $changed[$raw] = true;
+            if (!af_is_canonical_explicit_path($raw)) {
+                fwrite(STDERR, "affected: --paths contains a non-canonical repo-relative path: '$raw'\n");
+                return 2;
             }
+            $changed[$raw] = true;
+            $ownershipChanges[] = $raw;
         }
         $changed = array_keys($changed);
     } else {
-        $changed = array_values(array_unique(array_merge(
-            af_git_diff_paths($root, $base),
-            af_git_status_paths($root)
-        )));
+        try {
+            $diff = af_git_diff_changes($root, $base);
+            $status = af_git_status_changes($root);
+        } catch (Throwable $failure) {
+            fwrite(STDERR, 'affected: closed Git change parsing failed: ' . $failure->getMessage() . "\n");
+            return 1;
+        }
+        $changed = array_values(array_unique(array_merge($diff['paths'], $status['paths'])));
+        $ownershipChanges = array_merge($diff['changes'], $status['changes']);
     }
     sort($changed, SORT_STRING);
+
+    try {
+        $ownership = \Duo\Tooling\AdapterChangeScopeDecision::decide($ownershipChanges);
+    } catch (Throwable $failure) {
+        fwrite(STDERR, 'affected: closed ownership classification failed: ' . $failure->getMessage() . "\n");
+        return 1;
+    }
+
+    // The package runner is the authoritative narrow gate for a single
+    // adapter. Static dependency extraction sees the aggregate's directory
+    // scan and would otherwise turn every capsule edit back into the all-
+    // capsule gate. Participant scenarios come from the same validated closed
+    // decision, so a package edit cannot silently omit its shared evidence.
+    if ($ownership['gate'] === \Duo\Tooling\AdapterChangeScopeDecision::GATE_ADAPTER) {
+        $adapter = $ownership['adapter'];
+        if (!is_string($adapter) || $adapter === '') {
+            fwrite(STDERR, "affected: adapter gate did not name an adapter\n");
+            return 1;
+        }
+        $selected = ['adapter-package:' . $adapter];
+        $tasks = [[
+            'target' => $selected[0],
+            'kind' => 'adapter-package',
+            'command' => $ownership['command'],
+        ]];
+        $rows = [];
+        foreach ($changed as $file) {
+            $rows[] = ['target' => $selected[0], 'file' => $file, 'why' => 'adapter-package'];
+        }
+        $advisories = [];
+        foreach ($ownership['scenario_gates'] as $gate) {
+            $target = 'integration-scenario:' . $gate['scenario'] . ':' . $gate['class'] . ':'
+                . basename($gate['path']);
+            $task = [
+                'target' => $target,
+                'kind' => 'integration-scenario',
+                'command' => $gate['command'],
+            ];
+            if ($gate['class'] !== 'offline') {
+                $advisories[] = $task;
+                continue;
+            }
+            $selected[] = $target;
+            $tasks[] = $task;
+            foreach ($changed as $file) {
+                $rows[] = ['target' => $target, 'file' => $file, 'why' => 'participant-scenario'];
+            }
+        }
+        af_emit($selected, $rows, $changed, $json, $explain, $tasks, $advisories);
+        return 0;
+    }
+
+    // Every non-engine full decision is a closed-scope refusal to narrow.
+    // Falling through to the static dependency index can turn unknown paths
+    // or cross-root renames into a green zero-task run. Engine edits retain
+    // their explicit static dependency map plus conservative package aggregate
+    // below; every other full reason expands to the complete offline corpus.
+    if ($ownership['gate'] === \Duo\Tooling\AdapterChangeScopeDecision::GATE_FULL
+        && $ownership['reason_code'] !== 'engine_change') {
+        $selected = $leaves;
+        $selectedSet = array_fill_keys($selected, true);
+        $tasks = [];
+        $advisories = [];
+        foreach ($ownership['scenario_gates'] as $gate) {
+            $target = 'integration-scenario:' . $gate['scenario'] . ':' . $gate['class'] . ':'
+                . basename($gate['path']);
+            $task = [
+                'target' => $target,
+                'kind' => 'integration-scenario',
+                'command' => $gate['command'],
+            ];
+            if ($gate['class'] === 'offline') {
+                if (!isset($selectedSet[$target])) {
+                    $selectedSet[$target] = true;
+                    $selected[] = $target;
+                    $tasks[] = $task;
+                }
+                continue;
+            }
+            $advisories[] = $task;
+        }
+        sort($selected, SORT_STRING);
+        // A closed-full explanation is a target x changed-path Cartesian
+        // product. Emit that deterministic sequence incrementally: the exact
+        // current branch is already ~260k rows, so materializing the rows and
+        // JSON string together exhausts PHP's supported 128 MiB CLI ceiling.
+        af_emit_closed_full(
+            $selected,
+            $changed,
+            'closed-full:' . $ownership['reason_code'],
+            $json,
+            $explain,
+            $tasks,
+            $advisories
+        );
+        return 0;
+    }
 
     $wholeCorpusFiles = ['Makefile', 'sandbox/tests/offline_diagnostics_guard.sh'];
 
@@ -1423,7 +1674,9 @@ function af_main(array $argv): int
         if ($isWholeCorpus) {
             foreach ($leaves as $target) {
                 $selectedSet[$target] = true;
-                $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'makefile'];
+                if ($explain) {
+                    $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'makefile'];
+                }
             }
             continue;
         }
@@ -1432,18 +1685,22 @@ function af_main(array $argv): int
         foreach ($targets as $target => $data) {
             if (isset($data['refs'][$file])) {
                 $selectedSet[$target] = true;
-                $explainRows[] = ['target' => $target, 'file' => $file, 'why' => $data['refs'][$file]];
+                if ($explain) {
+                    $explainRows[] = ['target' => $target, 'file' => $file, 'why' => $data['refs'][$file]];
+                }
                 $hit = true;
                 continue;
             }
             // Directory dependency: the suite loads this tree wholesale
             // (glob/scandir/::load) and can therefore never name $file
-            // individually. Prefix match, so manifests/providers/x.php is
-            // caught by a suite that only ever spelled `/manifests`.
+            // individually. Prefix match, so a newly-added package test is
+            // caught by the aggregate that only ever spelled `/adapter-packages`.
             foreach ($data['dirs'] ?? [] as $dir) {
                 if (str_starts_with($file, $dir . '/')) {
                     $selectedSet[$target] = true;
-                    $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'dir:' . $dir];
+                    if ($explain) {
+                        $explainRows[] = ['target' => $target, 'file' => $file, 'why' => 'dir:' . $dir];
+                    }
                     $hit = true;
                     break;
                 }
@@ -1451,6 +1708,23 @@ function af_main(array $argv): int
         }
         if (!$hit) {
             $uncovered[] = $file;
+        }
+    }
+
+    // Capsules may consume the public engine SDK without spelling every SDK
+    // source file in their local tests. Until that symbol-to-package index is
+    // explicit, an engine edit must conservatively retain the dynamically
+    // discovered package aggregate rather than silently skipping consumers.
+    if ($ownership['reason_code'] === 'engine_change') {
+        $selectedSet['regress-adapter-packages'] = true;
+        if ($explain) {
+            foreach ($changed as $file) {
+                $explainRows[] = [
+                    'target' => 'regress-adapter-packages',
+                    'file' => $file,
+                    'why' => 'adapter-sdk-conservative',
+                ];
+            }
         }
     }
 
@@ -1467,17 +1741,104 @@ function af_main(array $argv): int
     return 0;
 }
 
+/**
+ * Emit a closed-full selection without retaining its Cartesian explanation.
+ *
+ * The nested target/file order is exactly af_emit()'s target-then-file sort
+ * because both inputs are already SORT_STRING ordered by af_main(). JSON rows
+ * retain the existing pretty-printed object shape while being written one at
+ * a time, so callers receive the same schema and deterministic semantics with
+ * memory proportional to the target/path lists rather than their product.
+ *
+ * @param list<string> $selected
+ * @param list<string> $changed
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $tasks
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $advisories
+ */
+function af_emit_closed_full(
+    array $selected,
+    array $changed,
+    string $why,
+    bool $json,
+    bool $explain,
+    array $tasks = [],
+    array $advisories = []
+): void {
+    if (!$explain) {
+        af_emit($selected, [], $changed, $json, false, $tasks, $advisories);
+        return;
+    }
+
+    if (!$json) {
+        foreach ($selected as $target) {
+            fwrite(STDOUT, $target . "\n");
+        }
+        foreach ($selected as $target) {
+            foreach ($changed as $file) {
+                fwrite(STDOUT, "$target <- $file (why: $why)\n");
+            }
+        }
+        return;
+    }
+
+    $payload = [
+        'targets' => $selected,
+        'changed_files' => $changed,
+        'tasks' => $tasks,
+        'advisories' => $advisories,
+    ];
+    $prefix = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $closing = strrpos($prefix, "\n}");
+    if ($closing === false) {
+        throw new RuntimeException('could not stream closed-full JSON explanation');
+    }
+    fwrite(STDOUT, substr($prefix, 0, $closing));
+    fwrite(STDOUT, ",\n    \"explain\": [");
+
+    $first = true;
+    foreach ($selected as $target) {
+        foreach ($changed as $file) {
+            $row = json_encode(
+                ['target' => $target, 'file' => $file, 'why' => $why],
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            );
+            $indented = preg_replace('/^/m', '        ', $row);
+            if (!is_string($indented)) {
+                throw new RuntimeException('could not indent closed-full JSON explanation');
+            }
+            fwrite(STDOUT, ($first ? "\n" : ",\n") . $indented);
+            $first = false;
+        }
+    }
+    fwrite(STDOUT, $first ? "]\n}\n" : "\n    ]\n}\n");
+}
+
 /** @param list<string> $selected
  * @param list<array{target:string,file:string,why:string}> $explainRows
  * @param list<string> $changed
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $tasks
+ * @param list<array{target:string,kind:string,command:non-empty-list<string>}> $advisories
  */
-function af_emit(array $selected, array $explainRows, array $changed, bool $json, bool $explain): void
+function af_emit(
+    array $selected,
+    array $explainRows,
+    array $changed,
+    bool $json,
+    bool $explain,
+    array $tasks = [],
+    array $advisories = []
+): void
 {
     if ($json) {
-        usort($explainRows, static fn (array $a, array $b): int
-            => $a['target'] <=> $b['target'] ?: $a['file'] <=> $b['file']);
-        $payload = ['targets' => $selected, 'changed_files' => $changed];
+        $payload = [
+            'targets' => $selected,
+            'changed_files' => $changed,
+            'tasks' => $tasks,
+            'advisories' => $advisories,
+        ];
         if ($explain) {
+            usort($explainRows, static fn (array $a, array $b): int
+                => $a['target'] <=> $b['target'] ?: $a['file'] <=> $b['file']);
             $payload['explain'] = $explainRows;
         }
         fwrite(STDOUT, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");

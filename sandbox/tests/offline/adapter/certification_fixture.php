@@ -32,7 +32,9 @@ if (!class_exists('Duo\\Canon', false)) {
     require_once dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 }
 require_once dirname(__DIR__, 4) . '/agent/src/Policy/ManifestDispositions.php';
+require_once dirname(__DIR__, 4) . '/agent/src/Policy/AdapterLibrary.php';
 
+use Duo\AdapterLibrary;
 use Duo\ManifestDispositions;
 
 function duo_cert_copy_tree(string $from, string $to): void {
@@ -95,6 +97,48 @@ function duo_cert_library_bytes(string $manifestDir): array {
 }
 
 /**
+ * Project a logical package library into the explicit legacy layout mounted by
+ * older test harnesses. The source checkout has no flat manifests/ authority;
+ * this projection is caller-owned fixture data, derived only from the closed
+ * AdapterLibrary inventory the production source reader accepted.
+ *
+ * @return array<string,string> legacy-relative path => source path
+ */
+function duo_cert_projected_paths(AdapterLibrary $library): array {
+    $paths = [
+        'capabilities/adapter-authorities.json' => $library->authoritiesPath(),
+        'capabilities/platform.json' => $library->platformBoundaryPath(),
+        'dispositions/profiles.json' => $library->profilesPath(),
+    ];
+    if (is_file($library->revocationsPath())) {
+        $paths['capabilities/adapter-revocations.json'] = $library->revocationsPath();
+    }
+    foreach ($library->packages() as $package) {
+        $name = $package->name();
+        $paths[$name . '.json'] = $package->manifestPath();
+        $paths['dispositions/' . $name . '.json'] = $package->dispositionPath();
+        foreach ($package->shippablePaths() as $path) {
+            $relative = substr($path, strlen($package->root()) + 1);
+            if (!str_starts_with($relative, 'runtime/')) {
+                continue;
+            }
+            $paths[substr($relative, strlen('runtime/'))] = $path;
+        }
+    }
+    ksort($paths, SORT_STRING);
+    return $paths;
+}
+
+/** @return array<string,string> */
+function duo_cert_projected_bytes(AdapterLibrary $library): array {
+    $bytes = [];
+    foreach (duo_cert_projected_paths($library) as $relative => $path) {
+        $bytes[$relative] = (string) hash_file('sha256', $path);
+    }
+    return $bytes;
+}
+
+/**
  * Every manifest of a library, decoded, keyed by FILE basename.
  *
  * Keyed by basename rather than by the manifest's own `name` on purpose: a
@@ -125,15 +169,71 @@ function duo_cert_library_manifests(string $manifestDir): array {
  * process loaded. A fixture whose manufacture silently failed would report the
  * ENGINE as broken to whatever mounts it.
  */
-function duo_cert_hermetic_library(string $repo, string $root): string {
-    $repo = rtrim($repo, '/');
+function duo_cert_project_library(AdapterLibrary $library, string $root): string {
     $root = rtrim($root, '/');
     if (!is_dir($root) && !mkdir($root, 0777, true) && !is_dir($root)) {
         throw new RuntimeException("certification fixture manufacture failed: cannot create $root");
     }
-    duo_cert_copy_tree("$repo/manifests", "$root/manifests");
-    duo_cert_assert_loadable("$repo/manifests", "$root/manifests");
+    foreach (duo_cert_projected_paths($library) as $relative => $source) {
+        $destination = "$root/manifests/$relative";
+        if (!is_dir(dirname($destination))
+            && !mkdir(dirname($destination), 0777, true)
+            && !is_dir(dirname($destination))) {
+            throw new RuntimeException(
+                'certification fixture manufacture failed: cannot create ' . dirname($destination)
+            );
+        }
+        if (!copy($source, $destination)) {
+            throw new RuntimeException("certification fixture manufacture failed: cannot copy $source");
+        }
+    }
     return "$root/manifests";
+}
+
+function duo_cert_hermetic_library(string $repo, string $root): string {
+    $library = AdapterLibrary::fromSourceTree(rtrim($repo, '/'));
+    $manifestDir = duo_cert_project_library($library, $root);
+    duo_cert_assert_loadable($library, $manifestDir);
+    return $manifestDir;
+}
+
+/** @return array<string,string> source-relative path => sha256 */
+function duo_cert_source_library_bytes(AdapterLibrary $library): array {
+    $bytes = [];
+    foreach ($library->scanFiles() as $path) {
+        $relative = substr($path, strlen(rtrim($library->root(), '/')) + 1);
+        $bytes[$relative] = (string) hash_file('sha256', $path);
+    }
+    ksort($bytes, SORT_STRING);
+    return $bytes;
+}
+
+/**
+ * Copy the authoring source layout for mount-based tests whose production
+ * path now requires package and platform siblings, then prove the copy is the
+ * same closed AdapterLibrary inventory.
+ */
+function duo_cert_hermetic_source_tree(string $repo, string $root): string {
+    $repo = rtrim($repo, '/');
+    $root = rtrim($root, '/');
+    $source = AdapterLibrary::fromSourceTree($repo);
+    duo_cert_copy_tree($repo . '/adapter-packages', $root . '/adapter-packages');
+    duo_cert_copy_tree($repo . '/platform', $root . '/platform');
+    $copy = AdapterLibrary::fromSourceTree($root);
+    if (duo_cert_source_library_bytes($source) !== duo_cert_source_library_bytes($copy)) {
+        throw new RuntimeException(
+            'certification fixture manufacture failed: the hermetic source library is not the shipped library byte for byte'
+        );
+    }
+    ManifestDispositions::load_library($copy)->assert_covers(
+        array_map(
+            static fn(\Duo\AdapterPackage $package): array =>
+                \Duo\Canon::decode(\Duo\Canon::read_file($package->manifestPath())),
+            $copy->packages()
+        )
+    );
+    ManifestDispositions::platform_boundary_library($copy);
+    return $root;
 }
 
 /**
@@ -149,8 +249,8 @@ function duo_cert_hermetic_library(string $repo, string $root): string {
  * split WP-1.2 made; the reverse direction, a reviewed entry whose manifest
  * is gone, is asserted right after it for the same reason.
  */
-function duo_cert_assert_loadable(string $shippedDir, string $manifestDir): void {
-    $shippedBytes = duo_cert_library_bytes($shippedDir);
+function duo_cert_assert_loadable(AdapterLibrary $shippedLibrary, string $manifestDir): void {
+    $shippedBytes = duo_cert_projected_bytes($shippedLibrary);
     if ($shippedBytes === []) {
         throw new RuntimeException('certification fixture manufacture failed: the shipped library is empty');
     }
@@ -163,7 +263,7 @@ function duo_cert_assert_loadable(string $shippedDir, string $manifestDir): void
     if ($dispositions === null) {
         throw new RuntimeException('certification fixture manufacture failed: dispositions are absent');
     }
-    if ($dispositions->data() !== ManifestDispositions::load($shippedDir)?->data()) {
+    if ($dispositions->data() !== ManifestDispositions::load_library($shippedLibrary)->data()) {
         throw new RuntimeException(
             'certification fixture manufacture failed: the hermetic dispositions differ from the shipped ones'
         );
@@ -190,12 +290,26 @@ function duo_cert_assert_loadable(string $shippedDir, string $manifestDir): void
 }
 
 if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
-    if (($argc ?? 0) !== 2 || $argv[1] === '') {
-        fwrite(STDERR, 'usage: php ' . basename(__FILE__) . " <scratch-root>\n");
+    $sourceTree = ($argv[1] ?? null) === '--source-tree';
+    $scratch = $sourceTree ? ($argv[2] ?? null) : ($argv[1] ?? null);
+    if (($sourceTree && ($argc ?? 0) !== 3) || (!$sourceTree && ($argc ?? 0) !== 2)
+        || !is_string($scratch) || $scratch === '') {
+        fwrite(STDERR, 'usage: php ' . basename(__FILE__) . " [--source-tree] <scratch-root>\n");
         exit(2);
     }
     try {
-        $manifestDir = duo_cert_hermetic_library(dirname(__DIR__, 4), $argv[1]);
+        if ($sourceTree) {
+            $sourceRoot = duo_cert_hermetic_source_tree(dirname(__DIR__, 4), $scratch);
+            $library = AdapterLibrary::fromSourceTree($sourceRoot);
+            fwrite(STDERR, sprintf(
+                "hermetic source adapter library built: %d files, %d packages\n",
+                count(duo_cert_source_library_bytes($library)),
+                count($library->packages())
+            ));
+            fwrite(STDOUT, $sourceRoot . "\n");
+            exit(0);
+        }
+        $manifestDir = duo_cert_hermetic_library(dirname(__DIR__, 4), $scratch);
         $dispositions = ManifestDispositions::load($manifestDir);
         fwrite(STDERR, sprintf(
             "hermetic manifest library built: %d files, %d reviewed dispositions, %d profiles\n",

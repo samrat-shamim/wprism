@@ -64,12 +64,14 @@ function is_multisite(): bool {
 
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/CommandRefusal.php';
+require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/agent/src/Policy/ManifestDispositions.php';
 require_once $root . '/agent/src/Policy/PlatformCompatibility.php';
 require_once $root . '/agent/src/Adapter/AdapterRegistry.php';
 require_once $root . '/agent/src/Adapter/AdapterCertification.php';
 
 use Duo\AdapterCertification;
+use Duo\AdapterLibrary;
 use Duo\AdapterRegistry;
 use Duo\Canon;
 use Duo\CommandRefusalException;
@@ -93,19 +95,16 @@ $report = static function (string $line): void {
     echo '  ' . $line . "\n";
 };
 
-$manifestDir = $root . '/manifests';
-$platform = ManifestDispositions::platform_boundary($manifestDir);
-$registry = ManifestDispositions::load($manifestDir);
+$adapterLibrary = AdapterLibrary::fromSourceTree($root);
+$platform = ManifestDispositions::platform_boundary_library($adapterLibrary);
+$registry = ManifestDispositions::load_library($adapterLibrary);
 duo_check($registry !== null, 'the shipped disposition registry loads');
 $dispositions = $registry?->data()['manifests'] ?? [];
 
 /** Every shipped manifest, by name. @var array<string,array<string,mixed>> $shipped */
 $shipped = [];
-foreach (glob($manifestDir . '/*.json') ?: [] as $file) {
-    if (basename($file) === 'dispositions.json') {
-        continue;
-    }
-    $decoded = Canon::decode(Canon::read_file($file));
+foreach ($adapterLibrary->packages() as $package) {
+    $decoded = Canon::decode(Canon::read_file($package->manifestPath()));
     $shipped[(string) $decoded['name']] = $decoded;
 }
 ksort($shipped, SORT_STRING);

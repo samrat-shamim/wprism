@@ -55,6 +55,7 @@ require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
 require __DIR__ . '/../../../../agent/src/Repository/CompiledArtifact.php';
 require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
+require __DIR__ . '/../policy/manifest_fixtures.php';
 
 use Duo\Apply;
 use Duo\Canon;
@@ -435,9 +436,9 @@ write_manifest($fixtureDir, 'bad-field-class', [
     'spec_version' => DUO_SPEC_VERSION,
     'post_types' => ['product' => ['fields' => ['modified' => ['class' => 'runtime']]]],
 ]);
-putenv('DUO_MANIFESTS_DIR=' . $fixtureDir);
+$fixtureLibrary = manifest_fixture_adapter_library($fixtureDir);
 
-$policy = Policy::load(null, ['woo-fields']);
+$policy = Policy::load(null, ['woo-fields'], adapterLibrary: $fixtureLibrary);
 $policy->site = ['policy' => [
     'post_types' => ['product', 'product_variation', 'article'],
     'taxonomies' => [],
@@ -454,21 +455,19 @@ check($policy->field_class('product', 'modified') === 'derived', 'fixture produc
 check($policy->field_class('product_variation', 'modified_gmt') === 'derived', 'fixture product_variation.modified_gmt is derived');
 check($policy->field_class('article', 'modified') === 'authored', 'undeclared post type keeps modified authored');
 
-putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
-$realWooPolicy = Policy::load(null, ['woocommerce']);
+$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree($root);
+$realWooPolicy = Policy::load(null, ['woocommerce'], adapterLibrary: $sourceLibrary);
 check($realWooPolicy->field_class('product', 'modified') === 'derived', 'shipped Woo manifest declares product.modified derived');
 check($realWooPolicy->field_class('product', 'modified_gmt') === 'derived', 'shipped Woo manifest declares product.modified_gmt derived');
 check($realWooPolicy->field_class('product_variation', 'modified') === 'derived', 'shipped Woo manifest declares variation.modified derived');
 check($realWooPolicy->field_class('product_variation', 'modified_gmt') === 'derived', 'shipped Woo manifest declares variation.modified_gmt derived');
-putenv('DUO_MANIFESTS_DIR=' . $fixtureDir);
-
 check_throws(
-    fn() => Policy::load(null, ['bad-field-name']),
+    fn() => Policy::load(null, ['bad-field-name'], adapterLibrary: $fixtureLibrary),
     'post_types.product.fields.slug',
     'unsupported post field name is rejected at manifest load'
 );
 check_throws(
-    fn() => Policy::load(null, ['bad-field-class']),
+    fn() => Policy::load(null, ['bad-field-class'], adapterLibrary: $fixtureLibrary),
     'post_types.product.fields.modified.class',
     'unsupported post field class is rejected at manifest load'
 );

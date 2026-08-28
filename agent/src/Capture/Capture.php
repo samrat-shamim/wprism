@@ -10,6 +10,7 @@ require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/../Repository/CompiledArtifact.php';
 require_once __DIR__ . '/InitialCaptureBoundary.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 require_once __DIR__ . '/../Scope/ScopedCaptureProjector.php';
 
@@ -57,11 +58,12 @@ final class Capture {
         ?string $outDir = null,
         bool $forceUnresolvedRefs = false,
         ?array $scopeRequest = null,
-        ?string $hostEnvironment = null
+        ?string $hostEnvironment = null,
+        ?AdapterLibrary $adapterLibrary = null
     ): array {
         return self::run_internal(
             $repo, $outDir, $forceUnresolvedRefs, null, false,
-            null, null, null, null, $scopeRequest, $hostEnvironment
+            null, null, null, null, $scopeRequest, $hostEnvironment, $adapterLibrary
         );
     }
 
@@ -120,7 +122,8 @@ final class Capture {
         ?string $initialConfigIdentity = null,
         ?callable $onInitialPayloadReady = null,
         ?array $scopeRequest = null,
-        ?string $hostEnvironment = null
+        ?string $hostEnvironment = null,
+        ?AdapterLibrary $adapterLibrary = null
     ): array {
         return CapturePublicationWorkflow::run(
             $repo,
@@ -133,7 +136,8 @@ final class Capture {
             $initialConfigIdentity,
             $onInitialPayloadReady,
             $scopeRequest,
-            $hostEnvironment
+            $hostEnvironment,
+            $adapterLibrary
         );
     }
 

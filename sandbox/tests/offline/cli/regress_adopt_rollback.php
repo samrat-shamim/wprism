@@ -161,6 +161,8 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
     public array $rawScripts = [];
     /** @var list<string> */
     public array $uploadedArchives = [];
+    /** @var list<string> */
+    public array $uploadedMembers = [];
 
     private string $root;
     private string $muDir;
@@ -279,6 +281,12 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
     }
 
     public function uploadFile(string $localPath, string $remotePath): array {
+        $members = [];
+        exec('tar -tf ' . escapeshellarg($localPath), $members, $status);
+        if ($status !== 0) {
+            return ['exit' => 98, 'stdout' => '', 'stderr' => 'could not inspect isolated adoption archive'];
+        }
+        $this->uploadedMembers = array_values(array_filter($members, 'is_string'));
         if (!is_file($localPath) || !str_starts_with($remotePath, '/tmp/duo-adopt-') || !copy($localPath, $remotePath)) {
             return ['exit' => 97, 'stdout' => '', 'stderr' => 'could not stage isolated adoption archive'];
         }
@@ -389,6 +397,26 @@ function adopt_remove_fixture(string $root): void {
     rmdir($root);
 }
 
+function adopt_tree_hash(string $root): string {
+    $rows = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $entry) {
+        $relative = substr($entry->getPathname(), strlen(rtrim($root, '/')) + 1);
+        if ($entry->isLink()) {
+            $rows[] = ['link', $relative, readlink($entry->getPathname())];
+        } elseif ($entry->isDir()) {
+            $rows[] = ['dir', $relative];
+        } else {
+            $rows[] = ['file', $relative, hash_file('sha256', $entry->getPathname())];
+        }
+    }
+    sort($rows, SORT_REGULAR);
+    return hash('sha256', json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+}
+
 function adopt_check(bool $condition, string $message): void {
     if (!$condition) {
         fwrite(STDERR, "FAIL: $message\n");
@@ -487,14 +515,12 @@ adopt_assert_ordered(
     ],
     'the loader publish proof follows its content population'
 );
-adopt_assert_ordered(
-    $ordinaryInstall,
-    [
-        'record_identity "$manifest_new" "$txn/manifest_new_construction.id"',
-        'cp -R "$stage/manifests/." "$manifest_new/"',
-        'record_identity "$manifest_new" "$txn/manifest_new.id"',
-    ],
-    'the manifest publish proof follows copied manifest bytes'
+adopt_check(
+    str_contains($ordinaryInstall, 'move_owned "$manifest" "$manifest_old"')
+        && str_contains($ordinaryInstall, 'complete_retirement "$txn/manifest_move_intent"')
+        && !str_contains($ordinaryInstall, 'manifest_new')
+        && !str_contains($ordinaryInstall, '$stage/manifests/.'),
+    'the flat manifest tree is a journaled retirement surface, never a new publish source'
 );
 adopt_assert_ordered(
     $authorityInstall,
@@ -583,8 +609,10 @@ adopt_check(
 adopt_check(
     is_string($cleanupScript)
         && strpos($cleanupScript, 'assert_journal_ready || { echo \'duo adopt: committed cleanup journal is incomplete\'')
-            < strpos($cleanupScript, 'cleanup_failed=0'),
-    'committed cleanup preflights every live and rollback-root proof before deletion begins'
+            < strpos($cleanupScript, 'assert_revocation_retirement_safe || { echo \'duo adopt: committed install retained')
+        && strpos($cleanupScript, 'assert_revocation_retirement_safe || { echo \'duo adopt: committed install retained')
+            < strpos($cleanupScript, 'rm -rf \'/fixture/mu-plugins/.duo-manifests-old-'),
+    'committed cleanup preflights every root and the durable revocation bridge before deleting the legacy library'
 );
 
 $rollbackScript = (string) (new ReflectionMethod(Adopt::class, 'rollbackScript'))->invoke(
@@ -602,6 +630,15 @@ adopt_check(
         && str_contains($rollbackScript, 'duo_old_post.id'),
     'rollback preflights the complete post-move journal before its first deletion and refuses a crossed commit barrier'
 );
+adopt_assert_ordered(
+    $rollbackScript,
+    [
+        'restore_owned \'/fixture/mu-plugins/.duo-manifests-old-',
+        'remove_owned \'/fixture/mu-plugins/duo-loader.php\'',
+        'remove_owned \'/fixture/mu-plugins/duo\'',
+    ],
+    'rollback restores the legacy library before it can restore the old loader and agent'
+);
 
 $sourceRoot = dirname(__DIR__, 4);
 $filesystemFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
@@ -614,13 +651,73 @@ $filesystemTransport = new AdoptFilesystemTransactionTransport($filesystemFixtur
 
 $firstInstall = Adopt::install($filesystemTransport, $sourceRoot);
 adopt_check($firstInstall['exit'] === 0, 'the real generated filesystem transaction installs an initial update');
+adopt_check(
+    is_file($filesystemTransport->muDir() . '/duo/adapter-library/platform/core/manifest.json')
+        && !file_exists($filesystemTransport->muDir() . '/manifests')
+        && !is_link($filesystemTransport->muDir() . '/manifests'),
+    'a committed update embeds the library in the agent and retires the flat library'
+);
+adopt_check(
+    $filesystemTransport->uploadedMembers !== []
+        && count(array_filter(
+            $filesystemTransport->uploadedMembers,
+            static fn(string $member): bool => !str_starts_with($member, 'agent/')
+                && $member !== 'agent'
+                && !str_starts_with($member, 'recovery/')
+                && $member !== 'recovery'
+        )) === 0
+        && in_array('agent/adapter-library/platform/core/manifest.json', $filesystemTransport->uploadedMembers, true),
+    'the controller archive allowlist contains only agent and recovery, with the assembled library inside agent'
+);
 $secondInstall = Adopt::install($filesystemTransport, $sourceRoot);
 adopt_check($secondInstall['exit'] === 0, 'the real generated filesystem transaction supports an idempotent update');
+adopt_check(!file_exists($filesystemTransport->muDir() . '/manifests'), 'an embedded-library update does not recreate flat manifests');
+
+$revocationFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+register_shutdown_function(static function () use ($revocationFixture): void {
+    if (is_dir($revocationFixture)) {
+        adopt_remove_fixture($revocationFixture);
+    }
+});
+$revocationTransport = new AdoptFilesystemTransactionTransport($revocationFixture, $sourceRoot);
+$revocationMu = $revocationTransport->muDir();
+mkdir($revocationMu . '/manifests/capabilities', 0700, true);
+$revocationBytes = "{\"format\":\"fixture-revocations\"}\n";
+file_put_contents($revocationMu . '/manifests/capabilities/adapter-revocations.json', $revocationBytes);
+$beforeRevocationRefusal = adopt_tree_hash($revocationFixture);
+$missingDurable = Adopt::install($revocationTransport, $sourceRoot);
+adopt_check(
+    $missingDurable['exit'] !== 0
+        && $missingDurable['phase'] === 'remote install'
+        && str_contains($missingDurable['stderr'], 'legacy adapter revocations require a byte-identical durable duo-control copy'),
+    'cutover refuses a legacy revocation before the durable control copy exists'
+);
+adopt_check(
+    adopt_tree_hash($revocationFixture) === $beforeRevocationRefusal,
+    'the missing durable-revocation refusal changes no target bytes'
+);
+mkdir($revocationMu . '/duo-control', 0700);
+file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', "mismatch\n");
+$mismatchedDurable = Adopt::install($revocationTransport, $sourceRoot);
+adopt_check(
+    $mismatchedDurable['exit'] !== 0
+        && str_contains($mismatchedDurable['stderr'], 'legacy adapter revocations require a byte-identical durable duo-control copy'),
+    'cutover refuses a durable revocation whose bytes disagree with the legacy channel'
+);
+file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', $revocationBytes);
+$migratedRevocation = Adopt::install($revocationTransport, $sourceRoot);
+adopt_check(
+    $migratedRevocation['exit'] === 0
+        && !file_exists($revocationMu . '/manifests')
+        && file_get_contents($revocationMu . '/duo-control/adapter-revocations.json') === $revocationBytes,
+    'a byte-identical durable revocation survives the committed flat-library retirement'
+);
 
 $mu = $filesystemTransport->muDir();
 $repo = $filesystemTransport->repoPath();
 file_put_contents($mu . '/duo/rollback-sentinel.txt', "prior-agent\n");
 file_put_contents($mu . '/duo-loader.php', "<?php // prior loader\n");
+mkdir($mu . '/manifests', 0700);
 file_put_contents($mu . '/manifests/rollback-sentinel.json', "{\"prior\":true}\n");
 file_put_contents($repo . '/.duo/rollback-sentinel.txt', "prior-duo-state\n");
 $priorRoots = [
