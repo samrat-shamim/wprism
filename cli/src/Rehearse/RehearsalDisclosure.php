@@ -13,21 +13,17 @@ use WPrism\CommandRefusalException;
  * report (round-3 MUP §2.2, §4.4, §8; product spec *Core product workflows
  * → 2. Rehearse*).
  *
- * ## Why a class for two sentences
+ * ## Why a class for these claims
  *
- * The spec's rehearsal is a *sandbox*: it strips or rebinds production
- * credentials before the environment boots, default-denies outbound HTTP,
- * mail, payment, webhook and queue destinations, and verifies containment
- * before any workflow is exercised. MUP ships none of that (§8, first row),
- * so what it provides is a **preview**. The gap between the two is not a
- * missing feature to be quietly deferred — it is a safety property an
- * operator will otherwise assume, because every other environment tool they
- * have used calls this a staging site. The disclosure is therefore output,
- * not documentation, and it lives in one place so the human banner, the
- * JSON block and any future consumer cannot drift into three differently
- * worded promises.
+ * A rehearsal admits production-derived bytes only after a machine-local
+ * provider proves the `agency-rehearsal-v1` controls. `PREFLIGHT` states that
+ * requirement before provider contact; `verifiedProof()` reduces the exact
+ * materialization evidence; and `verifiedLines()`/`verifiedBlock()` expose the
+ * receipt without inferring containment from successful materialization. The
+ * legacy unknown disclosure remains available to standalone preview renderers,
+ * but `RehearseCommand` never uses it as authority.
  *
- * ## The two sentences, and why each is load-bearing
+ * ## The legacy two sentences
  *
  * `BANNER` is MUP §2.2's literal line. It is composed from
  * `ProjectionVocabulary::CONTAINMENT_BASIS_UNKNOWN` rather than retyped:
@@ -47,13 +43,9 @@ use WPrism\CommandRefusalException;
  *
  * ## What this class deliberately does not do
  *
- * It performs no I/O, reads no environment, and takes no target. Containment
- * in this profile is `unknown` **structurally** — there is no egress control
- * to interrogate — so a disclosure that accepted an environment name would
- * imply it had measured something. `sandboxed` is never emitted anywhere in
- * MUP (`ProjectionVocabulary::NEVER_EMITTED`); this class asserts that its
- * own containment word is the one MUP can prove, so a future edit that
- * softened the banner fails here rather than in review.
+ * It performs no I/O and cannot inspect a target. Only the provider receipt
+ * lets it emit `sandboxed`; the legacy `block()` remains `unknown` and asserts
+ * the projection vocabulary rather than pretending to have measured egress.
  */
 final class RehearsalDisclosure {
     public const FORMAT = 'wprism-rehearsal-disclosure/v1';
@@ -197,12 +189,9 @@ final class RehearsalDisclosure {
     /**
      * The disclosure block a `--format=json` document embeds (MUP §4.4).
      *
-     * `enforced` is a separate boolean from `containment` on purpose. A
-     * consumer that only reads the word `unknown` could be written to treat
-     * a future `sandboxed` as "enforced"; a consumer that reads `enforced`
-     * cannot, because this profile has no code path that sets it true. The
-     * two sentences travel with it so a machine consumer rendering the
-     * document has the operator text without re-deriving it.
+     * `enforced` is separate from `containment` on purpose. This legacy block
+     * has no provider receipt and therefore cannot set it true; verifiedBlock()
+     * is the only path that does.
      *
      * @return array{consequence:string,containment:string,enforced:bool,format:string,note:string}
      */

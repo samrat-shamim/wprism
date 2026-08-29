@@ -658,12 +658,15 @@ semantics remain the rehearsal implementation's.
   naming that capability id; nothing is emulated. `--branch` defaults to the
   branch this working tree is on. After convergence it prints what a release
   would touch — the plan's own value-free category numbers and the assessed
-  surface rows restricted to that scope. EVERY run prints, first, before the
-  provider is contacted, `containment: unknown — not enforced in this profile;
-  do not point this environment at live payment or mail credentials.` and the
-  consequence that follows from it: a rehearsal in this profile cannot
-  authorize an `Experimental` or `Uncertified` capability. It is a preview and
-  evidence-gathering environment, not a qualification environment.
+  surface rows restricted to that scope. EVERY run states the containment
+  requirement first, before provider contact, and materialization refuses to
+  restore production-derived bytes without an exact target/resource/lease/
+  fence-bound `environment.containment.verify` receipt. Only then does it print
+  `containment: sandboxed` and the receipt. The ordinary local reference pair
+  withholds that capability; the opt-in standalone `contained_preview` mode is
+  the bundled development example. A containment receipt permits evidence
+  gathering but does not itself authorize an `Experimental` or `Uncertified`
+  capability.
   `wprism rehearse <env> --reap` is `env reap` with the same compare-and-reap.
 
 - **`wprism release <env> --plan-only [--from=<ref>] [--profile=<p>]

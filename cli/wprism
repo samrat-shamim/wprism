@@ -1179,19 +1179,19 @@ Verbs:
                           --branch selects the code+state ref materialized into
                           the environment and defaults to the branch this
                           working tree is on.
-                          EVERY run prints, first, before the provider is
-                          contacted:
-                          `containment: unknown — not enforced in this profile;
-                          do not point this environment at live payment or mail
-                          credentials.`
-                          WPrism does not strip or rebind production credentials,
-                          does not default-deny outbound HTTP/mail/payment/
-                          webhook, and does not verify containment before
-                          workflows are exercised. Consequently a rehearsal in
-                          this profile CANNOT authorize an Experimental or
-                          Uncertified capability: it is a preview and
-                          evidence-gathering environment, not a qualification
-                          environment.
+                          EVERY run first states that containment is required,
+                          before the provider is contacted. Production-derived
+                          bytes are restored only after the target provider's
+                          environment.containment.verify action returns an exact
+                          target/resource/lease/fence-bound receipt for the
+                          agency-rehearsal-v1 profile. Missing capability or
+                          malformed evidence refuses. Once verified, the command
+                          prints `containment: sandboxed` with the receipt. The
+                          ordinary local reference pair deliberately withholds
+                          containment; its opt-in `contained_preview` topology is
+                          the bundled development example. Contained evidence
+                          gathering still does not replace reviewed disposition
+                          and certification evidence for capability authorization.
   rehearse <env> --reap   `env reap` with the same exact compare-and-reap:
     [--format=json]       destroy a created environment or detach an attached
                           one, only through its explicit provider capability.

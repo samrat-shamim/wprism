@@ -9,9 +9,12 @@
 // `wprism rehearse` needs a machine-local provider that can snapshot a source
 // environment, acquire a disposable target, materialize a repository into it
 // and reap it again. WPrism orchestrates providers; it does not supply hosting,
-// so every customer writes their own. This is the worked example, driving the
-// one host WPrism's own estate has: `sandbox/bin/pair.sh`'s two-sided pair on the
-// shared MariaDB (sandbox/db.yml).
+// so every customer writes their own. This worked example has two explicit
+// modes. Ordinary pair mode drives `sandbox/bin/pair.sh`'s two-sided pair on
+// the shared MariaDB and withholds `environment.containment.verify`. Opt-in
+// `contained_preview` mode creates a separate internal-only target topology
+// and advertises containment only while its preboot controls and live probes
+// remain enforceable.
 //
 // It is DERIVED FROM sandbox/tests/fixtures/environment-materializer-live-provider.php and
 // keeps that file's argv and JSON contract with
@@ -86,6 +89,11 @@
 //              "database":"wp_mup1","repo":"/abs/sandbox/siterepo/mup1"},
 //     "mup2": {"role":"target","side":2,"port":8182, ...}
 //   }
+//   // Optional `contained_preview` is the complete object generated in
+//   // docs/branch-environment-provider.md §7. It changes the target to the
+//   // standalone sandbox/contained-preview.yml project. Before constructing
+//   // DockerTransport, create `<state_root>/contained-preview.env` mode 0600;
+//   // create atomically replaces that placeholder with per-lease credentials.
 // }
 //
 // `port` is the pair's PUBLISHED host port. Live, the URL is discovered from
@@ -337,11 +345,11 @@ function ref_tree_hash(string $root): string {
 // --------------------------------------------------------------------------
 
 /**
- * Every capability id this provider can honestly serve against a pair.
+ * Every capability id either explicit mode can honestly serve.
  *
- * The list is the same 19 the live materializer fixture advertises, because
- * EnvironmentMaterializer::materialize() requires all of them for a create
- * with a TTL and reap requires the rest. Every id is a member of
+ * Ordinary pair mode removes containment. Contained-preview mode removes
+ * attach/detach because controls cannot be established before an existing
+ * target boot. Every id is a member of
  * \WPrism\Orchestrator\EnvironmentProviderCapability::all(); an id outside that
  * set makes EnvironmentProviderCapabilityReport's constructor refuse.
  *
@@ -350,8 +358,8 @@ function ref_tree_hash(string $root): string {
 function ref_all_capabilities(): array {
     return [
         'environment.attach', 'environment.create', 'environment.destroy', 'environment.detach',
-        'environment.inspect', 'environment.mutation.acquire', 'environment.mutation.read',
-        'environment.mutation.release', 'environment.ttl', 'environment.ttl.read',
+        'environment.inspect', 'environment.containment.verify', 'environment.mutation.acquire',
+        'environment.mutation.read', 'environment.mutation.release', 'environment.ttl', 'environment.ttl.read',
         'environment.url.discover', 'environment.url.set', 'operation.receipts',
         'repository.materialize', 'snapshot.set.abort', 'snapshot.set.create',
         'snapshot.set.prepare', 'snapshot.set.read', 'snapshot.set.restore',
@@ -379,6 +387,7 @@ function ref_action_capability(): array {
         'mutation-acquire' => 'environment.mutation.acquire',
         'mutation-read' => 'environment.mutation.read',
         'mutation-release' => 'environment.mutation.release',
+        'containment-verify' => 'environment.containment.verify',
         'ttl-set' => 'environment.ttl',
         'ttl-read' => 'environment.ttl.read',
         'destroy' => 'environment.destroy',
@@ -397,7 +406,8 @@ function ref_action_capability(): array {
 function ref_identity_actions(): array {
     return [
         'inspect', 'attach', 'create', 'snapshot-restore', 'repository-materialize',
-        'url-set', 'mutation-acquire', 'mutation-read', 'mutation-release', 'ttl-set', 'ttl-read',
+        'url-set', 'mutation-acquire', 'mutation-read', 'mutation-release', 'containment-verify',
+        'ttl-set', 'ttl-read',
     ];
 }
 
@@ -431,7 +441,16 @@ function ref_advertised_capabilities(array $config): array {
             'withheld_capabilities names an id this provider never advertises'
         );
     }
-    $advertised = array_values(array_diff(ref_all_capabilities(), $withheld));
+    $available = ref_all_capabilities();
+    if (!ref_containment_enabled($config)) {
+        $available = array_values(array_diff($available, ['environment.containment.verify']));
+    } else {
+        // A contained slot is born under its controls. Retrofitting an
+        // already-running side cannot establish that history, so this mode
+        // intentionally has no attach/detach claim.
+        $available = array_values(array_diff($available, ['environment.attach', 'environment.detach']));
+    }
+    $advertised = array_values(array_diff($available, $withheld));
     sort($advertised, SORT_STRING);
     return $advertised;
 }
@@ -512,6 +531,58 @@ function ref_config(string $path): array {
         ref_require(is_string($file), 'reference provider compose_files entry must be a string');
         $config['compose_files'][$index] = ref_config_path($file, 'compose_files entry');
     }
+    $contained = $config['contained_preview'] ?? null;
+    if ($contained !== null) {
+        ref_require(is_array($contained) && !array_is_list($contained), 'contained_preview must be an object');
+        ref_require(
+            ($contained['format'] ?? null) === 'wprism-reference-contained-preview/v1',
+            'contained_preview format is not wprism-reference-contained-preview/v1'
+        );
+        foreach (['compose_file', 'mail_shim', 'php_ini', 'proxy_config'] as $pathKey) {
+            ref_require(is_string($contained[$pathKey] ?? null) && $contained[$pathKey] !== '', "contained_preview is missing '$pathKey'");
+            $contained[$pathKey] = ref_config_path((string) $contained[$pathKey], "contained_preview $pathKey");
+        }
+        $runtimeSources = $contained['runtime_sources'] ?? null;
+        ref_require(is_array($runtimeSources) && !array_is_list($runtimeSources), 'contained_preview runtime_sources must be an object');
+        $runtimeSourceKeys = array_keys($runtimeSources);
+        sort($runtimeSourceKeys, SORT_STRING);
+        ref_require(
+            $runtimeSourceKeys === ['adapter_packages', 'agent', 'platform'],
+            'contained_preview runtime_sources has a noncanonical key set'
+        );
+        foreach ($runtimeSources as $key => $source) {
+            ref_require(is_string($source) && $source !== '', "contained_preview runtime source '$key' is invalid");
+            $runtimeSources[$key] = ref_config_path($source, "contained_preview runtime source '$key'");
+            ref_require(is_dir($runtimeSources[$key]), "contained_preview runtime source '$key' is unavailable");
+        }
+        $contained['runtime_sources'] = $runtimeSources;
+        $pair = (string) $config['pair'];
+        $expected = [
+            'cli_service' => 'cli',
+            'database' => 'wprism_preview',
+            'database_container' => "wprism-$pair-preview-db-1",
+            'database_service' => 'db',
+            'ingress_network' => "wprism-$pair-preview-ingress",
+            'network' => "wprism-$pair-preview-internal",
+            'project' => "wprism-$pair-preview",
+            'proxy_container' => "wprism-$pair-preview-proxy-1",
+            'proxy_service' => 'proxy',
+            'wordpress_service' => 'wp',
+        ];
+        foreach ($expected as $key => $value) {
+            ref_require(($contained[$key] ?? null) === $value, "contained_preview '$key' must be '$value'");
+        }
+        foreach (['cli_image', 'database_image', 'proxy_image', 'wordpress_image'] as $imageKey) {
+            ref_require(
+                is_string($contained[$imageKey] ?? null) && preg_match('/^[A-Za-z0-9._:@+\/-]{3,256}$/D', $contained[$imageKey]) === 1,
+                "contained_preview '$imageKey' is invalid"
+            );
+        }
+        ref_require(is_file($contained['compose_file']), 'contained_preview compose file is unavailable');
+        ref_require(is_file($contained['mail_shim']) && is_executable($contained['mail_shim']), 'contained_preview mail shim must be executable');
+        ref_require(is_file($contained['php_ini']), 'contained_preview PHP configuration is unavailable');
+        $config['contained_preview'] = $contained;
+    }
     $scope = $config['destroy_scope'] ?? 'side';
     ref_require($scope === 'side', "reference provider destroy_scope must be 'side'; one target lease cannot authorize pair-wide source deletion");
     $environments = $config['environments'] ?? null;
@@ -536,9 +607,14 @@ function ref_config(string $path): array {
         $side = (int) $environment['side'];
         $pair = (string) $config['pair'];
         ref_require($name === $pair . $side, "environment '$name' must use pair.sh's canonical logical name '$pair$side'");
-        ref_require($environment['container'] === "wprism-$pair-wp$side-1", "environment '$name' container does not belong to its pair side");
-        ref_require($environment['service'] === "cli$side", "environment '$name' service does not belong to its pair side");
-        ref_require($environment['database'] === "wp_$pair$side", "environment '$name' database does not belong to its pair side");
+        $containedTarget = $environment['role'] === 'target' && $contained !== null;
+        $expectedContainer = $containedTarget ? "wprism-$pair-preview-wp-1" : "wprism-$pair-wp$side-1";
+        $expectedService = $containedTarget ? 'cli' : "cli$side";
+        $expectedDatabase = $containedTarget ? 'wprism_preview' : "wp_$pair$side";
+        $topologyLabel = $containedTarget ? 'configured contained-preview topology' : 'pair side';
+        ref_require($environment['container'] === $expectedContainer, "environment '$name' container does not belong to its $topologyLabel");
+        ref_require($environment['service'] === $expectedService, "environment '$name' service does not belong to its $topologyLabel");
+        ref_require($environment['database'] === $expectedDatabase, "environment '$name' database does not belong to its $topologyLabel");
         ref_require(
             $environment['repo'] === $config['compose_dir'] . "/siterepo/$name",
             "environment '$name' repo does not belong to pair.sh's canonical siterepo root"
@@ -581,12 +657,36 @@ function ref_config(string $path): array {
     foreach ($containedPaths as $protectedPath) {
         ref_require(!ref_target_contains_path((string) $target['repo'], $protectedPath), "reference provider target repo contains protected path '$protectedPath'");
     }
+    if ($contained !== null) {
+        foreach ([
+            $contained['compose_file'], $contained['mail_shim'], $contained['php_ini'], $contained['proxy_config'],
+            ...array_values($contained['runtime_sources']),
+        ] as $protectedPath) {
+            ref_require(!ref_target_contains_path((string) $target['repo'], (string) $protectedPath), "reference provider target repo contains contained-preview authority '$protectedPath'");
+        }
+    }
     $config['environments'] = $environments;
     return $config;
 }
 
+/** @param array<string,mixed> $config */
+function ref_containment_enabled(array $config): bool {
+    return is_array($config['contained_preview'] ?? null);
+}
+
+/** @param array<string,mixed> $config @return array<string,mixed> */
+function ref_target_environment(array $config): array {
+    foreach ($config['environments'] as $environment) {
+        if (is_array($environment) && ($environment['role'] ?? null) === 'target') return $environment;
+    }
+    throw new RuntimeException('reference provider config has no target environment');
+}
+
 /** @param array<string,mixed> $config @param array<string,mixed> $environment */
 function ref_resource_id(array $config, array $environment): string {
+    if (($environment['role'] ?? null) === 'target' && ref_containment_enabled($config)) {
+        return 'wprism-' . (string) $config['pair'] . '-contained-preview';
+    }
     return 'wprism-' . (string) $config['pair'] . '-wp' . (int) $environment['side'];
 }
 
@@ -603,10 +703,20 @@ function ref_configured_url(array $environment): string {
  * @param array<string,mixed> $config
  */
 function ref_resource_config_sha256(array $config): string {
+    $containedIdentity = null;
+    if (ref_containment_enabled($config)) {
+        $containedIdentity = ref_contained_config($config);
+        foreach (['compose_file', 'mail_shim', 'php_ini', 'proxy_config'] as $key) {
+            $digest = hash_file('sha256', (string) $containedIdentity[$key]);
+            ref_require(is_string($digest), "could not hash contained-preview '$key'");
+            $containedIdentity[$key . '_sha256'] = $digest;
+        }
+    }
     return ref_hash([
         'compose_dir' => $config['compose_dir'],
         'compose_files' => $config['compose_files'],
         'controller_repo' => $config['controller_repo'],
+        'contained_preview' => $containedIdentity,
         'db_container' => $config['db_container'],
         'destroy_scope' => $config['destroy_scope'] ?? 'side',
         'environments' => $config['environments'],
@@ -743,6 +853,20 @@ function ref_resource(array &$state, array $config, string $environmentName, arr
         is_string($resource['url']) && preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{0,4}$#D', $resource['url']) === 1,
         'preview slot URL state is invalid'
     );
+    if (ref_containment_enabled($config)) {
+        if ($resource['state'] === 'absent') {
+            ref_require(!array_key_exists('contained_runtime', $resource), 'absent contained preview retains lease credentials');
+        } else {
+            ref_contained_runtime($config, $resource);
+        }
+        if (array_key_exists('initial_containment_topology_sha256', $resource)) {
+            ref_require(
+                is_string($resource['initial_containment_topology_sha256'])
+                    && preg_match('/^[a-f0-9]{64}$/D', $resource['initial_containment_topology_sha256']) === 1,
+                'contained preview initial topology receipt is malformed'
+            );
+        }
+    }
     if ($resource['state'] === 'reaping') {
         foreach (['reap_action', 'reap_input_sha256', 'reap_operation_id'] as $key) {
             ref_require(is_string($resource[$key] ?? null) && $resource[$key] !== '', "preview slot reaping state is missing '$key'");
@@ -774,10 +898,10 @@ function ref_reap_receipt_key(array $request): string {
  *
  * @param array<string,mixed> $environment
  */
-function ref_discover_url(array $environment, bool $planOnly): string {
+function ref_discover_url(array $config, array $environment, bool $planOnly): string {
     $port = (int) $environment['port'];
     if ($planOnly) return 'http://127.0.0.1:' . $port;
-    $mapped = trim(ref_checked(ref_port_command($environment)));
+    $mapped = trim(ref_checked(ref_port_command($config, $environment)));
     $line = trim((string) strtok($mapped, "\n"));
     ref_require($line !== '', 'the pair publishes no host port for this environment');
     $observed = (int) substr($line, (int) strrpos($line, ':') + 1);
@@ -792,7 +916,10 @@ function ref_discover_url(array $environment, bool $planOnly): string {
  * @param array<string,mixed> $environment
  * @return list<string>
  */
-function ref_port_command(array $environment): array {
+function ref_port_command(array $config, array $environment): array {
+    if (($environment['role'] ?? null) === 'target' && ref_containment_enabled($config)) {
+        return ['docker', 'port', (string) ref_contained_config($config)['proxy_container'], '8080/tcp'];
+    }
     return ['docker', 'port', (string) $environment['container'], '80/tcp'];
 }
 
@@ -852,6 +979,1086 @@ function ref_compose_command(array $config, array $tail): array {
         $argv[] = (string) $file;
     }
     return array_merge($argv, $tail);
+}
+
+/** @param array<string,mixed> $config @return array<string,mixed> */
+function ref_contained_config(array $config): array {
+    $contained = $config['contained_preview'] ?? null;
+    ref_require(is_array($contained) && !array_is_list($contained), 'contained-preview mode is not configured');
+    return $contained;
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $resource */
+function ref_contained_runtime_root(array $config, array $resource): string {
+    return (string) $config['state_root'] . '/contained/' . hash('sha256', ref_json([
+        'generation' => $resource['generation'] ?? null,
+        'operation_id' => $resource['operation_id'] ?? null,
+        'resource_id' => ref_resource_id($config, ref_target_environment($config)),
+    ]));
+}
+
+/**
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $resource
+ * @return array<string,mixed>
+ */
+function ref_contained_new_runtime(array $config, array $resource): array {
+    $token = bin2hex(random_bytes(16));
+    return [
+        'database_name' => (string) ref_contained_config($config)['database'],
+        'database_password' => bin2hex(random_bytes(32)),
+        'database_root_password' => bin2hex(random_bytes(32)),
+        'database_user' => 'wprism_' . substr($token, 0, 16),
+        'runtime_root' => ref_contained_runtime_root($config, $resource),
+    ];
+}
+
+/**
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $resource
+ * @return array<string,mixed>
+ */
+function ref_contained_runtime(array $config, array $resource): array {
+    $runtime = $resource['contained_runtime'] ?? null;
+    ref_require(is_array($runtime) && !array_is_list($runtime), 'contained preview has no lease-owned runtime authority');
+    foreach (['database_name', 'database_password', 'database_root_password', 'database_user', 'runtime_root'] as $key) {
+        ref_require(is_string($runtime[$key] ?? null) && $runtime[$key] !== '', "contained preview runtime is missing '$key'");
+    }
+    ref_require($runtime['database_name'] === ref_contained_config($config)['database'], 'contained preview database name changed');
+    ref_require(preg_match('/^wprism_[a-f0-9]{16}$/D', $runtime['database_user']) === 1, 'contained preview database principal is malformed');
+    foreach (['database_password', 'database_root_password'] as $key) {
+        ref_require(preg_match('/^[a-f0-9]{64}$/D', $runtime[$key]) === 1, "contained preview '$key' is malformed");
+    }
+    ref_require($runtime['runtime_root'] === ref_contained_runtime_root($config, $resource), 'contained preview runtime path changed');
+    return $runtime;
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $resource @return array<string,string> */
+function ref_contained_compose_environment(array $config, array $resource): array {
+    $contained = ref_contained_config($config);
+    $runtime = ref_contained_runtime($config, $resource);
+    $env = ref_compose_environment($config);
+    $env['WPRISM_PREVIEW_ADAPTER_PACKAGES_SRC'] = $runtime['runtime_root'] . '/adapter-packages';
+    $env['WPRISM_PREVIEW_AGENT_SRC'] = $runtime['runtime_root'] . '/agent';
+    $env['WPRISM_PREVIEW_CLI_IMAGE'] = (string) $contained['cli_image'];
+    $env['WPRISM_PREVIEW_DB_IMAGE'] = (string) $contained['database_image'];
+    $env['WPRISM_PREVIEW_DB_NAME'] = (string) $runtime['database_name'];
+    $env['WPRISM_PREVIEW_DB_PASSWORD'] = (string) $runtime['database_password'];
+    $env['WPRISM_PREVIEW_DB_ROOT_PASSWORD'] = (string) $runtime['database_root_password'];
+    $env['WPRISM_PREVIEW_DB_USER'] = (string) $runtime['database_user'];
+    $env['WPRISM_PREVIEW_MAIL_SHIM'] = $runtime['runtime_root'] . '/refuse-sendmail.sh';
+    $env['WPRISM_PREVIEW_PHP_INI'] = $runtime['runtime_root'] . '/php.ini';
+    $env['WPRISM_PREVIEW_PLATFORM_SRC'] = $runtime['runtime_root'] . '/platform';
+    $target = ref_target_environment($config);
+    $env['WPRISM_PREVIEW_PORT'] = (string) $target['port'];
+    $env['WPRISM_PREVIEW_REPO'] = (string) $target['repo'];
+    $env['WPRISM_PREVIEW_PROXY_CONFIG'] = $runtime['runtime_root'] . '/nginx.conf';
+    $env['WPRISM_PREVIEW_PROXY_IMAGE'] = (string) $contained['proxy_image'];
+    $env['WPRISM_PREVIEW_WP_IMAGE'] = (string) $contained['wordpress_image'];
+    return $env;
+}
+
+/** @param array<string,mixed> $config @return list<string> */
+function ref_contained_compose_command(array $config, array $tail): array {
+    $contained = ref_contained_config($config);
+    return array_merge([
+        'docker', 'compose', '-p', (string) $contained['project'],
+        '-f', (string) $contained['compose_file'], '--profile', 'cli',
+    ], $tail);
+}
+
+/** @param array<string,mixed> $config */
+function ref_contained_driver_environment_path(array $config): string {
+    return (string) $config['state_root'] . '/contained-preview.env';
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $resource */
+function ref_write_contained_driver_environment(array $config, array $resource): void {
+    $rows = [];
+    foreach (ref_contained_compose_environment($config, $resource) as $key => $value) {
+        if ($key === 'WPRISM_PAIR' || str_starts_with($key, 'WPRISM_PREVIEW_')) {
+            $rows[$key] = $key . '=' . json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        }
+    }
+    ksort($rows, SORT_STRING);
+    ref_write_private_file(ref_contained_driver_environment_path($config), implode("\n", $rows) . "\n");
+}
+
+/** @param array<string,mixed> $config */
+function ref_write_contained_driver_placeholder(array $config): void {
+    ref_write_private_file(
+        ref_contained_driver_environment_path($config),
+        "# Lease absent. The provider atomically replaces this file during create.\n"
+    );
+}
+
+function ref_write_private_file(string $path, string $bytes): void {
+    $tmp = $path . '.tmp-' . bin2hex(random_bytes(6));
+    $handle = fopen($tmp, 'x+b');
+    if ($handle === false) throw new RuntimeException("could not create private staging file for '$path'");
+    try {
+        chmod($tmp, 0600);
+        if (fwrite($handle, $bytes) !== strlen($bytes) || !fflush($handle) || !fsync($handle)) {
+            throw new RuntimeException("could not durably stage private file '$path'");
+        }
+    } catch (Throwable $error) {
+        fclose($handle);
+        @unlink($tmp);
+        throw $error;
+    }
+    fclose($handle);
+    if (!rename($tmp, $path)) {
+        @unlink($tmp);
+        throw new RuntimeException("could not publish private file '$path'");
+    }
+    chmod($path, 0600);
+    $readback = file_get_contents($path);
+    ref_require(
+        is_string($readback) && hash_equals(hash('sha256', $bytes), hash('sha256', $readback))
+            && (fileperms($path) & 0777) === 0600,
+        "private file '$path' failed exact readback"
+    );
+    $directory = fopen(dirname($path), 'r');
+    if ($directory === false) throw new RuntimeException("could not open private file directory for '$path'");
+    try {
+        if (!fsync($directory)) throw new RuntimeException("could not durably publish private file '$path'");
+    } finally {
+        fclose($directory);
+    }
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $resource */
+function ref_stage_contained_runtime(array $config, array $resource): void {
+    $contained = ref_contained_config($config);
+    $runtime = ref_contained_runtime($config, $resource);
+    $root = (string) $runtime['runtime_root'];
+    ref_remove_tree($root);
+    if (!mkdir($root, 0700, true)) throw new RuntimeException('could not create contained-preview runtime staging');
+    foreach ($contained['runtime_sources'] as $name => $source) {
+        $destination = $root . '/' . str_replace('_', '-', (string) $name);
+        if (!mkdir($destination, 0700)) throw new RuntimeException("could not stage contained-preview runtime '$name'");
+        ref_checked(['cp', '-R', rtrim((string) $source, '/') . '/.', $destination]);
+    }
+    foreach (['mail_shim' => 'refuse-sendmail.sh', 'php_ini' => 'php.ini', 'proxy_config' => 'nginx.conf'] as $key => $name) {
+        ref_require(copy((string) $contained[$key], $root . '/' . $name), "could not stage contained-preview '$key'");
+    }
+    ref_chmod_tree($root, 0555);
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $resource */
+function ref_assert_staged_contained_runtime(array $config, array $resource): void {
+    $runtime = ref_contained_runtime($config, $resource);
+    $root = (string) $runtime['runtime_root'];
+    foreach (['adapter-packages', 'agent', 'platform'] as $directory) {
+        ref_require(is_dir($root . '/' . $directory), "contained-preview staged '$directory' is absent");
+    }
+    ref_require(is_file($root . '/refuse-sendmail.sh') && is_executable($root . '/refuse-sendmail.sh'), 'contained-preview staged mail shim is absent');
+    ref_require(is_file($root . '/php.ini'), 'contained-preview staged PHP configuration is absent');
+    ref_require(is_file($root . '/nginx.conf'), 'contained-preview staged proxy configuration is absent');
+}
+
+/** @param mixed $value @return mixed */
+function ref_redact_secrets(mixed $value): mixed {
+    if (!is_array($value)) return $value;
+    foreach ($value as $key => $child) {
+        if (is_string($key) && preg_match('/(?:password|secret|token|credential)/i', $key) === 1) {
+            $value[$key] = is_string($child) ? 'sha256:' . hash('sha256', $child) : '<redacted>';
+        } else {
+            $value[$key] = ref_redact_secrets($child);
+        }
+    }
+    return $value;
+}
+
+/** @param list<mixed> $rows @return array<string,string> */
+function ref_environment_map(array $rows): array {
+    $result = [];
+    foreach ($rows as $row) {
+        ref_require(is_string($row) && str_contains($row, '='), 'container environment row is malformed');
+        [$key, $value] = explode('=', $row, 2);
+        ref_require($key !== '' && !array_key_exists($key, $result), 'container environment keys are malformed or duplicated');
+        $result[$key] = $value;
+    }
+    ksort($result, SORT_STRING);
+    return $result;
+}
+
+/** @return list<string> */
+function ref_contained_allowed_environment(string $service): array {
+    if ($service === 'db') {
+        return [
+            'GOSU_VERSION', 'LANG', 'MARIADB_DATABASE', 'MARIADB_PASSWORD', 'MARIADB_ROOT_PASSWORD',
+            'MARIADB_USER', 'MARIADB_VERSION', 'PATH',
+        ];
+    }
+    $keys = [
+        'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GPG_KEYS', 'PATH',
+        'PHPIZE_DEPS', 'PHP_ASC_URL', 'PHP_CFLAGS', 'PHP_CPPFLAGS', 'PHP_INI_DIR',
+        'PHP_LDFLAGS', 'PHP_SHA256', 'PHP_URL', 'PHP_VERSION', 'WORDPRESS_CONFIG_EXTRA',
+        'WORDPRESS_DB_HOST', 'WORDPRESS_DB_NAME', 'WORDPRESS_DB_PASSWORD', 'WORDPRESS_DB_USER',
+    ];
+    if ($service === 'wp') $keys = array_merge($keys, ['APACHE_CONFDIR', 'APACHE_ENVVARS']);
+    if ($service === 'cli') {
+        $keys = array_merge($keys, [
+            'HOME', 'HOSTNAME', 'PWD', 'SHLVL',
+            'WORDPRESS_CLI_GPG_KEY', 'WORDPRESS_CLI_SHA512', 'WORDPRESS_CLI_VERSION',
+        ]);
+    }
+    sort($keys, SORT_STRING);
+    return $keys;
+}
+
+/**
+ * @param array<string,string> $environment
+ * @param array<string,mixed> $runtime
+ * @return array{environment_keys:list<string>,environment_sha256:string}
+ */
+function ref_contained_environment_witness(string $service, array $environment, array $runtime): array {
+    $keys = array_keys($environment);
+    sort($keys, SORT_STRING);
+    $allowed = ref_contained_allowed_environment($service);
+    sort($allowed, SORT_STRING);
+    ref_require(
+        $keys === $allowed,
+        "contained preview '$service' environment differs from its closed allowlist (observed "
+            . ref_json($keys) . ', expected ' . ref_json($allowed) . ')'
+    );
+    $expected = $service === 'db' ? [
+        'MARIADB_DATABASE' => $runtime['database_name'],
+        'MARIADB_PASSWORD' => $runtime['database_password'],
+        'MARIADB_ROOT_PASSWORD' => $runtime['database_root_password'],
+        'MARIADB_USER' => $runtime['database_user'],
+    ] : [
+        'GIT_CONFIG_COUNT' => '1',
+        'GIT_CONFIG_KEY_0' => 'safe.directory',
+        'GIT_CONFIG_VALUE_0' => '/siterepo',
+        'WORDPRESS_CONFIG_EXTRA' => "define('WP_ENVIRONMENT_TYPE', 'local');\ndefine('DISABLE_WP_CRON', true);\ndefine('AUTOMATIC_UPDATER_DISABLED', true);\n",
+        'WORDPRESS_DB_HOST' => 'db',
+        'WORDPRESS_DB_NAME' => $runtime['database_name'],
+        'WORDPRESS_DB_PASSWORD' => $runtime['database_password'],
+        'WORDPRESS_DB_USER' => $runtime['database_user'],
+    ];
+    foreach ($expected as $key => $value) {
+        ref_require(($environment[$key] ?? null) === $value, "contained preview '$service' environment differs at '$key'");
+    }
+    if ($service === 'cli') {
+        ref_require(
+            is_string($environment['HOME'] ?? null)
+                && preg_match('#^/(?:[A-Za-z0-9/._-]{1,255})?$#D', $environment['HOME']) === 1,
+            'contained preview CLI HOME drifted (observed ' . ref_json($environment['HOME'] ?? null) . ')'
+        );
+        ref_require(($environment['PWD'] ?? null) === '/var/www/html', 'contained preview CLI PWD drifted');
+        ref_require(($environment['SHLVL'] ?? null) === '1', 'contained preview CLI SHLVL drifted');
+        ref_require(
+            is_string($environment['HOSTNAME'] ?? null)
+                && preg_match('/^[a-f0-9]{12,64}$/D', $environment['HOSTNAME']) === 1,
+            'contained preview CLI HOSTNAME is not a Docker container identity'
+        );
+    }
+    $redacted = $environment;
+    foreach (['MARIADB_PASSWORD', 'MARIADB_ROOT_PASSWORD', 'WORDPRESS_DB_PASSWORD'] as $secret) {
+        if (isset($redacted[$secret])) $redacted[$secret] = 'sha256:' . hash('sha256', $redacted[$secret]);
+    }
+    if ($service === 'cli') $redacted['HOSTNAME'] = '<one-off-container>';
+    return ['environment_keys' => $keys, 'environment_sha256' => ref_hash($redacted)];
+}
+
+/** @param array<string,string> $environment @return array{environment_keys:list<string>,environment_sha256:string} */
+function ref_contained_proxy_environment_witness(array $environment): array {
+    $keys = array_keys($environment);
+    sort($keys, SORT_STRING);
+    $allowed = ['ACME_VERSION', 'DYNPKG_RELEASE', 'NGINX_VERSION', 'NJS_RELEASE', 'NJS_VERSION', 'PATH', 'PKG_RELEASE'];
+    ref_require(
+        $keys === $allowed,
+        'contained preview proxy image environment differs from its credential-free allowlist (observed '
+            . ref_json($keys) . ')'
+    );
+    foreach ($keys as $key) {
+        ref_require(
+            preg_match('/(?:credential|password|secret|token)/i', $key) !== 1,
+            'contained preview proxy inherited a credential-shaped environment key'
+        );
+    }
+    return ['environment_keys' => $keys, 'environment_sha256' => ref_hash($environment)];
+}
+
+/** @return array{no_default_route:bool,route_sha256:string} */
+function ref_contained_route_witness(string $routes, string $service): array {
+    $lines = preg_split('/\R/', trim($routes));
+    ref_require(is_array($lines) && count($lines) >= 2, "contained preview '$service' route table is unavailable");
+    foreach (array_slice($lines, 1) as $line) {
+        $columns = preg_split('/\s+/', trim($line));
+        if (is_array($columns) && ($columns[1] ?? null) === '00000000') {
+            ref_require(false, "contained preview '$service' has a default network route");
+        }
+    }
+    return ['no_default_route' => true, 'route_sha256' => hash('sha256', trim($routes))];
+}
+
+/** @param list<mixed> $mounts @return list<array{destination:string,rw:bool,source:string,type:string}> */
+function ref_contained_mount_rows(array $mounts): array {
+    $rows = [];
+    foreach ($mounts as $mount) {
+        ref_require(is_array($mount) && !array_is_list($mount), 'contained preview mount evidence is malformed');
+        $type = (string) ($mount['Type'] ?? '');
+        $source = $type === 'volume' && is_string($mount['Name'] ?? null) && $mount['Name'] !== ''
+            ? $mount['Name']
+            : (string) ($mount['Source'] ?? '');
+        $rows[] = [
+            'destination' => (string) ($mount['Destination'] ?? ''),
+            'rw' => ($mount['RW'] ?? null) === true,
+            'source' => $source,
+            'type' => $type,
+        ];
+    }
+    usort($rows, static fn (array $left, array $right): int => strcmp($left['destination'], $right['destination']));
+    return $rows;
+}
+
+/** @return list<string> */
+function ref_contained_capability_rows(mixed $capabilities): array {
+    if (!is_array($capabilities)) return [];
+    $rows = array_map(
+        static fn (mixed $capability): string => preg_replace('/^CAP_/', '', strtoupper((string) $capability)) ?? '',
+        $capabilities
+    );
+    sort($rows, SORT_STRING);
+    return $rows;
+}
+
+function ref_contained_grant_database(string $database): string {
+    // SHOW GRANTS quotes database patterns, so MariaDB escapes `_` and `%`
+    // even inside backticks. Compare that server-rendered spelling exactly.
+    return strtr($database, ['\\' => '\\\\', '_' => '\\_', '%' => '\\%']);
+}
+
+/** @param list<mixed> $mounts @return list<array{destination:string,rw:bool,source:string,type:string}> */
+function ref_contained_rendered_mount_rows(array $mounts): array {
+    $rows = [];
+    foreach ($mounts as $mount) {
+        ref_require(is_array($mount) && !array_is_list($mount), 'contained preview rendered mount is malformed');
+        $rows[] = [
+            'destination' => (string) ($mount['target'] ?? ''),
+            'rw' => ($mount['read_only'] ?? false) !== true,
+            'source' => (string) ($mount['source'] ?? ''),
+            'type' => (string) ($mount['type'] ?? ''),
+        ];
+    }
+    usort($rows, static fn (array $left, array $right): int => strcmp($left['destination'], $right['destination']));
+    return $rows;
+}
+
+/**
+ * Read the fully interpolated Compose model before any container starts. The
+ * CLI is normally one-off, so this is its host-authority boundary: a live
+ * in-process socket probe alone cannot reveal a host mount, host namespace,
+ * added capability, or entrypoint that already acted before the probe.
+ *
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $environment
+ * @param array<string,mixed> $resource
+ * @return array<string,mixed>
+ */
+function ref_probe_contained_rendered_model(array $config, array $environment, array $resource): array {
+    $contained = ref_contained_config($config);
+    $runtime = ref_contained_runtime($config, $resource);
+    $renderedBytes = ref_checked(
+        ref_contained_compose_command($config, ['config', '--format', 'json']),
+        null,
+        (string) $config['compose_dir'],
+        ref_contained_compose_environment($config, $resource)
+    );
+    $rendered = json_decode($renderedBytes, true, 512, JSON_THROW_ON_ERROR);
+    ref_require(is_array($rendered) && !array_is_list($rendered), 'contained preview rendered Compose model is malformed');
+    $services = $rendered['services'] ?? null;
+    ref_require(is_array($services) && !array_is_list($services), 'contained preview rendered services are malformed');
+    $serviceKeys = array_keys($services);
+    sort($serviceKeys, SORT_STRING);
+    ref_require($serviceKeys === ['cli', 'db', 'proxy', 'wp'], 'contained preview Compose project has an undeclared worker or service');
+    ref_require(
+        ref_json($rendered['networks'] ?? null) === ref_json([
+            'contained' => [
+                'internal' => true,
+                'ipam' => [],
+                'name' => $contained['network'],
+            ],
+            'ingress' => [
+                'driver' => 'bridge',
+                'driver_opts' => [
+                    'com.docker.network.bridge.enable_ip_masquerade' => 'false',
+                    'com.docker.network.bridge.host_binding_ipv4' => '127.0.0.1',
+                ],
+                'ipam' => [],
+                'name' => $contained['ingress_network'],
+            ],
+        ]),
+        'contained preview rendered networks differ from its internal data and no-masquerade ingress bridges'
+    );
+    ref_require(
+        ref_json($rendered['volumes'] ?? null) === ref_json([
+            'database' => ['name' => $contained['project'] . '-database'],
+            'wordpress' => ['name' => $contained['project'] . '-wordpress'],
+        ]),
+        'contained preview rendered volumes differ from its two lease-owned volumes'
+    );
+
+    $wordpressEnvironment = [
+        'GIT_CONFIG_COUNT' => '1',
+        'GIT_CONFIG_KEY_0' => 'safe.directory',
+        'GIT_CONFIG_VALUE_0' => '/siterepo',
+        'WORDPRESS_CONFIG_EXTRA' => "define('WP_ENVIRONMENT_TYPE', 'local');\ndefine('DISABLE_WP_CRON', true);\ndefine('AUTOMATIC_UPDATER_DISABLED', true);\n",
+        'WORDPRESS_DB_HOST' => 'db',
+        'WORDPRESS_DB_NAME' => $runtime['database_name'],
+        'WORDPRESS_DB_PASSWORD' => $runtime['database_password'],
+        'WORDPRESS_DB_USER' => $runtime['database_user'],
+    ];
+    $expectedEnvironment = [
+        'cli' => $wordpressEnvironment,
+        'db' => [
+            'MARIADB_DATABASE' => $runtime['database_name'],
+            'MARIADB_PASSWORD' => $runtime['database_password'],
+            'MARIADB_ROOT_PASSWORD' => $runtime['database_root_password'],
+            'MARIADB_USER' => $runtime['database_user'],
+        ],
+        'proxy' => null,
+        'wp' => $wordpressEnvironment,
+    ];
+    $expectedImages = [
+        'cli' => $contained['cli_image'],
+        'db' => $contained['database_image'],
+        'proxy' => $contained['proxy_image'],
+        'wp' => $contained['wordpress_image'],
+    ];
+    $runtimeRoot = (string) $runtime['runtime_root'];
+    $wordpressMounts = [
+        ['destination' => '/siterepo', 'rw' => true, 'source' => (string) $environment['repo'], 'type' => 'bind'],
+        ['destination' => '/usr/local/bin/wprism-refuse-sendmail', 'rw' => false, 'source' => $runtimeRoot . '/refuse-sendmail.sh', 'type' => 'bind'],
+        ['destination' => '/usr/local/etc/php/conf.d/zz-wprism-containment.ini', 'rw' => false, 'source' => $runtimeRoot . '/php.ini', 'type' => 'bind'],
+        ['destination' => '/var/www/html', 'rw' => true, 'source' => 'wordpress', 'type' => 'volume'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/adapter-packages', 'rw' => false, 'source' => $runtimeRoot . '/adapter-packages', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/platform', 'rw' => false, 'source' => $runtimeRoot . '/platform', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/wprism', 'rw' => false, 'source' => $runtimeRoot . '/agent', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/wprism-loader.php', 'rw' => false, 'source' => $runtimeRoot . '/agent/wprism-loader.php', 'type' => 'bind'],
+    ];
+    usort($wordpressMounts, static fn (array $left, array $right): int => strcmp($left['destination'], $right['destination']));
+
+    foreach (['cli', 'db', 'proxy', 'wp'] as $service) {
+        $model = $services[$service];
+        ref_require(is_array($model) && !array_is_list($model), "contained preview rendered '$service' service is malformed");
+        $networks = array_keys(is_array($model['networks'] ?? null) ? $model['networks'] : []);
+        $expectedNetworks = $service === 'proxy' ? ['contained', 'ingress'] : ['contained'];
+        ref_require($networks === $expectedNetworks, "contained preview '$service' has an unexpected rendered network attachment");
+        ref_require(ref_json($model['environment'] ?? null) === ref_json($expectedEnvironment[$service]), "contained preview rendered '$service' environment differs from its closed allowlist");
+        ref_require(($model['image'] ?? null) === $expectedImages[$service], "contained preview rendered '$service' image drifted");
+        if ($service === 'proxy') {
+            ref_require(
+                ($model['command'] ?? null) === []
+                    && ($model['entrypoint'] ?? null) === ['nginx', '-g', 'daemon off;'],
+                'contained preview rendered proxy has another process'
+            );
+        } else {
+            ref_require(($model['command'] ?? null) === null && ($model['entrypoint'] ?? null) === null, "contained preview rendered '$service' overrides its image process");
+        }
+        ref_require(($model['restart'] ?? null) === 'no', "contained preview rendered '$service' can restart as an ambient worker");
+        ref_require(($model['privileged'] ?? false) === false, "contained preview rendered '$service' is privileged");
+        ref_require(($model['cap_add'] ?? []) === [], "contained preview rendered '$service' adds Linux capabilities");
+        $expectedCapDrop = $service === 'proxy' ? ['ALL'] : ['NET_RAW'];
+        ref_require(ref_contained_capability_rows($model['cap_drop'] ?? []) === $expectedCapDrop, "contained preview rendered '$service' has another capability boundary");
+        ref_require(($model['security_opt'] ?? null) === ['no-new-privileges:true'], "contained preview rendered '$service' lost no-new-privileges");
+        foreach (['build', 'configs', 'credential_spec', 'devices', 'extra_hosts', 'ipc', 'pid', 'runtime', 'secrets', 'userns_mode', 'uts', 'volumes_from'] as $authorityKey) {
+            ref_require(!array_key_exists($authorityKey, $model) || $model[$authorityKey] === null || $model[$authorityKey] === [], "contained preview rendered '$service' has forbidden '$authorityKey' authority");
+        }
+        if ($service === 'cli') {
+            ref_require(($model['user'] ?? null) === '33:33', 'contained preview CLI does not run as uid/gid 33:33');
+            ref_require(($model['profiles'] ?? null) === ['cli'], 'contained preview CLI is not explicitly profile-scoped');
+        }
+        if ($service === 'db') {
+            $expectedMounts = [[
+                'destination' => '/var/lib/mysql', 'rw' => true, 'source' => 'database', 'type' => 'volume',
+            ]];
+        } elseif ($service === 'proxy') {
+            $expectedMounts = [[
+                'destination' => '/etc/nginx/nginx.conf', 'rw' => false,
+                'source' => $runtimeRoot . '/nginx.conf', 'type' => 'bind',
+            ]];
+            ref_require(($model['user'] ?? null) === '101:101', 'contained preview proxy does not run as uid/gid 101:101');
+            ref_require(($model['read_only'] ?? null) === true, 'contained preview proxy root filesystem is writable');
+            ref_require(($model['tmpfs'] ?? null) === ['/tmp:rw,noexec,nosuid,size=16m'], 'contained preview proxy has another writable tmpfs');
+        } else {
+            $expectedMounts = $wordpressMounts;
+        }
+        ref_require(
+            ref_contained_rendered_mount_rows(is_array($model['volumes'] ?? null) ? $model['volumes'] : []) === $expectedMounts,
+            "contained preview rendered '$service' mounts differ from its closed lease-owned set"
+        );
+        if ($service !== 'proxy') {
+            ref_require(($model['ports'] ?? []) === [], "contained preview rendered '$service' publishes a host port");
+        }
+    }
+    ref_require(($services['proxy']['ports'] ?? null) === [[
+        'mode' => 'ingress',
+        'host_ip' => '127.0.0.1',
+        'target' => 8080,
+        'published' => (string) $environment['port'],
+        'protocol' => 'tcp',
+    ]], 'contained preview rendered proxy ingress differs from its exact loopback port');
+
+    return $rendered;
+}
+
+/**
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $environment
+ * @param array<string,mixed> $resource
+ * @return array<string,mixed>
+ */
+function ref_probe_contained_topology(array $config, array $environment, array $resource): array {
+    $contained = ref_contained_config($config);
+    $runtime = ref_contained_runtime($config, $resource);
+    $composeEnv = ref_contained_compose_environment($config, $resource);
+    $cwd = (string) $config['compose_dir'];
+    $driverEnvironment = ref_contained_driver_environment_path($config);
+    ref_require(is_file($driverEnvironment) && (fileperms($driverEnvironment) & 0777) === 0600, 'contained preview driver environment is absent or not mode 0600');
+    $driverEnvironmentBytes = file_get_contents($driverEnvironment);
+    ref_require(is_string($driverEnvironmentBytes) && str_contains($driverEnvironmentBytes, 'WPRISM_PREVIEW_DB_PASSWORD='), 'contained preview driver environment is not lease-bound');
+    $rendered = ref_probe_contained_rendered_model($config, $environment, $resource);
+
+    $containersBytes = ref_checked([
+        'docker', 'inspect', (string) $environment['container'], (string) $contained['database_container'],
+        (string) $contained['proxy_container'],
+    ]);
+    $containers = json_decode($containersBytes, true, 512, JSON_THROW_ON_ERROR);
+    ref_require(is_array($containers) && array_is_list($containers) && count($containers) === 3, 'contained preview container inspection is incomplete');
+    $byName = [];
+    foreach ($containers as $container) {
+        ref_require(is_array($container) && !array_is_list($container), 'contained preview container evidence is malformed');
+        $byName[ltrim((string) ($container['Name'] ?? ''), '/')] = $container;
+    }
+    $securityWitness = [];
+    foreach ([(string) $environment['container'] => 'wp', (string) $contained['database_container'] => 'db'] as $name => $service) {
+        $container = $byName[$name] ?? null;
+        ref_require(is_array($container), "contained preview '$service' container is absent");
+        ref_require(($container['State']['Running'] ?? null) === true, "contained preview '$service' container is not running");
+        if ($service === 'db') ref_require(($container['State']['Health']['Status'] ?? null) === 'healthy', 'contained preview database is not healthy');
+        ref_require(($container['HostConfig']['Privileged'] ?? null) === false, "contained preview '$service' is privileged");
+        ref_require(($container['HostConfig']['CapAdd'] ?? null) === null || ($container['HostConfig']['CapAdd'] ?? null) === [], "contained preview '$service' adds Linux capabilities");
+        $capDrop = ref_contained_capability_rows($container['HostConfig']['CapDrop'] ?? []);
+        ref_require(
+            $capDrop === ['NET_RAW'],
+            "contained preview '$service' regained NET_RAW (observed " . ref_json($capDrop) . ')'
+        );
+        $allowedNetworkModes = [$contained['network']];
+        ref_require(in_array($container['HostConfig']['NetworkMode'] ?? null, $allowedNetworkModes, true), "contained preview '$service' network mode drifted");
+        $security = $container['HostConfig']['SecurityOpt'] ?? [];
+        ref_require(is_array($security) && in_array('no-new-privileges:true', $security, true), "contained preview '$service' lost no-new-privileges");
+        $attached = array_keys(is_array($container['NetworkSettings']['Networks'] ?? null) ? $container['NetworkSettings']['Networks'] : []);
+        sort($attached, SORT_STRING);
+        $expectedAttached = [$contained['network']];
+        sort($expectedAttached, SORT_STRING);
+        ref_require($attached === $expectedAttached, "contained preview '$service' has an extra network attachment");
+        ref_require(
+            ($container['NetworkSettings']['Networks'][$contained['network']]['Gateway'] ?? null) === '',
+            "contained preview '$service' internal attachment exposes a bridge gateway"
+        );
+        $securityWitness[$service] = [
+            'cap_add' => [],
+            'cap_drop' => $capDrop,
+            'network_mode' => (string) $container['HostConfig']['NetworkMode'],
+            'no_new_privileges' => true,
+            'privileged' => false,
+        ];
+    }
+
+    $wp = $byName[(string) $environment['container']];
+    $db = $byName[(string) $contained['database_container']];
+    $proxy = $byName[(string) $contained['proxy_container']] ?? null;
+    ref_require(is_array($proxy) && ($proxy['State']['Running'] ?? null) === true, 'contained preview ingress proxy is absent');
+    ref_require(($proxy['HostConfig']['Privileged'] ?? null) === false, 'contained preview ingress proxy is privileged');
+    ref_require(($proxy['HostConfig']['CapAdd'] ?? null) === null || ($proxy['HostConfig']['CapAdd'] ?? null) === [], 'contained preview ingress proxy adds Linux capabilities');
+    ref_require(ref_contained_capability_rows($proxy['HostConfig']['CapDrop'] ?? []) === ['ALL'], 'contained preview ingress proxy did not drop all Linux capabilities');
+    ref_require(($proxy['HostConfig']['ReadonlyRootfs'] ?? null) === true, 'contained preview ingress proxy root filesystem is writable');
+    ref_require(($proxy['Config']['User'] ?? null) === '101:101', 'contained preview ingress proxy is not uid/gid 101:101');
+    ref_require(($proxy['HostConfig']['SecurityOpt'] ?? null) === ['no-new-privileges:true'], 'contained preview ingress proxy lost no-new-privileges');
+    $proxyNetworks = array_keys(is_array($proxy['NetworkSettings']['Networks'] ?? null) ? $proxy['NetworkSettings']['Networks'] : []);
+    sort($proxyNetworks, SORT_STRING);
+    $expectedProxyNetworks = [$contained['ingress_network'], $contained['network']];
+    sort($expectedProxyNetworks, SORT_STRING);
+    ref_require($proxyNetworks === $expectedProxyNetworks, 'contained preview ingress proxy has another network attachment');
+    $proxyEnv = ref_contained_proxy_environment_witness(ref_environment_map($proxy['Config']['Env'] ?? []));
+    $observedProxyMounts = ref_contained_mount_rows($proxy['Mounts'] ?? []);
+    $expectedProxyMounts = [[
+        'destination' => '/etc/nginx/nginx.conf', 'rw' => false,
+        'source' => $runtime['runtime_root'] . '/nginx.conf', 'type' => 'bind',
+    ]];
+    ref_require($observedProxyMounts === $expectedProxyMounts, 'contained preview ingress proxy mounts host authority');
+    $securityWitness['proxy'] = [
+        'cap_add' => [],
+        'cap_drop' => ['ALL'],
+        'network_mode' => (string) ($proxy['HostConfig']['NetworkMode'] ?? ''),
+        'no_new_privileges' => true,
+        'privileged' => false,
+        'read_only_root' => true,
+        'user' => '101:101',
+    ];
+    $wpEnv = ref_contained_environment_witness('wp', ref_environment_map($wp['Config']['Env'] ?? []), $runtime);
+    $dbEnv = ref_contained_environment_witness('db', ref_environment_map($db['Config']['Env'] ?? []), $runtime);
+    $expectedWpMounts = [
+        ['destination' => '/siterepo', 'rw' => true, 'source' => (string) $environment['repo'], 'type' => 'bind'],
+        ['destination' => '/usr/local/bin/wprism-refuse-sendmail', 'rw' => false, 'source' => $runtime['runtime_root'] . '/refuse-sendmail.sh', 'type' => 'bind'],
+        ['destination' => '/usr/local/etc/php/conf.d/zz-wprism-containment.ini', 'rw' => false, 'source' => $runtime['runtime_root'] . '/php.ini', 'type' => 'bind'],
+        ['destination' => '/var/www/html', 'rw' => true, 'source' => (string) $contained['project'] . '-wordpress', 'type' => 'volume'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/adapter-packages', 'rw' => false, 'source' => $runtime['runtime_root'] . '/adapter-packages', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/platform', 'rw' => false, 'source' => $runtime['runtime_root'] . '/platform', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/wprism', 'rw' => false, 'source' => $runtime['runtime_root'] . '/agent', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/wprism-loader.php', 'rw' => false, 'source' => $runtime['runtime_root'] . '/agent/wprism-loader.php', 'type' => 'bind'],
+    ];
+    usort($expectedWpMounts, static fn (array $left, array $right): int => strcmp($left['destination'], $right['destination']));
+    $observedWpMounts = ref_contained_mount_rows($wp['Mounts'] ?? []);
+    ref_require(
+        $observedWpMounts === $expectedWpMounts,
+        'contained preview WordPress mounts differ from the closed lease-owned set (observed '
+            . ref_json($observedWpMounts) . ', expected ' . ref_json($expectedWpMounts) . ')'
+    );
+    $expectedDbMounts = [[
+        'destination' => '/var/lib/mysql', 'rw' => true,
+        'source' => (string) $contained['project'] . '-database', 'type' => 'volume',
+    ]];
+    $observedDbMounts = ref_contained_mount_rows($db['Mounts'] ?? []);
+    ref_require(
+        $observedDbMounts === $expectedDbMounts,
+        'contained preview database mounts differ from its lease-owned volume (observed '
+            . ref_json($observedDbMounts) . ', expected ' . ref_json($expectedDbMounts) . ')'
+    );
+
+    foreach (($wp['HostConfig']['PortBindings'] ?? []) as $bindings) {
+        ref_require($bindings === null || $bindings === [], 'contained preview WordPress requests a host port');
+    }
+    $ports = $proxy['HostConfig']['PortBindings']['8080/tcp'] ?? null;
+    ref_require(
+        is_array($ports) && count($ports) === 1
+            && ($ports[0]['HostIp'] ?? null) === '127.0.0.1'
+            && ($ports[0]['HostPort'] ?? null) === (string) $environment['port'],
+        'contained preview web ingress is not bound to its exact loopback port (observed '
+            . ref_json($ports) . ')'
+    );
+    $publishedPort = trim(ref_checked(ref_port_command($config, $environment)));
+    ref_require(
+        $publishedPort === '127.0.0.1:' . (string) $environment['port'],
+        'contained preview Docker port readback differs from its exact loopback ingress'
+    );
+    foreach (($db['HostConfig']['PortBindings'] ?? []) as $bindings) {
+        ref_require($bindings === null || $bindings === [], 'contained preview database requests a host port');
+    }
+    foreach (($db['NetworkSettings']['Ports'] ?? []) as $bindings) {
+        ref_require($bindings === null || $bindings === [], 'contained preview database publishes a host port');
+    }
+
+    $networkBytes = ref_checked(['docker', 'network', 'inspect', (string) $contained['network']]);
+    $networks = json_decode($networkBytes, true, 512, JSON_THROW_ON_ERROR);
+    $network = is_array($networks) && array_is_list($networks) ? ($networks[0] ?? null) : null;
+    ref_require(is_array($network) && ($network['Internal'] ?? null) === true, 'contained preview live network is not internal');
+    ref_require(($network['Name'] ?? null) === $contained['network'], 'contained preview live network has another name');
+    $attachedIds = array_keys(is_array($network['Containers'] ?? null) ? $network['Containers'] : []);
+    sort($attachedIds, SORT_STRING);
+    $expectedIds = [(string) $wp['Id'], (string) $db['Id']];
+    $expectedIds[] = (string) $proxy['Id'];
+    sort($expectedIds, SORT_STRING);
+    ref_require($attachedIds === $expectedIds, 'contained preview internal network has a foreign attachment');
+    $ingressRows = json_decode(
+        ref_checked(['docker', 'network', 'inspect', (string) $contained['ingress_network']]),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $ingress = is_array($ingressRows) && array_is_list($ingressRows) ? ($ingressRows[0] ?? null) : null;
+    ref_require(
+        is_array($ingress)
+            && ($ingress['Internal'] ?? null) === false
+            && ($ingress['Name'] ?? null) === $contained['ingress_network']
+            && ($ingress['Driver'] ?? null) === 'bridge'
+            && ($ingress['Options']['com.docker.network.bridge.enable_ip_masquerade'] ?? null) === 'false'
+            && ($ingress['Options']['com.docker.network.bridge.host_binding_ipv4'] ?? null) === '127.0.0.1',
+        'contained preview ingress network lost its loopback/no-masquerade boundary'
+    );
+    $ingressIds = array_keys(is_array($ingress['Containers'] ?? null) ? $ingress['Containers'] : []);
+    ref_require($ingressIds === [(string) $proxy['Id']], 'contained preview ingress network has a foreign attachment');
+
+    $projectContainers = trim(ref_checked([
+        'docker', 'ps', '--filter', 'label=com.docker.compose.project=' . (string) $contained['project'],
+        '--format', '{{.Names}}',
+    ]));
+    $runningNames = $projectContainers === '' ? [] : preg_split('/\R/', $projectContainers);
+    if (!is_array($runningNames)) $runningNames = [];
+    sort($runningNames, SORT_STRING);
+    $expectedNames = [
+        (string) $environment['container'], (string) $contained['database_container'],
+        (string) $contained['proxy_container'],
+    ];
+    sort($expectedNames, SORT_STRING);
+    ref_require($runningNames === $expectedNames, 'contained preview has an ambient worker or foreign running container');
+
+    $grantBytes = ref_checked(
+        ref_contained_compose_command($config, [
+            'exec', '-T', (string) $contained['database_service'], 'sh', '-c',
+            'MYSQL_PWD="$MARIADB_PASSWORD" exec mariadb -N -B --raw -u"$MARIADB_USER" -e "SHOW GRANTS FOR CURRENT_USER"',
+        ]),
+        null,
+        $cwd,
+        $composeEnv
+    );
+    ref_require(
+        str_contains($grantBytes, 'ON `' . ref_contained_grant_database((string) $runtime['database_name']) . '`.*')
+            && preg_match('/^GRANT (?!USAGE )[^\n]+ ON \*\.\*/m', $grantBytes) !== 1,
+        'contained preview database principal is not scoped only to its lease database'
+    );
+
+    $mailShimHash = hash_file('sha256', $runtime['runtime_root'] . '/refuse-sendmail.sh');
+    $phpIniHash = hash_file('sha256', $runtime['runtime_root'] . '/php.ini');
+    $proxyConfigHash = hash_file('sha256', $runtime['runtime_root'] . '/nginx.conf');
+    ref_require(is_string($mailShimHash) && is_string($phpIniHash) && is_string($proxyConfigHash), 'contained preview control files cannot be hashed');
+    $observedHashes = trim(ref_checked([
+        'docker', 'exec', (string) $environment['container'], 'sha256sum',
+        '/usr/local/bin/wprism-refuse-sendmail', '/usr/local/etc/php/conf.d/zz-wprism-containment.ini',
+    ]));
+    ref_require(str_contains($observedHashes, $mailShimHash) && str_contains($observedHashes, $phpIniHash), 'contained preview mail controls differ inside WordPress');
+    $observedProxyConfig = trim(ref_checked([
+        'docker', 'exec', (string) $contained['proxy_container'], 'sha256sum', '/etc/nginx/nginx.conf',
+    ]));
+    ref_require(str_contains($observedProxyConfig, $proxyConfigHash), 'contained preview ingress proxy configuration drifted');
+    ref_checked([
+        'docker', 'exec', (string) $environment['container'], 'php', '-r',
+        'exit(ini_get("sendmail_path") === "/usr/local/bin/wprism-refuse-sendmail" ? 0 : 41);',
+    ]);
+    ref_checked([
+        'docker', 'exec', (string) $environment['container'], 'php', '-r',
+        'foreach(["tcp://1.1.1.1:443","tcp://host.docker.internal:443"] as $u){$s=@stream_socket_client($u,$e,$m,1);if(is_resource($s)){fclose($s);exit(42);}}exit(0);',
+    ]);
+    $wpRoutes = ref_checked(['docker', 'exec', (string) $environment['container'], 'cat', '/proc/net/route']);
+    $wpRouteWitness = ref_contained_route_witness($wpRoutes, 'wordpress');
+    ref_checked([
+        'docker', 'exec', (string) $environment['container'], 'php', '-r',
+        'exit(@mail("sink@example.invalid","containment probe","refuse") ? 43 : 0);',
+    ]);
+    $mailCapture = trim(ref_checked([
+        'docker', 'exec', (string) $environment['container'], 'sha256sum',
+        '/tmp/wprism-mail-capture.ndjson',
+    ]));
+    ref_require(preg_match('/^[a-f0-9]{64}\s/', $mailCapture) === 1, 'contained preview mail refusal left no capture witness');
+    $cliProbeBytes = ref_checked(
+        ref_contained_compose_command($config, [
+            'run', '--rm', '--no-deps', '-T', (string) $contained['cli_service'], 'php', '-r',
+            'foreach(["tcp://1.1.1.1:443","tcp://host.docker.internal:443"] as $u){$s=@stream_socket_client($u,$n,$m,1);if(is_resource($s)){fclose($s);exit(44);}}'
+                . 'if(@mail("sink@example.invalid","containment probe","refuse")){exit(45);}'
+                . '$e=getenv();ksort($e,SORT_STRING);echo json_encode(["env"=>$e,"routes"=>file_get_contents("/proc/net/route"),"sendmail_path"=>ini_get("sendmail_path")]);',
+        ]),
+        null,
+        $cwd,
+        $composeEnv
+    );
+    $cliProbe = json_decode($cliProbeBytes, true, 512, JSON_THROW_ON_ERROR);
+    ref_require(is_array($cliProbe) && ($cliProbe['sendmail_path'] ?? null) === '/usr/local/bin/wprism-refuse-sendmail', 'contained preview CLI lost its mail refusal control');
+    $cliEnv = $cliProbe['env'] ?? null;
+    ref_require(is_array($cliEnv) && !array_is_list($cliEnv), 'contained preview CLI environment probe is malformed');
+    $cliWitness = ref_contained_environment_witness('cli', array_map('strval', $cliEnv), $runtime);
+    $cliRouteWitness = ref_contained_route_witness((string) ($cliProbe['routes'] ?? ''), 'cli');
+
+    return [
+        'compose_model_sha256' => ref_hash(ref_redact_secrets($rendered)),
+        'container_ids' => [
+            'database' => (string) $db['Id'], 'proxy' => (string) $proxy['Id'],
+            'wordpress' => (string) $wp['Id'],
+        ],
+        'database_authority' => [
+            'database' => $runtime['database_name'],
+            'grants_sha256' => hash('sha256', trim($grantBytes)),
+            'principal_sha256' => hash('sha256', $runtime['database_user']),
+        ],
+        'driver_environment_sha256' => hash('sha256', $driverEnvironmentBytes),
+        'environment' => [
+            'cli' => $cliWitness, 'database' => $dbEnv, 'proxy' => $proxyEnv, 'wordpress' => $wpEnv,
+        ],
+        'format' => 'wprism-reference-contained-topology/v1',
+        'image_ids' => [
+            'database' => (string) $db['Image'], 'proxy' => (string) $proxy['Image'],
+            'wordpress' => (string) $wp['Image'],
+        ],
+        'live_probes' => [
+            'cli_http_egress_denied' => true,
+            'cli_mail_refused' => true,
+            'wordpress_http_egress_denied' => true,
+            'wordpress_mail_refused' => true,
+        ],
+        'mail_capture_present' => true,
+        'mail_refusal_sha256' => $mailShimHash,
+        'mounts' => [
+            'database' => $observedDbMounts, 'proxy' => $observedProxyMounts,
+            'wordpress' => $observedWpMounts,
+        ],
+        'network' => [
+            'attached_container_ids' => $attachedIds,
+            'id' => (string) ($network['Id'] ?? ''),
+            'internal' => true,
+            'name' => (string) $contained['network'],
+        ],
+        'loopback_ingress_network' => [
+            'attached_container_ids' => $ingressIds,
+            'id' => (string) ($ingress['Id'] ?? ''),
+            'ip_masquerade' => false,
+            'name' => (string) $contained['ingress_network'],
+        ],
+        'php_configuration_sha256' => $phpIniHash,
+        'proxy_configuration_sha256' => $proxyConfigHash,
+        'routes' => ['cli' => $cliRouteWitness, 'wordpress' => $wpRouteWitness],
+        'runtime_sources' => [
+            'adapter_packages_sha256' => ref_tree_hash($runtime['runtime_root'] . '/adapter-packages'),
+            'agent_sha256' => ref_tree_hash($runtime['runtime_root'] . '/agent'),
+            'platform_sha256' => ref_tree_hash($runtime['runtime_root'] . '/platform'),
+        ],
+        'security' => $securityWitness,
+        'web_ingress' => '127.0.0.1:' . (string) $environment['port'],
+        'wordpress_runtime' => ['automatic_updater' => false, 'wp_cron' => false],
+        'ingress_services' => ['proxy'],
+        'worker_services' => [],
+    ];
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $resource */
+function ref_assert_contained_absent(array $config, array $resource): void {
+    $contained = ref_contained_config($config);
+    $composeEnv = ref_contained_compose_environment($config, $resource);
+    $containers = ref_run(
+        ref_contained_compose_command($config, ['ps', '-aq']),
+        null,
+        (string) $config['compose_dir'],
+        $composeEnv
+    );
+    ref_require($containers['exit'] === 0 && trim($containers['stdout']) === '', 'contained-preview project already has physical containers');
+    foreach ([
+        ['docker', 'network', 'inspect', (string) $contained['network']],
+        ['docker', 'network', 'inspect', (string) $contained['ingress_network']],
+        ['docker', 'volume', 'inspect', (string) $contained['project'] . '-database'],
+        ['docker', 'volume', 'inspect', (string) $contained['project'] . '-wordpress'],
+    ] as $probe) {
+        ref_require(ref_run($probe)['exit'] !== 0, 'contained-preview supposedly absent lease retains a network or volume');
+    }
+}
+
+/**
+ * The untrusted WordPress image starts only after Docker has created the exact
+ * internal network and attached the fresh lease database to nothing else.
+ *
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $resource
+ */
+function ref_assert_contained_preboot_boundary(array $config, array $resource): void {
+    $contained = ref_contained_config($config);
+    $runtime = ref_contained_runtime($config, $resource);
+    $composeEnv = ref_contained_compose_environment($config, $resource);
+    $database = json_decode(
+        ref_checked(['docker', 'inspect', (string) $contained['database_container']]),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $db = is_array($database) && array_is_list($database) ? ($database[0] ?? null) : null;
+    ref_require(is_array($db) && ($db['State']['Running'] ?? null) === true, 'contained-preview database did not start');
+    ref_require(($db['State']['Health']['Status'] ?? null) === 'healthy', 'contained-preview database is not healthy before WordPress boot');
+    ref_require(($db['HostConfig']['NetworkMode'] ?? null) === $contained['network'], 'contained-preview database booted on another network');
+    ref_require(($db['HostConfig']['Privileged'] ?? null) === false, 'contained-preview database booted privileged');
+    ref_require(($db['HostConfig']['CapAdd'] ?? null) === null || ($db['HostConfig']['CapAdd'] ?? null) === [], 'contained-preview database added Linux capabilities before WordPress boot');
+    ref_require(ref_contained_capability_rows($db['HostConfig']['CapDrop'] ?? []) === ['NET_RAW'], 'contained-preview database retained NET_RAW before WordPress boot');
+    ref_require(
+        ($db['HostConfig']['SecurityOpt'] ?? null) === ['no-new-privileges:true'],
+        'contained-preview database lost no-new-privileges before WordPress boot'
+    );
+    ref_contained_environment_witness('db', ref_environment_map($db['Config']['Env'] ?? []), $runtime);
+    $expectedDbMounts = [[
+        'destination' => '/var/lib/mysql', 'rw' => true,
+        'source' => (string) $contained['project'] . '-database', 'type' => 'volume',
+    ]];
+    ref_require(
+        ref_contained_mount_rows($db['Mounts'] ?? []) === $expectedDbMounts,
+        'contained-preview database did not boot on its one lease-owned volume'
+    );
+    foreach (($db['NetworkSettings']['Ports'] ?? []) as $bindings) {
+        ref_require($bindings === null || $bindings === [], 'contained-preview database published a host port before WordPress boot');
+    }
+    $networkRows = json_decode(
+        ref_checked(['docker', 'network', 'inspect', (string) $contained['network']]),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $network = is_array($networkRows) && array_is_list($networkRows) ? ($networkRows[0] ?? null) : null;
+    ref_require(is_array($network) && ($network['Internal'] ?? null) === true, 'contained-preview network is not internal before WordPress boot');
+    $attached = array_keys(is_array($network['Containers'] ?? null) ? $network['Containers'] : []);
+    ref_require($attached === [(string) ($db['Id'] ?? '')], 'contained-preview network has a foreign attachment before WordPress boot');
+    $projectContainers = trim(ref_checked([
+        'docker', 'ps', '--filter', 'label=com.docker.compose.project=' . (string) $contained['project'],
+        '--format', '{{.Names}}',
+    ]));
+    ref_require($projectContainers === $contained['database_container'], 'contained-preview project has a non-database worker before WordPress boot');
+    $grantBytes = ref_checked(
+        ref_contained_compose_command($config, [
+            'exec', '-T', (string) $contained['database_service'], 'sh', '-c',
+            'MYSQL_PWD="$MARIADB_PASSWORD" exec mariadb -N -B --raw -u"$MARIADB_USER" -e "SHOW GRANTS FOR CURRENT_USER"',
+        ]),
+        null,
+        (string) $config['compose_dir'],
+        $composeEnv
+    );
+    ref_require(
+        str_contains($grantBytes, 'ON `' . ref_contained_grant_database((string) $runtime['database_name']) . '`.*')
+            && preg_match('/^GRANT (?!USAGE )[^\n]+ ON \*\.\*/m', $grantBytes) !== 1,
+        'contained-preview database principal is not lease-database-only before WordPress boot (observed '
+            . ref_json(preg_split('/\R/', trim($grantBytes)) ?: []) . ')'
+    );
+}
+
+/**
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $environment
+ * @param array<string,mixed> $resource
+ * @return array<string,mixed>
+ */
+function ref_create_contained_preview(array $config, array $environment, array $resource): array {
+    $contained = ref_contained_config($config);
+    $composeEnv = ref_contained_compose_environment($config, $resource);
+    $cwd = (string) $config['compose_dir'];
+    $physical = ref_run(ref_contained_compose_command($config, ['ps', '-aq']), null, $cwd, $composeEnv);
+    ref_require($physical['exit'] === 0, 'could not inspect contained-preview acquisition state');
+    if (trim($physical['stdout']) === '') {
+        ref_stage_contained_runtime($config, $resource);
+        ref_write_contained_driver_environment($config, $resource);
+        ref_assert_contained_absent($config, $resource);
+    } else {
+        // Acquisition intent and the random lease credentials were durably
+        // published before the first `up`. An exact retry reuses those bytes;
+        // replacing a live bind tree would invalidate the running container.
+        ref_assert_staged_contained_runtime($config, $resource);
+    }
+    // Close every service's namespace, mount, environment and network model
+    // before starting even the database; the post-start probes below prove
+    // that Docker instantiated this exact authority boundary.
+    ref_probe_contained_rendered_model($config, $environment, $resource);
+    ref_checked(
+        ref_contained_compose_command($config, ['up', '-d', '--wait', (string) $contained['database_service']]),
+        null,
+        $cwd,
+        $composeEnv
+    );
+    ref_assert_contained_preboot_boundary($config, $resource);
+    ref_checked(
+        ref_contained_compose_command($config, [
+            'up', '-d', '--wait', (string) $contained['wordpress_service'], (string) $contained['proxy_service'],
+        ]),
+        null,
+        $cwd,
+        $composeEnv
+    );
+    return ref_probe_contained_topology($config, $environment, $resource);
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $environment @param array<string,mixed> $resource */
+function ref_destroy_contained_preview(array $config, array $environment, array $resource): void {
+    $contained = ref_contained_config($config);
+    $runtime = ref_contained_runtime($config, $resource);
+    $composeEnv = ref_contained_compose_environment($config, $resource);
+    ref_checked(
+        ref_contained_compose_command($config, ['down', '--volumes', '--remove-orphans']),
+        null,
+        (string) $config['compose_dir'],
+        $composeEnv
+    );
+    ref_assert_contained_absent($config, $resource);
+    ref_remove_tree((string) $runtime['runtime_root']);
+    ref_write_contained_driver_placeholder($config);
+    $repo = (string) $environment['repo'];
+    ref_remove_tree($repo);
+    if (!mkdir($repo, 0777, true) && !is_dir($repo)) throw new RuntimeException('could not recreate the contained preview repository');
+    chmod($repo, 0777);
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $resource @return list<string> */
+function ref_contained_database_command(array $config, array $resource, bool $dump = false): array {
+    $contained = ref_contained_config($config);
+    $program = $dump ? 'mariadb-dump' : 'mariadb';
+    $script = 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec ' . $program . ' -uroot';
+    if ($dump) $script .= ' --single-transaction --skip-comments --skip-dump-date "$MARIADB_DATABASE"';
+    return ref_contained_compose_command($config, [
+        'exec', '-T', (string) $contained['database_service'], 'sh', '-c', $script,
+    ]);
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $environment @param array<string,mixed> $resource */
+function ref_restore_contained_database(array $config, array $environment, array $resource, string $dump): void {
+    $runtime = ref_contained_runtime($config, $resource);
+    $database = (string) $runtime['database_name'];
+    $composeEnv = ref_contained_compose_environment($config, $resource);
+    $cwd = (string) $config['compose_dir'];
+    ref_checked(
+        ref_contained_database_command($config, $resource),
+        "DROP DATABASE IF EXISTS `$database`; CREATE DATABASE `$database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n",
+        $cwd,
+        $composeEnv
+    );
+    ref_checked(ref_contained_database_command($config, $resource), $dump, $cwd, $composeEnv);
+    if ($dump !== '') {
+        $readback = ref_checked(ref_contained_database_command($config, $resource, true), null, $cwd, $composeEnv);
+        ref_require(hash('sha256', $readback) === hash('sha256', $dump), 'contained-preview database restore readback differs from the immutable snapshot bytes');
+    }
+}
+
+/**
+ * @param array<string,mixed> $identity
+ * @param array<string,mixed> $fence
+ * @param array<string,mixed> $input
+ * @param array<string,mixed> $topology
+ * @return array<string,mixed>
+ */
+function ref_containment_preimage(array $identity, array $fence, array $input, array $topology): array {
+    return [
+        'environment_identity' => $identity['environment_identity'],
+        'format' => 'wprism-reference-containment-receipt/v1',
+        'lease_generation' => $identity['lease_generation'],
+        'lease_id' => $identity['lease_id'],
+        'mutation_generation' => $fence['generation'],
+        'mutation_id' => $fence['id'],
+        'mutation_owner' => $fence['owner'],
+        'mutation_receipt_sha256' => $fence['held_receipt'],
+        'operation_id' => $input['_operation_id'],
+        'ownership_receipt_sha256' => $identity['ownership_receipt_sha256'],
+        'profile' => $input['profile'],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1],
+        'resource_id' => $identity['resource_id'],
+        'topology' => $topology,
+    ];
+}
+
+/**
+ * @param array<string,mixed> $state
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $environment
+ * @param array<string,mixed> $resource
+ * @param array<string,mixed> $identity
+ */
+function ref_revalidate_containment(array $state, array $config, array $environment, array $resource, array $identity): void {
+    if (!ref_containment_enabled($config)) return;
+    $record = $state['containments'][$identity['resource_id']] ?? null;
+    if ($record === null) return;
+    ref_require(is_array($record) && !array_is_list($record), 'contained-preview receipt state is malformed');
+    foreach (ref_lease_tuple($identity, ref_resource_config_sha256($config)) as $key => $value) {
+        ref_require(($record[$key] ?? null) === $value, "contained-preview receipt lease differs at '$key'");
+    }
+    $topology = ref_probe_contained_topology($config, $environment, $resource);
+    ref_require(ref_hash($topology) === ($record['topology_sha256'] ?? null), 'contained-preview live topology drifted after verification');
+    $preimage = $record['preimage'] ?? null;
+    ref_require(is_array($preimage) && ref_hash($preimage) === ($record['receipt_sha256'] ?? null), 'contained-preview receipt preimage changed');
+    ref_require(
+        is_array($preimage['topology'] ?? null)
+            && ref_json($preimage['topology']) === ref_json($topology),
+        'contained-preview receipt no longer describes the live topology'
+    );
 }
 
 /** @param array<string,mixed> $config @return list<string> */
@@ -963,7 +2170,7 @@ function ref_restore_media_to_container(string $source, string $container): void
 /** @return array<string,mixed> */
 function ref_empty_state(): array {
     return [
-        'acquisitions' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
+        'acquisitions' => [], 'containments' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
         'sessions' => [], 'slot_authorities' => [], 'snapshots' => [], 'source_inspections' => [], 'ttls' => [],
     ];
 }
@@ -990,10 +2197,11 @@ function ref_load_state(string $root): array {
     // fails closed in ref_resource(): its acquisition lineage and safe lease
     // generation cannot be reconstructed from the old tombstone.
     if (!array_key_exists('acquisitions', $state)) $state['acquisitions'] = [];
+    if (!array_key_exists('containments', $state)) $state['containments'] = [];
     if (!array_key_exists('reap_receipts', $state)) $state['reap_receipts'] = [];
     if (!array_key_exists('slot_authorities', $state)) $state['slot_authorities'] = [];
     if (!array_key_exists('source_inspections', $state)) $state['source_inspections'] = [];
-    foreach (['acquisitions', 'fences', 'reap_receipts', 'resources', 'sessions', 'slot_authorities', 'snapshots', 'source_inspections', 'ttls'] as $key) {
+    foreach (['acquisitions', 'containments', 'fences', 'reap_receipts', 'resources', 'sessions', 'slot_authorities', 'snapshots', 'source_inspections', 'ttls'] as $key) {
         ref_require(
             is_array($state[$key] ?? null) && ($state[$key] === [] || !array_is_list($state[$key])),
             "reference provider state '$key' is malformed"
@@ -1166,8 +2374,8 @@ function ref_assert_action_role(string $action, array $environment): void {
     $source = ['snapshot-abort', 'snapshot-create', 'snapshot-prepare', 'snapshot-read'];
     $target = [
         'attach', 'create', 'destroy', 'detach', 'mutation-acquire', 'mutation-read',
-        'mutation-release', 'repository-materialize', 'snapshot-restore', 'ttl-read',
-        'ttl-set', 'url-set',
+        'mutation-release', 'containment-verify', 'repository-materialize', 'snapshot-restore',
+        'ttl-read', 'ttl-set', 'url-set',
     ];
     if (in_array($action, $source, true)) {
         ref_require(($environment['role'] ?? null) === 'source', "action '$action' requires the configured source role");
@@ -1368,7 +2576,12 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             $state['resources'][$resourceId] = $resource;
             $state['slot_authorities']['target']['generation'] = $resource['generation'];
             unset($state['ttls'][$resourceId]);
+            unset($state['containments'][$resourceId]);
             if ($action === 'create') {
+                if (ref_containment_enabled($config)) {
+                    $resource['contained_runtime'] = ref_contained_new_runtime($config, $resource);
+                    $state['resources'][$resourceId] = $resource;
+                }
                 // Publish create intent before allocation/cleanup. A crash may
                 // make the exact operation clear its unpopulated side again,
                 // but another operation cannot claim an ambiguous slot.
@@ -1379,7 +2592,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         if ($action === 'attach') {
             // Attach is proof of an independently existing slot, never an
             // allocation alias. Failed discovery publishes no new ownership.
-            $observedUrl = ref_discover_url($environment, false);
+            $observedUrl = ref_discover_url($config, $environment, false);
             ref_require($observedUrl === $resource['url'], 'preview-slot URL changed during attach');
             $resource['state'] = 'present';
             $acquisition['state'] = 'present';
@@ -1392,12 +2605,22 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         // Only an acquiring intent may allocate/converge the pair. A retry of
         // a present lease proves the existing side and never recreates either
         // source or target under old ownership evidence.
-        if ($resource['state'] === 'acquiring') ref_checked(ref_pair_up_command($config));
-        $observedUrl = ref_discover_url($environment, false);
+        if ($resource['state'] === 'acquiring') {
+            if (ref_containment_enabled($config)) {
+                $topology = ref_create_contained_preview($config, $environment, $resource);
+                $resource['initial_containment_topology_sha256'] = ref_hash($topology);
+                $state['resources'][$resourceId] = $resource;
+            } else {
+                ref_checked(ref_pair_up_command($config));
+            }
+        } elseif (ref_containment_enabled($config)) {
+            ref_probe_contained_topology($config, $environment, $resource);
+        }
+        $observedUrl = ref_discover_url($config, $environment, false);
         ref_require($observedUrl === $resource['url'], 'preview-slot URL changed during acquisition');
         $identity = ref_identity($config, $environment, $observedUrl, $resource);
         if ($resource['state'] === 'acquiring') {
-            ref_clear_side($config, $environment);
+            if (!ref_containment_enabled($config)) ref_clear_side($config, $environment);
             $resource['state'] = 'present';
             $acquisition['state'] = 'present';
             $state['acquisitions'][$acquisitionKey] = $acquisition;
@@ -1427,7 +2650,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
                 'source topology changed after its operation identity was inspected'
             );
             $state['source_inspections'][$sourceKey] = $sourceConfig;
-            $url = ref_discover_url($environment, false);
+            $url = ref_discover_url($config, $environment, false);
             $identityResource = $resource;
         } elseif ((int) $resource['generation'] === 0) {
             $url = ref_configured_url($environment);
@@ -1440,11 +2663,12 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             $identityResource = $resource;
             if ($resource['state'] === 'present') {
                 ref_assert_resource_config($resource, $config);
-                ref_require(ref_discover_url($environment, false) === $url, 'active preview-slot URL differs from its lease');
+                ref_require(ref_discover_url($config, $environment, false) === $url, 'active preview-slot URL differs from its lease');
             }
         }
         $identity = ref_identity($config, $environment, $url, $identityResource);
         if (array_key_exists('expected_environment_identity', $input)) ref_assert_identity_input($input, $identity);
+        if ($resource['state'] === 'present') ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         return $identity + ['presence' => $resource['state'] === 'present' ? 'present' : 'absent'];
     }
 
@@ -1459,7 +2683,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     $identity = ref_identity(
         $config,
         $environment,
-        ($environment['role'] ?? null) === 'target' ? (string) $resource['url'] : ref_discover_url($environment, false),
+        ($environment['role'] ?? null) === 'target' ? (string) $resource['url'] : ref_discover_url($config, $environment, false),
         $resource
     );
 
@@ -1682,15 +2906,19 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             ref_require(($fence[$key] ?? null) === $value, "mutation acquire lease differs at '$key'");
         }
         ref_require($fence['owner'] === $owner && $fence['state'] === 'held', 'mutation acquire is not idempotent/exclusive');
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         return ref_fence_result($identity, $fence);
     }
 
     if ($action === 'mutation-read') {
-        return ref_fence_result($identity, ref_require_fence($state, $input, $identity, $resourceConfig, false));
+        $fence = ref_require_fence($state, $input, $identity, $resourceConfig, false);
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
+        return ref_fence_result($identity, $fence);
     }
 
     if ($action === 'mutation-release') {
         $fence = ref_require_fence($state, $input, $identity, $resourceConfig, false, true);
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         if ($fence['state'] === 'held') {
             $fence['state'] = 'released';
             $fence['receipt'] = ref_hash('released:' . $fence['id'] . ':' . $fence['owner']);
@@ -1700,8 +2928,55 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         return ref_fence_result($identity, $fence);
     }
 
+    if ($action === 'containment-verify') {
+        ref_require(($input['profile'] ?? null) === 'agency-rehearsal-v1', 'contained preview requires profile agency-rehearsal-v1');
+        $fence = ref_require_fence($state, $input, $identity, $resourceConfig);
+        $receiptInput = $input + ['_operation_id' => $operation];
+        $inputSha = ref_hash($receiptInput);
+        $existing = $state['containments'][$resourceId] ?? null;
+        if (is_array($existing)) {
+            ref_require(
+                ($existing['input_sha256'] ?? null) === $inputSha
+                    && ($existing['operation_id'] ?? null) === $operation,
+                'contained-preview verification retry differs from its persisted request'
+            );
+        }
+        $topology = ref_probe_contained_topology($config, $environment, $resource);
+        $preimage = ref_containment_preimage($identity, $fence, $receiptInput, $topology);
+        $receipt = ref_hash($preimage);
+        $result = $identity + [
+            'containment_receipt_sha256' => $receipt,
+            'credential_isolation' => true,
+            'http_egress_default_denied' => true,
+            'mail_default_denied' => true,
+            'payment_default_denied' => true,
+            'profile' => 'agency-rehearsal-v1',
+            'queue_default_denied' => true,
+            'webhook_default_denied' => true,
+        ];
+        if (is_array($existing)) {
+            ref_require(
+                ($existing['receipt_sha256'] ?? null) === $receipt
+                    && is_array($existing['result'] ?? null)
+                    && ref_json($existing['result']) === ref_json($result),
+                'contained-preview live topology drifted after verification'
+            );
+            return $result;
+        }
+        $state['containments'][$resourceId] = ref_lease_tuple($identity, $resourceConfig) + [
+            'input_sha256' => $inputSha,
+            'operation_id' => $operation,
+            'preimage' => $preimage,
+            'receipt_sha256' => $receipt,
+            'result' => $result,
+            'topology_sha256' => ref_hash($topology),
+        ];
+        return $result;
+    }
+
     if ($action === 'snapshot-restore') {
         ref_require_fence($state, $input, $identity, $resourceConfig);
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $snapshotId = $input['snapshot_set_id'] ?? null;
         $snapshot = null;
         foreach ($state['snapshots'] as $candidate) {
@@ -1714,13 +2989,18 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         );
         $dump = file_get_contents((string) $snapshot['database_path']);
         if (!is_string($dump)) throw new RuntimeException('could not read immutable database snapshot');
-        ref_restore_database($config, (string) $environment['database'], $dump);
+        if (ref_containment_enabled($config)) {
+            ref_restore_contained_database($config, $environment, $resource, $dump);
+        } else {
+            ref_restore_database($config, (string) $environment['database'], $dump);
+        }
         ref_restore_media_to_container((string) $snapshot['media_path'], (string) $environment['container']);
         return $identity + ['snapshot_set_id' => $snapshot['snapshot_set_id']];
     }
 
     if ($action === 'repository-materialize') {
         ref_require_fence($state, $input, $identity, $resourceConfig);
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $commit = $input['branch_commit'] ?? null;
         ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
         $repo = (string) $environment['repo'];
@@ -1736,13 +3016,16 @@ function ref_dispatch(array $request, array $config, array &$state): array {
 
     if ($action === 'url-set') {
         ref_require_fence($state, $input, $identity, $resourceConfig);
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         ref_require(($input['url'] ?? null) === $identity['url'], 'provider URL differs from target identity');
         foreach (['home', 'siteurl'] as $option) {
             ref_checked(
-                ref_compose_command($config, ['run', '--rm', '-T', (string) $environment['service'], 'wp', 'option', 'update', $option, (string) $identity['url'], '--quiet']),
+                ref_containment_enabled($config)
+                    ? ref_contained_compose_command($config, ['run', '--rm', '-T', (string) $environment['service'], 'wp', 'option', 'update', $option, (string) $identity['url'], '--quiet'])
+                    : ref_compose_command($config, ['run', '--rm', '-T', (string) $environment['service'], 'wp', 'option', 'update', $option, (string) $identity['url'], '--quiet']),
                 null,
                 (string) $config['compose_dir'],
-                ref_compose_environment($config)
+                ref_containment_enabled($config) ? ref_contained_compose_environment($config, $resource) : ref_compose_environment($config)
             );
         }
         return $identity;
@@ -1750,6 +3033,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
 
     if ($action === 'ttl-set') {
         ref_require_fence($state, $input, $identity, $resourceConfig);
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $seconds = $input['ttl_seconds'] ?? null;
         ref_require(is_int($seconds) && $seconds >= 60, 'TTL set is invalid');
         $ttl = $state['ttls'][$resourceId] ?? null;
@@ -1773,6 +3057,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
 
     if ($action === 'ttl-read') {
         ref_assert_identity_input($input, $identity);
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $ttl = $state['ttls'][$resourceId] ?? null;
         ref_require(is_array($ttl), 'TTL read has no active lease');
         foreach ([
@@ -1790,6 +3075,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     if ($action === 'destroy' || $action === 'detach') {
         ref_require_fence($state, $input, $identity, $resourceConfig);
         ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
+        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $acquisitionKey = ref_acquisition_key($resourceId, (string) $resource['operation_id']);
         $acquisition = $state['acquisitions'][$acquisitionKey] ?? null;
         ref_require(is_array($acquisition), 'preview-slot reap has no acquisition history');
@@ -1825,11 +3111,20 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         }
         // Every provider-owned comparison precedes physical cleanup. A corrupt
         // history row is a refusal, never a delete-then-discover-the-gap path.
-        if ($action === 'destroy') ref_clear_side($config, $environment);
+        if ($action === 'destroy') {
+            if (ref_containment_enabled($config)) {
+                ref_destroy_contained_preview($config, $environment, $resource);
+            } else {
+                ref_clear_side($config, $environment);
+            }
+        }
         $resource['state'] = 'absent';
         unset($resource['reap_action'], $resource['reap_input_sha256'], $resource['reap_operation_id']);
         $state['resources'][$resourceId] = $resource;
         unset($state['ttls'][$resourceId]);
+        unset($state['containments'][$resourceId]);
+        unset($resource['contained_runtime'], $resource['initial_containment_topology_sha256']);
+        $state['resources'][$resourceId] = $resource;
         $acquisition['state'] = 'terminal';
         $state['acquisitions'][$acquisitionKey] = $acquisition;
         $result = [
@@ -1884,7 +3179,7 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
     if ($action !== 'capabilities') ref_assert_action_role($action, $environment);
 
     $planState = $state ?? [
-        'acquisitions' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
+        'acquisitions' => [], 'containments' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
         'sessions' => [], 'slot_authorities' => [], 'snapshots' => [], 'source_inspections' => [], 'ttls' => [],
     ];
     $url = ref_configured_url($environment);
@@ -1939,7 +3234,7 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
     if (!isset($identity)) $identity = ref_identity($config, $environment, $url, $identityResource);
     $commands = [];
     if ($action !== 'capabilities' && ($environment['role'] ?? null) === 'source') {
-        $commands[] = ['argv' => ref_port_command($environment)];
+        $commands[] = ['argv' => ref_port_command($config, $environment)];
     }
     $stateDependent = true;
     $identityChecked = false;
@@ -1997,7 +3292,7 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
         case 'inspect':
             if (($environment['role'] ?? null) === 'target'
                 && is_array($identityResource) && $identityResource['state'] === 'present') {
-                $commands[] = ['argv' => ref_port_command($environment)];
+                $commands[] = ['argv' => ref_port_command($config, $environment)];
             }
             break;
         case 'detach':
@@ -2039,10 +3334,17 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
                 );
             }
             if ($action === 'create' && $phase !== 'present') {
-                $commands[] = ['argv' => ref_pair_up_command($config)];
+                if (ref_containment_enabled($config)) {
+                    $commands[] = ['argv' => ['cp', '-R', '<runtime-sources>', '<lease-runtime>']];
+                    $commands[] = ['argv' => ref_contained_compose_command($config, ['up', '-d', '--wait', 'db'])];
+                    $commands[] = ['argv' => ['docker', 'network', 'inspect', (string) ref_contained_config($config)['network']]];
+                    $commands[] = ['argv' => ref_contained_compose_command($config, ['up', '-d', '--wait', 'wp', 'proxy'])];
+                } else {
+                    $commands[] = ['argv' => ref_pair_up_command($config)];
+                }
             }
-            $commands[] = ['argv' => ref_port_command($environment)];
-            if ($action === 'create' && $phase !== 'present') {
+            $commands[] = ['argv' => ref_port_command($config, $environment)];
+            if ($action === 'create' && $phase !== 'present' && !ref_containment_enabled($config)) {
                 $commands = array_merge($commands, ref_clear_side_plan($config, $environment));
             }
             break;
@@ -2062,8 +3364,13 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
             ref_require(($environment['role'] ?? null) === 'source', "only the source can $action a snapshot");
             break;
         case 'snapshot-restore':
-            $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot'], 'stdin' => 'drop-create'];
-            $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot', (string) $environment['database']], 'stdin' => 'immutable-dump'];
+            if (ref_containment_enabled($config)) {
+                $commands[] = ['argv' => ref_contained_compose_command($config, ['exec', '-T', 'db', 'sh', '-c', 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot']), 'stdin' => 'drop-create'];
+                $commands[] = ['argv' => ref_contained_compose_command($config, ['exec', '-T', 'db', 'sh', '-c', 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot']), 'stdin' => 'immutable-dump'];
+            } else {
+                $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot'], 'stdin' => 'drop-create'];
+                $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot', (string) $environment['database']], 'stdin' => 'immutable-dump'];
+            }
             $commands[] = ['argv' => ref_media_clear_command((string) $environment['container'])];
             $commands[] = ['argv' => ['docker', 'cp', '<immutable-media>/.', (string) $environment['container'] . ':/var/www/html/wp-content/uploads']];
             $commands[] = ['argv' => ref_media_handback_command((string) $environment['container'])];
@@ -2078,10 +3385,20 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
             ref_require(($input['url'] ?? null) === $identity['url'], 'provider URL differs from target identity');
             foreach (['home', 'siteurl'] as $option) {
                 $commands[] = [
-                    'argv' => ref_compose_command($config, ['run', '--rm', '-T', (string) $environment['service'], 'wp', 'option', 'update', $option, $url, '--quiet']),
+                    'argv' => ref_containment_enabled($config)
+                        ? ref_contained_compose_command($config, ['run', '--rm', '-T', (string) $environment['service'], 'wp', 'option', 'update', $option, $url, '--quiet'])
+                        : ref_compose_command($config, ['run', '--rm', '-T', (string) $environment['service'], 'wp', 'option', 'update', $option, $url, '--quiet']),
                     'cwd' => (string) $config['compose_dir'],
                 ];
             }
+            break;
+        case 'containment-verify':
+            ref_require(($input['profile'] ?? null) === 'agency-rehearsal-v1', 'contained preview requires profile agency-rehearsal-v1');
+            $commands[] = ['argv' => ref_contained_compose_command($config, ['config', '--format', 'json'])];
+            $commands[] = ['argv' => ['docker', 'inspect', (string) $environment['container'], (string) ref_contained_config($config)['database_container']]];
+            $commands[] = ['argv' => ['docker', 'network', 'inspect', (string) ref_contained_config($config)['network']]];
+            $commands[] = ['argv' => ['docker', 'ps', '--filter', 'label=com.docker.compose.project=' . (string) ref_contained_config($config)['project'], '--format', '{{.Names}}']];
+            $commands[] = ['argv' => ['docker', 'exec', (string) $environment['container'], 'php', '-r', '<egress-and-mail-refusal-probes>']];
             break;
         case 'ttl-set':
             ref_require(is_int($input['ttl_seconds'] ?? null) && $input['ttl_seconds'] >= 60, 'TTL set is invalid');
@@ -2089,7 +3406,11 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
         case 'destroy':
             ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
             if (!is_array($cachedReap)) {
-                $commands = array_merge($commands, ref_clear_side_plan($config, $environment));
+                if (ref_containment_enabled($config)) {
+                    $commands[] = ['argv' => ref_contained_compose_command($config, ['down', '--volumes', '--remove-orphans'])];
+                } else {
+                    $commands = array_merge($commands, ref_clear_side_plan($config, $environment));
+                }
             }
             break;
         default:

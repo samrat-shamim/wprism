@@ -61,6 +61,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-recovery \
 	regress-environment-materializer-live \
 	regress-env-provider-conformance-live \
+	regress-rehearsal-containment-live \
 	regress-frozen-materialization-promotion \
 	regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
 	regress-adapter-package-current-paths \
@@ -2243,6 +2244,12 @@ regress-environment-materializer-live:
 regress-env-provider-conformance-live:
 	bash sandbox/tests/live/regress_env_provider_conformance_live.sh
 
+# WPB-011: real Docker topology/probes, with `--topology-only` available when
+# the sandbox shared-DB port is owned by another worktree. The full lane owns
+# source + independent release target + standalone contained preview.
+regress-rehearsal-containment-live:
+	bash sandbox/tests/live/regress_rehearsal_containment_live.sh
+
 regress-frozen-materialization-promotion:
 	php sandbox/tests/offline/environment/regress_frozen_materialization_promotion.php
 
@@ -2788,6 +2795,7 @@ regress-live-list:
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
 	@echo "  regress-environment-materializer-live     pair wprismenvmaterialize 9100/9101 (public env materialize/reap; user-authorized)"
 	@echo "  regress-env-provider-conformance-live     pair envprovcheck 9200/9201 (wprism env provider-check vs tools/reference-env-provider.php)"
+	@echo "  regress-rehearsal-containment-live        pair containlive 9340/9341 + standalone preview 9342 (three environments; real route/mail/credential probes)"
 	@echo "  regress-wprism-init                         pair codexmaca3336 9300/9301 (parameterized: WPRISM_INIT_PAIR/WPRISM_INIT_PORT1/WPRISM_INIT_PORT2)"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: WPRISM_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"

@@ -312,13 +312,108 @@ function provider_doc_build(string $repo): string {
         $out .= '| `' . str_replace('|', '\\|', $refusal) . "` | $cause |\n";
     }
     $out .= "\n## 7. The worked example\n\n";
-    $out .= '`tools/reference-env-provider.php` implements all ' . count($actions) . " actions against WPrism's own\n";
-    $out .= "sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB). It is **DEV-ONLY** —\n";
+    $out .= "`tools/reference-env-provider.php` has two explicit modes. Its ordinary mode drives\n";
+    $out .= "WPrism's sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB), advertises\n";
+    $out .= "neither `environment.containment.verify` nor a sandbox claim, and remains useful for\n";
+    $out .= "provider protocol/conformance work. Adding a `contained_preview` object selects a\n";
+    $out .= "standalone create/destroy-only target and advertises containment only after the\n";
+    $out .= "provider can enforce and live-probe it. Contained mode intentionally withholds\n";
+    $out .= "`environment.attach` and `environment.detach`: it cannot prove that an already-running\n";
+    $out .= "target was born behind the controls.\n\n";
+    $out .= "The reference is **DEV-ONLY** —\n";
     $out .= "`tools/` never ships. `cli/src/Onboarding/Adopt.php` embeds the assembled adapter library\n";
     $out .= "in `agent/` and tars only `agent recovery`, so read this as a demonstration, not as\n";
     $out .= "an artifact you can deploy. Its `--print-plan` flag runs the same negotiation and\n";
     $out .= "argument validation and prints the command boundary an action would use, executing\n";
     $out .= "nothing.\n\n";
+    $out .= "### Enabling the contained preview\n\n";
+    $out .= "Start with the ordinary reference config shape documented at the top of\n";
+    $out .= "`tools/reference-env-provider.php`, then add the following object. Every path is\n";
+    $out .= "absolute; replace `mup` consistently if the pair name differs. The target environment\n";
+    $out .= "must use container `wprism-mup-preview-wp-1`, service `cli`, database\n";
+    $out .= "`wprism_preview`, and its own host repository directory.\n\n";
+    $out .= <<<'DOC'
+```json
+"contained_preview": {
+  "format": "wprism-reference-contained-preview/v1",
+  "compose_file": "<repo>/sandbox/contained-preview.yml",
+  "project": "wprism-mup-preview",
+  "network": "wprism-mup-preview-internal",
+  "ingress_network": "wprism-mup-preview-ingress",
+  "database_container": "wprism-mup-preview-db-1",
+  "database_service": "db",
+  "proxy_container": "wprism-mup-preview-proxy-1",
+  "proxy_service": "proxy",
+  "wordpress_service": "wp",
+  "cli_service": "cli",
+  "database": "wprism_preview",
+  "wordpress_image": "wordpress:7.1-php8.3-apache",
+  "cli_image": "wordpress:cli-php8.3",
+  "database_image": "mariadb:11",
+  "proxy_image": "nginx:1.29-alpine",
+  "mail_shim": "<repo>/sandbox/containment/refuse-sendmail.sh",
+  "php_ini": "<repo>/sandbox/containment/php.ini",
+  "proxy_config": "<repo>/sandbox/containment/nginx.conf",
+  "runtime_sources": {
+    "adapter_packages": "<repo>/adapter-packages",
+    "agent": "<repo>/agent",
+    "platform": "<repo>/platform"
+  }
+}
+```
+
+DOC;
+    $out .= "Before constructing the Docker transport, create\n";
+    $out .= "`<state_root>/contained-preview.env` as a mode-0600 placeholder. The provider\n";
+    $out .= "atomically replaces it with lease credentials during `create`; it is not a file an\n";
+    $out .= "operator fills with reusable secrets. Point the target's machine-local registry entry\n";
+    $out .= "at the same standalone topology and environment file:\n\n";
+    $out .= <<<'DOC'
+```json
+{
+  "transport": "docker",
+  "compose_file": "<repo>/sandbox/contained-preview.yml",
+  "compose_env_file": "<state_root>/contained-preview.env",
+  "profile": "cli",
+  "service": "cli",
+  "repo_path": "/siterepo",
+  "environment_provider": {
+    "command": ["<absolute-php>", "<repo>/tools/reference-env-provider.php", "<provider-config>"],
+    "timeout_seconds": 3600
+  }
+}
+```
+
+DOC;
+    $out .= "Use `wprism rehearse <target> --from <source> --create`; attach is deliberately\n";
+    $out .= "unavailable. The preview has separate lease-owned database and WordPress volumes, a\n";
+    $out .= "random database principal and two random 256-bit passwords, and a staged target\n";
+    $out .= "repository/runtime tree that shares no source/target network or volume. WordPress, DB\n";
+    $out .= "and the one-shot CLI join only the Docker `internal: true` network and have no default\n";
+    $out .= "route. The sole published port is a loopback binding on a credential-free, fixed-config\n";
+    $out .= "nginx proxy sidecar; only that proxy spans the dedicated ingress bridge.\n\n";
+    $out .= "Controls exist before restored bytes boot. The provider validates the rendered Compose\n";
+    $out .= "model, boots only the DB, proves its isolated network/volume/principal/grants, and only\n";
+    $out .= "then starts WordPress and the proxy. It proves the live container networks, mounts,\n";
+    $out .= "images, users, dropped capabilities, no-new-privileges settings, environment allowlist,\n";
+    $out .= "absence of workers/default routes, and the exact mail/proxy control-file hashes. HTTP,\n";
+    $out .= "payment and webhook escape are denied by the app containers' internal-only network.\n";
+    $out .= "Queue escape is denied by that same boundary plus the isolated lease DB and disabled\n";
+    $out .= "WordPress cron/updaters with no worker service. Mail is forced through the hashed refusal/\n";
+    $out .= "capture shim.\n\n";
+    $out .= "The containment receipt binds the target identity, resource and lease generation/id/\n";
+    $out .= "ownership receipt, held fence generation/id/owner/receipt, profile, and observed topology.\n";
+    $out .= "An exact retry re-runs the probes and returns the same receipt; any topology or control\n";
+    $out .= "drift refuses. Reap proves the lease's containers, networks, volumes, staged runtime and\n";
+    $out .= "credentials absent.\n\n";
+    $out .= "This boundary trusts the host kernel, Docker daemon, configured image identities, provider\n";
+    $out .= "and control files. A host/Docker administrator can bypass it and is out of scope. Restored\n";
+    $out .= "application data may still contain opaque secrets; isolation prevents their network use\n";
+    $out .= "but does not sanitize them. Browser-side effects outside the server containers are also\n";
+    $out .= "out of scope. Docker Engine with Compose v2 and the four configured images must be\n";
+    $out .= "available locally. Run `make regress-rehearsal-containment-live` for the real three-\n";
+    $out .= "environment source/preview/independent-target lane; `--topology-only` exercises the\n";
+    $out .= "standalone containment topology when the ordinary pair is unavailable.\n\n";
     $out .= "Two habits it demonstrates that this contract does not spell out but every operation\n";
     $out .= "depends on:\n\n";
     $out .= "* **idempotency per `operation_id`.** Any response may be lost after the work\n";

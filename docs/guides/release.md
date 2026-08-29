@@ -110,35 +110,50 @@ physical mutation, and only the exact interrupted request may resume them.
 All controllers for that physical slot must share one provider-owned state
 authority; two independent state roots cannot coordinate ownership.
 
-`tools/reference-env-provider.php` exercises this fixed-slot shape against the
-sandbox pair. It is a development reference tied to that pair, not a general
-hosting, isolation or containment provider. Its local state lock serializes
-provider processes that share one state root and is inherited by its
-synchronous Docker/Git children, including when the PHP parent is forcibly
-killed. That local lock cannot cover a child that closes the descriptor or a
-daemon-side job that continues after its CLI returns. A production slot
-service must bind those jobs to the lease generation or cancel and await them
-before making the slot reusable.
+`tools/reference-env-provider.php` exercises two fixed-slot shapes. Ordinary
+pair mode is tied to the shared sandbox pair and explicitly withholds
+`environment.containment.verify`; it cannot drive `wprism rehearse`. Opt-in
+`contained_preview` mode creates a standalone target with lease-owned database
+and WordPress volumes, a dedicated database principal and credentials, an
+internal-only app network, and a credential-free proxy as its sole loopback
+ingress. It withholds attach/detach because an already-running target cannot
+prove that the controls existed before boot. The exact provider object,
+machine-local Docker transport, placeholder environment file and prerequisites
+are in [the generated provider guide](../branch-environment-provider.md#enabling-the-contained-preview).
 
-### Rehearse is a preview, not a sandbox
+Both modes are development references, not general hosting providers. Their
+local state lock serializes provider processes that share one state root and is
+inherited by synchronous Docker/Git children, including when the PHP parent is
+forcibly killed. That lock cannot cover a child that closes the descriptor or a
+daemon-side job that continues after its CLI returns. A production slot service
+must bind those jobs to the lease generation or cancel and await them before
+making the slot reusable.
 
-Every run prints this first, before the provider is contacted:
+### Rehearse requires a sandbox receipt
+
+Every run states the requirement first, before the provider is contacted:
 
 ```text
-containment: unknown — not enforced in this profile; do not point this environment at live payment or mail credentials.
-consequence: this rehearsal cannot authorize an Experimental or Uncertified capability — the spec permits that only after containment is proven. Rehearsal in this profile is a preview and evidence-gathering environment, not a qualification environment.
+containment: required — production-derived bytes will not enter the rehearsal until its machine-local provider proves credential isolation and default-denied HTTP, mail, payment, webhook, and queue destinations.
 ```
 
-Read it literally. WPrism does not strip or rebind production credentials, does
-not default-deny outbound HTTP, mail, payment, webhook or queue traffic, and
-does not verify containment before you exercise a workflow. A plugin in your
-preview can and will send real mail and call a real payment API if you give it
-real credentials.
+Materialization then requires `environment.containment.verify` before snapshot
+restore. The receipt binds the target identity, resource/lease ownership and
+held mutation fence to live topology evidence. Missing capability, malformed
+evidence or drift refuses. Only after that proof does the command print
+`containment: sandboxed — provider verified agency-rehearsal-v1; receipt=…`.
 
-The consequence is the half people skip: because containment is unproven, a
-rehearsal here **cannot** qualify anything. "I rehearsed it" is not "I
-qualified it", and a surface reading `Experimental` or `Uncertified` still
-reads that way afterwards.
+The bundled contained preview proves server-side HTTP/payment/webhook denial
+through the app containers' internal-only network; queue denial through the
+same network, an isolated lease database, disabled WordPress cron/updaters and
+no worker; and mail denial through the enforced refusal/capture shim. The
+loopback proxy carries no runtime, repository or database credentials. Host or
+Docker administrators, browser-side effects and secret sanitization inside
+restored opaque application data are outside that boundary.
+
+Containment permits evidence gathering; it does not manufacture certification.
+"I rehearsed it" is not "I qualified it", and a surface reading `Experimental`
+or `Uncertified` still needs its applicable reviewed disposition and evidence.
 
 `wprism assess` now says the same thing in its next actions rather than
 contradicting it: `qualify in rehearsal` is never printed, and the rows that

@@ -469,12 +469,17 @@ wprism rehearse preview --from production --branch feature/pricing-page
 wprism rehearse preview --reap
 ```
 
-`wprism rehearse` is `wprism env materialize` plus a preview of what a release would
-touch, and it prints its containment disclosure before it contacts the
-provider: WPrism does not strip production credentials, does not default-deny
-outbound HTTP, mail, payment or webhook traffic, and does not verify
-containment. A rehearsal is a preview, not a sandbox — point it at test
-credentials, and do not treat "I rehearsed it" as "I qualified it".
+`wprism rehearse` is `wprism env materialize` plus a preview of what a release
+would touch. Before provider contact it states that containment is required;
+before restoring production-derived bytes it requires an exact
+`environment.containment.verify` receipt. The ordinary local reference pair
+withholds that capability. Its opt-in standalone `contained_preview` mode is
+the development example: isolated lease DB/volumes and credentials, internal-
+only WordPress/CLI, mail refusal, cron/workers off, and loopback ingress only
+through a credential-free proxy. Setup and trust boundaries are in
+[the provider guide](../branch-environment-provider.md#enabling-the-contained-preview).
+Contained evidence gathering still does not turn an `Experimental` or
+`Uncertified` capability into a qualified one.
 
 ### `wprism promote` — the lower-level verb
 

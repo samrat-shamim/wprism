@@ -127,15 +127,15 @@ That suite is the gate on this table, one fact vector per cell.
 
 ### 1.5 Effect containment
 
-There is no egress control, so only one containment value is structurally
-provable and only one is declarable.
+The contract projection has no runtime egress-control fact, so only one
+containment value is structurally provable and only one is declarable.
 
 | Condition | Projected `effect_containment` |
 |---|---|
 | the surface is mutated exclusively inside `apply`'s hook-free window (direct low-level writes; no WordPress hooks fire, therefore no mail/webhook/payment re-fire — DESIGN.md §3.4) **and** the plan touches no declared provider action for it | `prevented`, with the literal basis string `no WordPress hooks fire in the apply window` |
 | anything in the lifecycle window (deploy → retire → activate → finalize, where hooks *do* fire), any declared provider action, any regenerator | `unknown — not enforced in this profile` |
 | the reviewed contract declares a live external effect for this surface | `live` |
-| — | `sandboxed` is **never emitted**: containment enforcement (default-deny outbound HTTP/mail/payment/webhook/queue) is not built, so nothing could prove it |
+| — | `sandboxed` is **never emitted by this projection**. A rehearsal may carry a separate provider-bound runtime receipt, but that evidence does not rewrite a surface's reviewed contract facts |
 
 ### 1.6 Effect recovery semantics
 
@@ -169,10 +169,11 @@ production.
 
 Said plainly, because the words above are easy to over-read:
 
-1. **Rehearsal is a preview, not a sandbox.** WPrism does not stop a plugin in
-   your preview environment from sending mail, calling a payment API, or
-   firing a webhook. Point it at test credentials. That is why §1.5 never
-   emits `sandboxed`.
+1. **A rehearsal receipt does not rewrite contract facts.** Rehearse requires
+   provider-proven server-side containment before restore, but §1.5 still
+   never emits `sandboxed`: the assess row records reviewed surface facts, not
+   the runtime environment in which evidence happens. Containment permits the
+   evidence run; disposition and certification decide its authority.
 2. **`Site-certified` is your organization's word, not WPrism's.** It is emitted
    only on a verified Ed25519 signature over an adapter's exact bytes under a
    trust root the repository or the agent owns. It means customer-organization
