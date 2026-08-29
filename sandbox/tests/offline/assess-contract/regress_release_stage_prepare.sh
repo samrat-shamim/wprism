@@ -870,6 +870,17 @@ if (\WPrism\Orchestrator\ReleaseOutcome::encode($outcome) !== $bytes
 # A completed replay is a status read. Make both authorization verification
 # and stage validation fail if they were attempted, then require the exact
 # stored outcome anyway.
+TARGET_ID_PATH="$TARGET_GIT_DIR/wprism-control/target-id"
+cp "$TARGET_ID_PATH" "$TMP/target-id.before-replay-drift"
+printf 'wprism-target:%064d\n' 0 > "$TARGET_ID_PATH"
+run_execute "$TMP/execute-replay-target-drift.json" "$SUBJECT_DIGEST"
+TARGET_DRIFT_STATUS=$?
+[ "$TARGET_DRIFT_STATUS" = 1 ] \
+  && grep -Fq 'authorized_operation_status_invalid' "$TMP/execute-replay-target-drift.json" \
+  && [ "$(authorization_count)" = 5 ] \
+  && pass 'completed release replay refuses when canonical target identity no longer names its stored outcome' \
+  || fail 'completed release replay accepted target-A outcome after target-id drift'
+mv "$TMP/target-id.before-replay-drift" "$TARGET_ID_PATH"
 php -r '
 require $argv[1] . "/agent/src/Kernel/Canon.php";
 $path = $argv[2]; $trust = json_decode((string) file_get_contents($path), true);

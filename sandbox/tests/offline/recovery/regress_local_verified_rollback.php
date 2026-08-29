@@ -852,6 +852,34 @@ SH;
         if (!is_array($authorizedRecovery)) wprism_check_summary('local verified rollback');
         RecoveryOutcome::validate($authorizedRecovery);
 
+        $targetGit = trim((string) shell_exec('git -C ' . escapeshellarg($repo) . ' rev-parse --absolute-git-dir'));
+        $targetIdentityPath = $targetGit . '/wprism-control/target-id';
+        $targetIdentityBytes = (string) file_get_contents($targetIdentityPath);
+        lvr_write($targetIdentityPath, 'wprism-target:' . str_repeat('f', 64) . "\n");
+        try {
+            ob_start();
+            $targetDriftExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                static fn (): string => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 7200)
+            );
+            $targetDriftBytes = (string) ob_get_clean();
+        } finally {
+            lvr_write($targetIdentityPath, $targetIdentityBytes);
+        }
+        $targetDrift = json_decode($targetDriftBytes, true);
+        wprism_check_same(1, $targetDriftExit, 'completed recovery replay refuses target identity drift');
+        wprism_check_same(
+            'authorized_operation_status_invalid',
+            is_array($targetDrift) ? ($targetDrift['reason_code'] ?? null) : null,
+            'completed recovery cannot replay target A outcome after canonical target identity becomes B'
+        );
+
         ob_start();
         $replayExit = RecoverCommand::run(
             $transport,

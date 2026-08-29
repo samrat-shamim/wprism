@@ -15,12 +15,15 @@ use WPrism\Orchestrator\TargetOperationStore;
 
 /** Minimal local target: product code still crosses captureRaw(). */
 final class AuthorizationStoreDriver implements EnvironmentDriver {
-    public function __construct(private string $repo) {}
+    /** @param ?Closure(string):string $transform */
+    public function __construct(private string $repo, private ?Closure $transform = null) {}
     public function name(): string { return 'production'; }
     public function driverId(): string { return 'authorization-store-test'; }
     public function repoPath(): string { return $this->repo; }
     public function describe(): string { return 'authorization store fixture'; }
-    public function captureRaw(string $script): array { return authorization_run(['/bin/sh', '-c', $script]); }
+    public function captureRaw(string $script): array {
+        return authorization_run(['/bin/sh', '-c', $this->transform === null ? $script : ($this->transform)($script)]);
+    }
     public function captureWp(array $wpArgs): array { throw new LogicException('WP must not be contacted'); }
     public function streamWp(array $wpArgs): int { throw new LogicException('WP must not be contacted'); }
     public function wpInstruction(array $wpArgs): string { return 'wp'; }
@@ -350,6 +353,37 @@ wprism_check_refuses(
 );
 unlink($hardeningAuth . '/operations');
 authorization_remove($redirectedOperations);
+$lockSwapAuthorization = $authFor($hardeningTarget, 'release:lock-path-rebind', 'nonce-lock-path-rebind');
+$lockSwapDriver = new AuthorizationStoreDriver(
+    $hardeningScratch,
+    static function (string $script): string {
+        $needle = '$identityPath = $root . ';
+        if (!str_contains($script, 'authorityPath') || !str_contains($script, 'operationLock')) return $script;
+        $swap = "\$heldLockPath=\$operationLockPath . \".held\"; \$newLock=false;"
+            . "if(!@rename(\$operationLockPath,\$heldLockPath)||!is_resource(\$newLock=@fopen(\$operationLockPath,\"x\"))"
+            . "||!@fclose(\$newLock)){fwrite(STDERR,\"swap\\n\");exit(99);}\n";
+        $changed = str_replace($needle, $swap . $needle, $script, $count);
+        if ($count !== 1) throw new RuntimeException('lock rebind fixture did not reach the acquired operation lock');
+        return $changed;
+    }
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume($lockSwapDriver, $lockSwapAuthorization['verified'], $lockSwapAuthorization['envelope'], $lockSwapAuthorization['subject']),
+    'authorization_consumption_uncertain',
+    'a worker whose acquired identity lock is renamed refuses before it can publish an operation'
+);
+wprism_check_same(
+    null,
+    TargetOperationStore::status($hardeningDriver, $lockSwapAuthorization['verified']['authorization_digest']),
+    'the swapped-lock worker leaves no operation for a second worker to cross or replay'
+);
+$lockSwapSuccess = TargetOperationStore::consume(
+    $hardeningDriver,
+    $lockSwapAuthorization['verified'],
+    $lockSwapAuthorization['envelope'],
+    $lockSwapAuthorization['subject']
+);
+wprism_check_same(false, $lockSwapSuccess['replayed'], 'the canonical replacement lock admits one later first worker, never a split publication');
 $preconditionParent = $hardeningScratch . '/precondition-parent';
 mkdir($preconditionParent, 0700, true);
 file_put_contents($preconditionParent . '/data.txt', "parent-data\n");
@@ -417,6 +451,20 @@ wprism_check_same(true, $completedReplay['replayed'], 'terminal same-operation r
 $stored = TargetOperationStore::status($driver, $verified['authorization_digest']);
 wprism_check_same($first['consumption'], $stored['consumption'] ?? null, 'status returns the durable consumption evidence');
 wprism_check_same($completed['completion'], $stored['completion'] ?? null, 'status returns the durable terminal outcome evidence');
+$targetIdentityPath = $gitDirectory . '/wprism-control/target-id';
+$storedTargetIdentity = (string) file_get_contents($targetIdentityPath);
+file_put_contents($targetIdentityPath, 'wprism-target:' . str_repeat('f', 64) . "\n");
+wprism_check_refuses(
+    static fn () => TargetOperationStore::status($driver, $verified['authorization_digest']),
+    'authorized_operation_status_invalid',
+    'completed status cannot replay target A evidence after the canonical target identity becomes B'
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::statusForSubject($driver, $subject),
+    'authorized_operation_status_invalid',
+    'subject status cannot elect target A evidence after the canonical target identity becomes B'
+);
+file_put_contents($targetIdentityPath, $storedTargetIdentity);
 wprism_check_refuses(
     static fn () => TargetOperationStore::consume($driver, $replacement, $replacementEnvelope, $subject),
     'authorized_operation_already_completed',

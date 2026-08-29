@@ -50,10 +50,20 @@ $regular = static function (string $path, bool $directory = false): mixed {
 if ($root === '' || $root[0] !== '/' || !is_array(@lstat($root)) || is_link($root)) { fwrite(STDERR, "root\n"); exit(20); }
 $lock = $regular($root . '/authority.lock');
 if (!is_resource($lock) || !@flock($lock, LOCK_SH)) { fwrite(STDERR, "lock\n"); exit(21); }
+$lockStat = @fstat($lock); $lockPathStat = @lstat($root . '/authority.lock');
+if (!is_array($lockStat) || !is_array($lockPathStat)
+    || (($lockPathStat['mode'] ?? 0) & 0170000) !== 0100000
+    || ($lockStat['dev'] ?? null) !== ($lockPathStat['dev'] ?? null)
+    || ($lockStat['ino'] ?? null) !== ($lockPathStat['ino'] ?? null)) { fwrite(STDERR, "lock\n"); exit(21); }
 $policy = $regular($root . '/authority-policy.json');
 if (!is_resource($policy)) { fwrite(STDERR, "missing\n"); exit(22); }
 $bytes = @stream_get_contents($policy);
 if (!is_string($bytes) || $bytes === '') { fwrite(STDERR, "read\n"); exit(23); }
+$lockStat = @fstat($lock); $lockPathStat = @lstat($root . '/authority.lock');
+if (!is_array($lockStat) || !is_array($lockPathStat)
+    || (($lockPathStat['mode'] ?? 0) & 0170000) !== 0100000
+    || ($lockStat['dev'] ?? null) !== ($lockPathStat['dev'] ?? null)
+    || ($lockStat['ino'] ?? null) !== ($lockPathStat['ino'] ?? null)) { fwrite(STDERR, "lock\n"); exit(21); }
 echo base64_encode($bytes) . "\n";
 PHP;
         $result = $driver->captureRaw(self::php($script, [$root]));
@@ -82,11 +92,12 @@ $open = static function(string $path, string $mode): mixed { $before=@lstat($pat
 if (!is_dir($root) || is_link($root)) { fwrite(STDERR,"root-type\n"); exit(21); }
 $lockPath=$root.'/authority.lock';
 if (!file_exists($lockPath)) { $created=@fopen($lockPath,'x+b'); if (!is_resource($created) || !@fflush($created) || !function_exists('fsync') || !@fsync($created) || !@fclose($created) || !@chmod($lockPath,0600)) { if(is_resource($created))@fclose($created); fwrite(STDERR,"lock-create\n"); exit(21); } }
-$lock=$open($lockPath,'r+b'); if(!is_resource($lock)||!@flock($lock,LOCK_EX)){fwrite(STDERR,"lock\n");exit(21);}
-$identity=$open($root.'/identity.lock','rb'); if(!is_resource($identity)||!@flock($identity,LOCK_SH)){fwrite(STDERR,"identity-lock\n");exit(22);}
-$identityBytes=@file_get_contents($root.'/target-id'); if(!is_string($identityBytes)||!hash_equals($target."\n",$identityBytes)){fwrite(STDERR,"target-mismatch\n");exit(23);}
-$path=$root.'/authority-policy.json'; if(is_link($path)||(file_exists($path)&&!is_file($path))){fwrite(STDERR,"policy-type\n");exit(24);} $currentBytes=is_file($path)?@file_get_contents($path):false; if($currentBytes!==false&&!is_string($currentBytes)){fwrite(STDERR,"policy-read\n");exit(25);} $current=is_string($currentBytes)?'sha256:'.hash('sha256',$currentBytes):'absent';
-if(is_string($currentBytes)&&hash_equals($next,$currentBytes)){echo "replay $current\n";exit(0);} if(!hash_equals($expected,$current)){fwrite(STDERR,"policy-conflict\n");exit(26);} $temporary=@tempnam($root,'.authority-policy-');$handle=is_string($temporary)?@fopen($temporary,'r+b'):false; if(!is_resource($handle)||@fwrite($handle,$next)!==strlen($next)||!@fflush($handle)||!function_exists('fsync')||!@fsync($handle)||!@fclose($handle)||!@chmod($temporary,0600)||!@rename($temporary,$path)){if(is_resource($handle))@fclose($handle);if(is_string($temporary)&&is_file($temporary))@unlink($temporary);fwrite(STDERR,"policy-write\n");exit(27);} $sync=@fopen($root,'rb');if(!is_resource($sync)||!@fsync($sync)||!@fclose($sync)){fwrite(STDERR,"policy-sync\n");exit(27);} $readback=@file_get_contents($path);if(!is_string($readback)||!hash_equals($next,$readback)){fwrite(STDERR,"policy-readback\n");exit(27);} echo "first $current\n";
+$bound=static function($handle,string $path):bool{$held=@fstat($handle);$named=@lstat($path);return is_array($held)&&is_array($named)&&(($named['mode']??0)&0170000)===0100000&&($held['dev']??null)===($named['dev']??null)&&($held['ino']??null)===($named['ino']??null);};
+$lock=$open($lockPath,'r+b'); if(!is_resource($lock)||!@flock($lock,LOCK_EX)||!$bound($lock,$lockPath)){fwrite(STDERR,"lock\n");exit(21);}
+$identityPath=$root.'/identity.lock';$identity=$open($identityPath,'rb'); if(!is_resource($identity)||!@flock($identity,LOCK_SH)||!$bound($identity,$identityPath)){fwrite(STDERR,"identity-lock\n");exit(22);}
+$targetPath=$root.'/target-id';$targetHandle=$open($targetPath,'rb');$identityBytes=is_resource($targetHandle)?@stream_get_contents($targetHandle):false;if(is_resource($targetHandle))@fclose($targetHandle);if(!is_string($identityBytes)||!$bound($lock,$lockPath)||!$bound($identity,$identityPath)||!hash_equals($target."\n",$identityBytes)){fwrite(STDERR,"target-mismatch\n");exit(23);}
+$path=$root.'/authority-policy.json'; if(is_link($path)||(file_exists($path)&&!is_file($path))){fwrite(STDERR,"policy-type\n");exit(24);} $currentBytes=is_file($path)?@file_get_contents($path):false; if($currentBytes!==false&&!is_string($currentBytes)){fwrite(STDERR,"policy-read\n");exit(25);} if(!$bound($lock,$lockPath)||!$bound($identity,$identityPath)){fwrite(STDERR,"lock\n");exit(21);} $current=is_string($currentBytes)?'sha256:'.hash('sha256',$currentBytes):'absent';
+if(is_string($currentBytes)&&hash_equals($next,$currentBytes)){echo "replay $current\n";exit(0);} if(!hash_equals($expected,$current)){fwrite(STDERR,"policy-conflict\n");exit(26);} if(!$bound($lock,$lockPath)||!$bound($identity,$identityPath)){fwrite(STDERR,"lock\n");exit(21);} $temporary=@tempnam($root,'.authority-policy-');$handle=is_string($temporary)?@fopen($temporary,'r+b'):false; if(!is_resource($handle)||@fwrite($handle,$next)!==strlen($next)||!@fflush($handle)||!function_exists('fsync')||!@fsync($handle)||!@fclose($handle)||!@chmod($temporary,0600)||!@rename($temporary,$path)){if(is_resource($handle))@fclose($handle);if(is_string($temporary)&&is_file($temporary))@unlink($temporary);fwrite(STDERR,"policy-write\n");exit(27);} $sync=@fopen($root,'rb');if(!is_resource($sync)||!@fsync($sync)||!@fclose($sync)){fwrite(STDERR,"policy-sync\n");exit(27);} $readback=@file_get_contents($path);if(!is_string($readback)||!hash_equals($next,$readback)){fwrite(STDERR,"policy-readback\n");exit(27);} echo "first $current\n";
 PHP;
         $result = $driver->captureRaw(self::php($script, [$root, $expectedCurrent, $digest, base64_encode($bytes), $targetId]));
         $stdout = trim((string) ($result['stdout'] ?? ''));
@@ -132,12 +143,22 @@ if (!is_array($lockAfter) || (($lockAfter['mode'] ?? 0) & 0170000) !== 0100000
     fwrite(STDERR, "lock\n"); exit(23);
 }
 if (!is_resource($lock) || !@flock($lock, LOCK_EX)) { fwrite(STDERR, "lock\n"); exit(23); }
+$lockNamed = @lstat($lockPath); $lockHeld = @fstat($lock);
+if (!is_array($lockNamed) || !is_array($lockHeld)
+    || (($lockNamed['mode'] ?? 0) & 0170000) !== 0100000
+    || ($lockNamed['dev'] ?? null) !== ($lockHeld['dev'] ?? null)
+    || ($lockNamed['ino'] ?? null) !== ($lockHeld['ino'] ?? null)) { fwrite(STDERR, "lock\n"); exit(23); }
 $path = $root . '/target-id';
 if (is_link($path) || (file_exists($path) && !is_file($path))) {
     fwrite(STDERR, "identity-type\n"); exit(24);
 }
 $bytes = is_file($path) ? @file_get_contents($path) : false;
 if ($bytes === false) {
+    $lockNamed = @lstat($lockPath); $lockHeld = @fstat($lock);
+    if (!is_array($lockNamed) || !is_array($lockHeld)
+        || (($lockNamed['mode'] ?? 0) & 0170000) !== 0100000
+        || ($lockNamed['dev'] ?? null) !== ($lockHeld['dev'] ?? null)
+        || ($lockNamed['ino'] ?? null) !== ($lockHeld['ino'] ?? null)) { fwrite(STDERR, "lock\n"); exit(23); }
     $id = 'wprism-target:' . bin2hex(random_bytes(32));
     $temporary = @tempnam($root, '.target-id-');
     $handle = is_string($temporary) ? @fopen($temporary, 'r+b') : false;
@@ -183,10 +204,31 @@ $rootStat = $root !== '' ? @lstat($root) : false;
 if (!is_array($rootStat) || (($rootStat['mode'] ?? 0) & 0170000) !== 0040000) {
     fwrite(STDERR, "root-type\n"); exit(20);
 }
+$lockPath = $root . '/identity.lock';
+$lockBefore = @lstat($lockPath); $lock = @fopen($lockPath, 'rb'); $lockAfter = is_resource($lock) ? @fstat($lock) : false;
+if (!is_resource($lock) || !is_array($lockBefore) || !is_array($lockAfter)
+    || (($lockBefore['mode'] ?? 0) & 0170000) !== 0100000
+    || ($lockBefore['dev'] ?? null) !== ($lockAfter['dev'] ?? null)
+    || ($lockBefore['ino'] ?? null) !== ($lockAfter['ino'] ?? null)
+    || !@flock($lock, LOCK_SH)) { if (is_resource($lock)) @fclose($lock); fwrite(STDERR, "identity-lock\n"); exit(20); }
+$lockNamed = @lstat($lockPath); $lockHeld = @fstat($lock);
+if (!is_array($lockNamed) || !is_array($lockHeld)
+    || (($lockNamed['mode'] ?? 0) & 0170000) !== 0100000
+    || ($lockNamed['dev'] ?? null) !== ($lockHeld['dev'] ?? null)
+    || ($lockNamed['ino'] ?? null) !== ($lockHeld['ino'] ?? null)) { fwrite(STDERR, "identity-lock\n"); exit(20); }
 $path = $root . '/target-id';
-if (is_link($path) || !is_file($path)) { fwrite(STDERR, "identity-missing\n"); exit(20); }
-$bytes = @file_get_contents($path);
+$before = @lstat($path); $handle = @fopen($path, 'rb'); $after = is_resource($handle) ? @fstat($handle) : false;
+$bytes = is_resource($handle) ? @stream_get_contents($handle) : false; if (is_resource($handle)) @fclose($handle); $named = @lstat($path);
+if (!is_array($before) || !is_array($after) || !is_array($named)
+    || (($before['mode'] ?? 0) & 0170000) !== 0100000
+    || ($before['dev'] ?? null) !== ($after['dev'] ?? null) || ($before['ino'] ?? null) !== ($after['ino'] ?? null)
+    || ($before['dev'] ?? null) !== ($named['dev'] ?? null) || ($before['ino'] ?? null) !== ($named['ino'] ?? null)) { fwrite(STDERR, "identity-missing\n"); exit(20); }
 if (!is_string($bytes)) { fwrite(STDERR, "identity-read\n"); exit(21); }
+$lockNamed = @lstat($lockPath); $lockHeld = @fstat($lock);
+if (!is_array($lockNamed) || !is_array($lockHeld)
+    || (($lockNamed['mode'] ?? 0) & 0170000) !== 0100000
+    || ($lockNamed['dev'] ?? null) !== ($lockHeld['dev'] ?? null)
+    || ($lockNamed['ino'] ?? null) !== ($lockHeld['ino'] ?? null)) { fwrite(STDERR, "identity-lock\n"); exit(20); }
 $id = substr($bytes, -1) === "\n" ? substr($bytes, 0, -1) : '';
 if (preg_match('/^wprism-target:[a-f0-9]{64}$/D', $id) !== 1) {
     fwrite(STDERR, "identity-invalid\n"); exit(22);
@@ -372,6 +414,14 @@ $openRegular = static function (string $path, string $mode, ?string $base = null
     }
     return [$handle, $before];
 };
+$lockBound = static function (mixed $handle, string $path): bool {
+    $held = is_resource($handle) ? @fstat($handle) : false;
+    $named = @lstat($path);
+    return is_array($held) && is_array($named)
+        && (($named['mode'] ?? 0) & 0170000) === 0100000
+        && ($held['dev'] ?? null) === ($named['dev'] ?? null)
+        && ($held['ino'] ?? null) === ($named['ino'] ?? null);
+};
 $hashRegular = static function (string $path, ?string $base = null) use ($openRegular): mixed {
     $opened = $openRegular($path, 'rb', $base);
     if (!is_array($opened) || !is_resource($opened[0]) || !is_array($opened[1])) return false;
@@ -392,8 +442,10 @@ $hashRegular = static function (string $path, ?string $base = null) use ($openRe
     return ['hash' => hash_final($context), 'bytes' => $after['size'] ?? null];
 };
 if (!$regularPath($root, true)) { fwrite(STDERR, "root-type\n"); exit(32); }
-$authority = $openRegular($root . '/authority.lock', 'rb', $root);
-if (!is_array($authority) || !is_resource($authority[0]) || !@flock($authority[0], LOCK_SH)) {
+$authorityPath = $root . '/authority.lock';
+$authority = $openRegular($authorityPath, 'rb', $root);
+if (!is_array($authority) || !is_resource($authority[0]) || !@flock($authority[0], LOCK_SH)
+    || !$lockBound($authority[0], $authorityPath)) {
     fwrite(STDERR, "authority-lock\n"); exit(32);
 }
 $policyOpened = $openRegular($root . '/authority-policy.json', 'rb', $root);
@@ -508,6 +560,9 @@ if (!is_resource($operationLock) || !@flock($operationLock, LOCK_EX)) {
     if (is_resource($operationLock)) @fclose($operationLock);
     fwrite(STDERR, "operation-lock\n"); exit(32);
 }
+if (!$lockBound($operationLock, $operationLockPath) || !$lockBound($authority[0], $authorityPath)) {
+    fwrite(STDERR, "operation-lock\n"); exit(32);
+}
 $identityPath = $root . '/target-id';
 $identityOpened = $openRegular($identityPath, 'rb', $root);
 $identityHandle = is_array($identityOpened) ? $identityOpened[0] : false;
@@ -515,6 +570,9 @@ $identityRaw = is_resource($identityHandle) ? @stream_get_contents($identityHand
 if (is_resource($identityHandle)) @fclose($identityHandle);
 $identity = is_string($identityRaw) && str_ends_with($identityRaw, "\n")
     ? substr($identityRaw, 0, -1) : '';
+if (!$lockBound($operationLock, $operationLockPath) || !$lockBound($authority[0], $authorityPath)) {
+    fwrite(STDERR, "operation-lock\n"); exit(32);
+}
 if (!hash_equals($targetId, $identity)) { fwrite(STDERR, "target-mismatch\n"); exit(34); }
 $authorizations = $root . '/authorizations';
 if ((file_exists($authorizations) || is_link($authorizations))
@@ -724,6 +782,9 @@ if (is_array($precondition)) {
 if (!is_dir($authorizations) && !@mkdir($authorizations, 0700, true) && !is_dir($authorizations)) {
     fwrite(STDERR, "store-create\n"); exit(24);
 }
+if (!$lockBound($operationLock, $operationLockPath) || !$lockBound($authority[0], $authorityPath)) {
+    fwrite(STDERR, "operation-lock\n"); exit(32);
+}
 @chmod($authorizations, 0700);
 // The expiry check immediately before winner election is the target clock's
 // mutation boundary. An existing exact record remains readable after expiry.
@@ -927,6 +988,14 @@ $regularPath = static function (string $path, bool $directory = false, ?string $
     }
     return true;
 };
+$lockBound = static function (mixed $handle, string $path): bool {
+    $held = is_resource($handle) ? @fstat($handle) : false;
+    $named = @lstat($path);
+    return is_array($held) && is_array($named)
+        && (($named['mode'] ?? 0) & 0170000) === 0100000
+        && ($held['dev'] ?? null) === ($named['dev'] ?? null)
+        && ($held['ino'] ?? null) === ($named['ino'] ?? null);
+};
 $canonicalize = static function (mixed $value) use (&$canonicalize): mixed {
     if (!is_array($value)) return $value;
     if (array_is_list($value)) return array_map($canonicalize, $value);
@@ -985,6 +1054,22 @@ if (!is_resource($operationLock) || !@flock($operationLock, LOCK_EX)) {
     if (is_resource($operationLock)) @fclose($operationLock);
     fwrite(STDERR, "operation-lock\n"); exit(20);
 }
+$identityPath = $root . '/target-id';
+$identityBefore = @lstat($identityPath); $identityHandle = @fopen($identityPath, 'rb');
+$identityAfter = is_resource($identityHandle) ? @fstat($identityHandle) : false;
+$identityBytes = is_resource($identityHandle) ? @stream_get_contents($identityHandle) : false;
+if (is_resource($identityHandle)) @fclose($identityHandle); $identityNamed = @lstat($identityPath);
+$identity = is_string($identityBytes) && str_ends_with($identityBytes, "\n")
+    ? substr($identityBytes, 0, -1) : '';
+if (!$lockBound($operationLock, $operationLockPath) || !is_array($identityBefore)
+    || !is_array($identityAfter) || !is_array($identityNamed)
+    || (($identityBefore['mode'] ?? 0) & 0170000) !== 0100000
+    || ($identityBefore['dev'] ?? null) !== ($identityAfter['dev'] ?? null)
+    || ($identityBefore['ino'] ?? null) !== ($identityAfter['ino'] ?? null)
+    || ($identityBefore['dev'] ?? null) !== ($identityNamed['dev'] ?? null)
+    || ($identityBefore['ino'] ?? null) !== ($identityNamed['ino'] ?? null)) {
+    fwrite(STDERR, "target-mismatch\n"); exit(20);
+}
 $directory = $root . '/authorizations/' . $hex;
 if (!$regularPath($directory, true, $root)) { fwrite(STDERR, "consumption-missing\n"); exit(20); }
 $consumption = $directory . '/consumption.json';
@@ -995,6 +1080,8 @@ if (!hash_equals($expectedConsumption, $actualConsumption)) {
     fwrite(STDERR, "consumption-conflict\n"); exit(23);
 }
 $consumptionDocument = json_decode($actualConsumption, true);
+if (!is_array($consumptionDocument) || !hash_equals((string) ($consumptionDocument['target_id'] ?? ''), $identity)
+    || !$lockBound($operationLock, $operationLockPath)) { fwrite(STDERR, "target-mismatch\n"); exit(20); }
 $electionPath = $root . '/authorizations/operations/' . $tupleHex . '/election.json';
 if (!$regularPath($root . '/authorizations', true, $root)
     || ((file_exists(dirname($electionPath)) || is_link(dirname($electionPath)))
@@ -1020,6 +1107,7 @@ if (file_exists($electionPath) || is_link($electionPath)) {
 }
 $publication = $directory . '/completion';
 $path = $publication . '/outcome.json';
+if (!$lockBound($operationLock, $operationLockPath)) { fwrite(STDERR, "operation-lock\n"); exit(20); }
 if (@mkdir($publication, 0700)) {
     @chmod($publication, 0700);
     $temporary = @tempnam($publication, '.outcome-');
@@ -1126,6 +1214,14 @@ $regularPath = static function (string $path, bool $directory = false, ?string $
     }
     return true;
 };
+$lockBound = static function (mixed $handle, string $path): bool {
+    $held = is_resource($handle) ? @fstat($handle) : false;
+    $named = @lstat($path);
+    return is_array($held) && is_array($named)
+        && (($named['mode'] ?? 0) & 0170000) === 0100000
+        && ($held['dev'] ?? null) === ($named['dev'] ?? null)
+        && ($held['ino'] ?? null) === ($named['ino'] ?? null);
+};
 if (!$regularPath($root, true)) { fwrite(STDERR, "lock\n"); exit(20); }
 $lockBefore = @lstat($lockPath);
 $lock = @fopen($lockPath, 'c');
@@ -1142,12 +1238,27 @@ if (!is_resource($lock) || !@flock($lock, LOCK_SH)) {
     if (is_resource($lock)) @fclose($lock);
     fwrite(STDERR, "lock\n"); exit(20);
 }
+$identityPath = $root . '/target-id';
+$identityBefore = @lstat($identityPath); $identityHandle = @fopen($identityPath, 'rb');
+$identityAfter = is_resource($identityHandle) ? @fstat($identityHandle) : false;
+$identityBytes = is_resource($identityHandle) ? @stream_get_contents($identityHandle) : false;
+if (is_resource($identityHandle)) @fclose($identityHandle); $identityNamed = @lstat($identityPath);
+if (!$lockBound($lock, $lockPath) || !is_array($identityBefore) || !is_array($identityAfter)
+    || !is_array($identityNamed) || (($identityBefore['mode'] ?? 0) & 0170000) !== 0100000
+    || ($identityBefore['dev'] ?? null) !== ($identityAfter['dev'] ?? null)
+    || ($identityBefore['ino'] ?? null) !== ($identityAfter['ino'] ?? null)
+    || ($identityBefore['dev'] ?? null) !== ($identityNamed['dev'] ?? null)
+    || ($identityBefore['ino'] ?? null) !== ($identityNamed['ino'] ?? null)
+    || !is_string($identityBytes)) { fwrite(STDERR, "identity\n"); exit(20); }
 $directory = $root . '/authorizations/' . ($argv[2] ?? '');
 $authorizations = $root . '/authorizations';
 if (file_exists($authorizations) || is_link($authorizations)) {
     if (!$regularPath($authorizations, true, $root)) { fwrite(STDERR, "record-type\n"); exit(20); }
 }
-if (!file_exists($directory) && !is_link($directory)) { echo "absent\n"; exit(0); }
+if (!file_exists($directory) && !is_link($directory)) {
+    if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "lock\n"); exit(20); }
+    echo "absent\n"; exit(0);
+}
 if (!$regularPath($directory, true, $root)) { fwrite(STDERR, "record-type\n"); exit(20); }
 $consumption = $directory . '/consumption.json';
 if (is_link($consumption) || !is_file($consumption)) { fwrite(STDERR, "record-uncertain\n"); exit(21); }
@@ -1164,6 +1275,8 @@ if (file_exists($publication) || is_link($publication)) {
 }
 echo base64_encode($consumptionBytes) . "\n";
 echo $outcomeBytes === null ? "-\n" : base64_encode($outcomeBytes) . "\n";
+if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "lock\n"); exit(20); }
+echo base64_encode($identityBytes) . "\n";
 PHP;
         $result = $driver->captureRaw(self::php($script, [$root, $hex]));
         if (($result['exit'] ?? 1) !== 0) {
@@ -1178,7 +1291,7 @@ PHP;
             return null;
         }
         $lines = explode("\n", rtrim($stdout, "\n"));
-        if (count($lines) !== 2) {
+        if (count($lines) !== 3) {
             throw self::statusMalformed();
         }
         $consumption = self::decodeStored($lines[0], self::CONSUMPTION_FORMAT);
@@ -1186,6 +1299,14 @@ PHP;
         $completion = $lines[1] === '-' ? null : self::decodeStored($lines[1], self::COMPLETION_FORMAT);
         if (is_array($completion)) {
             self::validateCompletion($completion, $consumption);
+        }
+        $targetBytes = base64_decode($lines[2], true);
+        $targetId = is_string($targetBytes) && str_ends_with($targetBytes, "\n")
+            ? substr($targetBytes, 0, -1) : '';
+        if (preg_match(self::TARGET_PATTERN, $targetId) !== 1
+            || !hash_equals($targetId, (string) $consumption['target_id'])
+            || (is_array($completion) && !hash_equals($targetId, (string) $completion['target_id']))) {
+            throw self::statusMalformed();
         }
 
         return ['completion' => $completion, 'consumption' => $consumption];
@@ -1302,6 +1423,26 @@ if (!is_resource($lock) || !@flock($lock, LOCK_SH)) {
     if (is_resource($lock)) @fclose($lock);
     fwrite(STDERR, "lock\n"); exit(21);
 }
+$lockBound = static function (mixed $handle, string $path): bool {
+    $held = is_resource($handle) ? @fstat($handle) : false;
+    $named = @lstat($path);
+    return is_array($held) && is_array($named)
+        && (($named['mode'] ?? 0) & 0170000) === 0100000
+        && ($held['dev'] ?? null) === ($named['dev'] ?? null)
+        && ($held['ino'] ?? null) === ($named['ino'] ?? null);
+};
+$identityPath = $root . '/target-id'; $identityBefore = @lstat($identityPath);
+$identityHandle = @fopen($identityPath, 'rb'); $identityAfter = is_resource($identityHandle) ? @fstat($identityHandle) : false;
+$identityBytes = is_resource($identityHandle) ? @stream_get_contents($identityHandle) : false;
+if (is_resource($identityHandle)) @fclose($identityHandle); $identityNamed = @lstat($identityPath);
+$identity = is_string($identityBytes) && str_ends_with($identityBytes, "\n") ? substr($identityBytes, 0, -1) : '';
+if (!$lockBound($lock, $lockPath) || !is_array($identityBefore) || !is_array($identityAfter)
+    || !is_array($identityNamed) || (($identityBefore['mode'] ?? 0) & 0170000) !== 0100000
+    || ($identityBefore['dev'] ?? null) !== ($identityAfter['dev'] ?? null)
+    || ($identityBefore['ino'] ?? null) !== ($identityAfter['ino'] ?? null)
+    || ($identityBefore['dev'] ?? null) !== ($identityNamed['dev'] ?? null)
+    || ($identityBefore['ino'] ?? null) !== ($identityNamed['ino'] ?? null)
+    || !hash_equals((string) $expected['target_id'], $identity)) { fwrite(STDERR, "target-mismatch\n"); exit(21); }
 $authorizations = $root . '/authorizations';
 $election = $authorizations . '/operations/' . $tupleHex . '/election.json';
 $winner = null;
@@ -1336,10 +1477,14 @@ if (file_exists($election) || is_link($election)) {
         }
     }
 }
-if ($winner === null) { echo "absent\n"; exit(0); }
+if ($winner === null) {
+    if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "lock\n"); exit(21); }
+    echo "absent\n"; exit(0);
+}
 if (!is_string($winner) || preg_match('/^sha256:[a-f0-9]{64}$/D', $winner) !== 1) {
     fwrite(STDERR, "winner\n"); exit(24);
 }
+if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "lock\n"); exit(21); }
 echo $winner . "\n";
 PHP;
         $result = $driver->captureRaw(self::php(
