@@ -53,6 +53,8 @@ SITE="$TMP/site/repo"
 export WPRISM_FIXTURES="$TMP/site/fixtures"
 export WPRISM_SITE_REPO="$SITE"
 export WPRISM_CALLS="$TMP/calls.txt"
+export WPRISM_RELEASE_PRODUCT_ROOT="$ROOT"
+export WPRISM_ENFORCE_RELEASE_BINDING=1
 PATH="$TMP/site/bin:$PATH"
 export PATH
 
@@ -181,6 +183,54 @@ cmp -s "$TMP/receipt.json" "$TMP/receipt-retry.json" \
   || fail 'an exact stage retry changed receipt bytes'
 
 RECEIPT_DIGEST="$(php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d["receipt_sha256"];' "$TMP/receipt.json")"
+TARGET_GIT_DIR="$(git -C "$TMP/target" rev-parse --absolute-git-dir)"
+control_snapshot() {
+  tar -C "$TARGET_GIT_DIR" -cf - wprism-control 2>/dev/null | shasum -a 256 | awk '{print $1}'
+}
+CONTROL_BEFORE_ENROLLMENT="$(control_snapshot)"
+wprism "$TMP/authority-status-missing.json" authority-policy fixture status --format=json
+[ "$?" = 1 ] \
+  && grep -Fq 'target_authority_policy_unavailable' "$TMP/authority-status-missing.json" \
+  && [ "$(control_snapshot)" = "$CONTROL_BEFORE_ENROLLMENT" ] \
+  && pass 'read-only authority status refuses missing enrollment without creating a target byte' \
+  || fail 'authority status created target control state while reporting missing enrollment'
+
+wprism "$TMP/prepare-unenrolled.json" release fixture prepare --stage-receipt="$TMP/receipt.json" \
+  --expected-stage-receipt-sha256="$RECEIPT_DIGEST" --format=json
+[ "$?" = 1 ] \
+  && grep -Fq 'target_authority_policy_unavailable' "$TMP/prepare-unenrolled.json" \
+  && [ "$(control_snapshot)" = "$CONTROL_BEFORE_ENROLLMENT" ] \
+  && pass 'read-only prepare refuses an unenrolled target without creating a policy lock or byte' \
+  || fail 'unenrolled prepare mutated target control storage or crossed its trust boundary'
+
+wprism "$TMP/authority-sync.json" authority-policy fixture sync \
+  --policy="$SITE/.wprism/authority/authorities.json" --expected-current=absent --format=json
+AUTHORITY_POLICY_DIGEST="$(php -r '
+$d=json_decode((string) file_get_contents($argv[1]), true);
+if (($d["format"] ?? null) !== "wprism-target-authority-policy-sync/v1"
+    || ($d["replayed"] ?? null) !== false
+    || !preg_match("/^sha256:[a-f0-9]{64}$/D", (string) ($d["policy_digest"] ?? ""))) exit(1);
+echo $d["policy_digest"];
+' "$TMP/authority-sync.json")"
+[ "$?" = 0 ] && [ -n "$AUTHORITY_POLICY_DIGEST" ] \
+  && pass 'explicit CAS enrollment durably installs the reviewed target authority policy' \
+  || { fail 'target authority-policy enrollment failed'; cat "$TMP/authority-sync.json" >&2; }
+
+wprism "$TMP/authority-sync-retry.json" authority-policy fixture sync \
+  --policy="$SITE/.wprism/authority/authorities.json" --expected-current=absent --format=json
+wprism "$TMP/authority-status.json" authority-policy fixture status --format=json
+php -r '
+$sync=json_decode((string) file_get_contents($argv[1]), true);
+$status=json_decode((string) file_get_contents($argv[2]), true);
+if (($sync["replayed"] ?? null) !== true
+    || ($sync["policy_digest"] ?? null) !== $argv[3]
+    || ($status["format"] ?? null) !== "wprism-target-authority-policy-status/v1"
+    || ($status["policy_digest"] ?? null) !== $argv[3]
+    || ($status["target_id"] ?? null) !== ($sync["target_id"] ?? null)) exit(1);
+' "$TMP/authority-sync-retry.json" "$TMP/authority-status.json" "$AUTHORITY_POLICY_DIGEST" \
+  && pass 'target policy sync retries exactly and read-only status reports the enrolled identity' \
+  || fail 'target authority-policy sync replay/status contract changed'
+
 SITE_STATUS_BEFORE="$(git -C "$SITE" status --porcelain --untracked-files=all)"
 sleep 1
 wprism "$TMP/prepare.json" release fixture prepare --stage-receipt="$TMP/receipt.json" \
@@ -202,9 +252,10 @@ if (\WPrism\Orchestrator\ReleasePrepare::encode($document) !== $bytes
     || $document["stage_receipt"]["source"]["commit"] !== $argv[4]
     || $document["authorization_plan"]["frozen_at"] === $document["stage_receipt"]["created_at"]
     || $document["target_id"] !== $document["stage_receipt"]["target"]["id"]
+    || $document["authority_policy_digest"] !== $argv[5]
     || !preg_match("/^sha256:[a-f0-9]{64}$/D", $document["presented_plan_sha256"])
     || !preg_match("/^sha256:[a-f0-9]{64}$/D", $document["subject_sha256"])) exit(1);
-' "$ROOT" "$TMP/prepare.json" "$RECEIPT_DIGEST" "$SOURCE_COMMIT" \
+' "$ROOT" "$TMP/prepare.json" "$RECEIPT_DIGEST" "$SOURCE_COMMIT" "$AUTHORITY_POLICY_DIGEST" \
   && pass 'prepare emits a canonical complete subject while preserving authorization-plan/v1' \
   || fail 'release prepare document did not validate'
 
@@ -285,6 +336,42 @@ file_put_contents($argv[4], \WPrism\Canon::encode($envelope));
 echo \WPrism\Orchestrator\OperationAuthorization::envelopeDigest($envelope);
 ' "$ROOT" "$TMP/prepare.json" "$TMP/authority.secret" "$TMP/authorization.json")"
 
+sign_race_authorization() {
+  local nonce="$1"
+  local output="$2"
+  php -r '
+require $argv[1] . "/agent/src/Kernel/Canon.php";
+require $argv[1] . "/cli/src/Authority/OperationAuthorization.php";
+$prepare = json_decode((string) file_get_contents($argv[2]), true);
+$secret = base64_decode((string) file_get_contents($argv[3]), true);
+$issued = time();
+$statement = [
+    "actor" => "fixture-actor",
+    "expires_at" => gmdate("Y-m-d\\TH:i:s\\Z", $issued + 600),
+    "issued_at" => gmdate("Y-m-d\\TH:i:s\\Z", $issued),
+    "key_id" => "fixture-key",
+    "nonce" => $argv[5],
+    "operation" => "release",
+    "operation_id" => $prepare["operation_id"],
+    "presentation_digest" => $prepare["presented_plan_sha256"],
+    "subject_digest" => $prepare["subject_sha256"],
+    "target_id" => $prepare["target_id"],
+];
+$envelope = \WPrism\Orchestrator\OperationAuthorization::sign($statement, $secret);
+file_put_contents($argv[4], \WPrism\Canon::encode($envelope));
+echo \WPrism\Orchestrator\OperationAuthorization::envelopeDigest($envelope);
+' "$ROOT" "$TMP/prepare.json" "$TMP/authority.secret" "$output" "$nonce"
+}
+
+MATERIALIZATION_AUTH_DIGEST="$(sign_race_authorization \
+  release-stage-prepare-materialization-race-0002 "$TMP/authorization-materialization-race.json")"
+HANDOFF_AUTH_DIGEST="$(sign_race_authorization \
+  release-stage-prepare-handoff-race-0003 "$TMP/authorization-handoff-race.json")"
+COMPILE_RACE_AUTH_DIGEST="$(sign_race_authorization \
+  release-stage-prepare-compile-race-0004 "$TMP/authorization-compile-race.json")"
+LEASE_RACE_AUTH_DIGEST="$(sign_race_authorization \
+  release-stage-prepare-lease-race-0005 "$TMP/authorization-lease-race.json")"
+
 run_execute() {
   local out="$1"
   local expected_subject="$2"
@@ -297,7 +384,6 @@ run_execute() {
     --expected-stage-receipt-sha256="$RECEIPT_DIGEST" --format=json
 }
 
-TARGET_GIT_DIR="$(git -C "$TMP/target" rev-parse --absolute-git-dir)"
 AUTHORIZATION_ROOT="$TARGET_GIT_DIR/wprism-control/authorizations"
 authorization_count() {
   if [ ! -d "$AUTHORIZATION_ROOT" ]; then
@@ -417,11 +503,273 @@ php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
 [ -z "$(git -C "$SITE" status --porcelain --untracked-files=all)" ] \
   || fail 'authority-policy race cleanup did not restore the exact staged source checkout'
 
+# Revoke the target-authoritative policy after the controller's final verify,
+# in the exact window immediately before target-side election. Sync and
+# consume serialize on authority.lock; whichever target operation wins is the
+# authority fact consumption must observe.
+( cd "$SITE" && php -r '
+require $argv[1] . "/cli/src/Environment/Registry.php";
+require $argv[1] . "/cli/src/Transport/LocalTransport.php";
+require $argv[1] . "/cli/src/Command/ReleaseCommand.php";
+$envs = \WPrism\Orchestrator\Registry::load($argv[2], $argv[3]);
+$driver = \WPrism\Orchestrator\Transport::make(
+    "fixture",
+    \WPrism\Orchestrator\Registry::get($envs, "fixture")
+);
+$extra = [
+    "execute",
+    "--prepare=" . $argv[4],
+    "--authorization=" . $argv[5],
+    "--expected-authorization-sha256=" . $argv[6],
+    "--expected-subject-sha256=" . $argv[7],
+    "--expected-presentation-sha256=" . $argv[8],
+    "--expected-plan-digest=" . $argv[9],
+    "--expected-stage-receipt-sha256=" . $argv[10],
+    "--format=json",
+];
+$trust = \WPrism\Canon::decode((string) file_get_contents($argv[11]));
+$trustedDigest = \WPrism\Orchestrator\OperationAuthorization::trustDigest($trust);
+$revoked = $trust;
+$revoked["keys"]["fixture-key"]["status"] = "revoked";
+$revokedDigest = \WPrism\Orchestrator\OperationAuthorization::trustDigest($revoked);
+$afterControllerVerify = static function () use (
+    $driver,
+    $revoked,
+    $trustedDigest,
+    $revokedDigest,
+    $argv
+): void {
+    \WPrism\Orchestrator\TargetOperationStore::syncAuthorityPolicy(
+        $driver,
+        $revoked,
+        $trustedDigest
+    );
+    file_put_contents($argv[12], $revokedDigest);
+};
+$promote = static function () use ($argv): int {
+    file_put_contents($argv[13], "called\n");
+    return 0;
+};
+exit(\WPrism\Orchestrator\ReleaseCommand::run(
+    $driver,
+    $extra,
+    $argv[1],
+    $promote,
+    null,
+    null,
+    null,
+    null,
+    null,
+    $afterControllerVerify
+));
+' "$ROOT" "$TMP/site/envs.json" "$SITE" "$TMP/prepare.json" "$TMP/authorization.json" \
+  "$AUTH_DIGEST" "$SUBJECT_DIGEST" "$PRESENTATION_DIGEST" "$PLAN_DIGEST" "$RECEIPT_DIGEST" \
+  "$SITE/.wprism/authority/authorities.json" "$TMP/revoked-policy-digest" \
+  "$TMP/promote-target-authority-race-called" ) \
+  > "$TMP/execute-target-authority-race.json" 2> "$TMP/execute-target-authority-race.json.err"
+TARGET_AUTHORITY_RACE_STATUS=$?
+[ "$TARGET_AUTHORITY_RACE_STATUS" = 1 ] \
+  && grep -Fq 'authorization_authority_policy_changed' "$TMP/execute-target-authority-race.json" \
+  && [ "$(authorization_count)" = 0 ] \
+  && [ ! -e "$TMP/promote-target-authority-race-called" ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$TARGET_HEAD_BEFORE" ] \
+  && pass 'target-side election observes revocation after final controller verification' \
+  || { fail 'post-verification target revocation crossed consumption or mutation'; cat "$TMP/execute-target-authority-race.json" >&2; }
+
+REVOKED_POLICY_DIGEST="$(cat "$TMP/revoked-policy-digest" 2>/dev/null || true)"
+wprism "$TMP/authority-restore.json" authority-policy fixture sync \
+  --policy="$SITE/.wprism/authority/authorities.json" \
+  --expected-current="$REVOKED_POLICY_DIGEST" --format=json
+[ "$?" = 0 ] \
+  && grep -Fq "$AUTHORITY_POLICY_DIGEST" "$TMP/authority-restore.json" \
+  && pass 'explicit CAS sync restores trusted target policy after the revocation regression' \
+  || fail 'target authority policy was not restored explicitly after revocation'
+
+git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+[ -z "$(git -C "$SITE" status --porcelain --untracked-files=all)" ] \
+  || fail 'target authority-policy race cleanup did not restore the staged source checkout'
+
+run_repository_race() {
+  local mode="$1"
+  local authorization="$2"
+  local authorization_digest="$3"
+  local output="$4"
+  local evidence="$5"
+  local promote_marker="$6"
+  ( cd "$SITE" && php -r '
+require $argv[1] . "/cli/src/Environment/Registry.php";
+require $argv[1] . "/cli/src/Transport/LocalTransport.php";
+require $argv[1] . "/cli/src/Command/ReleaseCommand.php";
+$envs = \WPrism\Orchestrator\Registry::load($argv[2], $argv[3]);
+$driver = \WPrism\Orchestrator\Transport::make(
+    "fixture",
+    \WPrism\Orchestrator\Registry::get($envs, "fixture")
+);
+$extra = [
+    "execute",
+    "--prepare=" . $argv[4],
+    "--authorization=" . $argv[5],
+    "--expected-authorization-sha256=" . $argv[6],
+    "--expected-subject-sha256=" . $argv[7],
+    "--expected-presentation-sha256=" . $argv[8],
+    "--expected-plan-digest=" . $argv[9],
+    "--expected-stage-receipt-sha256=" . $argv[10],
+    "--format=json",
+];
+$target = $argv[11];
+$mode = $argv[12];
+$race = static function () use ($target, $mode, $argv): void {
+    $path = $target . "/operator-race.txt";
+    file_put_contents($path, "operator committed " . $mode . "\n");
+    $prefix = "git -C " . escapeshellarg($target) . " ";
+    exec($prefix . "add -- operator-race.txt 2>&1", $addOutput, $addExit);
+    exec(
+        $prefix . "-c user.email=fixture@example.invalid -c user.name=fixture "
+        . "commit -q -m " . escapeshellarg("operator " . $mode . " race") . " 2>&1",
+        $commitOutput,
+        $commitExit
+    );
+    if ($addExit !== 0 || $commitExit !== 0) {
+        throw new RuntimeException("could not create deterministic target Git race");
+    }
+    $head = trim((string) shell_exec($prefix . "rev-parse HEAD"));
+    file_put_contents($path, "operator uncommitted " . $mode . "\n");
+    file_put_contents($argv[13], $head . "\n");
+};
+$beforeMaterialization = $mode === "before-materialization" ? $race : null;
+$afterMaterialization = $mode === "after-materialization" ? $race : null;
+$promote = static function () use ($argv): int {
+    file_put_contents($argv[14], "called\n");
+    return 0;
+};
+exit(\WPrism\Orchestrator\ReleaseCommand::run(
+    $driver,
+    $extra,
+    $argv[1],
+    $promote,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    $beforeMaterialization,
+    $afterMaterialization
+));
+' "$ROOT" "$TMP/site/envs.json" "$SITE" "$TMP/prepare.json" "$authorization" \
+    "$authorization_digest" "$SUBJECT_DIGEST" "$PRESENTATION_DIGEST" "$PLAN_DIGEST" \
+    "$RECEIPT_DIGEST" "$TMP/target" "$mode" "$evidence" "$promote_marker" ) \
+    > "$output" 2> "$output.err"
+}
+
+run_repository_race before-materialization "$TMP/authorization-materialization-race.json" \
+  "$MATERIALIZATION_AUTH_DIGEST" "$TMP/execute-materialization-race.json" \
+  "$TMP/materialization-race-head" "$TMP/promote-materialization-race-called"
+MATERIALIZATION_RACE_STATUS=$?
+MATERIALIZATION_RACE_HEAD="$(cat "$TMP/materialization-race-head" 2>/dev/null || true)"
+[ "$MATERIALIZATION_RACE_STATUS" = 1 ] \
+  && grep -Fq 'release_operation_reconciliation_required' "$TMP/execute-materialization-race.json" \
+  && [ "$(authorization_count)" = 1 ] \
+  && [ ! -e "$TMP/promote-materialization-race-called" ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$MATERIALIZATION_RACE_HEAD" ] \
+  && [ "$(cat "$TMP/target/operator-race.txt")" = 'operator uncommitted before-materialization' ] \
+  && pass 'a commit/worktree race immediately before materialization is preserved and refuses before promote' \
+  || { fail 'pre-materialization race lost unrelated target Git/worktree bytes'; cat "$TMP/execute-materialization-race.json" >&2; }
+
+git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
+git -C "$TMP/target" clean -fd >/dev/null
+git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+
+run_repository_race after-materialization "$TMP/authorization-handoff-race.json" \
+  "$HANDOFF_AUTH_DIGEST" "$TMP/execute-handoff-race.json" \
+  "$TMP/handoff-race-head" "$TMP/promote-handoff-race-called"
+HANDOFF_RACE_STATUS=$?
+HANDOFF_RACE_HEAD="$(cat "$TMP/handoff-race-head" 2>/dev/null || true)"
+[ "$HANDOFF_RACE_STATUS" = 1 ] \
+  && grep -Fq 'release_operation_reconciliation_required' "$TMP/execute-handoff-race.json" \
+  && [ "$(authorization_count)" = 2 ] \
+  && [ ! -e "$TMP/promote-handoff-race-called" ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$HANDOFF_RACE_HEAD" ] \
+  && [ "$(cat "$TMP/target/operator-race.txt")" = 'operator uncommitted after-materialization' ] \
+  && pass 'a commit/worktree race after materialization is preserved and refused at the promotion handoff' \
+  || { fail 'materialization-to-promote race crossed the exact source binding'; cat "$TMP/execute-handoff-race.json" >&2; }
+
+git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
+git -C "$TMP/target" clean -fd >/dev/null
+git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+[ -z "$(git -C "$TMP/target" status --porcelain --untracked-files=all)" ] \
+  && [ -z "$(git -C "$SITE" status --porcelain --untracked-files=all)" ] \
+  || fail 'repository race cleanup did not restore clean source and target fixtures'
+
+BEGIN_CALLS_BEFORE_COMPILE_RACE="$(grep -Fc 'wprism promotion-begin' "$WPRISM_CALLS" 2>/dev/null || true)"
+export WPRISM_COMPILE_RACE_REPO="$TMP/target"
+export WPRISM_COMPILE_RACE_EVIDENCE="$TMP/compile-race-head"
+wprism "$TMP/execute-compile-race.json" release fixture execute \
+  --prepare="$TMP/prepare.json" --authorization="$TMP/authorization-compile-race.json" \
+  --expected-authorization-sha256="$COMPILE_RACE_AUTH_DIGEST" \
+  --expected-subject-sha256="$SUBJECT_DIGEST" \
+  --expected-presentation-sha256="$PRESENTATION_DIGEST" \
+  --expected-plan-digest="$PLAN_DIGEST" \
+  --expected-stage-receipt-sha256="$RECEIPT_DIGEST" --format=json
+COMPILE_RACE_STATUS=$?
+unset WPRISM_COMPILE_RACE_REPO WPRISM_COMPILE_RACE_EVIDENCE
+COMPILE_RACE_HEAD="$(cat "$TMP/compile-race-head" 2>/dev/null || true)"
+BEGIN_CALLS_AFTER_COMPILE_RACE="$(grep -Fc 'wprism promotion-begin' "$WPRISM_CALLS" 2>/dev/null || true)"
+[ "$COMPILE_RACE_STATUS" = 1 ] \
+  && grep -Fq 'wprism-release-outcome/v1' "$TMP/execute-compile-race.json" \
+  && [ "$BEGIN_CALLS_AFTER_COMPILE_RACE" = "$BEGIN_CALLS_BEFORE_COMPILE_RACE" ] \
+  && [ "$(authorization_count)" = 3 ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$COMPILE_RACE_HEAD" ] \
+  && [ "$(cat "$TMP/target/operator-compile-race.txt")" = 'operator uncommitted compile-race' ] \
+  && pass 'compile-to-lease race preserves target bytes and reaches no promotion-begin despite the same artifact digest' \
+  || { fail 'a changed/mixed compile snapshot reached target promotion mutation'; cat "$TMP/execute-compile-race.json" >&2; cat "$TMP/execute-compile-race.json.err" >&2; }
+
+git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
+git -C "$TMP/target" clean -fd >/dev/null
+git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+
+APPLY_CALLS_BEFORE_LEASE_RACE="$(grep -Fc 'wprism apply' "$WPRISM_CALLS" 2>/dev/null || true)"
+export WPRISM_BEGIN_REPOSITORY_RACE_REPO="$TMP/target"
+export WPRISM_BEGIN_REPOSITORY_RACE_EVIDENCE="$TMP/promotion-begin-race-head"
+export WPRISM_BEGIN_BINDING_EVIDENCE="$TMP/promotion-begin-race-bound"
+wprism "$TMP/execute-lease-race.json" release fixture execute \
+  --prepare="$TMP/prepare.json" --authorization="$TMP/authorization-lease-race.json" \
+  --expected-authorization-sha256="$LEASE_RACE_AUTH_DIGEST" \
+  --expected-subject-sha256="$SUBJECT_DIGEST" \
+  --expected-presentation-sha256="$PRESENTATION_DIGEST" \
+  --expected-plan-digest="$PLAN_DIGEST" \
+  --expected-stage-receipt-sha256="$RECEIPT_DIGEST" --format=json
+LEASE_RACE_STATUS=$?
+unset WPRISM_BEGIN_REPOSITORY_RACE_REPO WPRISM_BEGIN_REPOSITORY_RACE_EVIDENCE \
+  WPRISM_BEGIN_BINDING_EVIDENCE
+LEASE_RACE_HEAD="$(cat "$TMP/promotion-begin-race-head" 2>/dev/null || true)"
+APPLY_CALLS_AFTER_LEASE_RACE="$(grep -Fc 'wprism apply' "$WPRISM_CALLS" 2>/dev/null || true)"
+[ "$LEASE_RACE_STATUS" = 1 ] \
+  && grep -Fq 'wprism-release-outcome/v1' "$TMP/execute-lease-race.json" \
+  && [ "$APPLY_CALLS_AFTER_LEASE_RACE" = "$APPLY_CALLS_BEFORE_LEASE_RACE" ] \
+  && [ "$(authorization_count)" = 4 ] \
+  && [ ! -e "$TMP/promotion-begin-race-bound" ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$LEASE_RACE_HEAD" ] \
+  && [ "$(cat "$TMP/target/operator-begin-race.txt")" = 'operator uncommitted promotion-begin-race' ] \
+  && pass 'target promotion-begin rechecks the exact source under its repository lock before site mutation' \
+  || { fail 'a post-controller-check repository race reached target site mutation'; cat "$TMP/execute-lease-race.json" >&2; cat "$TMP/execute-lease-race.json.err" >&2; }
+
+git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
+git -C "$TMP/target" clean -fd >/dev/null
+git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+
 export WPRISM_PLAN_AFTER=plan-converged
 export WPRISM_PLAN_AFTER_CALL=2
 php -r '@unlink($argv[1]);' "$WPRISM_FIXTURES/plan-calls"
+export WPRISM_BEGIN_BINDING_EVIDENCE="$TMP/promotion-begin-bound"
 run_execute "$TMP/execute.json" "$SUBJECT_DIGEST"
 EXECUTE_STATUS=$?
+unset WPRISM_BEGIN_BINDING_EVIDENCE
 php -r '
 require $argv[1] . "/cli/src/Release/ReleaseOutcome.php";
 $bytes = (string) file_get_contents($argv[2]);
@@ -441,10 +789,15 @@ if (\WPrism\Orchestrator\ReleaseOutcome::encode($outcome) !== $bytes
 
 [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$SOURCE_COMMIT" ] \
   && [ "$(git -C "$TMP/target" rev-parse HEAD^{tree})" = "$SOURCE_TREE" ] \
-  && [ "$(authorization_count)" = 1 ] \
+  && [ "$(authorization_count)" = 5 ] \
   && [ -f "$AUTHORIZATION_ROOT/${AUTH_DIGEST#sha256:}/completion/outcome.json" ] \
+  && [ "$(cat "$TMP/promotion-begin-bound")" = 'lease-under-repository-lock' ] \
+  && grep -Fq -- "--repo=$TMP/target" "$WPRISM_CALLS" \
+  && grep -Fq -- '--release-operation-id=release-stage-prepare-fixture' "$WPRISM_CALLS" \
+  && grep -Fq -- "--expected-source-commit=$SOURCE_COMMIT" "$WPRISM_CALLS" \
+  && grep -Fq -- "--expected-source-tree=$SOURCE_TREE" "$WPRISM_CALLS" \
   && pass 'durable one-time consumption precedes the exact staged source materialization and completion' \
-  || fail 'execute did not bind consumption, source materialization and terminal completion'
+  || fail 'execute did not bind consumption and the exact source tuple through target promotion-begin'
 
 # A completed replay is a status read. Make both authorization verification
 # and stage validation fail if they were attempted, then require the exact
@@ -459,7 +812,7 @@ printf 'post-completion tamper\n' > "$STAGE_REPO/post-completion-tamper"
 run_execute "$TMP/execute-replay.json" "$SUBJECT_DIGEST"
 REPLAY_STATUS=$?
 [ "$REPLAY_STATUS" = "$EXECUTE_STATUS" ] && cmp -s "$TMP/execute.json" "$TMP/execute-replay.json" \
-  && [ "$(authorization_count)" = 1 ] \
+  && [ "$(authorization_count)" = 5 ] \
   && pass 'completed exact replay returns the stored outcome before expired/revoked authority or stage checks' \
   || fail 'completed replay reverified authority, re-entered mutation, or changed outcome bytes'
 
@@ -469,7 +822,7 @@ run_execute "$TMP/execute-reconciliation.json" "$SUBJECT_DIGEST"
 RECONCILIATION_STATUS=$?
 [ "$RECONCILIATION_STATUS" = 1 ] \
   && grep -Fq 'release_operation_reconciliation_required' "$TMP/execute-reconciliation.json" \
-  && [ "$(authorization_count)" = 1 ] \
+  && [ "$(authorization_count)" = 5 ] \
   && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$SOURCE_COMMIT" ] \
   && pass 'consumption without a published completion refuses reconciliation and never retries mutation' \
   || fail 'consumed-without-completion execution did not fail closed'

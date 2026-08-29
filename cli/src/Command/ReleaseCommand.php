@@ -185,8 +185,9 @@ final class ReleaseCommand {
      * @param list<string> $extra everything after `<env>`
      * @param string $sourceRoot this checkout's root (the adoption probe the
      *        composed assessment runs needs it, exactly as `cmd_assess()` does)
-     * @param callable(EnvironmentDriver,list<string>):int $promote the EXISTING
-     *        promote entry point, injected by `cli/wprism`'s `cmd_release()`
+     * @param callable(EnvironmentDriver,list<string>,array<string,string>):int $promote
+     *        the existing promote state machine, injected by `cli/wprism` with
+     *        the externally-authorized repository/artifact binding
      * @param ?callable():?string $confirm reads one line of operator intent;
      *        null reads STDIN
      * @param ?callable():string $clock null reads the wall clock
@@ -195,6 +196,12 @@ final class ReleaseCommand {
      *        `VerifyCommand::report()`
      * @param ?callable():void $beforeConsumption a deterministic race seam;
      *        production leaves it null
+     * @param ?callable():void $afterBoundaryVerification deterministic seam
+     *        after controller verification but before target election
+     * @param ?callable():void $beforeMaterialization deterministic target
+     *        repository race seam; production leaves it null
+     * @param ?callable():void $afterMaterialization deterministic handoff race
+     *        seam; production leaves it null
      */
     public static function run(
         EnvironmentDriver $driver,
@@ -205,7 +212,10 @@ final class ReleaseCommand {
         ?callable $clock = null,
         ?callable $hostCatalog = null,
         ?callable $verify = null,
-        ?callable $beforeConsumption = null
+        ?callable $beforeConsumption = null,
+        ?callable $afterBoundaryVerification = null,
+        ?callable $beforeMaterialization = null,
+        ?callable $afterMaterialization = null
     ): int {
         if (($extra[0] ?? null) === 'prepare') {
             return self::runPreparedStage(
@@ -225,7 +235,10 @@ final class ReleaseCommand {
                 $clock,
                 $hostCatalog,
                 $verify,
-                $beforeConsumption
+                $beforeConsumption,
+                $afterBoundaryVerification,
+                $beforeMaterialization,
+                $afterMaterialization
             );
         }
         $json = AssessCommand::wantsJson($extra);
@@ -313,6 +326,17 @@ final class ReleaseCommand {
             $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
             self::assertLocalStageSource($siteRepo, $receipt);
             $trust = OperationAuthorization::trust($siteRepo);
+            $targetTrust = TargetOperationStore::readAuthorityPolicy($driver);
+            if (!hash_equals(
+                OperationAuthorization::trustDigest($trust),
+                OperationAuthorization::trustDigest($targetTrust)
+            )) {
+                throw new CommandRefusalException(
+                    'release_target_authority_policy_mismatch',
+                    'the target authority policy does not match the policy this release would bind',
+                    'explicitly review and sync the intended target authority policy, then prepare again'
+                );
+            }
             $flags = [
                 'accept_weaker_recovery' => $request['accept_weaker_recovery'],
                 'from' => null,
@@ -342,7 +366,7 @@ final class ReleaseCommand {
             }
             $document = ReleasePrepare::build($receipt, $prepared['plan_document'], [
                 'accept_weaker_recovery' => $request['accept_weaker_recovery'],
-                'authority_policy_digest' => OperationAuthorization::trustDigest($trust),
+                'authority_policy_digest' => OperationAuthorization::trustDigest($targetTrust),
                 'capability_registry_sha256' => $registryDigest,
                 'profile' => $request['profile'],
                 'with_deletes' => $request['with_deletes'],
@@ -374,9 +398,12 @@ final class ReleaseCommand {
      * can never cross the mutation boundary again.
      *
      * @param list<string> $extra
-     * @param callable(EnvironmentDriver,list<string>):int $promote
+     * @param callable(EnvironmentDriver,list<string>,array<string,string>):int $promote
      * @param ?callable(EnvironmentDriver,array):array $verify
      * @param ?callable():void $beforeConsumption
+     * @param ?callable():void $afterBoundaryVerification
+     * @param ?callable():void $beforeMaterialization
+     * @param ?callable():void $afterMaterialization
      */
     private static function runAuthorizedStage(
         EnvironmentDriver $driver,
@@ -386,7 +413,10 @@ final class ReleaseCommand {
         ?callable $clock,
         ?callable $hostCatalog,
         ?callable $verify,
-        ?callable $beforeConsumption
+        ?callable $beforeConsumption,
+        ?callable $afterBoundaryVerification,
+        ?callable $beforeMaterialization,
+        ?callable $afterMaterialization
     ): int {
         $json = AssessCommand::wantsJson($extra);
         $consumed = false;
@@ -510,7 +540,12 @@ final class ReleaseCommand {
                 $now
             );
 
-            $consumptionResult = TargetOperationStore::consume($driver, $verified);
+            if ($afterBoundaryVerification !== null) {
+                $afterBoundaryVerification();
+            }
+
+            $subject = ReleasePrepare::authorizationSubject($document);
+            $consumptionResult = TargetOperationStore::consume($driver, $verified, $envelope, $subject);
             if (($consumptionResult['replayed'] ?? false) === true) {
                 $raced = TargetOperationStore::status($driver, $authorizationDigest);
                 if (is_array($raced)) {
@@ -521,11 +556,20 @@ final class ReleaseCommand {
             $consumed = true;
             $consumption = $consumptionResult['consumption'];
 
-            self::materializeStagedSource($driver, $receipt);
+            $promotionBinding = self::promotionBinding($document, $receipt);
+            self::materializeStagedSource($driver, $receipt, $beforeMaterialization);
+            if ($afterMaterialization !== null) {
+                $afterMaterialization();
+            }
+            // This target-side locked read closes the materialization/handoff
+            // seam even for an injected promoter. Production's promotion
+            // state machine repeats it at entry and immediately before its
+            // target promotion lease, and binds the compiled artifact there.
+            self::assertPromotionBinding($driver, $promotionBinding);
             $promoteArgs = $flags['with_deletes'] ? ['--with-deletes'] : [];
             ob_start();
             try {
-                $promoteExit = $promote($driver, $promoteArgs);
+                $promoteExit = $promote($driver, $promoteArgs, $promotionBinding);
             } finally {
                 $promotionOutput = (string) ob_get_clean();
                 if ($promotionOutput !== '') {
@@ -772,6 +816,93 @@ final class ReleaseCommand {
         return ReleaseOutcome::released($environment, $planDigest, $report, $rechecked);
     }
 
+    /**
+     * Exact repository and artifact tuple handed to the existing promotion
+     * state machine. The artifact hash is recompiled and then becomes the
+     * target promotion-lease identity; the Git tuple is checked under the
+     * same target-local repository lock both here and inside promotion.
+     *
+     * @param array<string,mixed> $document
+     * @param array<string,mixed> $receipt
+     * @return array<string,string>
+     */
+    private static function promotionBinding(array $document, array $receipt): array {
+        $artifactHash = $document['authorization_plan']['artifact_hash'] ?? null;
+        if (!is_string($artifactHash) || preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1) {
+            throw new CommandRefusalException(
+                'release_artifact_unavailable',
+                'the authorized release does not carry one exact artifact identity for promotion',
+                'prepare and authorize a fresh subject with a complete target artifact identity'
+            );
+        }
+
+        return [
+            'artifact_hash' => $artifactHash,
+            'operation_id' => (string) $document['operation_id'],
+            'repo_path' => (string) $document['stage_receipt']['target']['repo_path'],
+            'source_commit' => (string) $receipt['source']['commit'],
+            'source_tree' => (string) $receipt['source']['tree'],
+            'stage_path' => (string) $receipt['stage']['repository_path'],
+            'stage_ref' => (string) $receipt['stage']['ref'],
+        ];
+    }
+
+    /**
+     * Recheck the materialized source through target Git while holding the
+     * target-private repository lock. This is public only so cli/wprism's
+     * existing promotion state machine can repeat the exact same question at
+     * its own entry and target-lease boundary.
+     *
+     * @param array<string,string> $binding
+     */
+    public static function assertPromotionBinding(EnvironmentDriver $driver, array $binding): void {
+        $keys = array_keys($binding);
+        sort($keys, SORT_STRING);
+        if ($keys !== [
+            'artifact_hash', 'operation_id', 'repo_path', 'source_commit', 'source_tree', 'stage_path', 'stage_ref',
+        ]
+            || preg_match('/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/D', (string) ($binding['source_commit'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/D', (string) ($binding['source_tree'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($binding['artifact_hash'] ?? '')) !== 1
+            || !is_string($binding['repo_path'] ?? null) || !hash_equals($driver->repoPath(), $binding['repo_path'])
+            || !is_string($binding['stage_path'] ?? null) || !str_starts_with($binding['stage_path'], '/')
+            || !is_string($binding['stage_ref'] ?? null) || $binding['stage_ref'] === ''
+            || !is_string($binding['operation_id'] ?? null) || $binding['operation_id'] === '') {
+            throw new CommandRefusalException(
+                'release_promotion_binding_invalid',
+                'the authorized release promotion binding is malformed',
+                'do not promote; reconcile the consumed operation and its exact staged-source receipt'
+            );
+        }
+        $repo = $binding['repo_path'];
+        $critical = 'repo=' . escapeshellarg($repo)
+            . '; expected_source=' . escapeshellarg($binding['source_commit'])
+            . '; expected_tree=' . escapeshellarg($binding['source_tree'])
+            . '; expected_stage=' . escapeshellarg($binding['stage_path'])
+            . '; stage_ref=' . escapeshellarg($binding['stage_ref']) . '; '
+            . 'unexpected=$(git -C "$repo" status --porcelain --untracked-files=all '
+            . '| grep -Ev "^\\?\\? \\.wprism/(artifacts|checkpoints|code-release-prepare|code-push)/" || true); '
+            . 'test -z "$unexpected" || exit 90; '
+            . 'actual=$(git -C "$repo" rev-parse --verify HEAD) || exit 90; '
+            . 'actual_tree=$(git -C "$repo" rev-parse --verify HEAD^{tree}) || exit 90; '
+            . 'test "$actual" = "$expected_source" && test "$actual_tree" = "$expected_tree" || exit 90; '
+            . 'ref_commit=$(git -C "$repo" rev-parse --verify "${stage_ref}^{commit}") || exit 91; '
+            . 'stage_commit=$(git -C "$expected_stage" rev-parse --verify HEAD) || exit 91; '
+            . 'stage_tree=$(git -C "$expected_stage" rev-parse --verify HEAD^{tree}) || exit 91; '
+            . 'test "$ref_commit" = "$expected_source" && test "$stage_commit" = "$expected_source" '
+            . '&& test "$stage_tree" = "$expected_tree" || exit 91; '
+            . 'test -z "$(git -C "$expected_stage" status --porcelain --untracked-files=all)" || exit 91; '
+            . 'printf __BOUND__';
+        $result = self::runRepositoryLocked($driver, $repo, $critical, false);
+        if (($result['exit'] ?? 1) !== 0 || trim((string) ($result['stdout'] ?? '')) !== '__BOUND__') {
+            throw new CommandRefusalException(
+                'release_materialized_source_changed',
+                'the canonical or staged repository changed before the authorized promotion lease',
+                'do not promote or retry mutation; reconcile the consumed operation and preserve current target bytes'
+            );
+        }
+    }
+
     /** @return array{diagnostics:list<array<string,mixed>>,message:string,reason_code:string,remediation:string} */
     private static function refusalSpec(CommandRefusalException $refusal): array {
         return [
@@ -782,10 +913,21 @@ final class ReleaseCommand {
         ];
     }
 
-    /** @param array<string,mixed> $receipt */
-    private static function materializeStagedSource(EnvironmentDriver $driver, array $receipt): void {
+    /** @param array<string,mixed> $receipt @param ?callable():void $beforeAtomic */
+    private static function materializeStagedSource(
+        EnvironmentDriver $driver,
+        array $receipt,
+        ?callable $beforeAtomic = null
+    ): void {
+        // All earlier reads are advisory. This seam lets the regression move
+        // HEAD and tracked bytes after them; the target-side critical section
+        // below must recheck under the shared repository lock and refuse
+        // without invoking reset.
+        if ($beforeAtomic !== null) {
+            $beforeAtomic();
+        }
         $repo = $driver->repoPath();
-        $script = 'repo=' . escapeshellarg($repo)
+        $critical = 'repo=' . escapeshellarg($repo)
             . '; expected_base=' . escapeshellarg((string) $receipt['base']['commit'])
             . '; expected_base_tree=' . escapeshellarg((string) $receipt['base']['tree'])
             . '; expected_source=' . escapeshellarg((string) $receipt['source']['commit'])
@@ -804,17 +946,91 @@ final class ReleaseCommand {
             . '&& test "$stage_tree" = "$expected_tree" || exit 91; '
             . 'test -z "$(git -C "$expected_stage" status --porcelain --untracked-files=all)" || exit 91; '
             . 'git -C "$repo" merge-base --is-ancestor "$expected_base" "$expected_source" || exit 91; '
-            . 'git -c core.hooksPath=/dev/null -C "$repo" reset --hard "$expected_source" >/dev/null 2>&1 || exit 92; '
+            // A checked fast-forward is intentionally non-destructive: Git
+            // refuses tracked or colliding untracked bytes instead of the
+            // old reset --hard path discarding them. Its ref/index locks are
+            // the CAS beneath WPrism's cross-command repository ordering.
+            . 'git -c core.hooksPath=/dev/null -C "$repo" merge --ff-only --no-edit '
+            . '"$expected_source" >/dev/null 2>&1 || exit 92; '
             . 'actual=$(git -C "$repo" rev-parse --verify HEAD) || exit 92; '
             . 'actual_tree=$(git -C "$repo" rev-parse --verify HEAD^{tree}) || exit 92; '
             . 'test "$actual" = "$expected_source" && test "$actual_tree" = "$expected_tree" || exit 92; '
             . 'test -z "$(git -C "$repo" status --porcelain --untracked-files=all)" || exit 92; '
+            . 'ref_commit=$(git -C "$repo" rev-parse --verify "${stage_ref}^{commit}") || exit 91; '
+            . 'stage_commit=$(git -C "$expected_stage" rev-parse --verify HEAD) || exit 91; '
+            . 'stage_tree=$(git -C "$expected_stage" rev-parse --verify HEAD^{tree}) || exit 91; '
+            . 'test "$ref_commit" = "$expected_source" && test "$stage_commit" = "$expected_source" '
+            . '&& test "$stage_tree" = "$expected_tree" || exit 91; '
+            . 'test -z "$(git -C "$expected_stage" status --porcelain --untracked-files=all)" || exit 91; '
             . 'printf __MATERIALIZED__';
-        $result = $driver->captureRaw($script);
+        $result = self::runRepositoryLocked($driver, $repo, $critical, true);
         if (($result['exit'] ?? 1) !== 0
             || trim((string) ($result['stdout'] ?? '')) !== '__MATERIALIZED__') {
             throw self::reconciliationRequired();
         }
+    }
+
+    /**
+     * Run one target Git critical section under WPrism's private repository
+     * lock. Read-only promotion checks require the lock materialization has
+     * already created; only the consumed materialization boundary may create
+     * it.
+     *
+     * @return array{exit:int,stdout:string,stderr:string}
+     */
+    private static function runRepositoryLocked(
+        EnvironmentDriver $driver,
+        string $repo,
+        string $critical,
+        bool $allowLockCreate
+    ): array {
+        $runner = <<<'PHP'
+$repo = $argv[1] ?? '';
+$critical = base64_decode($argv[2] ?? '', true);
+$allowCreate = ($argv[3] ?? '') === 'create';
+if ($repo === '' || !is_string($critical)) { fwrite(STDERR, "repository-lock-input\n"); exit(94); }
+$git = @proc_open(
+    ['git', '-C', $repo, 'rev-parse', '--absolute-git-dir'],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $gitPipes,
+    null,
+    null,
+    ['bypass_shell' => true]
+);
+if (!is_resource($git)) { fwrite(STDERR, "repository-lock-git\n"); exit(94); }
+$gitDir = trim((string) stream_get_contents($gitPipes[1]));
+stream_get_contents($gitPipes[2]);
+fclose($gitPipes[1]); fclose($gitPipes[2]);
+if (proc_close($git) !== 0 || $gitDir === '' || $gitDir[0] !== '/') {
+    fwrite(STDERR, "repository-lock-git\n"); exit(94);
+}
+$root = $gitDir . '/wprism-control';
+if (!is_dir($root) || is_link($root)) { fwrite(STDERR, "repository-lock-root\n"); exit(94); }
+$lockPath = $root . '/repository.lock';
+if (is_link($lockPath) || (file_exists($lockPath) && !is_file($lockPath))) {
+    fwrite(STDERR, "repository-lock-type\n"); exit(94);
+}
+if (!$allowCreate && !is_file($lockPath)) { fwrite(STDERR, "repository-lock-missing\n"); exit(94); }
+$lock = @fopen($lockPath, $allowCreate ? 'c' : 'rb');
+if (!is_resource($lock) || !@flock($lock, LOCK_EX | LOCK_NB)) {
+    fwrite(STDERR, "repository-lock-busy\n"); exit(95);
+}
+$process = @proc_open(
+    ['/bin/sh', '-c', $critical],
+    [0 => STDIN, 1 => STDOUT, 2 => STDERR, 3 => $lock],
+    $pipes,
+    null,
+    null,
+    ['bypass_shell' => true]
+);
+if (!is_resource($process)) { fwrite(STDERR, "repository-lock-child\n"); exit(94); }
+exit((int) proc_close($process));
+PHP;
+        $script = 'php -r ' . escapeshellarg($runner) . ' -- '
+            . escapeshellarg($repo) . ' ' . escapeshellarg(base64_encode($critical)) . ' '
+            . escapeshellarg($allowLockCreate ? 'create' : 'read');
+
+        return $driver->captureRaw($script);
     }
 
     private static function reconciliationRequired(?\Throwable $previous = null): CommandRefusalException {

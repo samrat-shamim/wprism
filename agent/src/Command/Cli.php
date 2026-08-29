@@ -18,6 +18,7 @@ require_once __DIR__ . '/../Review/PlanView.php';
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/../Adapter/LifecycleSettlement.php';
 require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
+require_once __DIR__ . '/../Promotion/AuthorizedReleaseRepository.php';
 
 use WP_CLI;
 
@@ -713,6 +714,10 @@ final class Cli {
      * ## OPTIONS
      * --promotion-owner=<token> : Required internal orchestrator owner token.
      * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
+     * [--repo=<path>] : Internal authorized-release repository path; all four repository options are required together.
+     * [--release-operation-id=<id>] : Internal immutable release operation identity.
+     * [--expected-source-commit=<oid>] : Internal exact materialized commit.
+     * [--expected-source-tree=<oid>] : Internal exact materialized tree.
      * [--json] : JSON summary.
      * [--format=<format>] : Output format. Accepts json.
      *
@@ -737,6 +742,33 @@ final class Cli {
             // unchanged, because human mode still prints the private message.
             $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--promotion-owner');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--artifact-hash');
+            $repositoryOptions = [
+                'repo' => $assoc['repo'] ?? null,
+                'release-operation-id' => $assoc['release-operation-id'] ?? null,
+                'expected-source-commit' => $assoc['expected-source-commit'] ?? null,
+                'expected-source-tree' => $assoc['expected-source-tree'] ?? null,
+            ];
+            $presentRepositoryOptions = array_filter(
+                $repositoryOptions,
+                static fn($value): bool => $value !== null
+            );
+            $repositoryBinding = null;
+            if ($presentRepositoryOptions !== []) {
+                if (count($presentRepositoryOptions) !== count($repositoryOptions)) {
+                    throw new CommandRefusalException(
+                        'promotion_repository_binding_invalid',
+                        'the authorized release repository binding is incomplete',
+                        'supply repo, release-operation-id, expected-source-commit and expected-source-tree together'
+                    );
+                }
+                $repositoryBinding = AuthorizedReleaseRepository::acquire(
+                    (string) $repositoryOptions['repo'],
+                    (string) $repositoryOptions['release-operation-id'],
+                    (string) $repositoryOptions['expected-source-commit'],
+                    (string) $repositoryOptions['expected-source-tree'],
+                    (string) $owner
+                );
+            }
             Ledger::ensure();
             $summary = PromotionLock::begin((string) $owner, (string) $artifactHash);
         } catch (\Throwable $t) {

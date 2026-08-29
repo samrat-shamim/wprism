@@ -314,8 +314,29 @@ Provision the site-owned operation-authority policy first at
 `wprism-operation-authorities/v1` document. Each trusted Ed25519 key names its
 actor, the `release` operation, and every grant it may authorize. This trust
 root is intentionally separate from contract-attestation, adapter-certificate
-and rollback keys. Commit it with the source revision being staged;
-preparation binds its exact digest.
+and rollback keys. Commit it with the source revision being staged. The target
+has a separate authoritative copy: preparation never installs it implicitly.
+
+Enroll the reviewed policy explicitly with a compare-and-swap. Use `absent`
+only for first enrollment; for a change, copy the exact digest from `status`:
+
+```sh
+"$WPRISM_CLI" authority-policy production sync \
+  --policy=.wprism/authority/authorities.json \
+  --expected-current=absent --format=json > authority-policy-sync.json
+"$WPRISM_CLI" authority-policy production status --format=json \
+  > authority-policy-status.json
+```
+
+`status` is strictly read-only. Before first enrollment it refuses
+`target_authority_policy_unavailable` without creating `authority.lock`, a
+policy file, or any other target byte. `sync` alone may create the lock and
+durably publish canonical policy bytes. An exact sync retry is idempotent; a
+different current digest refuses rather than overwriting another controller's
+reviewed update. To revoke a key, change its status to `revoked`, review and
+commit that policy, then run the same explicit sync with the digest currently
+reported by status. Release execution never enrolls, updates or restores a
+policy as a side effect.
 
 Choose one immutable operation id, stage an advertised branch or tag, and save
 the exact stdout bytes:
@@ -351,7 +372,9 @@ staged commit/tree/worktree and the local source checkout before and after its
 planning reads. Plan, compile, inventory and capability questions all name the
 detached staged repository. Neither the canonical target nor the local site
 repository is written: no target fast-forward, projection write or plan freeze
-occurs.
+occurs. It reads the already-enrolled target policy without creating a lock or
+file, requires the local reviewed policy to match it exactly, and uses the
+**target policy digest** as the authority identity in the prepared subject.
 
 The output is one canonical `wprism-release-prepare/v1`. It contains the
 unchanged `wprism-authorization-plan/v1`, its semantic `plan_digest`, the hash
@@ -421,8 +444,24 @@ Promotion phase text is sent to stderr so it cannot corrupt the single stdout
 document. Immediately before consumption it re-reads the authority policy and
 verifies the signature, subject, grants and lifetime again; a policy change or
 revocation after the earlier admission check leaves no consumption and no
-target mutation. The target-side consumption election holds the identity lock
-and re-reads `target-id`, closing the equivalent target-identity race.
+target mutation. That final verification is target-authoritative: consumption
+holds the target policy lock shared while it validates canonical policy bounds,
+policy digest, actor, grants, signature and target-clock lifetime and elects
+the one winner. Policy sync/revocation takes the same lock exclusively, so it
+linearizes wholly before or wholly after consumption. The target-side election
+also holds the identity lock and re-reads `target-id`, closing the equivalent
+target-identity race.
+
+Canonical source delivery uses a checked fast-forward, never `reset --hard`:
+tracked edits, colliding untracked bytes or an unrelated commit are preserved
+and refuse. The source commit/tree and staged artifact are handed into the
+existing promotion state machine. Promotion recompiles and compares the exact
+authorized artifact, rechecks Git after compile, then the target WP-CLI process
+holds the private repository lock across its last commit/tree check and
+`promotion-begin` lease election. The lease owner binds operation id + source
+commit + source tree and the existing lease artifact hash binds the compiled
+bytes. A repository race before materialization, in the handoff, or between
+compile and lease reaches no site mutation.
 
 ### Crash, retry and status semantics
 
@@ -444,6 +483,13 @@ leaves either a same-operation ref/worktree that the next exact request can
 reconcile, or named ambiguous stage state that refuses. Receipt, target
 identity, consumption and completion publication all use file fsync, atomic
 rename, parent-directory fsync and exact readback before claiming durability.
+The locally frozen authorization plan uses the same file + parent-directory
+fsync and exact-readback posture; a post-rename sync failure is an uncertain
+complete publication that must be reconciled or exact-retried, never mutation
+authority. A retry reuses only the exact same canonical plan bytes. Because
+clock presentation fields are outside the semantic `plan_digest`, a document
+with the same digest but different presentation bytes is a conflict and never
+silently substitutes the older frozen evidence.
 Never delete retained control evidence to make a refusal disappear: inspect
 the target's Git-private `wprism-release/` and `wprism-control/` records and
 reconcile the exact operation lineage.

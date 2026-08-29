@@ -24,6 +24,7 @@ return [
     'WPrism\\Orchestrator\\AssessCommand' => 'src/Command/AssessCommand.php',
     'WPrism\\Orchestrator\\AssessRenderer' => 'src/Assess/AssessRenderer.php',
     'WPrism\\Orchestrator\\AssessReport' => 'src/Assess/AssessReport.php',
+    'WPrism\\Orchestrator\\AuthorityPolicyCommand' => 'src/Command/AuthorityPolicyCommand.php',
     'WPrism\\Orchestrator\\AuthorizationPlan' => 'src/Release/AuthorizationPlan.php',
     'WPrism\\Orchestrator\\AuthorizationPlanRenderer' => 'src/Release/AuthorizationPlanRenderer.php',
     'WPrism\\Orchestrator\\BootstrapEligibilityReport' => 'src/Onboarding/BootstrapEligibility.php',

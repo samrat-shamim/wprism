@@ -101,6 +101,29 @@ $driver = new AuthorizationStoreDriver($scratch);
 $targetId = TargetOperationStore::ensureIdentity($driver);
 wprism_check_same($targetId, TargetOperationStore::ensureIdentity($driver), 'target identity establishment is idempotent');
 wprism_check_same($targetId, TargetOperationStore::readIdentity($driver), 'read-only prepare can re-read the stable target identity');
+$gitDirectory = trim(authorization_run(['git', '-C', $scratch, 'rev-parse', '--absolute-git-dir'])['stdout']);
+$controlRoot = $gitDirectory . '/wprism-control';
+$controlBeforeMissingRead = array_values(array_diff(scandir($controlRoot) ?: [], ['.', '..']));
+wprism_check_refuses(
+    static fn () => TargetOperationStore::readAuthorityPolicy($driver),
+    'target_authority_policy_unavailable',
+    'a missing target authority enrollment refuses read-only status'
+);
+wprism_check_same(
+    $controlBeforeMissingRead,
+    array_values(array_diff(scandir($controlRoot) ?: [], ['.', '..'])),
+    'read-only authority status creates no lock or policy byte when enrollment is absent'
+);
+$policySync = TargetOperationStore::syncAuthorityPolicy($driver, $trust, 'absent');
+wprism_check_same(false, $policySync['replayed'], 'the explicit first target policy enrollment wins once');
+wprism_check_same(
+    OperationAuthorization::trustDigest($trust),
+    $policySync['policy_digest'],
+    'target enrollment publishes the exact reviewed policy digest'
+);
+$policyReplay = TargetOperationStore::syncAuthorityPolicy($driver, $trust, 'absent');
+wprism_check_same(true, $policyReplay['replayed'], 'an exact lost-response policy enrollment retry is idempotent');
+wprism_check_same($trust, TargetOperationStore::readAuthorityPolicy($driver), 'target status reads the enrolled canonical policy');
 $status = authorization_run(['git', '-C', $scratch, 'status', '--porcelain=v1', '--untracked-files=no']);
 wprism_check_same('', trim($status['stdout']), 'target identity lives in private Git control storage, not the worktree');
 
@@ -113,10 +136,13 @@ $subject = [
     'subject_digest' => 'sha256:' . str_repeat('1', 64),
     'target_id' => $targetId,
 ];
+$issuedEpoch = time() - 60;
+$expiresEpoch = time() + 1800;
+$verificationNow = gmdate('Y-m-d\TH:i:s\Z');
 $statement = [
     'actor' => 'orbit:user:agency-owner',
-    'expires_at' => '2030-01-01T01:00:00Z',
-    'issued_at' => '2030-01-01T00:00:00Z',
+    'expires_at' => gmdate('Y-m-d\TH:i:s\Z', $expiresEpoch),
+    'issued_at' => gmdate('Y-m-d\TH:i:s\Z', $issuedEpoch),
     'key_id' => 'orbit-agency-1',
     'nonce' => 'nonce-0123456789abcdef',
     'operation' => 'release',
@@ -126,7 +152,7 @@ $statement = [
     'target_id' => $targetId,
 ];
 $envelope = OperationAuthorization::sign($statement, $secret);
-$verified = OperationAuthorization::verify($envelope, $subject, $trust, '2030-01-01T00:30:00Z');
+$verified = OperationAuthorization::verify($envelope, $subject, $trust, $verificationNow);
 wprism_check_same('orbit:user:agency-owner', $verified['actor'], 'the verified authority is bound to its enrolled actor');
 wprism_check_same(
     OperationAuthorization::envelopeDigest($envelope),
@@ -137,19 +163,19 @@ wprism_check_same(
 $wrongSubject = $subject;
 $wrongSubject['subject_digest'] = 'sha256:' . str_repeat('3', 64);
 wprism_check_refuses(
-    static fn () => OperationAuthorization::verify($envelope, $wrongSubject, $trust, '2030-01-01T00:30:00Z'),
+    static fn () => OperationAuthorization::verify($envelope, $wrongSubject, $trust, $verificationNow),
     'authorization_subject_mismatch',
     'a signed release cannot be replayed over another immutable subject'
 );
 $wrongTarget = $subject;
 $wrongTarget['target_id'] = 'wprism-target:' . str_repeat('4', 64);
 wprism_check_refuses(
-    static fn () => OperationAuthorization::verify($envelope, $wrongTarget, $trust, '2030-01-01T00:30:00Z'),
+    static fn () => OperationAuthorization::verify($envelope, $wrongTarget, $trust, $verificationNow),
     'authorization_subject_mismatch',
     'a signed release cannot be replayed onto another target'
 );
 wprism_check_refuses(
-    static fn () => OperationAuthorization::verify($envelope, $subject, $trust, '2030-01-01T01:00:00Z'),
+    static fn () => OperationAuthorization::verify($envelope, $subject, $trust, $statement['expires_at']),
     'authorization_expired',
     'expiry is rechecked at the exact mutation boundary and equality is expired'
 );
@@ -158,7 +184,7 @@ $decodedSignature = base64_decode($badSignature['signature'], true);
 $decodedSignature[0] = chr(ord($decodedSignature[0]) ^ 1);
 $badSignature['signature'] = base64_encode($decodedSignature);
 wprism_check_refuses(
-    static fn () => OperationAuthorization::verify($badSignature, $subject, $trust, '2030-01-01T00:30:00Z'),
+    static fn () => OperationAuthorization::verify($badSignature, $subject, $trust, $verificationNow),
     'authorization_signature_invalid',
     'a one-byte signature change is never authority'
 );
@@ -171,10 +197,38 @@ wprism_check_refuses(
         $envelope,
         $missingGrantSubject,
         $missingGrantTrust,
-        '2030-01-01T00:30:00Z'
+        $verificationNow
     ),
     'authorization_grant_missing',
     'an authenticated actor still needs every plan-required grant'
+);
+
+// Target election validates the entire enrolled policy, not merely the key
+// selected by this envelope. A malformed unrelated record therefore cannot
+// become trusted target state through an out-of-band byte replacement.
+$malformedTargetTrust = $trust;
+$malformedTargetTrust['keys']['unrelated-invalid-key'] = [
+    'actor' => 'orbit:user:unrelated',
+    'algorithm' => 'ed25519',
+    'grants' => ['operator_confirmation', 'business_owner'],
+    'operations' => ['release'],
+    'public_key' => base64_encode($public),
+    'status' => 'trusted',
+];
+$malformedTargetBytes = Canon::encode($malformedTargetTrust);
+$malformedTargetSubject = $subject;
+$malformedTargetSubject['authority_policy_digest'] = 'sha256:' . hash('sha256', $malformedTargetBytes);
+file_put_contents($controlRoot . '/authority-policy.json', $malformedTargetBytes);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume($driver, $verified, $envelope, $malformedTargetSubject),
+    'authorization_authority_policy_changed',
+    'target election validates every canonical policy record and sorted string set before consumption'
+);
+file_put_contents($controlRoot . '/authority-policy.json', Canon::encode($trust));
+wprism_check_same(
+    null,
+    TargetOperationStore::status($driver, $verified['authorization_digest']),
+    'an invalid unrelated target policy record creates no consumption evidence'
 );
 
 // The host-side identity read is only an early admission check. Swap the
@@ -184,8 +238,7 @@ wprism_check_refuses(
 $raceStatement = $statement;
 $raceStatement['nonce'] = 'nonce-target-race-01234567';
 $raceEnvelope = OperationAuthorization::sign($raceStatement, $secret);
-$raceVerified = OperationAuthorization::verify($raceEnvelope, $subject, $trust, '2030-01-01T00:30:00Z');
-$gitDirectory = trim(authorization_run(['git', '-C', $scratch, 'rev-parse', '--absolute-git-dir'])['stdout']);
+$raceVerified = OperationAuthorization::verify($raceEnvelope, $subject, $trust, $verificationNow);
 $targetIdentityPath = $gitDirectory . '/wprism-control/target-id';
 $raceArmed = true;
 $driver->beforeCapture = static function (string $script) use (&$raceArmed, $targetIdentityPath): void {
@@ -196,7 +249,7 @@ $driver->beforeCapture = static function (string $script) use (&$raceArmed, $tar
     file_put_contents($targetIdentityPath, 'wprism-target:' . str_repeat('9', 64) . "\n");
 };
 wprism_check_refuses(
-    static fn () => TargetOperationStore::consume($driver, $raceVerified),
+    static fn () => TargetOperationStore::consume($driver, $raceVerified, $raceEnvelope, $subject),
     'authorization_target_mismatch',
     'consumption rechecks target identity inside the locked target-side winner election'
 );
@@ -208,9 +261,25 @@ wprism_check_same(
 );
 file_put_contents($targetIdentityPath, $targetId . "\n");
 
-$first = TargetOperationStore::consume($driver, $verified);
+$revokedTrust = $trust;
+$revokedTrust['keys']['orbit-agency-1']['status'] = 'revoked';
+$revokedDigest = OperationAuthorization::trustDigest($revokedTrust);
+TargetOperationStore::syncAuthorityPolicy($driver, $revokedTrust, OperationAuthorization::trustDigest($trust));
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume($driver, $verified, $envelope, $subject),
+    'authorization_authority_policy_changed',
+    'target-side election refuses a policy revocation after controller verification'
+);
+wprism_check_same(
+    null,
+    TargetOperationStore::status($driver, $verified['authorization_digest']),
+    'post-verification target revocation creates no consumption record'
+);
+TargetOperationStore::syncAuthorityPolicy($driver, $trust, $revokedDigest);
+
+$first = TargetOperationStore::consume($driver, $verified, $envelope, $subject);
 wprism_check_same(false, $first['replayed'], 'the first valid envelope is durably consumed before mutation');
-$replay = TargetOperationStore::consume($driver, $verified);
+$replay = TargetOperationStore::consume($driver, $verified, $envelope, $subject);
 wprism_check_same(true, $replay['replayed'], 'the exact same-operation replay returns the existing consumption');
 wprism_check_same(
     $first['consumption'],
@@ -251,5 +320,77 @@ wprism_check_refuses(
     'operation_authorization_noncanonical',
     'exact presented bytes are canonical rather than a loosely equivalent JSON object'
 );
+
+$authorityLockPath = $controlRoot . '/authority.lock';
+$authorityLockRegular = $controlRoot . '/authority.lock.regular';
+rename($authorityLockPath, $authorityLockRegular);
+symlink(basename($authorityLockRegular), $authorityLockPath);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::readAuthorityPolicy($driver),
+    'target_authority_policy_unavailable',
+    'read-only authority status refuses a symlink lock instead of following it'
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::syncAuthorityPolicy(
+        $driver,
+        $trust,
+        OperationAuthorization::trustDigest($trust)
+    ),
+    'target_authority_policy_sync_uncertain',
+    'target authority sync refuses a symlink lock before opening it'
+);
+unlink($authorityLockPath);
+rename($authorityLockRegular, $authorityLockPath);
+
+$identityLockPath = $controlRoot . '/identity.lock';
+$identityLockRegular = $controlRoot . '/identity.lock.regular';
+rename($identityLockPath, $identityLockRegular);
+symlink(basename($identityLockRegular), $identityLockPath);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::ensureIdentity($driver),
+    'target_identity_unavailable',
+    'target identity establishment refuses a symlink lock before opening it'
+);
+unlink($identityLockPath);
+rename($identityLockRegular, $identityLockPath);
+
+$realControlRoot = $gitDirectory . '/wprism-control.real';
+$redirectedControlRoot = $gitDirectory . '/wprism-control.redirected';
+rename($controlRoot, $realControlRoot);
+mkdir($redirectedControlRoot, 0700);
+symlink($redirectedControlRoot, $controlRoot);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::readAuthorityPolicy($driver),
+    'target_authority_policy_unavailable',
+    'authority status refuses a symlink target control root'
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::syncAuthorityPolicy($driver, $trust, 'absent'),
+    'target_identity_unavailable',
+    'authority sync refuses a symlink target control root before mutation'
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::status($driver, $verified['authorization_digest']),
+    'authorization_consumption_uncertain',
+    'authorization status refuses a symlink target control root'
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume($driver, $verified, $envelope, $subject),
+    'target_identity_unavailable',
+    'authorization consumption refuses a symlink target control root before election'
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::complete($driver, $first['consumption'], $outcome),
+    'authorized_operation_outcome_uncertain',
+    'authorized completion refuses a symlink target control root before publication'
+);
+wprism_check_same(
+    [],
+    array_values(array_diff(scandir($redirectedControlRoot) ?: [], ['.', '..'])),
+    'status, sync and consume never follow a redirected control root or create bytes there'
+);
+unlink($controlRoot);
+rename($realControlRoot, $controlRoot);
+authorization_remove($redirectedControlRoot);
 
 wprism_check_summary('regress_operation_authorization');

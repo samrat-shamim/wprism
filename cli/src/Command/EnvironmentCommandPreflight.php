@@ -24,7 +24,7 @@ final class EnvironmentCommandPreflight {
         // drives rollback authority, and rehearse materializes into it.
         // `regress_environment_command_preflight.php` pins the order as a
         // two-sided ratchet.
-        'stage-source', 'release', 'verify', 'recover', 'rehearse',
+        'stage-source', 'authority-policy', 'release', 'verify', 'recover', 'rehearse',
         // issue #3499. `code-classify` is environment-bound for the same reason
         // `assess` is: it takes <env> and asks that target for its own code
         // inventory, so the trees it stops tracking are provably the trees

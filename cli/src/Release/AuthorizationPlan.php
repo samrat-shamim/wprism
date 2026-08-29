@@ -380,16 +380,23 @@ final class AuthorizationPlan {
      * so the property is enforced by the class rather than by remembering
      * not to call it.
      *
-     * Re-freezing an identical plan is a no-op that keeps the ORIGINAL bytes:
-     * the digest excludes `frozen_at` and `recovery_profile.checkpoint_at`,
-     * so a second run of the same authorization must not silently re-date
-     * the record of when it was given, or of the checkpoint instant the
-     * operator was shown with it.
+     * Re-freezing the exact bytes is a durable no-op. The digest excludes
+     * `frozen_at` and `recovery_profile.checkpoint_at`, so two presentations
+     * can share one semantic identity; accepting an older presentation at the
+     * requested path would silently replace the exact bytes the external actor
+     * authorized. Same-digest/different-byte publication therefore conflicts.
      *
      * @param array<string,mixed> $document
+     * @param ?callable(resource,string):bool $durabilitySync test seam for
+     *        file/directory fsync; production leaves it null
      * @return string the path written (or the path that already held it)
      */
-    public static function freeze(array $document, string $siteRepo, bool $planOnly = false): string {
+    public static function freeze(
+        array $document,
+        string $siteRepo,
+        bool $planOnly = false,
+        ?callable $durabilitySync = null
+    ): string {
         if ($planOnly) {
             throw self::refuse(
                 'plan_only_must_not_freeze',
@@ -398,7 +405,29 @@ final class AuthorizationPlan {
         }
         self::validate($document);
         $path = self::path($siteRepo, (string) $document['plan_digest']);
+        $bytes = self::encode($document);
         if (is_file($path)) {
+            $existingBytes = @file_get_contents($path);
+            $existing = is_string($existingBytes) ? json_decode($existingBytes, true) : null;
+            if (!is_string($existingBytes) || !is_array($existing)) {
+                throw self::refuse(
+                    'release_plan_write_failed',
+                    'the existing authorization plan is not one complete canonical document',
+                    'do not mutate; reconcile the frozen plan path before retrying'
+                );
+            }
+            self::validate($existing);
+            if (!hash_equals(self::encode($existing), $existingBytes)
+                || !hash_equals((string) $document['plan_digest'], (string) $existing['plan_digest'])
+                || !hash_equals($bytes, $existingBytes)) {
+                throw self::refuse(
+                    'release_plan_write_failed',
+                    'the existing authorization plan is not the exact presented document being frozen',
+                    'do not mutate; reconcile the same-digest presentation conflict and prepare fresh evidence'
+                );
+            }
+            self::assertDurablePlan($path, $existingBytes, $durabilitySync);
+
             return $path;
         }
         $directory = dirname($path);
@@ -418,10 +447,18 @@ final class AuthorizationPlan {
             );
         }
         try {
-            if (@file_put_contents($temporary, self::encode($document), LOCK_EX) === false) {
+            $handle = @fopen($temporary, 'wb');
+            if (!is_resource($handle)
+                || !self::writeAll($handle, $bytes)
+                || !@fflush($handle)
+                || !self::syncHandle($handle, 'file', $durabilitySync)
+                || !@fclose($handle)) {
+                if (is_resource($handle)) {
+                    @fclose($handle);
+                }
                 throw self::refuse(
                     'release_plan_write_failed',
-                    'the authorization plan could not be written',
+                    'the authorization plan could not be written durably',
                     'check write permission and free space on the site repository working tree'
                 );
             }
@@ -434,6 +471,7 @@ final class AuthorizationPlan {
                 );
             }
             $temporary = null;
+            self::assertDurablePlan($path, $bytes, $durabilitySync);
         } finally {
             if ($temporary !== null && is_file($temporary)) {
                 @unlink($temporary);
@@ -441,6 +479,72 @@ final class AuthorizationPlan {
         }
 
         return $path;
+    }
+
+    /** @param ?callable(resource,string):bool $durabilitySync */
+    private static function assertDurablePlan(string $path, string $expected, ?callable $durabilitySync): void {
+        $handle = @fopen($path, 'r+b');
+        if (!is_resource($handle)
+            || !self::syncHandle($handle, 'file', $durabilitySync)
+            || !@fclose($handle)) {
+            if (is_resource($handle)) {
+                @fclose($handle);
+            }
+            throw self::refuse(
+                'release_plan_write_failed',
+                'the authorization plan file could not be made durable',
+                'check filesystem fsync support, write permission and storage health before retrying'
+            );
+        }
+        foreach ([dirname($path), dirname(dirname($path)), dirname(dirname(dirname($path)))] as $directory) {
+            $directoryHandle = @fopen($directory, 'rb');
+            if (!is_resource($directoryHandle)
+                || !self::syncHandle($directoryHandle, 'directory', $durabilitySync)
+                || !@fclose($directoryHandle)) {
+                if (is_resource($directoryHandle)) {
+                    @fclose($directoryHandle);
+                }
+                throw self::refuse(
+                    'release_plan_write_failed',
+                    'the authorization plan directory entry could not be made durable',
+                    'check filesystem directory-fsync support and storage health before retrying'
+                );
+            }
+        }
+        $actual = @file_get_contents($path);
+        if (!is_string($actual) || !hash_equals($expected, $actual)) {
+            throw self::refuse(
+                'release_plan_write_failed',
+                'the durable authorization plan did not read back as the exact canonical document',
+                'do not mutate; inspect storage health and reconcile the frozen plan path before retrying'
+            );
+        }
+    }
+
+    /** @param resource $handle @param ?callable(resource,string):bool $durabilitySync */
+    private static function syncHandle($handle, string $kind, ?callable $durabilitySync): bool {
+        try {
+            return $durabilitySync === null
+                ? function_exists('fsync') && @fsync($handle)
+                : $durabilitySync($handle, $kind) === true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @param resource $handle */
+    private static function writeAll($handle, string $bytes): bool {
+        $offset = 0;
+        $length = strlen($bytes);
+        while ($offset < $length) {
+            $written = @fwrite($handle, substr($bytes, $offset));
+            if (!is_int($written) || $written <= 0) {
+                return false;
+            }
+            $offset += $written;
+        }
+
+        return true;
     }
 
     /**

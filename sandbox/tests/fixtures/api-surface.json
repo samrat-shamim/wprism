@@ -6788,6 +6788,75 @@
             },
             "readonly": false
         },
+        "WPrism\\AuthorizedReleaseRepository": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__destruct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "acquire": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operationId",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceCommit",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceTree",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "promotionOwner",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\AuthorizedReleaseRepository",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\BlockReferenceScanner": {
             "abstract": false,
             "constants": [],
@@ -26283,6 +26352,47 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\Orchestrator\\AuthorityPolicyCommand": {
+            "abstract": false,
+            "constants": {
+                "STATUS_FORMAT": {
+                    "value_repr": "wprism-target-authority-policy-status/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\Orchestrator\\AuthorizationPlan": {
             "abstract": false,
             "constants": {
@@ -26446,6 +26556,14 @@
                             "has_default": true,
                             "name": "planOnly",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "durabilitySync",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],
@@ -27883,6 +28001,14 @@
                             "has_default": false,
                             "name": "artifactHash",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "authorizedSource",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -39256,6 +39382,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assertPromotionBinding": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "binding",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "prepare": {
                     "abstract": false,
                     "final": false,
@@ -39386,6 +39537,30 @@
                             "default": null,
                             "has_default": true,
                             "name": "beforeConsumption",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "afterBoundaryVerification",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "beforeMaterialization",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "afterMaterialization",
                             "type": "?callable",
                             "variadic": false
                         }
@@ -42322,6 +42497,9 @@
         "WPrism\\Orchestrator\\TargetOperationStore": {
             "abstract": false,
             "constants": {
+                "AUTHORITY_POLICY_SYNC_FORMAT": {
+                    "value_repr": "wprism-target-authority-policy-sync/v1"
+                },
                 "COMPLETION_FORMAT": {
                     "value_repr": "wprism-authorized-operation-completion/v1"
                 },
@@ -42388,6 +42566,22 @@
                             "name": "authorization",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envelope",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -42408,6 +42602,23 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readAuthorityPolicy": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -42450,6 +42661,39 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "syncAuthorityPolicy": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedCurrent",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }

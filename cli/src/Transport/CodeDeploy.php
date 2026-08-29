@@ -231,13 +231,29 @@ PHP;
      * artifact hash is deliberately the only code/state input: it binds both
      * halves without making the host inspect the opaque code descriptor.
      *
+     * @param ?array<string,string> $authorizedSource internal externally
+     *        authorized release repository/artifact binding
      * @return array<int,string>
      */
-    public static function beginArgs(string $owner, string $artifactHash): array {
-        return self::controlArgs([
+    public static function beginArgs(
+        string $owner,
+        string $artifactHash,
+        ?array $authorizedSource = null
+    ): array {
+        $arguments = [
             'wprism', 'promotion-begin', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
-        ]);
+        ];
+        if ($authorizedSource !== null) {
+            $arguments = array_merge($arguments, [
+                '--repo=' . (string) ($authorizedSource['repo_path'] ?? ''),
+                '--release-operation-id=' . (string) ($authorizedSource['operation_id'] ?? ''),
+                '--expected-source-commit=' . (string) ($authorizedSource['source_commit'] ?? ''),
+                '--expected-source-tree=' . (string) ($authorizedSource['source_tree'] ?? ''),
+            ]);
+        }
+
+        return self::controlArgs($arguments);
     }
 
     /**

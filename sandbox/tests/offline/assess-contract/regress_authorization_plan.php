@@ -318,11 +318,64 @@ wprism_check_refuses(
     'a plan path refuses a value that is not a sha256 digest'
 );
 
-AuthorizationPlan::freeze($later, $repo);
+wprism_check_refuses(
+    static fn () => AuthorizationPlan::freeze($later, $repo),
+    'release_plan_write_failed',
+    'the same semantic plan with different presentation bytes conflicts instead of reusing older evidence'
+);
 wprism_check_same(
     AuthorizationPlan::encode($first),
     (string) file_get_contents($path),
-    're-freezing the same authorization keeps the original record of when it was given'
+    'a same-digest presentation conflict never replaces the exact bytes already frozen'
+);
+AuthorizationPlan::freeze($first, $repo);
+wprism_check_same(
+    AuthorizationPlan::encode($first),
+    (string) file_get_contents($path),
+    'an exact byte retry re-syncs and reuses the frozen presentation'
+);
+
+$fileSyncRepo = release_fixture_repo();
+$fileSyncPath = AuthorizationPlan::path($fileSyncRepo, (string) $first['plan_digest']);
+wprism_check_refuses(
+    static fn () => AuthorizationPlan::freeze(
+        $first,
+        $fileSyncRepo,
+        false,
+        static fn ($handle, string $kind): bool => $kind !== 'file'
+    ),
+    'release_plan_write_failed',
+    'a failed frozen-plan file fsync refuses before publication'
+);
+wprism_check_same(false, is_file($fileSyncPath), 'a failed pre-rename fsync leaves no published plan');
+wprism_check_same(
+    [],
+    glob(dirname($fileSyncPath) . '/.wprism-release-*') ?: [],
+    'a failed pre-rename fsync removes its temporary plan'
+);
+
+$directorySyncRepo = release_fixture_repo();
+$directorySyncPath = AuthorizationPlan::path($directorySyncRepo, (string) $first['plan_digest']);
+wprism_check_refuses(
+    static fn () => AuthorizationPlan::freeze(
+        $first,
+        $directorySyncRepo,
+        false,
+        static fn ($handle, string $kind): bool => $kind !== 'directory'
+    ),
+    'release_plan_write_failed',
+    'a failed frozen-plan parent-directory fsync refuses before mutation authority proceeds'
+);
+wprism_check_same(
+    AuthorizationPlan::encode($first),
+    (string) file_get_contents($directorySyncPath),
+    'a post-rename durability refusal leaves only the exact complete plan, never truncated bytes'
+);
+AuthorizationPlan::freeze($first, $directorySyncRepo);
+wprism_check_same(
+    AuthorizationPlan::encode($first),
+    (string) file_get_contents($directorySyncPath),
+    'an exact retry re-syncs and read-backs an uncertain published plan before returning it'
 );
 
 // --------------------------------------------------------------- --plan-only

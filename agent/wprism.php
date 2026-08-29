@@ -46,6 +46,7 @@ require_once __DIR__ . '/src/Adapter/AdapterScan.php';
 require_once __DIR__ . '/src/Adapter/Providers.php';
 require_once __DIR__ . '/src/Repository/Ledger.php';
 require_once __DIR__ . '/src/Promotion/PromotionLease.php';
+require_once __DIR__ . '/src/Promotion/AuthorizedReleaseRepository.php';
 require_once __DIR__ . '/src/Promotion/ScopedPromotionAuthority.php';
 require_once __DIR__ . '/src/Promotion/PromotionLock.php';
 require_once __DIR__ . '/src/Promotion/PromotionSessionJournal.php';

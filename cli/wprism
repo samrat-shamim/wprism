@@ -167,6 +167,7 @@ require __DIR__ . '/src/Rehearse/RehearsalDisclosure.php';
 require __DIR__ . '/src/Rehearse/RehearsalPlanPreview.php';
 require __DIR__ . '/src/Command/VerifyCommand.php';
 require __DIR__ . '/src/Command/StageSourceCommand.php';
+require __DIR__ . '/src/Command/AuthorityPolicyCommand.php';
 require __DIR__ . '/src/Command/ReleaseCommand.php';
 require __DIR__ . '/src/Command/RecoverCommand.php';
 require __DIR__ . '/src/Command/RehearseCommand.php';
@@ -261,6 +262,7 @@ use WPrism\Orchestrator\AssessCommand;
 use WPrism\Orchestrator\CensusCommand;
 use WPrism\Orchestrator\ContractCommand;
 use WPrism\Orchestrator\StageSourceCommand;
+use WPrism\Orchestrator\AuthorityPolicyCommand;
 use WPrism\Orchestrator\ReleaseCommand;
 use WPrism\Orchestrator\VerifyCommand;
 use WPrism\Orchestrator\RecoverCommand;
@@ -376,6 +378,9 @@ Usage:
                  [--source-port=<port>] [--target-port=<port>]
   wprism demo status|capture|apply|refusal|stop [--name=<name>]
   wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
+  wprism authority-policy <env> status --format=json
+  wprism authority-policy <env> sync --policy=<file>
+                    --expected-current=absent|sha256:<hex> --format=json
   wprism release <env> prepare --stage-receipt=<file>
                     --expected-stage-receipt-sha256=sha256:<hex>
                     [--profile=<p>] [--accept-weaker-recovery] [--with-deletes]
@@ -1230,6 +1235,19 @@ Verbs:
                           Exit follows the PREFLIGHT's verdict: one
                           unclassified gate makes the run non-green even though
                           the journal was written.
+  authority-policy <env> Explicit target-control operation-authority boundary.
+    status --format=json  Reads the enrolled target policy identity without
+                          writing. It returns target identity + policy digest.
+    sync --policy=<f>     Durably enrolls or updates one canonical
+    --expected-current=   wprism-operation-authorities/v1 under target-private
+      absent|sha256:<h>   control storage using an exact compare-and-swap.
+    --format=json         A revocation is a reviewed policy with key status
+                          `revoked`, synchronized explicitly. Prepare never
+                          writes policy, and execute never silently installs
+                          one: target-side consumption re-reads this policy,
+                          checks the subject-bound digest, grants, signature
+                          and lifetime while holding the same policy lock that
+                          serializes sync. Exact sync retry is idempotent.
   release <env>           Read-only legacy authorization-plan preview.
     --plan-only           It reads the canonical target and accepted contract,
     [--from=<ref>]        renders the plan, and writes neither target nor local
@@ -1849,6 +1867,7 @@ function main(array $argv): int {
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
         'stage-source' => StageSourceCommand::run($transport, $extra),
+        'authority-policy' => AuthorityPolicyCommand::run($transport, $extra),
         'release' => cmd_release($transport, $extra),
         'verify' => cmd_verify($transport, $extra),
         'recover' => cmd_recover($transport, $extra),
@@ -2291,12 +2310,29 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
 }
 
 /**
+ * The ordinary promotion state machine with an externally-authorized source
+ * binding. Public `promote` never accepts this in-process tuple: only release
+ * execute can supply it after target-side authorization consumption.
+ *
+ * @param array<string,string> $binding
+ */
+function cmd_promote_authorized(EnvironmentDriver $t, array $extra, array $binding): int {
+    return PromoteCommand::run(
+        $t,
+        $extra,
+        static fn(EnvironmentDriver $driver, array $args): int => cmd_promote_scoped($driver, $args),
+        static fn(EnvironmentDriver $driver, array $args, ?array $frozen): array|int =>
+            cmd_promote_internal($driver, $args, $frozen, $binding)
+    );
+}
+
+/**
  * The composed release (round-3 MUP §2.3).
  *
- * `$promote` is bound to cmd_promote() — the SAME entry point `wprism promote`
- * uses, which routes through PromoteCommand to cmd_promote_scoped() /
- * cmd_promote_internal(). That injection is the whole of "release composes
- * promote, it does not fork it": every deploy-before-apply ordering decision,
+ * `$promote` routes through PromoteCommand to the SAME cmd_promote_internal()
+ * state machine `wprism promote` uses, with only the consumed release's exact
+ * source/tree/artifact tuple added as an internal binding. That injection is
+ * the whole of "release composes promote, it does not fork it": every deploy-before-apply ordering decision,
  * the promotion lease, the target fence, the database checkpoint, the
  * issue #3310 verified/scoped rollback selection and every `promote phase:`
  * output byte come from one implementation, and ReleaseCommand only adds the
@@ -2311,7 +2347,8 @@ function cmd_release(EnvironmentDriver $t, array $extra): int {
         $t,
         $extra,
         dirname(__DIR__),
-        static fn(EnvironmentDriver $driver, array $args): int => cmd_promote($driver, $args)
+        static fn(EnvironmentDriver $driver, array $args, array $binding): int =>
+            cmd_promote_authorized($driver, $args, $binding)
     );
 }
 
@@ -2817,7 +2854,12 @@ function cmd_promote_frozen(EnvironmentDriver $t, array $context, array $extra =
  * @param ?array<string,mixed> $frozenContext
  * @return array<string,mixed>|int
  */
-function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozenContext): array|int {
+function cmd_promote_internal(
+    EnvironmentDriver $t,
+    array $extra,
+    ?array $frozenContext,
+    ?array $authorizedSource = null
+): array|int {
     foreach ($extra as $arg) {
         if (is_string($arg) && is_scope_contract_flag($arg)) {
             return scope_wire_refusal(
@@ -2841,9 +2883,28 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
         return 1;
     }
 
+    if ($authorizedSource !== null) {
+        try {
+            ReleaseCommand::assertPromotionBinding($t, $authorizedSource);
+        } catch (\Throwable $error) {
+            fwrite(
+                STDERR,
+                'wprism: promote: authorized source binding changed before compile; refusing: '
+                . $error->getMessage() . "\n"
+            );
+            return 1;
+        }
+    }
+
     $repo = rtrim($t->repoPath(), '/');
     $frozen = $frozenContext === null ? null : normalize_frozen_promotion_context($frozenContext, $repo);
-    $runId = $frozen['promotion_owner'] ?? orchestrator_run_id();
+    $authorizedOwner = $authorizedSource === null ? null : 'authorized-release-' . hash(
+        'sha256',
+        (string) ($authorizedSource['operation_id'] ?? '') . "\0"
+        . (string) ($authorizedSource['source_commit'] ?? '') . "\0"
+        . (string) ($authorizedSource['source_tree'] ?? '')
+    );
+    $runId = $frozen['promotion_owner'] ?? $authorizedOwner ?? orchestrator_run_id();
     $wprismDir = $repo . '/.wprism';
     $artifact = $frozen['artifact_path'] ?? "$wprismDir/artifacts/promote-$runId.json";
     $checkpoint = $frozen['checkpoint_path'] ?? "$wprismDir/checkpoints/promote-$runId.sql.enc";
@@ -2903,6 +2964,14 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
         return 1;
     }
     $artifactHash = (string) $compile['summary']['artifact_hash'];
+    if ($authorizedSource !== null
+        && !hash_equals((string) ($authorizedSource['artifact_hash'] ?? ''), $artifactHash)) {
+        fwrite(
+            STDERR,
+            "wprism: promote: compiled artifact does not match the externally authorized release; refusing before promotion-begin\n"
+        );
+        return 1;
+    }
     $codeEnabled = CodeDeploy::enabled($compile['summary']);
     $runtimePreflightDone = !$codeEnabled;
     $codeChangeRequired = false;
@@ -2970,7 +3039,19 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
             // interrupted prepare from a fresh process. Bind its claimant and
             // the WordPress promotion lease to the immutable artifact instead
             // of the temporary artifact filename's random invocation id.
-            $verifiedRunId = $frozen['promotion_owner'] ?? ('verified-' . $artifactHash);
+            $verifiedRunId = $frozen['promotion_owner'] ?? $authorizedOwner ?? ('verified-' . $artifactHash);
+            if ($authorizedSource !== null) {
+                try {
+                    ReleaseCommand::assertPromotionBinding($t, $authorizedSource);
+                } catch (\Throwable $error) {
+                    fwrite(
+                        STDERR,
+                        'wprism: promote: authorized source binding changed before the target promotion lease; '
+                        . 'refusing: ' . $error->getMessage() . "\n"
+                    );
+                    return 1;
+                }
+            }
             $verifiedResult = cmd_promote_verified(
                 $t,
                 $compile['summary'],
@@ -2980,7 +3061,8 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
                 $artifactHash,
                 $extra,
                 $frozen,
-                $codeChangeRequired
+                $codeChangeRequired,
+                $authorizedSource
             );
             return $verifiedResult;
         }
@@ -3045,8 +3127,22 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
         return 1;
     }
 
+
+    if ($authorizedSource !== null) {
+        try {
+            ReleaseCommand::assertPromotionBinding($t, $authorizedSource);
+        } catch (\Throwable $error) {
+            fwrite(
+                STDERR,
+                'wprism: promote: authorized source binding changed before the target promotion lease; refusing: '
+                . $error->getMessage() . "\n"
+            );
+            return 1;
+        }
+    }
+
     echo "promote phase: promotion-begin\n";
-    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
+    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash, $authorizedSource));
     if ($begin['exit'] !== 0) {
         fwrite(STDERR, "wprism: promote: promotion-begin failed; checkpoint, deploy, and apply were not started\n");
         print_transport_detail($begin);
@@ -3627,7 +3723,8 @@ function cmd_promote_verified(
     string $artifactHash,
     array $extra,
     ?array $frozenContext = null,
-    bool $codeChangeRequired = true
+    bool $codeChangeRequired = true,
+    ?array $authorizedSource = null
 ): array|int {
     $profile = new VerifiedRollbackProfile($t);
     $codeSelected = false;
@@ -3665,7 +3762,7 @@ function cmd_promote_verified(
     }
 
     echo "promote phase: promotion-begin\n";
-    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
+    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash, $authorizedSource));
     if ($begin['exit'] !== 0) {
         fwrite(STDERR, "wprism: promote: promotion-begin failed under verified rollback\n");
         print_transport_detail($begin);

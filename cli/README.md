@@ -55,6 +55,8 @@ wprism preview remove <env> [--format=json]
 wprism demo start [--scenario=woocommerce] [--name=<name>] [--source-port=<port>] [--target-port=<port>]
 wprism demo status|capture|apply|refusal|stop [--name=<name>]
 wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
+wprism authority-policy <env> status --format=json
+wprism authority-policy <env> sync --policy=<file> --expected-current=absent|sha256:<hex> --format=json
 wprism release <env> prepare --stage-receipt=<file> --expected-stage-receipt-sha256=<digest> [--format=json]
 wprism release <env> execute --prepare=<file> --authorization=<file> --expected-authorization-sha256=<digest> --expected-subject-sha256=<digest> --expected-presentation-sha256=<digest> --expected-plan-digest=<digest> --expected-stage-receipt-sha256=<digest> --format=json
 wprism release <env> --plan-only [--from=<ref>] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--limit=<1..200>] [--format=json]
@@ -682,8 +684,8 @@ semantics remain the rehearsal implementation's.
   externally authorized control-plane form of the same release. `stage-source`
   retains the exact advertised commit under target-private Git state without
   moving canonical `HEAD`, index or worktree and returns one durable receipt.
-  `prepare` reads that inert checkout, current target facts and current
-  authority policy into one canonical subject without writing target or local
+  `prepare` reads that inert checkout, current target facts and the already
+  enrolled target-authoritative policy into one canonical subject without writing target or local
   repository bytes. An external Ed25519 actor signs its exact presentation and
   complete subject. `execute` requires explicit digests for the prepare,
   authorization, plan and stage; it refuses any plan, target-HEAD or source
@@ -693,6 +695,16 @@ semantics remain the rehearsal implementation's.
   authorization expiry, while consumed-without-completion always requires
   reconciliation. The full signer wire, command sequence and crash semantics
   are in [docs/guides/release.md](../docs/guides/release.md#control-plane-release-stage-prepare-sign-execute).
+
+- **`wprism authority-policy <env> status|sync`** — the explicit target-control
+  policy boundary used by signed release and recovery. `status --format=json`
+  reads target identity + policy digest and creates no byte when enrollment is
+  absent. `sync` requires one canonical `wprism-operation-authorities/v1` file
+  and an exact expected current identity (`absent` only for first enrollment),
+  then fsyncs and atomically publishes it under the target's private Git
+  control directory. Exact replay is idempotent; concurrent change refuses.
+  Revocation is a reviewed `status: revoked` policy followed by this explicit
+  CAS sync. Prepare and execute never silently install policy.
 
 - **`wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]`** —
   post-release verification in two independent parts, both required for a pass:

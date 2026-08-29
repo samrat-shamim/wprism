@@ -926,9 +926,10 @@
       },
       "Promotion": {
         "layer": "engine",
-        "purpose": "Deploy, lifecycle and promotion mechanics — planners, leases, locks, session journals and state handoff between environments.",
+        "purpose": "Deploy, lifecycle and promotion mechanics — planners, leases, locks, externally-authorized repository binding, session journals and state handoff between environments.",
         "status": "populated",
         "entry_points": [
+          "AuthorizedReleaseRepository",
           "PromotionLock",
           "Deploy",
           "ScopedPromotionAuthority"
@@ -950,8 +951,9 @@
             ]
           }
         ],
-        "file_count": 11,
+        "file_count": 12,
         "files": [
+          "AuthorizedReleaseRepository.php",
           "Deploy.php",
           "DeployPlanner.php",
           "LifecycleExecutor.php",
@@ -1324,7 +1326,7 @@
       },
       "Authority": {
         "layer": "policy",
-        "purpose": "External human/policy execution authority shared by release and recovery: a separate actor-bound Ed25519 trust root, exact expiring operation envelopes, stable target identity, and target-private one-time consumption/completion evidence.",
+        "purpose": "External human/policy execution authority shared by release and recovery: a separate actor-bound Ed25519 trust root, an explicitly synchronized target-authoritative policy, exact expiring operation envelopes, stable target identity, and target-private one-time consumption/completion evidence.",
         "status": "populated",
         "entry_points": [
           "OperationAuthorization",
@@ -1552,10 +1554,11 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 37,
+        "file_count": 38,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
+          "AuthorityPolicyCommand.php",
           "CaptureCommand.php",
           "CensusCommand.php",
           "ClassifyCommand.php",
