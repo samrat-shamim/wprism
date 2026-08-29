@@ -4,9 +4,9 @@
  *
  * THE GAP THIS CLOSES, EXACTLY
  * ----------------------------
- * Before this rider, revocation was one `status` word per key in a file that
- * ships inside the agent archive (`Adopt.php:149` tars `agent manifests
- * recovery`), so revocation latency was agent-release latency. On the FROZEN
+ * Before this rider, revocation was one `status` word per key in the
+ * agent-bound manifest library, so revocation latency was agent-release
+ * latency. On the FROZEN
  * path it was worse than slow — it was unreachable: verifyCertificate() re-binds
  * a site-rooted certificate to the authority record its own SIGNATURE covers,
  * because frozen verification reopens no mutable site file, so nothing an

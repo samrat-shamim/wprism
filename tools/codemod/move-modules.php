@@ -137,13 +137,20 @@ const MM_SCAN_EXCLUDE = [
 const MM_MAX_SCAN_BYTES = 4194304;
 
 /**
- * Shipped-surface members, for the `SHIPPED SURFACE` label in --plan. These are
- * the trees and files a rewrite reaches a managed site through — `agent/`,
- * `manifests/` and `recovery/` are what cli/src/Onboarding/Adopt.php tars — plus
- * the harness files that pin their bytes. It exists so a reader of the plan can
- * see at a glance which rewrites leave the dev tree.
+ * Product and adoption-input members, for the `SHIPPED SURFACE` label in
+ * --plan. Adopt.php:212-226 assembles `adapter-packages/` plus
+ * `platform/adapter-library/` into `agent/`, then archives `agent recovery`;
+ * `cli/` ships as the host orchestrator. Harness files that pin those bytes are
+ * included so a reader can see every rewrite that can affect a managed site.
  */
-const MM_CLOSURE_PREFIXES = ['agent/', 'cli/', 'sandbox/bin/', 'manifests/'];
+const MM_CLOSURE_PREFIXES = [
+    'adapter-packages/',
+    'agent/',
+    'cli/',
+    'platform/adapter-library/',
+    'recovery/',
+    'sandbox/bin/',
+];
 
 const MM_CLOSURE_FILES = [
     'Makefile',
@@ -2093,8 +2100,8 @@ function mm_print_plan(array $plan, array $map): void
     }
 
     fwrite($out, "\n=== SHIPPED SURFACE ===\n");
-    fwrite($out, "These rewrites land in the trees that reach a managed site (agent/,\n");
-    fwrite($out, "manifests/, recovery/ per cli/src/Onboarding/Adopt.php) or in the harness\n");
+    fwrite($out, "These rewrites land in product trees or adoption inputs (agent/, cli/,\n");
+    fwrite($out, "recovery/, adapter-packages/, platform/adapter-library/) or in the harness\n");
     fwrite($out, "files that pin their bytes. --apply performs them; review them first.\n\n");
     foreach ($closureFiles as $relative => $info) {
         mm_print_file_changes($out, $relative, $info);

@@ -461,6 +461,23 @@ SH);
         self::assertSame('/a/b', mm_norm('/a/c/../b'));
     }
 
+    public function testClosureTracksCurrentProductAndAdoptionInputs(): void
+    {
+        foreach ([
+            'adapter-packages/acf/package/manifest.json',
+            'agent/src/Kernel/Canon.php',
+            'cli/src/Onboarding/Adopt.php',
+            'platform/adapter-library/capabilities/platform.json',
+            'recovery/CanonicalJson.php',
+            'sandbox/bin/pair.sh',
+        ] as $relative) {
+            self::assertTrue(mm_is_closure($relative), "$relative must be labelled as shipped surface");
+        }
+
+        self::assertFalse(mm_is_closure('manifests/core.json'), 'the retired flat manifest root is not shipped');
+        self::assertFalse(mm_is_closure('docs/dev-setup.md'), 'ordinary documentation is not shipped surface');
+    }
+
     public function testLiteralRewriteIgnoresANonMatchingPrefix(): void
     {
         $index = ['agent' => ['Canon' => 'Kernel']];
