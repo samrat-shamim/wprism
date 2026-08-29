@@ -321,6 +321,7 @@ final class Code {
             return [
                 'format' => 'duo-code-runtime/v1',
                 'enabled' => false,
+                'change_required' => false,
                 'compatible' => true,
                 'code_revision' => null,
                 'target' => self::target_runtime_versions(),
@@ -341,7 +342,18 @@ final class Code {
         if ($report['diagnostics']) {
             throw new CodeCompilationException($report['diagnostics']);
         }
-        return ['enabled' => true, 'code_revision' => $descriptor['code_revision']] + $report;
+        // The presence of a descriptor is not evidence of a code release.
+        // State-only promotions compile the same descriptor, and running
+        // activation/deactivation hooks for them is an externally effectful
+        // mutation with no code transition to justify it (agency audit #77).
+        // completed_code_mismatch() is the existing read-only, payload-
+        // verifying authority used by plan, so this bit cannot go green from
+        // the revision marker alone.
+        return [
+            'enabled' => true,
+            'change_required' => self::completed_code_mismatch($compiled) !== null,
+            'code_revision' => $descriptor['code_revision'],
+        ] + $report;
     }
 
     /**

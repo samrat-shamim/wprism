@@ -202,6 +202,38 @@
           }
         }
       }
+    },
+    {
+      "id": "woocommerce-lifecycle-migrations",
+      "version": "1.0.0",
+      "source": "manifest",
+      "plugin": "woocommerce/woocommerce.php",
+      "requires": {
+        "functions": ["get_option"],
+        "classes": ["WP_CLI"]
+      },
+      "capabilities": ["settle_lifecycle_migrations"],
+      "contracts": {
+        "settle_lifecycle_migrations": {
+          "args": {},
+          "reads": [
+            "option:woocommerce_db_version",
+            "option:woocommerce_version",
+            "table:actionscheduler_actions"
+          ],
+          "writes": [
+            "entity:woocommerce-lifecycle-migration-state",
+            "table:actionscheduler_actions",
+            "table:actionscheduler_claims",
+            "table:actionscheduler_groups",
+            "table:actionscheduler_logs",
+            "table:options"
+          ],
+          "scope": "site",
+          "idempotent": true,
+          "timeout_seconds": 600
+        }
+      }
     }
   ],
   "actions": [
@@ -585,6 +617,20 @@
         {"id": "woocommerce-product-route-rewrite-updated-option-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "updated_option"}},
         {"id": "woocommerce-product-route-permalink-allowed-protocols-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "kses_allowed_protocols"}},
         {"id": "woocommerce-product-route-permalink-clean-url-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "clean_url"}}
+      ]
+    },
+    {
+      "kind": "provider",
+      "provider": "woocommerce-lifecycle-migrations",
+      "capability": "settle_lifecycle_migrations",
+      "phase": "lifecycle_settle",
+      "args": {},
+      "effects": [
+        {"id": "woocommerce-lifecycle-migration-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
+        {"id": "woocommerce-lifecycle-migration-actions", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_actions"}},
+        {"id": "woocommerce-lifecycle-migration-claims", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_claims"}},
+        {"id": "woocommerce-lifecycle-migration-groups", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_groups"}},
+        {"id": "woocommerce-lifecycle-migration-logs", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_logs"}}
       ]
     }
   ],

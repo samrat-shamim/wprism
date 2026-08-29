@@ -887,7 +887,7 @@ fi
 # from one `<prefix><owner>` stem (RetainedCheckpoints.php:287, :342).
 REMEDY_ID="$(printf '%s\n' "$REMEDY" | tr ' ' '\n' | sed -n 's/^--restore=//p')"
 CHECKPOINT_PATH="$(sed -n 's/^database checkpoint: //p' "$TMP/promote-failed.human" | head -1)"
-if [ -n "$REMEDY_ID" ] && [ "$CHECKPOINT_PATH" = "${CHECKPOINT_PATH%/*}/$REMEDY_ID.sql" ]; then
+if [ -n "$REMEDY_ID" ] && [ "$CHECKPOINT_PATH" = "${CHECKPOINT_PATH%/*}/$REMEDY_ID.sql.enc" ]; then
   pass "the --restore=<id> the failure prints is the retained checkpoint's own stem ($REMEDY_ID)"
 else
   fail "the printed --restore=<id> ('$REMEDY_ID') is not the stem of '$CHECKPOINT_PATH'"

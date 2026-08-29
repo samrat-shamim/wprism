@@ -3373,6 +3373,19 @@ final class Policy {
     }
 
     /**
+     * Provider-owned completion gates selected by a verified code transition,
+     * after fresh-process activation and before finalize/state apply.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function lifecycle_settle_actions(): array {
+        return array_values(array_filter(
+            $this->actions(),
+            static fn(array $action): bool => ($action['phase'] ?? null) === 'lifecycle_settle'
+        ));
+    }
+
+    /**
      * Manifest actions with an exact canonical surface intersection.
      *
      * A declaration without `triggers` is deliberately unscoped: it remains
@@ -3398,6 +3411,9 @@ final class Policy {
 
         $out = [];
         foreach ($this->actions() as $action) {
+            if (($action['phase'] ?? null) === 'lifecycle_settle') {
+                continue;
+            }
             if (!array_key_exists('triggers', $action)) {
                 $out[] = $action;
                 continue;
@@ -3535,7 +3551,14 @@ final class Policy {
                 $source = self::action_source($action, $i);
                 $effects = self::action_effects($action + ['manifest' => $name], $i);
                 foreach ($effects as $effect) {
-                    $out[] = ['manifest' => $name, 'phase' => 'rebuild', 'source' => $source, 'effect' => $effect];
+                    $out[] = [
+                        'manifest' => $name,
+                        'phase' => ($action['phase'] ?? null) === 'lifecycle_settle'
+                            ? 'lifecycle-settle'
+                            : 'rebuild',
+                        'source' => $source,
+                        'effect' => $effect,
+                    ];
                 }
             }
             foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {

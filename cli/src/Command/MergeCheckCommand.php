@@ -20,15 +20,15 @@ require_once __DIR__ . '/../Refresh/RefreshFieldDiff.php';
  *   1  refusal — the tree does not compile, or a ref does not resolve
  *   2  usage error, matching the env-free verb family
  *      (ManifestValidate.php:863-866, AdapterDraft.php, AdapterCatalog.php)
- *   3  the tree compiled and the plan is valid, and conflicting entries need
- *      a human
+ *   3  the tree compiled and the plan is valid, but conflicting entries need
+ *      a human or code-version skew requires code-first migration/recapture
  *
  * 3 is deliberately an ANSWER, not a refusal, and that distinction is the
  * whole point: under `--format=json` exit 3 emits the SUCCESS document with
- * `verdict: "conflicts"`, never a `duo-command-refusal/v1` envelope. A CI job
- * can therefore treat 1 as "my pipeline is broken" and 3 as "a human owes me
- * a merge decision" without parsing prose. 3 was verified unused elsewhere in
- * `cli/` before it was claimed.
+ * `verdict: "conflicts"` or `verdict: "code_skew"`, never a
+ * `duo-command-refusal/v1` envelope. A CI job can therefore treat 1 as "my
+ * pipeline is broken" and 3 as "this merge is not safe yet" without parsing
+ * prose. 3 was verified unused elsewhere in `cli/` before it was claimed.
  */
 final class MergeCheckCommand {
     /**
@@ -178,14 +178,14 @@ final class MergeCheckCommand {
             if (!is_array($row)) {
                 continue;
             }
-            echo 'warning: code skew ' . (string) ($row['component'] ?? '?')
+            echo 'blocked: code skew ' . (string) ($row['component'] ?? '?')
                 . ' left=' . (string) ($row['left_version'] ?? 'absent')
                 . ' right=' . (string) ($row['right_version'] ?? 'absent') . "\n";
         }
         if ((array) ($document['code_skew'] ?? []) !== []) {
             // DESIGN.md:125's own remedy, verbatim, because the operator
             // reading this warning is about to decide an ordering.
-            echo "warning: remedy: merge code first, run migrations, re-capture, then merge state\n";
+            echo "blocked: remedy: merge code first, run migrations, re-capture, then merge state\n";
         }
         if ($plan !== null) {
             echo 'advisory: this plan carries no production authority; '

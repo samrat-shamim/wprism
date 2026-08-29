@@ -262,6 +262,13 @@ const SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS = [
 ];
 const SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH = '1fbcd7d59b44147932751a32bad7b28f6ab8c37caf26b52e059158d147740caf';
 
+/** The tenth overlay adds Woo's bounded asynchronous lifecycle-migration settlement provider. */
+const SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS = [
+    'woocommerce' => 'c62ce1317b08d2b10fa6e6bfb62bf640e4a8fc7a8021741ea9dee2063ffa3060',
+];
+const SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH = 'ebf0a904a8fa73b72c0b9a0dad58016a7ad640d18177ab2829c74f0ddcd38502';
+const SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA = '938b9214d772604a1aab3574e4b447d362d5a7c4aac6938035c3c52aab9adaeb';
+
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 duo_check(
     $shippedRegistry instanceof ManifestDispositions,
@@ -300,6 +307,9 @@ foreach (SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest
     $expectedDigests[$movedName] = $movedDigest;
 }
 foreach (SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS as $movedName => $movedDigest) {
+    $expectedDigests[$movedName] = $movedDigest;
+}
+foreach (SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS as $movedName => $movedDigest) {
     $expectedDigests[$movedName] = $movedDigest;
 }
 ksort($expectedDigests, SORT_STRING);
@@ -454,6 +464,29 @@ duo_check_same(
     'the native background-process ownership correction changes only WooCommerce and preserves the eighth '
     . 'transition as a separate reviewed identity'
 );
+$lifecycleSettlementMovedNames = [];
+foreach (SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS as $name => $digest) {
+    $priorDigest = SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS[$name]
+        ?? SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS[$name]
+        ?? SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS[$name]
+        ?? SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_NATIVE_HOOK_MOVED_DIGESTS[$name]
+        ?? SPLIT_LOCAL_CACHE_MOVED_DIGESTS[$name]
+        ?? SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS[$name]
+        ?? SPLIT_REVIEWED_MOVED_DIGESTS[$name]
+        ?? $frozenDigests[$name]
+        ?? null;
+    if ($priorDigest !== $digest) {
+        $lifecycleSettlementMovedNames[] = $name;
+    }
+}
+duo_check_same(
+    ['woocommerce'],
+    $lifecycleSettlementMovedNames,
+    'the bounded lifecycle-migration settlement provider changes only WooCommerce and preserves the ninth '
+    . 'transition as a separate reviewed identity'
+);
 duo_check_same(
     $expectedDigests,
     $observed,
@@ -473,7 +506,7 @@ duo_check_same(
     . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
 );
 duo_check_same(
-    SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH,
+    SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
     'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
     . 'address with each reviewed runtime correction, including the WooCommerce local-cache boundary, not because '
@@ -489,8 +522,10 @@ duo_check(
         && SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH !== SPLIT_MARIADB_PRIORITY_MANIFEST_HASH
         && SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH
         && SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH !== SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH
+        && SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH !== SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
-        && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA,
+        && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA
+        && SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA !== SPLIT_REVIEWED_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '
     . 'around them are re-pins a reviewer must read rather than restatements of the frozen constants'
 );
@@ -502,7 +537,7 @@ duo_check_same(
     . 'split itself (WP-4.5 is the rider that narrows this to per-subject addressing)'
 );
 duo_check_same(
-    SPLIT_REVIEWED_SNAPSHOT_SHA,
+    SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA,
     hash('sha256', Canon::encode($shippedPolicy->export_snapshot())),
     'and the frozen policy snapshot — which carries the whole registry as `dispositions` — moves with the '
     . 'reviewed claims it embeds and with nothing else, so the split alone never invalidated a compiled artifact'

@@ -145,6 +145,14 @@ final class InitRepositoryBoundary {
                 'remediation' => 'replace it with an ordinary repository-owned file',
             ];
         }
+        if (is_link($repo . '/.gitattributes')
+            || (file_exists($repo . '/.gitattributes') && !is_file($repo . '/.gitattributes'))) {
+            $blockers[] = [
+                'code' => 'unsafe_gitattributes', 'extension' => '.gitattributes', 'kind' => 'repository',
+                'reason' => 'the repository attribute path is not an ordinary regular file',
+                'remediation' => 'replace it with an ordinary repository-owned file',
+            ];
+        }
         if (is_link($repo . '/.git')) {
             $blockers[] = [
                 'code' => 'unsafe_git_metadata', 'extension' => '.git', 'kind' => 'repository',
@@ -162,7 +170,7 @@ final class InitRepositoryBoundary {
         }
 
         $allowed = array_fill_keys([
-            '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitignore', 'adapters',
+            '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitattributes', '.gitignore', 'adapters',
             'code', 'media', 'site.duo.json', 'state', 'state.capture.lock', 'state.capture-receipt',
             self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
         ], true);
@@ -324,6 +332,108 @@ final class InitRepositoryBoundary {
                 . ", not carried in Git\n" . implode("\n", $missingLocked) . "\n";
         }
         return InitOwnedArtifacts::publish_owned_file($path, $next, $identity, '.gitignore');
+    }
+
+    /** @return ?array{previous:?string,published:string} */
+    public static function ensure_gitattributes(string $repo, string $expectedIdentity): ?array {
+        $path = $repo . '/.gitattributes';
+        if (is_link($path) || (file_exists($path) && !is_file($path))) {
+            throw new \RuntimeException('duo: init refuses a non-file .gitattributes boundary');
+        }
+        $previous = is_file($path) ? Canon::read_file($path) : null;
+        $identity = $previous === null ? 'absent' : InitOwnedArtifacts::regular_file_identity($path, '.gitattributes');
+        if ($expectedIdentity === '' || !hash_equals($expectedIdentity, $identity)) {
+            throw new \RuntimeException('duo: init .gitattributes boundary changed after proposal review');
+        }
+        $required = 'media/** filter=lfs diff=lfs merge=lfs -text';
+        $lines = $previous === null ? [] : preg_split('/\r?\n/', $previous);
+        if (is_array($lines) && in_array($required, $lines, true)) {
+            return null;
+        }
+        $next = $previous ?? '';
+        if ($next !== '' && !str_ends_with($next, "\n")) {
+            $next .= "\n";
+        }
+        if ($next !== '') {
+            $next .= "\n";
+        }
+        $next .= "# Duo content-addressed media uses Git LFS\n$required\n";
+
+        return InitOwnedArtifacts::publish_owned_file($path, $next, $identity, '.gitattributes');
+    }
+
+    /** @return array{required:bool,version:string,config_identity:string,blockers:list<array<string,string>>} */
+    public static function git_lfs_probe(string $repo, bool $required, string $gitMode): array {
+        $result = self::runProcess(['git', 'lfs', 'version']);
+        $version = $result['exit'] === 0 ? trim($result['stdout']) : 'unavailable';
+        $blockers = [];
+        if ($required && $result['exit'] !== 0) {
+            $blockers[] = [
+                'code' => 'git_lfs_unavailable', 'extension' => 'media/**', 'kind' => 'repository',
+                'reason' => 'the captured site has media but Git LFS is unavailable on the target that owns the repository',
+                'remediation' => 'install Git LFS on the target, then rerun duo init; media binaries are never handed to ordinary Git',
+            ];
+        }
+        $config = $repo . '/.git/config';
+        $configIdentity = $gitMode === 'initialize-on-confirm'
+            ? 'initialize-on-confirm'
+            : InitOwnedArtifacts::owned_file_boundary_identity($config, 'Git local config');
+
+        return [
+            'required' => $required,
+            'version' => $version,
+            'config_identity' => $configIdentity,
+            'blockers' => $blockers,
+        ];
+    }
+
+    /**
+     * @return ?array{previous:?string,published:string}
+     */
+    public static function configure_git_lfs(
+        string $repo,
+        bool $required,
+        string $expectedConfigIdentity
+    ): ?array {
+        if (!$required) {
+            return null;
+        }
+        $config = $repo . '/.git/config';
+        if (is_link($config) || !is_file($config)) {
+            throw new \RuntimeException('duo: init Git LFS requires an ordinary repository-local Git config');
+        }
+        $previous = Canon::read_file($config);
+        $identity = InitOwnedArtifacts::regular_file_identity($config, 'Git local config');
+        if ($expectedConfigIdentity !== 'initialize-on-confirm'
+            && !hash_equals($expectedConfigIdentity, $identity)) {
+            throw new \RuntimeException('duo: init Git local config changed after proposal review');
+        }
+        $result = self::runProcess(['git', '-C', $repo, 'lfs', 'install', '--local', '--skip-repo']);
+        if ($result['exit'] !== 0) {
+            $current = InitOwnedArtifacts::regular_file_identity($config, 'Git local config');
+            if (!hash_equals($identity, $current)) {
+                InitOwnedArtifacts::compensate_owned_file(
+                    $config,
+                    ['previous' => $previous, 'published' => $current],
+                    'Git local config'
+                );
+            }
+            throw new \RuntimeException('duo: init could not configure repository-local Git LFS');
+        }
+        $published = InitOwnedArtifacts::regular_file_identity($config, 'Git local config');
+        $env = self::runProcess(['git', '-C', $repo, 'lfs', 'env']);
+        $attribute = self::runProcess(['git', '-C', $repo, 'check-attr', 'filter', '--', 'media/.duo-lfs-probe']);
+        if ($env['exit'] !== 0 || $attribute['exit'] !== 0
+            || trim($attribute['stdout']) !== 'media/.duo-lfs-probe: filter: lfs') {
+            InitOwnedArtifacts::compensate_owned_file(
+                $config,
+                ['previous' => $previous, 'published' => $published],
+                'Git local config'
+            );
+            throw new \RuntimeException('duo: init could not verify repository-local Git LFS and the media attribute');
+        }
+
+        return ['previous' => $previous, 'published' => $published];
     }
 
     /** @param array<string|int,mixed> $left @param array<string|int,mixed> $right */

@@ -118,6 +118,53 @@ $check(
 );
 unset($largeMediaBytes, $largeMediaBase64, $largeMediaPayload, $largeMediaCompiled, $largeMediaRoundTrip);
 
+$externalDirectory = sys_get_temp_dir() . '/duo-external-media-' . bin2hex(random_bytes(6));
+mkdir($externalDirectory, 0700);
+$externalBytes = str_repeat('large-video-chunk-', 530000);
+$externalHash = hash('sha256', $externalBytes);
+$externalName = "$externalHash.mp4";
+file_put_contents("$externalDirectory/$externalName", $externalBytes);
+$externalPayload = $payload;
+$externalPayload['tree'] = [
+    'large-video' => [
+        'type' => 'post',
+        'data' => [
+            'type' => 'attachment',
+            'file' => '2026/08/launch-video.mp4',
+            'mime' => 'video/mp4',
+            'media' => $externalName,
+        ],
+    ],
+];
+$externalPayload['media'] = [$externalName => [
+    'sha256' => $externalHash,
+    'size' => strlen($externalBytes),
+    'source' => 'repository',
+]];
+$externalCompiled = CompiledRepository::create($externalPayload, $externalDirectory);
+$check(
+    !array_key_exists('base64', $externalCompiled->export()['media'][$externalName])
+        && strlen(\Duo\Canon::encode($externalCompiled->export())) < 16384,
+    'a media payload above the inline frontier is an external content-addressed artifact reference'
+);
+$externalOutput = fopen('php://temp', 'w+b');
+$externalCompiled->copy_media_to_stream($externalName, $externalOutput);
+rewind($externalOutput);
+$check(
+    stream_get_contents($externalOutput) === $externalBytes,
+    'external media is copied in verified chunks through the compiled product boundary'
+);
+fclose($externalOutput);
+$externalRoundTrip = CompiledRepository::from_array($externalCompiled->export(), $externalDirectory);
+$check(
+    $externalRoundTrip->media_size($externalName) === strlen($externalBytes)
+        && $externalRoundTrip->media_sha256($externalName) === $externalHash,
+    'the persisted external media reference retains exact size and content identity'
+);
+unset($externalBytes);
+unlink("$externalDirectory/$externalName");
+rmdir($externalDirectory);
+
 $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=', true);
 if (!is_string($png)) {
     throw new RuntimeException('test PNG fixture did not decode');

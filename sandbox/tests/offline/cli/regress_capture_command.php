@@ -38,23 +38,27 @@ final class CaptureCommandDriver implements EnvironmentDriver {
     }
 }
 
+$fixtureBranch = 'feature/capture-command';
+$fixtureBranchResolver = static fn(): string => $fixtureBranch;
+
 // -- no --scope-contract flag: plain passthrough ------------------------------
 
 $plain = new CaptureCommandDriver();
-$plainExit = CaptureCommand::run($plain, ['--set=options:foo=runtime', '--dry-run']);
+$plainExit = CaptureCommand::run($plain, ['--set=options:foo=runtime', '--dry-run'], null, $fixtureBranchResolver);
 assert_capture_command($plainExit === 0, 'plain capture with no scope contract streams and returns the agent exit');
 assert_capture_command($plain->streamCalls === 1, 'plain capture streams exactly once');
 assert_capture_command(
     $plain->streamedArgs[0] === [
         'duo', 'capture', '--repo=/fixture/repo', '--set=options:foo=runtime', '--dry-run',
         '--orchestrator-environment=capture-fixture',
+        '--expected-repository-branch=feature/capture-command',
     ],
     'every other flag forwards through unchanged, in order, after the repo argument'
 );
 
 $plainNonZero = new CaptureCommandDriver();
 $plainNonZero->streamExit = 3;
-assert_capture_command(CaptureCommand::run($plainNonZero, []) === 3, 'the agent exit code propagates unchanged');
+assert_capture_command(CaptureCommand::run($plainNonZero, [], null, $fixtureBranchResolver) === 3, 'the agent exit code propagates unchanged');
 
 // -- reserved/internal argument refusals --------------------------------------
 
@@ -78,10 +82,13 @@ assert_capture_command(
 );
 
 $customRegistry = new CaptureCommandDriver();
-$registryExit = CaptureCommand::run($customRegistry, [], '/tmp/custom registry.json');
+$registryExit = CaptureCommand::run($customRegistry, [], '/tmp/custom registry.json', $fixtureBranchResolver);
 assert_capture_command(
     $registryExit === 0
-        && $customRegistry->streamedArgs[0] === ['duo', 'capture', '--repo=/fixture/repo'],
+        && $customRegistry->streamedArgs[0] === [
+            'duo', 'capture', '--repo=/fixture/repo',
+            '--expected-repository-branch=feature/capture-command',
+        ],
     'an explicit registry remains host-local and does not alter target argv'
 );
 
@@ -92,6 +99,31 @@ assert_capture_command(
             'duo', 'capture', '--repo=/fixture/repo', '--out=/tmp/candidate',
         ],
     'output-only capture with a custom registry adds no mismatched repository-lint presentation context'
+);
+
+$explicitBranch = new CaptureCommandDriver();
+assert_capture_command(
+    CaptureCommand::run($explicitBranch, ['--target-branch=release/client-a'], null, static fn(): never => throw new RuntimeException('resolver must not run')) === 0
+        && $explicitBranch->streamedArgs[0] === [
+            'duo', 'capture', '--repo=/fixture/repo',
+            '--orchestrator-environment=capture-fixture',
+            '--expected-repository-branch=release/client-a',
+        ],
+    'an explicit destination branch is removed from public argv and forwarded as the reserved target binding'
+);
+
+$detached = new CaptureCommandDriver();
+assert_capture_command(
+    CaptureCommand::run($detached, [], null, static fn(): ?string => null) === 2
+        && $detached->streamCalls === 0,
+    'repository-writing capture refuses a detached or non-Git caller before target contact'
+);
+
+$reservedBranch = new CaptureCommandDriver();
+assert_capture_command(
+    CaptureCommand::run($reservedBranch, ['--expected-repository-branch=main']) === 2
+        && $reservedBranch->streamCalls === 0,
+    'callers cannot forge the orchestrator-reserved target branch binding'
 );
 
 // -- malformed --scope-contract flag shapes -----------------------------------

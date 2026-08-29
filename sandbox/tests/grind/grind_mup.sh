@@ -1414,7 +1414,7 @@ elif ! dry; then
   # that file — not an older checkpoint, not a fabricated receipt.
   RETAINED_LINE="$(grep -F 'database checkpoint retained: ' "$RELEASE_OUT" | tail -1 || true)"
   if [ -n "$RETAINED_LINE" ]; then
-    RETAINED_ID="$(basename "${RETAINED_LINE#*database checkpoint retained: }" .sql | tr -d '\r')"
+    RETAINED_ID="$(basename "${RETAINED_LINE#*database checkpoint retained: }" .sql.enc | tr -d '\r')"
     [ "$RETAINED_ID" = "$RECEIPT_ID" ] \
       || fail "step 11: the catalog lists '$RECEIPT_ID' first, but the release retained '$RETAINED_ID'"
     pass "step 11 — the listed checkpoint is the one the release printed at step 9 ($RECEIPT_ID)"

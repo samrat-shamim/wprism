@@ -188,10 +188,10 @@ final class Doctor {
             $checks[] = self::check("repo path has site.duo.json ($repo)", false, 'skipped: transport unreachable');
         }
 
-        // DUO-3232: .duo-env-values.json is this environment's own optional,
-        // gitignored scratch file for values provisioned via `wp duo
-        // env-set` (see sandbox/site-repo.gitignore.template and
-        // cli/README.md) — a secrets-bearing file living right next to
+        // DUO-3232: .duo-env-values.json is this environment's gitignored
+        // intended-value authority, published by `wp duo env-set` before it
+        // mutates WordPress (see sandbox/site-repo.gitignore.template and
+        // cli/README.md). It is a secrets-bearing file living right next to
         // site.duo.json inside the repo checkout. When it CAN be checked,
         // this is BLOCKING, not advisory: a tracked secrets file isn't a
         // hardening gap to note for later, it is already-committed (and
@@ -200,8 +200,7 @@ final class Doctor {
         // deliberately covers both "never existed" and "exists but
         // untracked" with the same non-zero exit — this check only cares
         // about the one bad case, tracked, never about whether the file
-        // exists at all (most environments will have no such file, which
-        // is a perfectly ordinary pass).
+        // exists at all; an unprovisioned environment legitimately has none.
         //
         // "When it CAN be checked" is doing real work above, not hedging:
         // verified live against this project's OWN sandbox images

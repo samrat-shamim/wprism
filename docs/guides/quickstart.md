@@ -90,11 +90,14 @@ That continuation performs only the repository handoff; it does not repeat
 adopt, assess, or init.
 
 The checkout makes the initialized revision reviewable locally; it does not
-redirect the live environment. `duo capture production` always writes to
-production's configured target `repo_path`, not whichever local branch is
-checked out. Inspect with `"$DUO_CLI" assess production` next. Before capturing
-feature work, point or materialize the target environment to that feature
-branch as described in [daily-workflow.md](daily-workflow.md); preview
+redirect the live environment. `duo capture production` still writes only to
+production's configured target `repo_path`, but now binds that write to the
+caller's current named branch and refuses unless the target worktree is on the
+same branch. From a detached or non-Git controller context, name the destination
+explicitly with `--target-branch=<name>`; this verifies the target branch and
+never switches it. Inspect with `"$DUO_CLI" assess production` next. Before
+capturing feature work, point or materialize the target environment to that
+feature branch as described in [daily-workflow.md](daily-workflow.md); preview
 materialization additionally requires the two provider-backed entries shown in
 [release.md](release.md#create-a-preview).
 
@@ -132,7 +135,13 @@ An SSH target needs PHP 8+ with Sodium and a working `fsync()`, a working `wp`
 command, `tar`, and an installed WordPress. Adoption itself ships files rather
 than cloning a repository, but the subsequent `duo init` path also requires a
 working `git` binary on the target: init verifies or creates the target-owned
-Git worktree before publishing its baseline. The configured `repo_path` itself
+Git worktree before publishing its baseline.
+When the site has attachment bytes, that target also needs Git LFS: the
+read-only proposal proves `git lfs version`, and confirmation installs the
+filter in the repository-local Git config before any media baseline is
+published. Every developer machine that clones the repository needs Git LFS as
+well; `media/**` is deliberately never handed to ordinary Git object storage.
+The configured `repo_path` itself
 must already be an ordinary directory reached without symbolic-link ancestors;
 SSH or authorized local adoption creates it, while Docker control-plane setup
 or the site's bind mount must create it before init. Init binds that exact directory before
@@ -312,7 +321,9 @@ in place until init succeeds or any retained recovery evidence is resolved.
 
 On success the target repository is Git-ready and contains independent
 `site.duo.json`, `code/wp-content`, `state`, and content-addressed `media`
-contracts — plus `code/duo-code.lock.json` when the split locked at least one
+contracts. Init publishes `.gitattributes` with the closed
+`media/** filter=lfs diff=lfs merge=lfs -text` rule and verifies the effective
+attribute before capture — plus `code/duo-code.lock.json` when the split locked at least one
 component. The locked components' bytes are on disk and compile normally at the
 target; they are simply not in Git, so a fresh clone needs the materialization
 step in [code-updates.md](code-updates.md#the-materialization-step) before its
@@ -556,7 +567,7 @@ operator-owned repository it already is. Match the seed byte-for-byte,
 `term_meta` included, if you want `duo init` to keep owning the file instead.
 
 Repositories initialized by `duo init` already include the required ignore
-rules and initial baseline; continue with pending review and the daily
+and Git LFS attribute rules plus the initial baseline; continue with pending review and the daily
 workflow rather than recapturing merely to manufacture a first snapshot.
 
 That `.gitignore` — already copied above, before either path's first write —
@@ -565,8 +576,8 @@ covers init's sealed recovery journal (`.duo-init-attempt` and its
 staging root, capture's publication artifacts
 (`state.capture.lock`, `state.capture-staging/`, `state.capture-backup/`,
 `state.capture-intent`, `state.capture-receipt`, their fixed `.previous`/`.next`
-transition slots, and `.tmp*`), and the optional
-per-environment `.duo-env-values.json` scratch file. Omitting
+transition slots, and `.tmp*`), and the target-local
+per-environment `.duo-env-values.json` intended-value file. Omitting
 `state.capture.lock` in
 particular is not cosmetic: the template's own comment records the structural
 failure it causes the moment two environments capture on both sides of a pair
@@ -593,7 +604,7 @@ delete only the journal and leave its partial payload behind.
 
 The generated template already keeps the root-local machine registry
 (`/.duo-envs.json`), operational artifact/checkpoint directory (`/.duo/`), and
-environment-value scratch file (`/.duo-env-values.json`) out of Git. The root
+environment intended-value file (`/.duo-env-values.json`) out of Git. The root
 anchors preserve legitimate same-named files inside vendored code. When the
 split locked components, a second labelled block holds their root-anchored
 `/code/wp-content/<root>/<component>/` lines; those are the exact lines the

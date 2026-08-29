@@ -16,6 +16,9 @@ require_once dirname(__DIR__, 3) . '/agent/src/Policy/ScopeContract.php';
  * bootstraps WordPress or interprets a target response.
  */
 final class PassthroughCommand {
+    private const ENV_SET_OUTCOME_TIMEOUT_SECONDS = 300.0;
+    private const OUTCOME_UNKNOWN_EXIT = 75;
+
     public static function run(EnvironmentDriver $driver, string $verb, array $extra): int {
         if (in_array($verb, ['plan', 'apply'], true)) {
             return self::runScoped($driver, $verb, $extra);
@@ -44,18 +47,30 @@ final class PassthroughCommand {
      * @param null|callable():bool $stdinIsTty
      * @param null|callable(bool):bool $setTerminalEcho
      * @param null|callable():string|false $readStdin
+     * @param null|callable():float $monotonicTime
      */
     public static function runEnvSet(
         EnvironmentDriver $driver,
         array $extra,
         ?callable $stdinIsTty = null,
         ?callable $setTerminalEcho = null,
-        ?callable $readStdin = null
+        ?callable $readStdin = null,
+        ?callable $monotonicTime = null,
+        float $outcomeTimeoutSeconds = self::ENV_SET_OUTCOME_TIMEOUT_SECONDS
     ): int {
         $hasStdin = false;
         foreach ($extra as $arg) {
             if (!is_string($arg) || self::isHostOwnedTargetFlag($arg)) {
                 return self::run($driver, 'env-set', $extra);
+            }
+            if ($arg === '--value' || str_starts_with($arg, '--value=')) {
+                return self::scopeWireRefusal(
+                    'env-set',
+                    $extra,
+                    'invalid_arguments',
+                    'env-set does not accept command-line values because process arguments are observable',
+                    'remove --value and pipe one newline-terminated value through --stdin'
+                );
             }
             if ($arg === '--stdin' || str_starts_with($arg, '--stdin=')) {
                 $hasStdin = true;
@@ -82,19 +97,43 @@ final class PassthroughCommand {
             // Unknown is not evidence of a safe non-interactive pipe.
             return true;
         };
-        if (!$stdinIsTty()) {
-            return self::run($driver, 'env-set', $extra);
+        $monotonicTime ??= static fn(): float => hrtime(true) / 1_000_000_000;
+        if (!is_finite($outcomeTimeoutSeconds) || $outcomeTimeoutSeconds <= 0.0) {
+            throw new \InvalidArgumentException('env-set outcome timeout must be a positive finite number');
         }
         if (!function_exists('proc_open')
             || !function_exists('proc_get_status')
             || !function_exists('proc_close')
+            || !function_exists('proc_terminate')
             || !function_exists('stream_set_blocking')) {
             return self::scopeWireRefusal(
                 'env-set',
                 $extra,
                 'stdin_isolation_unavailable',
-                'this PHP host cannot isolate interactive secret input from the terminal',
-                'enable PHP process/stream functions or pipe the value from a trusted non-interactive source, then retry'
+                'this PHP host cannot isolate and bound secret input delivery',
+                'enable PHP process/stream functions or run wp duo env-set directly on the target'
+            );
+        }
+        if (!$stdinIsTty()) {
+            $readStdin ??= static fn(): string|false => fgets(STDIN);
+            $line = $readStdin();
+            if (!is_string($line) || !str_ends_with($line, "\n")) {
+                return self::scopeWireRefusal(
+                    'env-set',
+                    $extra,
+                    'invalid_arguments',
+                    'env-set did not receive one complete line from stdin',
+                    'provide one newline-terminated value and rerun env-set'
+                );
+            }
+            $handoffActive = false;
+            return self::streamWpInput(
+                $driver,
+                array_merge(['duo', 'env-set', '--repo=' . $driver->repoPath()], $extra),
+                $line,
+                $handoffActive,
+                $monotonicTime,
+                $outcomeTimeoutSeconds
             );
         }
         $readStdin ??= static function (): string|false {
@@ -201,7 +240,9 @@ final class PassthroughCommand {
                 $driver,
                 array_merge(['duo', 'env-set', '--repo=' . $driver->repoPath()], $extra),
                 $line,
-                $handoffActive
+                $handoffActive,
+                $monotonicTime,
+                $outcomeTimeoutSeconds
             );
         } finally {
             $handoffActive = false;
@@ -231,7 +272,9 @@ final class PassthroughCommand {
         EnvironmentDriver $driver,
         array $wpArgs,
         string $input,
-        bool &$handoffActive
+        bool &$handoffActive,
+        callable $monotonicTime,
+        float $outcomeTimeoutSeconds
     ): int {
         // Resolve the target instruction while ordinary cancellation remains
         // available. The commit boundary begins immediately before spawn,
@@ -247,8 +290,10 @@ final class PassthroughCommand {
             return 255;
         }
 
+        $deadline = $monotonicTime() + $outcomeTimeoutSeconds;
         $complete = false;
         $observedExit = null;
+        $timedOut = false;
         try {
             // A blocking pipe write can hide PHP's async signal handlers while
             // Docker/SSH/WP is slow or never reads. Nonblocking writes keep
@@ -257,6 +302,10 @@ final class PassthroughCommand {
             $offset = 0;
             $length = strlen($input);
             while ($writeReady && $offset < $length) {
+                if ($monotonicTime() >= $deadline) {
+                    $timedOut = true;
+                    break;
+                }
                 $written = @fwrite($pipes[0], substr($input, $offset));
                 if ($written === false) {
                     break;
@@ -278,22 +327,52 @@ final class PassthroughCommand {
             // Do not disappear into a blocking proc_close(): PHP async signal
             // handlers are not guaranteed to run while that syscall waits.
             // Polling keeps Ctrl-Z/termination handling live after handoff.
-            while ($observedExit === null) {
+            while ($observedExit === null && !$timedOut) {
                 $status = proc_get_status($proc);
                 if (($status['running'] ?? false) !== true) {
                     $observedExit = self::processExitCode($status);
                     break;
                 }
+                if ($monotonicTime() >= $deadline) {
+                    $timedOut = true;
+                    break;
+                }
                 usleep(10000);
+            }
+            if ($timedOut) {
+                self::terminateTimedOutProcess($proc);
             }
             $closedExit = proc_close($proc);
             $exitCode = $observedExit ?? $closedExit;
+        }
+        if ($timedOut) {
+            $seconds = rtrim(rtrim(sprintf('%.3f', $outcomeTimeoutSeconds), '0'), '.');
+            fwrite(
+                STDERR,
+                "duo: env-set: target outcome timed out after {$seconds}s; the remote write may still complete. "
+                    . 'Retry the identical --stdin value: env-set is idempotent, and plan remains red until '
+                    . "the live value matches the target-local intended binding.\n"
+            );
+            return self::OUTCOME_UNKNOWN_EXIT;
         }
         // If the target has already failed, preserve its actionable exit code
         // even when its closed pipe prevented the whole value from being
         // written. Exit 255 is reserved for a short write whose target
         // otherwise claimed success.
         return !$complete && $exitCode === 0 ? 255 : $exitCode;
+    }
+
+    /** @param resource $proc */
+    private static function terminateTimedOutProcess($proc): void {
+        @proc_terminate($proc);
+        for ($attempt = 0; $attempt < 100; $attempt++) {
+            $status = proc_get_status($proc);
+            if (($status['running'] ?? false) !== true) {
+                return;
+            }
+            usleep(10000);
+        }
+        @proc_terminate($proc, 9);
     }
 
     /** @param array<string,mixed> $status */
@@ -630,7 +709,7 @@ final class PassthroughCommand {
     }
 
     public static function isPlanViewFlag(string $arg): bool {
-        foreach (['category', 'action', 'entity', 'limit'] as $name) {
+        foreach (['category', 'action', 'entity', 'cursor', 'limit', 'view-only'] as $name) {
             if ($arg === "--$name" || str_starts_with($arg, "--$name=")) {
                 return true;
             }

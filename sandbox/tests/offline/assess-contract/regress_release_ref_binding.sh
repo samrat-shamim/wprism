@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# Regression — round-3 MUP §2.3 step 2: `--from <ref>` is a BINDING
-# ASSERTION, not a git transport.
+# Regression — `--from <ref>` is a read-only binding in plan-only mode and a
+# verified, fast-forward repository delivery in an executing release.
 #
 # Release resolves the ref in the local site repository, reads the TARGET
 # repository's own HEAD through the driver, and refuses a mismatch with the
 # next action `reconcile`. The refusal is not a retry: a retry asserts the
 # same ref against the same target and gets the same answer.
 #
-# The second half of this suite is the one that matters most. MUP is explicit
-# that "MUP invents no code-shipping path that `promote` and the code-release
-# provider do not already own", so this asserts against the RECORDED driver
-# calls that no `git push`, `git fetch`, `git checkout`, `git reset`, `git
-# pull`, `git clone` or `git merge` was ever issued at the target — only
-# `git rev-parse`. A release that quietly moved a target's git state would
-# make the frozen plan a description of something that had already happened.
+# Plan-only still mutates nothing. The executing path instead fetches the same
+# advertised ref from the target origin, proves its hash equals the local
+# selection, and moves only a clean named target by fast-forward.
 #
 # Offline: no docker, no WordPress, no network, no target.
 set -uo pipefail
@@ -113,15 +109,15 @@ grep -Eq 'next.action"?:? *"?reconcile' "$TMP/mismatch.txt" \
 grep -Eq 'next.action"?:? *"?retry' "$TMP/mismatch.txt" \
   && fail 'the ref-mismatch refusal offered retry, which asserts the same ref again' \
   || pass 'the ref-mismatch refusal never offers retry'
-grep -Fq 'Do not retry this release' "$TMP/mismatch.txt" \
-  && pass 'the remediation says so in words as well as in the machine field' \
-  || fail 'the remediation does not tell the operator not to retry'
+grep -Fq 'without --plan-only' "$TMP/mismatch.txt" \
+  && pass 'the remediation names the executing Duo delivery path' \
+  || fail 'the remediation does not explain how Duo can deliver the revision'
 [ -d "$RELEASE_DIR" ] && [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
   && fail 'a ref mismatch still froze an authorization plan' \
   || pass 'a ref mismatch freezes nothing'
 
 # ------------------------------------------------------------ no git transport
-say 'no git transport is invented'
+say 'plan-only performs no git transport'
 FORBIDDEN=0
 while IFS= read -r line; do
   case " $line " in
@@ -130,7 +126,7 @@ while IFS= read -r line; do
       FORBIDDEN=1 ;;
   esac
 done < "$TMP/git-calls.txt"
-[ "$FORBIDDEN" = 0 ] && pass 'no git push/fetch/pull/clone/checkout/reset/merge was issued anywhere'
+[ "$FORBIDDEN" = 0 ] && pass 'plan-only issued no push/fetch/pull/clone/checkout/reset/merge'
 REV_PARSE=$(grep -c 'rev-parse' "$TMP/git-calls.txt" || true)
 [ "$REV_PARSE" -ge 2 ] \
   && pass "the binding is read-only: $REV_PARSE git rev-parse calls and nothing else that touches refs" \
@@ -182,8 +178,84 @@ else
     || fail 'plan-only WROTE .duo/contract/projection.json into a site repository that had none, contradicting the "mutated nothing… not the target, not the site repository" promise (docs/guides/release.md:122-124)'
 fi
 
+# ---------------------------------------------------- executing ref delivery
+say 'executing --from delivers one verified fast-forward'
+DELIVERY_REMOTE="$TMP/delivery.git"
+DELIVERY_TARGET="$TMP/delivery-target"
+DELIVERY_BRANCH="$(git -C "$SITE" symbolic-ref --quiet --short HEAD)"
+git init --bare --initial-branch="$DELIVERY_BRANCH" "$DELIVERY_REMOTE" >/dev/null 2>&1
+git -C "$SITE" remote add delivery-origin "$DELIVERY_REMOTE"
+git -C "$SITE" push delivery-origin "HEAD:refs/heads/$DELIVERY_BRANCH" >/dev/null 2>&1
+git clone "$DELIVERY_REMOTE" "$DELIVERY_TARGET" >/dev/null 2>&1
+printf 'delivered revision\n' > "$SITE/delivery-proof.txt"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.email=fixture@example.invalid -c user.name=fixture commit -q -m 'deliver revision'
+git -C "$SITE" push delivery-origin "HEAD:refs/heads/$DELIVERY_BRANCH" >/dev/null 2>&1
+DELIVERY_HEAD="$(git -C "$SITE" rev-parse HEAD)"
+
+cat > "$TMP/deliver.php" <<'PHP'
+<?php
+declare(strict_types=1);
+require_once $argv[1] . '/cli/src/Command/ReleaseCommand.php';
+
+final class ReleaseDeliveryDriver implements \Duo\Orchestrator\EnvironmentDriver {
+    public function __construct(private string $repo) {}
+    public function name(): string { return 'delivery'; }
+    public function driverId(): string { return 'delivery'; }
+    public function repoPath(): string { return $this->repo; }
+    public function describe(): string { return 'delivery fixture'; }
+    public function captureRaw(string $script): array {
+        $process = proc_open(['/bin/sh', '-c', $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) return ['exit' => 127, 'stdout' => '', 'stderr' => ''];
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]); fclose($pipes[2]);
+        return ['exit' => proc_close($process), 'stdout' => (string) $stdout, 'stderr' => (string) $stderr];
+    }
+    public function captureWp(array $wpArgs): array { return ['exit' => 1, 'stdout' => '', 'stderr' => '']; }
+    public function streamWp(array $wpArgs): int { return 1; }
+    public function wpInstruction(array $wpArgs): string { return ''; }
+    public function capabilityReport(string $operation): \Duo\Orchestrator\DriverCapabilityReport {
+        return \Duo\Orchestrator\DriverCapabilityReport::forDriver('delivery', 'delivery', $operation, []);
+    }
+}
+
+$method = new ReflectionMethod(\Duo\Orchestrator\ReleaseCommand::class, 'deliverRef');
+$driver = new ReleaseDeliveryDriver($argv[3]);
+try {
+    $actual = $method->invoke(null, $argv[4], $argv[5], $argv[2], $driver);
+    if (($argv[6] ?? '') === 'refuse') exit(3);
+    exit(hash_equals($argv[5], (string) $actual) ? 0 : 4);
+} catch (\Duo\CommandRefusalException $failure) {
+    if (($argv[6] ?? '') === 'refuse' && $failure->reasonCode === 'release_delivery_failed') exit(0);
+    fwrite(STDERR, $failure->reasonCode . "\n");
+    exit(5);
+}
+PHP
+
+php "$TMP/deliver.php" "$ROOT" "$SITE" "$DELIVERY_TARGET" "$DELIVERY_BRANCH" "$DELIVERY_HEAD" success
+STATUS=$?
+[ "$STATUS" = 0 ] && [ "$(git -C "$DELIVERY_TARGET" rev-parse HEAD)" = "$DELIVERY_HEAD" ] \
+  && [ -f "$DELIVERY_TARGET/delivery-proof.txt" ] \
+  && pass 'delivery fetched the advertised ref, matched its local hash, and fast-forwarded the target worktree' \
+  || fail 'executing delivery did not materialize the exact selected revision'
+
+printf 'next revision\n' > "$SITE/delivery-proof-2.txt"
+git -C "$SITE" add delivery-proof-2.txt
+git -C "$SITE" -c user.email=fixture@example.invalid -c user.name=fixture commit -q -m 'next delivery revision'
+git -C "$SITE" push delivery-origin "HEAD:refs/heads/$DELIVERY_BRANCH" >/dev/null 2>&1
+DIRTY_EXPECTED="$(git -C "$SITE" rev-parse HEAD)"
+printf 'operator work\n' > "$DELIVERY_TARGET/untracked-operator-file.txt"
+TARGET_BEFORE_DIRTY="$(git -C "$DELIVERY_TARGET" rev-parse HEAD)"
+php "$TMP/deliver.php" "$ROOT" "$SITE" "$DELIVERY_TARGET" "$DELIVERY_BRANCH" "$DIRTY_EXPECTED" refuse
+STATUS=$?
+[ "$STATUS" = 0 ] && [ "$(git -C "$DELIVERY_TARGET" rev-parse HEAD)" = "$TARGET_BEFORE_DIRTY" ] \
+  && pass 'dirty target delivery refuses before moving HEAD or overwriting operator work' \
+  || fail 'dirty target delivery moved or failed to classify the target safely'
+
 # ----------------------------------------------------- an unresolvable ref
 say 'a ref that does not exist locally'
+: > "$TMP/git-calls.txt"
 duo "$TMP/unknown.txt" release fixture --from=no-such-ref --plan-only --format=json
 STATUS=$?
 cat "$TMP/unknown.txt.err" >> "$TMP/unknown.txt"

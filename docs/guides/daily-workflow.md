@@ -250,10 +250,17 @@ duo rebase production --production-ref=v2026.03.1 \
 ```
 
 Choose `b`/`branch` for the branch (`ours`) or `p`/`production` for production
-(`theirs`). `--interactive` requires TTY stdin and stdout and may show a
-bounded C0/DEL-safe authored title/name or path fallback beside the otherwise
-closed selector. That label is transient local context only: it never enters
-the value-free diff, JSON, resolution, run, or receipt. Before prompting, it
+(`theirs`). `--interactive` requires TTY stdin and stdout. For every changed
+leaf it shows base, branch, and production state, exact path, and each source
+value as a terminal-safe preview capped at 4 KiB (paths at 512 bytes), with the
+exact byte count and SHA-256 even when truncated. Scalar fields, complete
+record-atomic documents, and whole block values all use that same comparison,
+so the choice is tied directly to the opaque record and field selectors. It
+also shows a bounded C0/DEL-safe authored title/name or path fallback.
+This is privileged output: run it only in a trusted terminal because values
+may contain secrets or personal data and a terminal transcript can retain
+them. The comparison and label are transient local context only: they never
+enter the value-free diff, JSON, resolution, run, or receipt. Before prompting, it
 previews every automatic branch/production decision (including changed
 non-conflicting plan rows) and each manual conflict. `production-only` selects
 production; `branch-only` and `compatible` retain the exact branch-byte
@@ -325,9 +332,10 @@ one parseable document for every outcome.
 Locked component versions are overwritten, never merged, so two branches can
 disagree about which WooCommerce a merged state tree was captured against.
 merge-check reads each ref's `code/duo-code.lock.json` and reports the
-difference as a warning in `code_skew[]`. It **warns and does not change the
-exit code**, matching `duo apply`, which warns on the same mismatch. The remedy
-is ordering: merge code first, run migrations, re-capture, then merge state.
+difference in `code_skew[]`. Any skew is blocking: exit 3 with
+`verdict: "code_skew"` even when the state plan has no editorial conflict.
+The remedy is ordering: merge code first, run migrations, re-capture, then
+merge state.
 
 ### What it deliberately does not do
 
@@ -362,26 +370,20 @@ path in single quotes, so you are reading "the Pricing page", not a UUID.
 The buckets that make it non-zero and the exact remedy for each are tabulated
 in
 [capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy).
-The one distinction worth internalizing here: `duo status` is a *readiness*
-probe, not a prediction of whether `duo apply` would refuse. Ordinary state
-drift and a missing required `env` value are both cases apply happily proceeds
-through, and both are still "not safe to promote" — because they mean this
-plan's own comparison is already stale, or the environment is running with a
-genuine gap. A planned deletion this environment still holds is the third and
-the sharpest: an ordinary apply performs *no* deletion without
-`--with-deletes` — it warns that it applied none of them, writes the rest of
-the plan, and records the revision as applied — so the tombstone stays pending
+`duo status` is a *readiness* probe, and the mutation boundary now agrees on
+the two stale/partial cases: ordinary drift and unauthorized deletions both
+refuse in preparation. A missing required `env` value remains a visible
+runtime gap rather than authored state apply can write. A planned deletion
+this environment still holds performs *no* deletion without
+`--with-deletes` — it refuses before any authored mutation, so it cannot write
+the rest of the plan or record a revision while the tombstone stays pending
 until somebody authorizes it, and status keeps saying no until then.
 
-Ordinary drift is worth one more sentence, because "proceeds through" means
-apply's *pre-mutation* gates, not the whole run. Apply never overwrites an
-entity that drifted out of band; it writes the rest of the plan, leaves those
-rows exactly as the environment has them, and then fails the mandatory
-post-apply convergence gate, which proves the whole compiled tree. That
-refusal names the preserved entities, says plainly that the target was
-mutated, and points at `duo capture`. Nothing is lost and nothing is silently
-overwritten — but the promotion did not complete, and a retry will keep failing
-the same way until the drift is captured.
+Ordinary drift refuses during apply preparation before any authored mutation.
+It names the preserved entities and points at `duo capture`; capture and
+reconcile them, then apply a newly built plan. The one exception is the
+externally checkpointed scoped-promotion profile, whose signed selection is
+explicit authority to replace only its selected drift.
 
 `duo status` parses and reformats; it never prints raw JSON. For that, and for
 scripting, use `duo plan <env> --format=json`.
@@ -429,21 +431,22 @@ what may change, the recovery claim, effects, and the authority still required
 — ending in a single question. `--plan-only` prints exactly that and exits
 having mutated nothing, including the site repository.
 
-That deletion refusal is release-only. An ordinary `duo promote <env>` does not
-refuse on an unauthorized deletion: it warns loudly that it performed none of
-the planned ones, applies the rest, and leaves the tombstone pending for
-`duo status` to keep reporting. Same fact, two postures — release freezes the
-authorization in front of promotion, promote reports it and lets the readiness
-probe hold the line.
+That deletion refusal now holds at every mutation entry point. `duo release`,
+`duo promote`, and direct `wp duo apply` all require `--with-deletes` before a
+plan containing live tombstones can mutate anything. Release additionally
+freezes that authority in its reviewed plan; the lower-level verbs enforce the
+same no-partial-success invariant at apply preparation.
 
 Behind: `duo verify`, which pairs a fresh read-only convergence re-read with
 the HTTP journey oracles your contract declares. Both must pass. If you
 declared no journeys, verify says so rather than letting a green tick imply a
 business check nobody wrote.
 
-Two flags are worth knowing before you need them. `--from=<ref>` is a *binding
-assertion*, not a git transport: the ref is resolved locally, compared with the
-target's `HEAD`, and a mismatch refuses with `reconcile`. And `--profile` may
+Two flags are worth knowing before you need them. `--from=<ref>` selects and
+delivers one exact advertised branch/tag: an executing release fetches through
+the target's `origin`, verifies the local and fetched commit hashes match, and
+fast-forwards only a clean named target. Read-only `--plan-only` reports a
+mismatch instead of delivering. And `--profile` may
 only strengthen silently — anything weaker than what the target can prove,
 `none` included, additionally requires `--accept-weaker-recovery` and prints a
 warning beside the plan.

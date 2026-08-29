@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/ApplyPlanner.php';
+require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
 require_once __DIR__ . '/../Rebuild/RebuildSelection.php';
@@ -14,7 +15,8 @@ if (!class_exists(Ledger::class, false)) {
 final class ApplyPlanEnvironment {
     public function __construct(
         private readonly Policy $policy,
-        private readonly RebuildSelection $rebuildSelection
+        private readonly RebuildSelection $rebuildSelection,
+        private readonly string $repo
     ) {}
 
     /** @return array{regen_pending:list<array>,regen_context:list<array>,warnings:list<string>} */
@@ -33,12 +35,14 @@ final class ApplyPlanEnvironment {
     /** @return array{env_missing:list<array{name:string,required:bool}>,warnings:list<string>} */
     public function env_missing_projection(): array {
         global $wpdb;
+        $expected = EnvironmentValues::read($this->repo);
         return ApplyPlanner::env_missing_projection(
             $this->policy->env_options(),
             fn(string $name): mixed => $wpdb->get_var($wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
                 $name
-            ))
+            )),
+            fn(string $name): ?string => isset($expected[$name]) ? (string) $expected[$name] : null
         );
     }
 }

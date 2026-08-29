@@ -34,8 +34,8 @@ sandbox/.env
 /.*.duo-init-*
 
 # DUO-3232: see sandbox/site-repo.gitignore.template's own note — belt-and-
-# suspenders for local testing/experimentation against this repo's own
-# root, mirroring .duo-envs.json's identical treatment above. The real,
+# suspenders for local testing against this repo's own root, mirroring
+# .duo-envs.json's identical treatment above. The real,
 # load-bearing copy of this ignore rule is the template, which becomes
 # every managed site-repo's OWN .gitignore.
 /.duo-env-values.json

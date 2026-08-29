@@ -31,7 +31,9 @@ final class RefreshFieldDiff {
     public const RESOLUTION_FORMAT = 'duo-refresh-field-resolution/v1';
     public const POLICY_FORMAT = 'duo-refresh-field-policy/v1';
     /** Private, process-local only: never journaled or returned by Refresh. */
-    public const PRESENTATION_FORMAT = 'duo-refresh-field-presentation/v1';
+    public const PRESENTATION_FORMAT = 'duo-refresh-field-presentation/v2';
+    private const INTERACTIVE_VALUE_PREVIEW_BYTES = 4096;
+    private const INTERACTIVE_PATH_PREVIEW_BYTES = 512;
     public const ALGORITHM = 'duo-refresh-field-diff/v1';
 
     /**
@@ -278,6 +280,7 @@ final class RefreshFieldDiff {
             $public[(string) $record['record_selector_sha256']] = $record;
         }
         $labels = [];
+        $comparisons = [];
         $auto = [];
         $seen = [];
         foreach ($plan['entries'] as $entry) {
@@ -315,6 +318,10 @@ final class RefreshFieldDiff {
                 if (($public[$selector]['entity'] ?? null) !== self::publicEntity($entry, $base, $production, $branch)) {
                     throw new \RuntimeException('field interactive presentation has a mismatched conflicting entity');
                 }
+                $comparisons = array_merge(
+                    $comparisons,
+                    self::interactiveComparisons($entry, $public[$selector], $bundle['records'][$selector] ?? null)
+                );
                 unset($public[$selector]);
                 continue;
             }
@@ -345,8 +352,12 @@ final class RefreshFieldDiff {
         ksort($labels, SORT_STRING);
         usort($auto, static fn(array $a, array $b): int =>
             (string) $a['record_selector_sha256'] <=> (string) $b['record_selector_sha256']);
+        usort($comparisons, static fn(array $a, array $b): int =>
+            self::choiceKey((string) $a['record_selector_sha256'], (string) $a['field_selector_sha256'])
+            <=> self::choiceKey((string) $b['record_selector_sha256'], (string) $b['field_selector_sha256']));
         return self::normalizeInteractivePresentation([
             'auto' => $auto,
+            'comparisons' => $comparisons,
             'diff_hash' => (string) $diff['diff_hash'],
             'format' => self::PRESENTATION_FORMAT,
             'labels' => $labels,
@@ -368,6 +379,13 @@ final class RefreshFieldDiff {
         self::assertDiff($diff);
         $presentation = self::normalizeInteractivePresentation($presentation, $diff);
         $labels = $presentation['labels'];
+        $comparisons = [];
+        foreach ($presentation['comparisons'] as $comparison) {
+            $comparisons[self::choiceKey(
+                (string) $comparison['record_selector_sha256'],
+                (string) $comparison['field_selector_sha256']
+            )] = $comparison;
+        }
         $preview = [];
         $items = [];
         foreach ($presentation['auto'] as $automatic) {
@@ -407,7 +425,7 @@ final class RefreshFieldDiff {
         usort($items, static fn(array $a, array $b): int =>
             self::choiceKey((string) $a['record_selector_sha256'], (string) $a['field_selector_sha256'])
             <=> self::choiceKey((string) $b['record_selector_sha256'], (string) $b['field_selector_sha256']));
-        fwrite($out, "refresh field resolution preview (closed choices; ours=branch, theirs=production; local labels are not persisted)\n");
+        fwrite($out, "refresh field resolution preview (ours=branch, theirs=production; privileged values below are local-only and not persisted)\n");
         if ($preview === []) {
             fwrite($out, "no changes\n");
             return self::resolution($diff, []);
@@ -429,12 +447,16 @@ final class RefreshFieldDiff {
             };
             $reasonPart = ($item['_automatic'] ?? false) === true ? '' : ' ' . $reason;
             fwrite($out, "preview $entity $scope $record$label $field $category$reasonPart $relation $outcome\n");
+            $key = self::choiceKey($record, (string) ($item['field_selector_sha256'] ?? ''));
+            if (isset($comparisons[$key])) {
+                self::renderInteractiveComparison($out, $comparisons[$key]);
+            }
         }
         if ($items === []) {
             fwrite($out, "0 manual choices; continuing\n");
             return self::resolution($diff, []);
         }
-        fwrite($out, "refresh field resolution (values omitted; b=branch, p=production, q=cancel)\n");
+        fwrite($out, "refresh field resolution (b=branch, p=production, q=cancel)\n");
         $choices = [];
         $total = count($items);
         foreach ($items as $position => $item) {
@@ -462,7 +484,7 @@ final class RefreshFieldDiff {
                 };
                 if ($choice === null) return null;
                 if ($choice === false) {
-                    fwrite($out, "  enter b/branch, p/production, or q/cancel; values are omitted\n");
+                    fwrite($out, "  enter b/branch, p/production, or q/cancel\n");
                     continue;
                 }
                 $choices[] = [
@@ -1440,16 +1462,100 @@ final class RefreshFieldDiff {
     }
 
     /**
+     * Derive the privileged comparison from the same validated private bytes
+     * apply() will consume. Raw values remain process-local; the renderer
+     * bounds/escapes them and computes each displayed hash from these bytes.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private static function interactiveComparisons(array $entry, array $publicRecord, mixed $privateRecord): array {
+        if (!is_array($privateRecord) || array_is_list($privateRecord)) {
+            throw new \RuntimeException('field interactive presentation lacks private comparison evidence');
+        }
+        $versions = is_array($entry['versions'] ?? null) ? $entry['versions'] : [];
+        $roles = static function (array $valuesByRole) use ($versions): array {
+            $out = [];
+            foreach (['base', 'branch', 'production'] as $role) {
+                $row = is_array($versions[$role] ?? null) ? $versions[$role] : null;
+                $values = [];
+                foreach ((array) ($valuesByRole[$role] ?? []) as $member => $raw) {
+                    if (!is_string($member) || !is_string($raw)) {
+                        throw new \RuntimeException('field interactive presentation has invalid private comparison bytes');
+                    }
+                    $values[] = ['member' => $member, 'raw' => $raw];
+                }
+                usort($values, static fn(array $a, array $b): int => $a['member'] <=> $b['member']);
+                $out[$role] = [
+                    'path' => is_string($row['path'] ?? null) ? $row['path'] : null,
+                    'state' => self::roleState($row),
+                    'values' => $values,
+                ];
+            }
+            return $out;
+        };
+
+        $comparisons = [];
+        if (($privateRecord['mode'] ?? null) === 'record') {
+            $change = $publicRecord['changes'][0] ?? null;
+            if (!is_array($change)) {
+                throw new \RuntimeException('field interactive presentation has no atomic comparison');
+            }
+            $values = ['base' => [], 'branch' => [], 'production' => []];
+            foreach (array_keys($values) as $role) {
+                $row = is_array($versions[$role] ?? null) ? $versions[$role] : null;
+                if (is_string($row['content'] ?? null)) {
+                    $values[$role]['record.content'] = $row['content'];
+                }
+            }
+            $comparisons[] = self::interactiveComparison($publicRecord, $change, $roles($values));
+            return $comparisons;
+        }
+        if (($privateRecord['mode'] ?? null) !== 'fields' || !is_array($privateRecord['fields'] ?? null)) {
+            throw new \RuntimeException('field interactive presentation has invalid private comparison evidence');
+        }
+        $privateFields = [];
+        foreach ($privateRecord['fields'] as $field) {
+            if (is_array($field) && is_string($field['field_selector'] ?? null)) {
+                $privateFields[$field['field_selector']] = $field;
+            }
+        }
+        foreach ((array) ($publicRecord['changes'] ?? []) as $change) {
+            $selector = is_array($change) ? ($change['field_selector_sha256'] ?? null) : null;
+            $field = is_string($selector) ? ($privateFields[$selector] ?? null) : null;
+            if (!is_array($field) || !is_array($field['values'] ?? null)) {
+                throw new \RuntimeException('field interactive presentation has no field comparison');
+            }
+            $comparisons[] = self::interactiveComparison($publicRecord, $change, $roles($field['values']));
+        }
+        return $comparisons;
+    }
+
+    /** @return array<string,mixed> */
+    private static function interactiveComparison(array $record, array $change, array $roles): array {
+        return [
+            'category' => (string) $change['category'],
+            'entity' => (string) $record['entity'],
+            'field' => (string) $change['field'],
+            'field_selector_sha256' => (string) $change['field_selector_sha256'],
+            'record_selector_sha256' => (string) $change['record_selector_sha256'],
+            'roles' => $roles,
+            'scope' => (string) $change['scope'],
+        ];
+    }
+
+    /**
      * Validate the private local presentation before anything reaches a
      * terminal. This is deliberately separate from the public diff schema:
-     * it is process-local, but still closed apart from a bounded safe label.
+     * it is process-local, but still closed apart from source bytes already
+     * bound by assertBundleMatchesDiff().
      *
-     * @return array{auto:list<array<string,mixed>>,diff_hash:string,format:string,labels:array<string,string>,plan_hash:string}
+     * @return array{auto:list<array<string,mixed>>,comparisons:list<array<string,mixed>>,diff_hash:string,format:string,labels:array<string,string>,plan_hash:string}
      */
     private static function normalizeInteractivePresentation(?array $presentation, array $diff): array {
         if ($presentation === null) {
             return [
                 'auto' => [],
+                'comparisons' => [],
                 'diff_hash' => (string) $diff['diff_hash'],
                 'format' => self::PRESENTATION_FORMAT,
                 'labels' => [],
@@ -1458,7 +1564,7 @@ final class RefreshFieldDiff {
         }
         $keys = array_keys($presentation);
         sort($keys, SORT_STRING);
-        $expectedKeys = ['auto', 'diff_hash', 'format', 'labels', 'plan_hash'];
+        $expectedKeys = ['auto', 'comparisons', 'diff_hash', 'format', 'labels', 'plan_hash'];
         sort($expectedKeys, SORT_STRING);
         if ($keys !== $expectedKeys
             || ($presentation['format'] ?? null) !== self::PRESENTATION_FORMAT
@@ -1466,7 +1572,9 @@ final class RefreshFieldDiff {
             || !hash_equals((string) $diff['diff_hash'], (string) ($presentation['diff_hash'] ?? ''))
             || !is_array($presentation['labels'] ?? null)
             || !is_array($presentation['auto'] ?? null)
-            || !array_is_list($presentation['auto'])) {
+            || !array_is_list($presentation['auto'])
+            || !is_array($presentation['comparisons'] ?? null)
+            || !array_is_list($presentation['comparisons'])) {
             throw new \RuntimeException('field interactive presentation is malformed');
         }
         $diffSelectors = [];
@@ -1526,13 +1634,132 @@ final class RefreshFieldDiff {
         if (array_keys($labels) !== array_keys($expectedLabels)) {
             throw new \RuntimeException('field interactive presentation is missing a local record label');
         }
+        $expectedComparisons = [];
+        foreach ($diff['records'] as $record) {
+            foreach ($record['changes'] as $change) {
+                $key = self::choiceKey($record['record_selector_sha256'], $change['field_selector_sha256']);
+                $expectedComparisons[$key] = ['record' => $record, 'change' => $change];
+            }
+        }
+        ksort($expectedComparisons, SORT_STRING);
+        $comparisons = [];
+        $priorComparison = null;
+        foreach ($presentation['comparisons'] as $comparison) {
+            if (!is_array($comparison) || array_is_list($comparison)) {
+                throw new \RuntimeException('field interactive presentation has an invalid private comparison');
+            }
+            $comparisonKeys = array_keys($comparison);
+            sort($comparisonKeys, SORT_STRING);
+            $want = [
+                'category', 'entity', 'field', 'field_selector_sha256',
+                'record_selector_sha256', 'roles', 'scope',
+            ];
+            sort($want, SORT_STRING);
+            $recordSelector = $comparison['record_selector_sha256'] ?? null;
+            $fieldSelector = $comparison['field_selector_sha256'] ?? null;
+            $key = is_string($recordSelector) && is_string($fieldSelector)
+                ? self::choiceKey($recordSelector, $fieldSelector)
+                : '';
+            $expected = $expectedComparisons[$key] ?? null;
+            if ($comparisonKeys !== $want || !is_array($expected)
+                || ($priorComparison !== null && $key <= $priorComparison)
+                || ($comparison['category'] ?? null) !== ($expected['change']['category'] ?? null)
+                || ($comparison['entity'] ?? null) !== ($expected['record']['entity'] ?? null)
+                || ($comparison['field'] ?? null) !== ($expected['change']['field'] ?? null)
+                || ($comparison['scope'] ?? null) !== ($expected['change']['scope'] ?? null)
+                || !is_array($comparison['roles'] ?? null)
+                || array_keys($comparison['roles']) !== ['base', 'branch', 'production']) {
+                throw new \RuntimeException('field interactive presentation has an invalid private comparison');
+            }
+            $roles = [];
+            foreach (['base', 'branch', 'production'] as $role) {
+                $source = $comparison['roles'][$role] ?? null;
+                if (!is_array($source) || array_is_list($source)
+                    || array_keys($source) !== ['path', 'state', 'values']
+                    || ($source['state'] ?? null) !== ($expected['change']['relation'][$role] ?? null)
+                    || (!is_string($source['path'] ?? null) && ($source['path'] ?? null) !== null)
+                    || !is_array($source['values'] ?? null) || !array_is_list($source['values'])) {
+                    throw new \RuntimeException('field interactive presentation has an invalid private comparison');
+                }
+                $values = [];
+                $priorMember = null;
+                foreach ($source['values'] as $value) {
+                    if (!is_array($value) || array_is_list($value)
+                        || array_keys($value) !== ['member', 'raw']
+                        || !is_string($value['member'] ?? null)
+                        || preg_match('/^(?:record\\.content|[a-z][a-z0-9_]*|block:[0-9]+)$/D', $value['member']) !== 1
+                        || !is_string($value['raw'] ?? null)
+                        || ($priorMember !== null && $value['member'] <= $priorMember)) {
+                        throw new \RuntimeException('field interactive presentation has an invalid private comparison');
+                    }
+                    $priorMember = $value['member'];
+                    $values[] = ['member' => $value['member'], 'raw' => $value['raw']];
+                }
+                if (($source['state'] === 'absent' && ($source['path'] !== null || $values !== []))
+                    || ($source['state'] === 'present' && $values === [])) {
+                    throw new \RuntimeException('field interactive presentation has an invalid private comparison');
+                }
+                $roles[$role] = ['path' => $source['path'], 'state' => $source['state'], 'values' => $values];
+            }
+            $priorComparison = $key;
+            $comparisons[] = [
+                'category' => $comparison['category'],
+                'entity' => $comparison['entity'],
+                'field' => $comparison['field'],
+                'field_selector_sha256' => $fieldSelector,
+                'record_selector_sha256' => $recordSelector,
+                'roles' => $roles,
+                'scope' => $comparison['scope'],
+            ];
+        }
+        if (array_map(static fn(array $row): string => self::choiceKey(
+            $row['record_selector_sha256'], $row['field_selector_sha256']
+        ), $comparisons) !== array_keys($expectedComparisons)) {
+            throw new \RuntimeException('field interactive presentation is missing a private comparison');
+        }
         return [
             'auto' => $auto,
+            'comparisons' => $comparisons,
             'diff_hash' => (string) $diff['diff_hash'],
             'format' => self::PRESENTATION_FORMAT,
             'labels' => $labels,
             'plan_hash' => (string) $diff['plan_hash'],
         ];
+    }
+
+    /** @param resource $out */
+    private static function renderInteractiveComparison($out, array $comparison): void {
+        foreach (['base', 'branch', 'production'] as $role) {
+            $source = $comparison['roles'][$role];
+            fwrite($out, '  compare ' . $role . ' state=' . $source['state'] . "\n");
+            if (is_string($source['path'])) {
+                fwrite($out, '    path ' . self::interactiveEvidence($source['path'], self::INTERACTIVE_PATH_PREVIEW_BYTES) . "\n");
+            }
+            foreach ($source['values'] as $value) {
+                fwrite($out, '    value member=' . $value['member'] . ' '
+                    . self::interactiveEvidence($value['raw'], self::INTERACTIVE_VALUE_PREVIEW_BYTES) . "\n");
+            }
+        }
+    }
+
+    /** Render bytes without allowing terminal controls or unbounded output. */
+    private static function interactiveEvidence(string $raw, int $limit): string {
+        $bytes = strlen($raw);
+        $slice = substr($raw, 0, $limit);
+        $truncated = $bytes > strlen($slice);
+        if (preg_match('//u', $raw) === 1) {
+            while ($slice !== '' && preg_match('//u', $slice) !== 1) {
+                $slice = substr($slice, 0, -1);
+            }
+            $encoded = 'utf8=' . json_encode(
+                $slice,
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+            );
+        } else {
+            $encoded = 'base64=' . base64_encode($slice);
+        }
+        return 'bytes=' . $bytes . ' sha256=' . hash('sha256', $raw) . ' ' . $encoded
+            . ' truncated=' . ($truncated ? 'yes' : 'no');
     }
 
     /** @param mixed $label */

@@ -1251,7 +1251,7 @@ final class AttachmentNativeMetadataGenerator {
             || (($stat['mode'] ?? 0) & 0170000) !== 0100000
             || !is_int($stat['size'] ?? null)
             || $stat['size'] < 0
-            || $stat['size'] > 268435456) {
+            || $stat['size'] > MediaPayloadAuthority::MAX_FILE_BYTES) {
             throw new \RuntimeException('duo: native attachment metadata staging input is missing, special, or oversized');
         }
     }

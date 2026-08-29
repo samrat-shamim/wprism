@@ -37,15 +37,17 @@ final class CompiledRepository {
     public const FORMAT = 'duo-compiled-repository/v1';
 
     private array $artifact;
+    private ?string $mediaDirectory;
     /** @var array<string,true> one aggregate accounting entry per immutable blob */
     private array $decodedMedia = [];
     private int $decodedMediaBytes = 0;
 
-    private function __construct(array $artifact) {
+    private function __construct(array $artifact, ?string $mediaDirectory = null) {
         $this->artifact = $artifact;
+        $this->mediaDirectory = $mediaDirectory === null ? null : rtrim($mediaDirectory, '/');
     }
 
-    public static function create(array $payload): self {
+    public static function create(array $payload, ?string $mediaDirectory = null): self {
         if (array_key_exists('code', $payload)) {
             if (!is_array($payload['code'])) {
                 throw new \RuntimeException('duo: compiled code descriptor must be an object');
@@ -68,20 +70,20 @@ final class CompiledRepository {
             throw new \RuntimeException('duo: compiled repository payload has no effects inventory');
         }
         $payload['uploads_inventory'] = self::derive_uploads_inventory($payload['tree']);
-        MediaPayloadAuthority::assertArtifactMedia($payload['media'], $payload['tree']);
+        MediaPayloadAuthority::assertArtifactMedia($payload['media'], $payload['tree'], $mediaDirectory);
         $payload['format'] = self::FORMAT;
         $payload['artifact_hash'] = self::content_hash($payload);
-        return new self($payload);
+        return new self($payload, $mediaDirectory);
     }
 
-    public static function from_array(array $artifact): self {
+    public static function from_array(array $artifact, ?string $mediaDirectory = null): self {
         if (!is_array($artifact['tree'] ?? null) || !is_array($artifact['media'] ?? null)) {
             throw new \RuntimeException('duo: compiled artifact has no typed tree or media');
         }
         // Validate encoded media before Canon::encode() re-materializes the
         // whole artifact for its self-hash. This keeps a hostile base64 row
         // behind the same decoded-length and aggregate authority as compile.
-        MediaPayloadAuthority::assertArtifactMedia($artifact['media'], $artifact['tree']);
+        MediaPayloadAuthority::assertArtifactMedia($artifact['media'], $artifact['tree'], $mediaDirectory);
         $actual = (string) ($artifact['artifact_hash'] ?? '');
         $copy = $artifact;
         unset($copy['artifact_hash']);
@@ -99,7 +101,7 @@ final class CompiledRepository {
             }
             Code::assert_descriptor($artifact['code']);
         }
-        return new self($artifact);
+        return new self($artifact, $mediaDirectory);
     }
 
     private static function content_hash(array $payload): string {
@@ -170,11 +172,24 @@ final class CompiledRepository {
 
     public function media_content(string $name): string {
         $row = $this->artifact['media'][$name] ?? null;
-        if (!is_array($row) || !is_string($row['base64'] ?? null) || !is_string($row['sha256'] ?? null)) {
+        if (!is_array($row) || !is_string($row['sha256'] ?? null)) {
             throw new \RuntimeException("duo: compiled artifact has no media payload '$name'");
         }
+        if (($row['source'] ?? null) === 'repository') {
+            if ($this->mediaDirectory === null || !is_int($row['size'] ?? null)) {
+                throw new \RuntimeException("duo: compiled external media '$name' has no repository source");
+            }
+            $parsed = MediaPayloadAuthority::parseMediaName($name);
+            $witness = [
+                'extension' => $parsed['extension'],
+                'sha256' => $parsed['sha256'],
+                'size' => $row['size'],
+            ];
+            $bytes = MediaPayloadAuthority::readFile($this->mediaDirectory . '/' . $name, $witness);
+        } else {
         /** @var array{sha256:string,base64:string} $row */
-        $bytes = MediaPayloadAuthority::decodeArtifactMedia($name, $row);
+            $bytes = MediaPayloadAuthority::decodeArtifactMedia($name, $row);
+        }
         if (!isset($this->decodedMedia[$name])) {
             $this->decodedMediaBytes = MediaPayloadAuthority::addToAggregate(
                 $this->decodedMediaBytes,
@@ -183,6 +198,60 @@ final class CompiledRepository {
             $this->decodedMedia[$name] = true;
         }
         return $bytes;
+    }
+
+    public function media_size(string $name): int {
+        $row = $this->artifact['media'][$name] ?? null;
+        if (!is_array($row)) {
+            throw new \RuntimeException("duo: compiled artifact has no media payload '$name'");
+        }
+        if (($row['source'] ?? null) === 'repository' && is_int($row['size'] ?? null)) {
+            return $row['size'];
+        }
+        if (is_string($row['base64'] ?? null)) {
+            return MediaPayloadAuthority::canonicalBase64DecodedLength(
+                $row['base64'],
+                'compiled artifact media size'
+            );
+        }
+        throw new \RuntimeException("duo: compiled artifact media payload '$name' is malformed");
+    }
+
+    public function media_sha256(string $name): string {
+        $row = $this->artifact['media'][$name] ?? null;
+        if (!is_array($row) || !is_string($row['sha256'] ?? null)) {
+            throw new \RuntimeException("duo: compiled artifact has no media payload '$name'");
+        }
+        return $row['sha256'];
+    }
+
+    /** @param resource $output */
+    public function copy_media_to_stream(string $name, $output): void {
+        $row = $this->artifact['media'][$name] ?? null;
+        if (!is_array($row) || !is_resource($output)) {
+            throw new \RuntimeException("duo: compiled artifact media transfer '$name' is malformed");
+        }
+        if (($row['source'] ?? null) === 'repository') {
+            if ($this->mediaDirectory === null || !is_int($row['size'] ?? null)) {
+                throw new \RuntimeException("duo: compiled external media '$name' has no repository source");
+            }
+            $parsed = MediaPayloadAuthority::parseMediaName($name);
+            MediaPayloadAuthority::copyFileToStream(
+                $this->mediaDirectory . '/' . $name,
+                ['extension' => $parsed['extension'], 'sha256' => $row['sha256'], 'size' => $row['size']],
+                $output
+            );
+            return;
+        }
+        $bytes = MediaPayloadAuthority::decodeArtifactMedia($name, $row);
+        $offset = 0;
+        while ($offset < strlen($bytes)) {
+            $written = fwrite($output, substr($bytes, $offset));
+            if (!is_int($written) || $written <= 0) {
+                throw new \RuntimeException('duo: compiled inline media transfer failed');
+            }
+            $offset += $written;
+        }
     }
 
     /**

@@ -97,6 +97,7 @@ final class Policy {
 /** Minimal command runner surface for exercising the real Cli handler offline. */
 final class WP_CLI {
     public static array $lines = [];
+    public static array $halts = [];
 
     public static function add_command($name, $class): void {}
 
@@ -114,6 +115,10 @@ final class WP_CLI {
 
     public static function error($message): void {
         throw new \RuntimeException((string) $message);
+    }
+
+    public static function halt($code): void {
+        self::$halts[] = (int) $code;
     }
 }
 

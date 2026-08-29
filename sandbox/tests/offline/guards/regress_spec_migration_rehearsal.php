@@ -554,11 +554,13 @@ duo_check_same(
     'state A: the promoted site rehydrates from its frozen snapshot'
 );
 foreach (['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop', 'promoted-frozen' => 'estate-catalog'] as $id => $adapter) {
-    $certified = false;
+    $signedApproval = false;
     foreach ($observedA['sites'][$id]['adapters'] as $row) {
-        $certified = $certified || ($row['name'] === $adapter && $row['certified'] === true);
+        $signedApproval = $signedApproval || ($row['name'] === $adapter
+            && $row['certified'] === false
+            && $row['capability'] === 'experimental');
     }
-    duo_check($certified, "state A: $id's site adapter '$adapter' is certified under its operator key");
+    duo_check($signedApproval, "state A: $id's site adapter '$adapter' is signed but remains experimental without exercise evidence");
 }
 duo_check(
     str_contains((string) $observedA['sites']['drifted-pin']['refusal'], 'digest mismatch'),
@@ -865,9 +867,11 @@ duo_check_same(
     . 'scope contract, identity sidecar and checkpoint binding returns to its exact pre-flag value'
 );
 duo_check(
-    ($observedB['remedy']['certify_exit'] ?? 1) === 0 && ($observedB['remedy']['certified'] ?? false) === true,
-    'the remedy is invocable ON the post-bump fleet: `duo adapter certify --pin` re-signs a withdrawn adapter '
-    . 'against the new boundary and it is certified again'
+    ($observedB['remedy']['certify_exit'] ?? 1) === 0
+    && ($observedB['remedy']['certified'] ?? true) === false
+    && ($observedB['remedy']['capability'] ?? null) === 'experimental',
+    'the remedy is invocable ON the post-bump fleet: `duo adapter certify --pin` re-signs the approval against '
+    . 'the new boundary while keeping the unexercised claim experimental'
 );
 duo_check(
     ($rolledBack['remedy']['certified'] ?? true) === false
@@ -876,10 +880,10 @@ duo_check(
     . 'after the rollback, for the same reason and by the same mechanism'
 );
 duo_check_same(
-    true,
-    $rolledBack['remedy']['re_certified'] ?? false,
-    'with the same command restoring it: certificates are RE-MINTED symmetrically, never restored, which is the '
-    . 'one thing an operator must redo in each direction'
+    'experimental',
+    $rolledBack['remedy']['re_capability'] ?? null,
+    'with the same command restoring the signed experimental approval: certificates are RE-MINTED symmetrically, '
+    . 'never restored, and exercise evidence remains a separate requirement'
 );
 duo_check_same(
     'not yet remedied',

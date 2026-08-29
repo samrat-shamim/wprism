@@ -7,7 +7,7 @@ namespace Duo\Orchestrator;
 final class EnvironmentCommandPreflight {
     /** @var list<string> */
     private const ENVIRONMENT_VERBS = [
-        'doctor', 'driver-capabilities', 'adopt', 'onboard', 'init', 'status', 'capabilities',
+        'doctor', 'driver-capabilities', 'adopt', 'unadopt', 'onboard', 'init', 'status', 'capabilities',
         'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
         'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
         // Round-3 MUP §2.1/§2.6. Both are environment-bound because both

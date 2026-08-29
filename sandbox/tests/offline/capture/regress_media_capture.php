@@ -82,11 +82,19 @@ $check(
 );
 
 $GLOBALS['media_capture_filter_calls'] = [];
+$GLOBALS['wp_filter']['duo_attachment_capture_source'] = (object) [
+    'callbacks' => [
+        10 => ['throwing-provider-premise' => ['function' => static function (): void {
+            throw new RuntimeException('strict local observation invoked the provider');
+        }]],
+    ],
+];
 $strict = $capture->capture(18, '2026/08/photo.TXT', 'text/plain', '', true);
 $check($strict['media_ref'] === ["$localSha.TXT", ['path' => $physicalLocalPath, 'witness' => $localWitness]],
-    'strict observation still captures an available local source');
+    'strict observation captures an available local source even when an offload provider is registered');
 $check($GLOBALS['media_capture_filter_calls'] === [],
     'strict observation never invokes the external offload hook');
+unset($GLOBALS['wp_filter']['duo_attachment_capture_source']);
 
 $offloadPath = "$tmp/materialized.epub";
 $offloadPathBytes = 'provider-path-bytes';

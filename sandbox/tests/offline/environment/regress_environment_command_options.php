@@ -28,6 +28,7 @@ $parsed = EnvironmentCommandOptions::materialize([
 assert_env_options($parsed === [
     'source' => 'production',
     'branch' => 'feature/demo',
+    'containment_required' => false,
     'create' => true,
     'ttl_seconds' => 3600,
     'json' => true,

@@ -545,7 +545,8 @@ duo_check(
 
 $caseG = mc_run($duo, $main, ['merge-check', '--ref=skew-older', '--against=skew-newer', '--format=json']);
 $documentG = mc_json($caseG['stdout']);
-duo_check_same(0, $caseG['exit'], 'case G: cross-branch code skew warns and does NOT flip the exit code');
+duo_check_same(3, $caseG['exit'], 'case G: cross-branch code skew blocks the merge gate with exit 3');
+duo_check_same('code_skew', $documentG['verdict'] ?? null, 'case G: the success document distinguishes code skew from an editorial conflict');
 duo_check_same(
     [[
         'component' => 'plugins/woocommerce',
@@ -558,10 +559,10 @@ duo_check_same(
 );
 $caseGHuman = mc_run($duo, $main, ['merge-check', '--ref=skew-older', '--against=skew-newer']);
 duo_check(
-    str_contains($caseGHuman['stdout'], 'warning: code skew plugins/woocommerce left=9.8.0 right=9.9.1')
+    str_contains($caseGHuman['stdout'], 'blocked: code skew plugins/woocommerce left=9.8.0 right=9.9.1')
         && str_contains(
             $caseGHuman['stdout'],
-            'warning: remedy: merge code first, run migrations, re-capture, then merge state'
+            'blocked: remedy: merge code first, run migrations, re-capture, then merge state'
         ),
     'case G: the human view carries DESIGN.md:125\'s own remedy verbatim'
 );

@@ -236,7 +236,7 @@ $context = [
     'operation_id' => $operation,
     'promotion_owner' => 'duo-env-promotion-' . $operation,
     'artifact_path' => $repoPath . '/.duo/artifacts/materialize-' . $operation . '.json',
-    'checkpoint_path' => $repoPath . '/.duo/checkpoints/materialize-' . $operation . '.sql',
+    'checkpoint_path' => $repoPath . '/.duo/checkpoints/materialize-' . $operation . '.sql.enc',
     'compiled_summary' => $summary,
 ];
 
@@ -336,7 +336,7 @@ try {
         $artifact,
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
     ) . "\n");
-    pct_write($sshRepo . '/.duo/checkpoints/materialize-' . $operation . '.sql', "-- frozen checkpoint\n");
+    pct_write($sshRepo . '/.duo/checkpoints/materialize-' . $operation . '.sql.enc', "-- frozen checkpoint\n");
 
     pct_write($bin . '/ssh', "#!/usr/bin/env bash\nset -euo pipefail\nremote=\"\${!#}\"\nexec /bin/sh -c \"\$remote\"\n");
     chmod($bin . '/ssh', 0700);
@@ -462,7 +462,7 @@ PHP);
         'operation_id' => $operation,
         'promotion_owner' => $context['promotion_owner'],
         'artifact_path' => $sshArtifactPath,
-        'checkpoint_path' => $sshRepo . '/.duo/checkpoints/materialize-' . $operation . '.sql',
+        'checkpoint_path' => $sshRepo . '/.duo/checkpoints/materialize-' . $operation . '.sql.enc',
         'compiled_summary' => $summary,
     ];
     foreach ($incomplete as $label => $planJson) {

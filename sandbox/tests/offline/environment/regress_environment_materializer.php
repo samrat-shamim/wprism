@@ -185,7 +185,7 @@ if ($a === 'snapshot-create' && $mode === 'create-loss') {
     exit(75); // provider applied/accepted create but its response was lost
   }
 }
-$caps = ['environment.attach','environment.create','environment.destroy','environment.detach','environment.inspect','environment.mutation.acquire','environment.mutation.read','environment.mutation.release','environment.ttl','environment.ttl.read','environment.url.discover','environment.url.set','operation.receipts','repository.materialize','snapshot.set.abort','snapshot.set.create','snapshot.set.prepare','snapshot.set.read','snapshot.set.restore'];
+$caps = ['environment.attach','environment.containment.verify','environment.create','environment.destroy','environment.detach','environment.inspect','environment.mutation.acquire','environment.mutation.read','environment.mutation.release','environment.ttl','environment.ttl.read','environment.url.discover','environment.url.set','operation.receipts','repository.materialize','snapshot.set.abort','snapshot.set.create','snapshot.set.prepare','snapshot.set.read','snapshot.set.restore'];
 if ($mode === 'attach-only') $caps = array_values(array_diff($caps, ['environment.create', 'environment.destroy']));
 $owner = (string) ($i['mutation_owner'] ?? $i['expected_mutation_owner'] ?? '');
 $materialFence = str_contains($owner, 'duo-env-materialize-');
@@ -211,6 +211,12 @@ $result = match ($a) {
    ? $identity + ['mutation_generation'=>2,'mutation_id'=>'mutation-stale-0001','mutation_owner'=>$owner,'mutation_receipt_sha256'=>$h('mutation-stale'),'state'=>$materialFence && $releaseSeen ? 'released' : 'held']
    : $mutation($materialFence && $releaseSeen ? 'released' : 'held', $materialFence && $releaseSeen ? $releasedReceipt : $heldReceipt),
  'mutation-release' => $mutation('released', $releasedReceipt),
+ 'containment-verify' => $identity + [
+   'containment_receipt_sha256'=>$h('containment'),'credential_isolation'=>true,
+   'http_egress_default_denied'=>true,'mail_default_denied'=>true,
+   'payment_default_denied'=>true,'profile'=>'agency-rehearsal-v1',
+   'queue_default_denied'=>true,'webhook_default_denied'=>true,
+ ],
  'ttl-set' => $identity + ['expires_at'=>'2030-01-02T04:04:05Z','ttl_generation'=>1,'ttl_lease_id'=>'ttl-lease-identity-0001','ttl_receipt_sha256'=>$h('ttl'),'ttl_state'=>'active'],
  'ttl-read' => $identity + ['expires_at'=>'2030-01-02T04:04:05Z','ttl_generation'=>$ttlStale ? 2 : 1,'ttl_lease_id'=>$ttlStale ? 'ttl-lease-stale-0001' : 'ttl-lease-identity-0001','ttl_receipt_sha256'=>$h($ttlStale ? 'ttl-stale' : 'ttl'),'ttl_state'=>'active'],
  'destroy','detach' => ['absence_proof_sha256'=>$h('absence'),'disposition'=>$a === 'destroy' ? 'destroyed' : 'detached','environment_identity'=>'environment-identity-0001','lease_generation'=>3,'lease_id'=>'lease-identity-0001','ownership_receipt_sha256'=>$h('owner'),'resource_id'=>'resource-identity-0001'],
@@ -360,6 +366,32 @@ PHP);
     em_ok(($destroyed['disposition'] ?? null) === 'destroyed'
         && in_array('destroy', em_actions($createLog), true) && !in_array('detach', em_actions($createLog), true),
         'created target reaps only through exact provider destroy');
+
+    $containedLog = $tmp . '/contained.log';
+    $containedDriver = new MaterializerDriver('branch-contained', '/contained/repo');
+    $containedProvider = CommandEnvironmentProvider::fromEnvironment('branch-contained', $cfg('ok', $containedLog));
+    $contained = EnvironmentMaterializer::materialize(
+        $source,
+        $containedDriver,
+        $goodSource,
+        $containedProvider,
+        $journal,
+        ['branch' => 'feature', 'containment_required' => true, 'create' => false, 'ttl_seconds' => 0],
+        $promote
+    );
+    $containedActions = em_actions($containedLog);
+    $containmentPosition = array_search('containment-verify', $containedActions, true);
+    $restorePosition = array_search('snapshot-restore', $containedActions, true);
+    em_ok(
+        ($contained['containment_profile'] ?? null) === 'agency-rehearsal-v1'
+            && ($contained['containment_receipt_sha256'] ?? null) === hash('sha256', 'containment'),
+        'a contained materialization publishes the exact provider proof in its final receipt'
+    );
+    em_ok(
+        is_int($containmentPosition) && is_int($restorePosition) && $containmentPosition < $restorePosition,
+        'containment is established before production snapshot bytes enter the rehearsal target'
+    );
+    EnvironmentMaterializer::reap($containedDriver, $containedProvider, $journal);
 
     $blockedLog = $tmp . '/blocked.log';
     $blockedDriver = new MaterializerDriver('branch-blocked', '/blocked/repo');

@@ -852,9 +852,9 @@ $derivedVerified = AdapterCertification::verifyFile(
     AdapterCertification::certificatePath($derivedRepo, 'wpforms-lite')
 );
 duo_check_same(
-    'certified',
+    'experimental',
     $derivedVerified['claim']['status'] ?? null,
-    'F1: and the LIVE verifier accepts what it just wrote — signature, authority record and platform binding'
+    'F1: the LIVE verifier accepts the signature and bindings without treating grammar approval as certification'
 );
 
 // F2 — THE SURFACES LIST, EXACTLY. This is the byte-level consequence of the

@@ -19,7 +19,7 @@ use Duo\CommandRefusalException;
  * Every operator-directed promotion (`cli/duo`'s `cmd_promote_internal()`,
  * which is what `duo release` composes on a local, docker or plain SSH
  * target) exports the pre-release database to
- * `<repo>/.duo/checkpoints/promote-<owner>.sql` immediately after taking the
+ * `<repo>/.duo/checkpoints/promote-<owner>.sql.enc` immediately after taking the
  * promotion lease and prints `database checkpoint retained: <path>` on
  * success. The frozen authorization plan for that release claims exactly one
  * restorable resource — `RecoveryClaim::RESTORES[operator-directed]` is the
@@ -48,7 +48,7 @@ use Duo\CommandRefusalException;
  * ## Where the identity comes from
  *
  * The lease `promotion-begin` binds is `(owner, artifact_hash)`. The owner
- * is the checkpoint's own file name (`promote-<owner>.sql`, or deploy's
+ * is the checkpoint's own file name (`promote-<owner>.sql.enc`, or deploy's
  * `deploy-<owner>.sql`); the artifact hash is read from the sibling
  * `<repo>/.duo/artifacts/<same-stem>.json`
  * that the same release compiled — a content-addressed artifact whose
@@ -103,8 +103,9 @@ final class RetainedCheckpoints {
     public const OWNER_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/D';
 
     public const DISCLOSURE_RETAINED =
-        'retained release checkpoints are the plain database checkpoints promote and deploy kept under '
-        . '.duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, '
+        'retained release checkpoints are authenticated encrypted database checkpoints whose key is derived '
+        . 'from target-local WordPress salts and is never stored in the site repository; restoring one drives '
+        . 'the operator-directed path (abort, begin, isolated import, '
         . 'final abort)';
 
     /**
@@ -170,13 +171,13 @@ final class RetainedCheckpoints {
         $q = escapeshellarg($duo);
         $globs = [];
         foreach (self::ID_PREFIXES as $prefix) {
-            $globs[] = '"$d"/checkpoints/' . $prefix . '*.sql';
+            $globs[] = '"$d"/checkpoints/' . $prefix . '*.sql.enc';
         }
 
         return 'd=' . $q . '; '
             . 'for f in ' . implode(' ', $globs) . '; do '
             . '[ -s "$f" ] || continue; '
-            . 'b=$(basename "$f" .sql); '
+            . 'b=$(basename "$f" .sql.enc); '
             . 'h=$(grep -o \'"artifact_hash": *"[a-f0-9]\{64\}"\' "$d/artifacts/$b.json" 2>/dev/null | head -n 1 | sed \'s/.*"\([a-f0-9]\{64\}\)"$/\1/\'); '
             . 'm=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0); '
             . 'printf \'%s\t%s\t%s\n\' "$b" "$h" "$m"; '
@@ -339,7 +340,7 @@ final class RetainedCheckpoints {
             );
         }
 
-        return rtrim($repoPath, '/') . '/.duo/checkpoints/' . $prefix . $owner . '.sql';
+        return rtrim($repoPath, '/') . '/.duo/checkpoints/' . $prefix . $owner . '.sql.enc';
     }
 
     private static function malformed(string $detail): CommandRefusalException {

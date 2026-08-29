@@ -134,7 +134,7 @@ PROPOSAL_B="$CONTRACT_DIR/fixture2/proposed.json"
 say 'the proposal is written per environment'
 duo "$TMP/assess-a.txt" assess fixture
 STATUS=$?
-[ "$STATUS" = 0 ] && pass 'assess fixture exits 0' \
+[ "$STATUS" = 3 ] && pass 'assess fixture completes with its readiness-gap exit' \
   || { fail "assess fixture exited $STATUS"; cat "$TMP/assess-a.txt.err" >&2; }
 [ -f "$PROPOSAL_A" ] && pass 'assess writes .duo/contract/fixture/proposed.json' \
   || fail 'assess wrote no proposal under .duo/contract/fixture/'
@@ -159,7 +159,7 @@ REVIEWED_A="$(cat "$PROPOSAL_A" 2>/dev/null)"
 
 duo "$TMP/assess-b.txt" assess fixture2
 STATUS=$?
-[ "$STATUS" = 0 ] && pass 'assess fixture2 exits 0' \
+[ "$STATUS" = 3 ] && pass 'assess fixture2 completes with its readiness-gap exit' \
   || { fail "assess fixture2 exited $STATUS"; cat "$TMP/assess-b.txt.err" >&2; }
 [ -f "$PROPOSAL_B" ] && pass 'assess fixture2 writes its OWN proposal' \
   || fail 'assess fixture2 wrote no proposal under .duo/contract/fixture2/'

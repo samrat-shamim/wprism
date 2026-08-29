@@ -73,12 +73,12 @@ consumes them — and stay in `--format=json`.
 
 ### Retained release checkpoints — the rows every target has
 
-The signed receipt above is one source of rows. The other is the plain
+The signed receipt above is one source of rows. The other is the encrypted
 database checkpoint a release **retained**: `promote`
-exports the pre-release database to `.duo/checkpoints/promote-<owner>.sql`
+exports the pre-release database to an encrypted `.duo/checkpoints/promote-<owner>.sql.enc`
 right after taking its lease and prints `database checkpoint retained: …` on
 success. A standalone `duo deploy` does the same under its own lease, at
-`.duo/checkpoints/deploy-<owner>.sql` (`duo deploy --no-checkpoint` opts out).
+`.duo/checkpoints/deploy-<owner>.sql.enc` (`duo deploy --no-checkpoint` opts out).
 That file is what the frozen authorization plan's `operator-directed`
 claim (`restores: database checkpoint`) refers to, so `duo recover` lists it
 and restores it on **every** transport — local, docker and SSH alike:

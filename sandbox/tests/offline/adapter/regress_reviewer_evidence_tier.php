@@ -638,13 +638,13 @@ echo "\n== step 4: the word never collapses into either existing one ==\n";
 $words = [
     AdapterSources::CERTIFICATION_REVIEWER_SIGNED,
     AdapterSources::CERTIFICATION_SITE_SIGNED,
+    AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     'third_party_signed',
 ];
 duo_check_same(
-    3,
+    4,
     count(array_unique($words)),
-    'the three signed words are three distinct strings — a tier that reused an existing spelling would be a '
-    . 'relabelling, not a third fact'
+    'the four signed words are distinct — exercised certification and unexercised approval cannot share a label'
 );
 
 // The SAME estate, the SAME key, the SAME exercised bundle, with the reviewer
@@ -704,10 +704,9 @@ $siteSign = rev_run([
 duo_check($siteSign['exit'] === 0, 'the operator certifies the same adapter under their OWN root (' . trim($siteSign['stderr']) . ')');
 $pinRepository($adapterName);
 duo_check_same(
-    AdapterSources::CERTIFICATION_SITE_SIGNED,
+    AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
-    'and gets `site_signed`: all three words are minted in one estate, from three different facts, so the tier '
-    . 'is measured against its neighbours rather than in isolation'
+    'and gets `signed_unexercised`: the operator signature remains visible without becoming site certification'
 );
 
 // ===========================================================================
@@ -845,12 +844,11 @@ $agentWords = $wordsIn($repo . '/agent/src/Adapter/AdapterObservation.php');
 $hostWords = $wordsIn($repo . '/cli/src/Adapter/AdapterObservation.php');
 duo_check_same(
     [
-        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed',
+        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unexercised', 'signed_unpinned', 'site_signed',
         'third_party_signed', 'uncertified',
     ],
     $agentWords,
-    'the emitting vocabulary is the six it was plus exactly one: nothing was renamed, nothing was dropped, and '
-    . 'the six existing words mean what they meant'
+    'the emitting vocabulary includes reviewer evidence and the distinct unexercised-signature state'
 );
 duo_check_same(
     $agentWords,

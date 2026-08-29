@@ -17,6 +17,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryMediaCatalog.php';
 
 use Duo\RepositoryMediaCatalog;
+use Duo\MediaPayloadAuthority;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -128,6 +129,42 @@ $check(
         ],
     'catalog deduplicates one immutable blob while every attachment retains its own Core MIME branch classification'
 );
+
+foreach ([
+    ['application/pdf', 'pdf'],
+    ['audio/mpeg', 'mp3'],
+    ['image/svg+xml', 'svg'],
+    ['video/mp4', 'mp4'],
+] as [$mime, $extension]) {
+    $check(
+        MediaPayloadAuthority::kindFor($mime, $extension) === 'generic',
+        "$mime originals take the closed filesize-only metadata branch"
+    );
+}
+
+$externalMedia = "$tmp/external-media";
+$externalBytes = str_repeat('large-media-segment-', 450000);
+$externalHash = hash('sha256', $externalBytes);
+$externalName = "$externalHash.mp4";
+$put("$externalMedia/$externalName", $externalBytes);
+$externalDiagnostics = [];
+$external = $catalog($externalMedia, $externalDiagnostics);
+$external->validate_attachment(
+    'state/posts/attachment/launch-video.md',
+    $attachment('2026/08/launch-video.mp4', $externalName, 'video/mp4')
+);
+$external->catalog_directory();
+$check(
+    $externalDiagnostics === [] && $external->referenced_media() === [
+        $externalName => [
+            'sha256' => $externalHash,
+            'size' => strlen($externalBytes),
+            'source' => 'repository',
+        ],
+    ],
+    'compiler media catalog externalizes a large content-addressed original instead of base64-embedding it'
+);
+unset($externalBytes);
 
 $largeCatalogMedia = "$tmp/large-catalog-media";
 $largeCatalogDiagnostics = [];

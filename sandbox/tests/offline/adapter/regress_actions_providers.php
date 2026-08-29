@@ -929,6 +929,7 @@ if ($woo !== null) {
             'provider:woocommerce-product-lookups/rebuild_product_lookups',
             'native:rewrite.flush',
             'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
+            'provider:woocommerce-lifecycle-migrations/settle_lifecycle_migrations',
         ],
         'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, product lookup, product-permalink, and review-route actions in order'
     );
@@ -948,6 +949,7 @@ if ($woo !== null) {
         'woocommerce-fulfillment-prerequisites' => ['version' => '1.0.0', 'capabilities' => ['verify_fulfillment_prerequisites']],
         'woocommerce-scheduler-settings' => ['version' => '1.0.0', 'capabilities' => ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention']],
         'woocommerce-product-lookups' => ['version' => '3.0.0', 'capabilities' => ['rebuild_product_lookups']],
+        'woocommerce-lifecycle-migrations' => ['version' => '1.0.0', 'capabilities' => ['settle_lifecycle_migrations']],
     ] as $wooProviderId => $wooContract) {
         $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];
         check(
@@ -1055,7 +1057,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 13, "all thirteen shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 14, "all fourteen shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";

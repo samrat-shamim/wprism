@@ -222,7 +222,8 @@ final class AdapterCertify {
 
     /**
      * `duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
-     *  [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>] [--pin]
+     *  [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>]
+     *  [--bundle=<bundle.json|dir> --evidence-repo=<dir>] [--pin]
      *  [--adopt-scope]`
      *
      * `--ratification-file` is WP-5.3's signing profile (spec/repo-format.md
@@ -240,7 +241,10 @@ final class AdapterCertify {
     private static function certify(array $args): int {
         $flags = self::flags(
             $args,
-            ['name', 'secret-key-file', 'key-id', 'reason', 'ratification-file', 'adapter-library'],
+            [
+                'name', 'secret-key-file', 'key-id', 'reason', 'ratification-file',
+                'bundle', 'evidence-repo', 'adapter-library',
+            ],
             ['pin', 'adopt-scope']
         );
         $repo = self::onlySiteRepo($flags['positional'], 'certify');
@@ -254,6 +258,17 @@ final class AdapterCertify {
         $secretFile = (string) ($flags['secret-key-file'] ?? '');
         if ($secretFile === '') {
             return self::fail('--secret-key-file=<path> is required: certification is an Ed25519 signature');
+        }
+        $bundleInput = (string) ($flags['bundle'] ?? '');
+        $evidenceRepo = (string) ($flags['evidence-repo'] ?? '');
+        if (($bundleInput === '') !== ($evidenceRepo === '')) {
+            return self::fail('--bundle and --evidence-repo are one evidence input and must be supplied together');
+        }
+        if ($bundleInput !== '' && isset($flags['ratification-file'])) {
+            return self::fail('--ratification-file belongs to grammar-only approval; an exercised bundle carries its own ratification');
+        }
+        if ($bundleInput !== '' && isset($flags['reason'])) {
+            return self::fail('--reason belongs to grammar-only approval; an exercised bundle carries its signed evidence reason');
         }
         $reason = trim((string) ($flags['reason'] ?? ''));
         if ($reason === '') {
@@ -338,15 +353,25 @@ final class AdapterCertify {
         // trying to avoid, and the producer belongs beside the validator that
         // refuses it.
         try {
-            $certificate = AdapterCertification::sign_site(
-                $adapterLibrary,
-                $repo,
-                $name,
-                $keyId,
-                base64_encode($secret),
-                $reason,
-                $authoredDisposition
-            );
+            $certificate = $bundleInput === ''
+                ? AdapterCertification::sign_site(
+                    $adapterLibrary,
+                    $repo,
+                    $name,
+                    $keyId,
+                    base64_encode($secret),
+                    $reason,
+                    $authoredDisposition
+                )
+                : AdapterCertification::sign(
+                    $adapterLibrary,
+                    $repo,
+                    $name,
+                    $bundleInput,
+                    $evidenceRepo,
+                    $keyId,
+                    base64_encode($secret)
+                );
         } catch (\Throwable $t) {
             // The pre-flight is a load, the signature step is the certifier's
             // own reading of the manifest; when they disagree the trust root
@@ -375,19 +400,24 @@ final class AdapterCertify {
         $summary = AdapterCertification::certificateSummary($verified);
         $pinObject = self::pinObject($repo, $name, 'site', $adapterLibrary);
 
-        echo "certified:  $name (site adapter)\n";
+        $exercised = ($summary['exercised'] ?? null) === true;
+        echo ($exercised ? 'certified:  ' : 'signed:     ') . "$name (site adapter)\n";
         echo "authority:  $keyId (site trust root, " . self::AUTHORITIES_RELATIVE
             . ($registered ? ' — key registered by this run' : ' — key already registered') . ")\n";
         echo 'trust tier: ' . (string) ($summary['trust_tier'] ?? $tier) . "\n";
         echo 'claim:      ' . (string) ($summary['status'] ?? 'certified') . "\n";
-        echo "evidence:   grammar=ok, exercised=false, reason stated in the signed bundle\n";
+        echo 'evidence:   grammar=ok, exercised=' . ($exercised ? 'true' : 'false')
+            . ($exercised ? ', named passing tests and artifacts verified' : ', approval only; no site run') . "\n";
         // Which of the two profiles signed this is not cosmetic: an authored
         // claim is the site's own argument and `duo adapter recertify` will not
         // re-derive over it (SpecMigration::recertify()), so the operator is
         // told here, where they can still keep the file beside the repository.
-        echo 'claim basis: ' . ($authoredDisposition === null
-            ? 'DERIVED from the manifest — every surface unsupported that a grammar verdict cannot review'
-            : 'AUTHORED (--ratification-file), validated by the engine\'s own disposition validator') . "\n";
+        echo 'claim basis: ' . ($exercised
+            ? 'EXERCISED bundle — ratification, named passing tests, artifacts, and bound inputs verified'
+            : ($authoredDisposition === null
+                ? 'DERIVED from the manifest — signed approval only; every certification-only gate stays blocked'
+                : 'AUTHORED (--ratification-file), signed approval only; every certification-only gate stays blocked'))
+            . "\n";
         echo 'certificate: ' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR . "/$name.json\n";
         echo "\npin object for site.duo.json manifests[]:\n";
         echo rtrim(Canon::encode($pinObject)) . "\n";
@@ -403,8 +433,15 @@ final class AdapterCertify {
             self::adoptScope($repo, $name, $manifest, $adoptScope);
         } else {
             echo "\nThe adapter stays UNCERTIFIED until this exact object is in site.duo.json manifests[]:\n"
-                . '  a certificate without an exact {name,source,digest} pin reads `signed_unpinned`. '
+                . ($exercised
+                    ? '  exercised evidence without an exact {name,source,digest} pin reads `signed_unpinned`. '
+                    : '  this grammar-only approval reads `signed_unexercised`; pinning preserves its identity but does not certify it. ')
                 . "Re-run with --pin to write it.\n";
+        }
+
+        if (!$exercised) {
+            echo "\nBLOCKED: no site was exercised. Supply --bundle and --evidence-repo from a passing conformance run "
+                . "to mint a Site-certified claim.\n";
         }
 
         return 0;

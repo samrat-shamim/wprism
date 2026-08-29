@@ -145,6 +145,7 @@ $expectedApi = [
         $parameter('scopeRequest', '?array', false),
         $parameter('hostEnvironment', '?string', false),
         $parameter('adapterLibrary', '?Duo\\AdapterLibrary', false),
+        $parameter('expectedRepositoryBranch', '?string', false),
     ]],
     'run_initial_baseline' => ['array', [
         $parameter('repo', 'string'),
@@ -225,6 +226,47 @@ $check(array_keys($actualApi) === array_keys($normalizedExpectedApi),
     'Capture preserves the complete historical public method set and declaration order');
 $check($actualApi === $normalizedExpectedApi,
     'Capture preserves visibility, staticness, return types, parameters, defaults, and references');
+
+$branchRepo = sys_get_temp_dir() . '/duo-capture-branch-' . bin2hex(random_bytes(8));
+mkdir($branchRepo, 0700, true);
+$branchProcess = proc_open(
+    ['git', 'init', '--initial-branch=feature/target', $branchRepo],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $branchPipes
+);
+if (is_resource($branchProcess)) {
+    stream_get_contents($branchPipes[1]);
+    stream_get_contents($branchPipes[2]);
+    fclose($branchPipes[1]);
+    fclose($branchPipes[2]);
+    proc_close($branchProcess);
+}
+$branchGuard = new ReflectionMethod(Duo\CapturePublicationWorkflow::class, 'assertRepositoryBranch');
+$branchMatched = true;
+try {
+    $branchGuard->invoke(null, $branchRepo, 'feature/target');
+} catch (Throwable) {
+    $branchMatched = false;
+}
+$branchMismatchRefused = false;
+try {
+    $branchGuard->invoke(null, $branchRepo, 'feature/other');
+} catch (Throwable $failure) {
+    $branchMismatchRefused = str_contains($failure->getMessage(), 'target branch does not match');
+}
+$check($branchMatched && $branchMismatchRefused,
+    'the target product path accepts only the exact named branch binding before capture publication');
+$removeBranchFixture = static function (string $path) use (&$removeBranchFixture): void {
+    if (is_link($path) || is_file($path)) {
+        @unlink($path);
+        return;
+    }
+    foreach ((array) @scandir($path) as $entry) {
+        if ($entry !== '.' && $entry !== '..') $removeBranchFixture($path . '/' . $entry);
+    }
+    @rmdir($path);
+};
+$removeBranchFixture($branchRepo);
 
 foreach ([
     'CapturePublicationWorkflow::run(' => 'publication workflow',

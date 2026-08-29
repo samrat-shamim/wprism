@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/EnvironmentValues.php';
+
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
@@ -168,7 +170,7 @@ final class ApplyRequestCoordinator {
         );
         $this->taxonomyContext = new TaxonomyApplyContext($policy, $compiled);
         $this->rebuildSelection = new RebuildSelection($policy);
-        $this->planEnvironment = new ApplyPlanEnvironment($policy, $this->rebuildSelection);
+        $this->planEnvironment = new ApplyPlanEnvironment($policy, $this->rebuildSelection, $this->repo);
         $this->rebuildCoordinator = new ApplyRebuildCoordinator($this->services, $this->rebuildSelection);
         $this->scopedWorkflow = new ScopedApplyWorkflow();
         $this->preparationCoordinator = new ApplyPreparationCoordinator(
@@ -583,6 +585,11 @@ final class ApplyRequestCoordinator {
                 . 'satisfy provisioning'
             );
         }
+
+        // The target-local file is the intended-value authority. Publish it
+        // before touching WordPress so a crash can leave only a loud drift
+        // (`env_missing`), never a green value with no recorded intent.
+        EnvironmentValues::set($repo, $name, $value);
 
         global $wpdb;
         $existing = $wpdb->get_var($wpdb->prepare(

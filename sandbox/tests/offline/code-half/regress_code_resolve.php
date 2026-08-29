@@ -34,7 +34,11 @@
  *      that exposes NEITHER a host-side repository NOR a push capability
  *      refuses with `code_resolve_transport_unsupported`, naming DUO-3514,
  *      unless the target already hashes correctly; and a repository with no
- *      lock produces NO phase output whatsoever.
+ *      lock produces NO phase output whatsoever;
+ *   L. deploy/promote compilation resolves only inside a disposable,
+ *      target-visible repository snapshot, so both success and a later
+ *      compile failure leave the canonical repository unresolved and remove
+ *      every staged byte.
  *
  * K3 and K4 changed MEANING, not bytes, when DUO-3514 landed the host→target
  * push. `ResolveFixtureTransport` is not a `CodePushTransport`, so it is
@@ -61,6 +65,7 @@ require_once __DIR__ . '/../../../../agent/src/Code/CodeDescriptorCompiler.php';
 require_once __DIR__ . '/../../../../cli/src/Code/CodeResolver.php';
 require_once __DIR__ . '/../../../../cli/src/Code/ImportedArchives.php';
 require_once __DIR__ . '/../../../../cli/src/Command/CodeResolveCommand.php';
+require_once __DIR__ . '/../../../../cli/src/Transport/Transport.php';
 
 use Duo\CodeCompilationException;
 use Duo\CodeDescriptorCompiler;
@@ -1183,6 +1188,140 @@ duo_check(
     $retired !== null && str_contains($retired->getMessage(), '`duo code-import <archive.zip>`'),
     'and the refusal carries the remedy: import the archive on the host and re-lock'
 );
+
+// ---------------------------------------------------------------------------
+// L. The automatic release path is transactional with respect to repository
+// materialization. The explicit verb cases above intentionally leave bytes in
+// the repository; deploy/promote must not.
+// ---------------------------------------------------------------------------
+
+final class ReleaseCompileFixtureTransport extends \Duo\Orchestrator\Transport {
+    public function __construct(string $repo) {
+        parent::__construct('release-compile-fixture', [
+            'repo_path' => $repo,
+            'transport' => 'local',
+        ]);
+    }
+
+    public function hostRepoPath(): ?string {
+        return rtrim($this->repoPath(), '/');
+    }
+
+    public function describe(): string { return 'release compile fixture'; }
+    protected function wpCommand(array $wpArgs): string { return 'unused'; }
+    protected function rawCommand(string $script): string { return $script; }
+
+    public function captureRaw(string $script): array {
+        return self::shell($script);
+    }
+
+    public function captureWp(array $wpArgs): array {
+        $repoArg = array_values(array_filter(
+            $wpArgs,
+            static fn(string $arg): bool => str_starts_with($arg, '--repo=')
+        ));
+        if (!in_array('code-inventory', $wpArgs, true) || count($repoArg) !== 1) {
+            return ['exit' => 1, 'stdout' => '', 'stderr' => 'unexpected wp fixture call'];
+        }
+        $repo = substr($repoArg[0], strlen('--repo='));
+        $lock = CodeSourceLock::parse((string) file_get_contents($repo . '/' . CodeSourceLock::PATH));
+        $rows = [];
+        foreach ($lock['components'] as $entry) {
+            $path = $repo . '/' . CodeSourceLock::SOURCE . '/' . $entry['root'] . '/' . $entry['component'];
+            if (!is_dir($path)) {
+                continue;
+            }
+            $rows[] = [
+                'root' => $entry['root'],
+                'component' => $entry['component'],
+                'version' => $entry['version'],
+                'tree_sha256' => WpOrgReleases::treeDigest($path),
+            ];
+        }
+        return [
+            'exit' => 0,
+            'stdout' => json_encode([
+                'format' => 'duo-code-inventory/v1',
+                'source' => CodeSourceLock::SOURCE,
+                'components' => $rows,
+            ], JSON_UNESCAPED_SLASHES),
+            'stderr' => '',
+        ];
+    }
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    private static function shell(string $script): array {
+        $process = proc_open(['/bin/sh', '-c', $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) {
+            return ['exit' => 255, 'stdout' => '', 'stderr' => 'could not start shell'];
+        }
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+}
+
+$releaseRepo = resolve_make_repo($scratch, $repoSeq, $lockRows, []);
+$releaseDriver = new ReleaseCompileFixtureTransport($releaseRepo);
+$priorBase = getenv('DUO_CODE_ARTIFACT_BASE');
+$priorXdg = getenv('XDG_CACHE_HOME');
+putenv('DUO_CODE_ARTIFACT_BASE=file://' . $registry);
+putenv('XDG_CACHE_HOME=' . $scratch . '/release-xdg');
+try {
+    $preparedPath = CodeResolveCommand::releaseCompile(
+        $releaseDriver,
+        'deploy',
+        static function (string $prepared) use ($releaseRepo): string {
+            duo_check(
+                str_contains($prepared, '/' . CodeResolveCommand::RELEASE_STAGING . '/'),
+                'release compilation receives a target-visible repository with a minted staging identity'
+            );
+            duo_check(
+                is_dir($prepared . '/code/wp-content/plugins/woocommerce')
+                    && is_dir($prepared . '/code/wp-content/themes/storefront'),
+                'the disposable repository carries every locked component at compile time'
+            );
+            duo_check(
+                !is_dir($releaseRepo . '/code/wp-content/plugins/woocommerce')
+                    && !is_dir($releaseRepo . '/code/wp-content/themes/storefront'),
+                'THE boundary: automatic resolution has not materialized the canonical repository before compile'
+            );
+            return $prepared;
+        }
+    );
+    duo_check(is_string($preparedPath), 'the product compile callback result is returned unchanged');
+    duo_check(!is_dir((string) $preparedPath), 'the isolated repository is removed after successful compile');
+    duo_check(
+        !is_dir($releaseRepo . '/code/wp-content/plugins/woocommerce')
+            && !is_dir($releaseRepo . '/code/wp-content/themes/storefront'),
+        'successful preparation leaves the canonical repository byte-identical too'
+    );
+
+    $failed = CodeResolveCommand::releaseCompile(
+        $releaseDriver,
+        'promote',
+        static function (string $prepared): never {
+            duo_check(is_dir($prepared), 'the refusal fixture reaches the real prepared repository');
+            throw new RuntimeException('synthetic compile refusal after resolution');
+        }
+    );
+    duo_check_same(1, $failed, 'a compile exception is a closed release preparation refusal');
+    duo_check_same(
+        [],
+        array_values((array) glob($releaseRepo . '/' . CodeResolveCommand::RELEASE_STAGING . '/*')),
+        'the finally removes every target-side prepared repository after the refusal'
+    );
+    duo_check(
+        !is_dir($releaseRepo . '/code/wp-content/plugins/woocommerce')
+            && !is_dir($releaseRepo . '/code/wp-content/themes/storefront'),
+        'and a failed release leaves no resolved dependency bytes for an operator to clean up'
+    );
+} finally {
+    $priorBase === false ? putenv('DUO_CODE_ARTIFACT_BASE') : putenv('DUO_CODE_ARTIFACT_BASE=' . $priorBase);
+    $priorXdg === false ? putenv('XDG_CACHE_HOME') : putenv('XDG_CACHE_HOME=' . $priorXdg);
+}
 
 resolve_remove_tree($scratch);
 

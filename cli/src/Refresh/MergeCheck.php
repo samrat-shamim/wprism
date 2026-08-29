@@ -234,16 +234,18 @@ final class MergeCheck {
                 'type' => (string) ($entry['type'] ?? 'record'),
             ];
         }
+        $codeSkew = self::codeSkew($root, $left, $right);
+        $blocked = $conflicts !== [] || $codeSkew !== [];
         return self::document([
-            'code_skew' => self::codeSkew($root, $left, $right),
+            'code_skew' => $codeSkew,
             'coherence' => self::coherence($leftArtifact),
             'conflicts' => $conflicts,
             'counts' => $plan['counts'] ?? null,
-            'exit_code' => $conflicts === [] ? self::EXIT_OK : self::EXIT_CONFLICTS,
+            'exit_code' => $blocked ? self::EXIT_CONFLICTS : self::EXIT_OK,
             'mode' => 'compare',
             'plan' => $plan,
             'refs' => ['base' => $base, 'left' => $left, 'right' => $right],
-            'verdict' => $conflicts === [] ? 'clean' : 'conflicts',
+            'verdict' => $conflicts !== [] ? 'conflicts' : ($codeSkew !== [] ? 'code_skew' : 'clean'),
         ], null);
     }
 
@@ -278,11 +280,10 @@ final class MergeCheck {
      * so both sides are readable straight out of Git with no worktree and no
      * environment.
      *
-     * It WARNS and never flips the exit code. DESIGN.md:125 says "apply warns
-     * on mismatch" and docs/guides/daily-workflow.md:270 says warnings alone
-     * never flip the exit code; a read-only checker stricter than the verb
-     * that actually writes would be backwards. It is published in
-     * `code_skew[]` so a CI job that wants to escalate can do so locally.
+     * It is a blocking merge-check answer. Merging state across different
+     * plugin schemas before code-first migration and recapture is not a safe
+     * advisory condition; `code_skew[]` carries the exact components and exit
+     * 3 prevents a CI merge gate from silently approving the ordering defect.
      *
      * @return list<array<string,mixed>>
      */

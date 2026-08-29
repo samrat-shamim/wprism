@@ -312,10 +312,9 @@ $manifestVerdict = static function (array $manifest) use ($vocabulary): ?string 
         return $e->getMessage();
     }
 };
-duo_check_same(
-    null,
-    $manifestVerdict($invented),
-    'v3.3 INERT at v' . ($specVersion - 1) . ': the manifest validator still admits a top-level section in no arm of the partition, so retained v2 manifests change no behaviour by a byte'
+duo_check(
+    str_contains((string) $manifestVerdict($invented), "'totally_made_up_section'"),
+    'v3.3 CLOSED at v' . ($specVersion - 1) . ': the manifest validator refuses a top-level section in no arm of the partition by name'
 );
 // WP-4.12: the v3 half IS walkable in this process now. Before the flip the
 // window refused a spec_version 3 manifest one step before the key rule, so
@@ -335,7 +334,7 @@ duo_check(
         (string) file_get_contents($repo . '/agent/src/Adapter/AdapterContractGrammar.php'),
         'private static function assert_top_level_keys('
     ),
-    'v3.3 ENFORCED: the contract grammar carries the closed-key-set refusal, gated at spec_version 3 (WP-4.3)'
+    'v3.3 ENFORCED: the contract grammar carries the closed-key-set refusal for every accepted manifest version'
 );
 $ratify = (new ReflectionClass(AdapterCertification::class))->getMethod('siteRatification');
 $signerVerdict = null;

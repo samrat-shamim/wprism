@@ -358,9 +358,9 @@ duo_check_same(0, $install['exit'], 'with the key enrolled, the package installs
 $installed = json_decode($install['out'], true);
 duo_check_same('installed', $installed['outcome'] ?? null, 'and reports the outcome');
 duo_check_same(
-    'certified',
+    'experimental',
     $installed['claim_status'] ?? null,
-    'the claim it lands with is certified — never uncertified-but-installed'
+    'the signed but unexercised package lands experimental — never certified by signature alone'
 );
 duo_check_same(
     'site',

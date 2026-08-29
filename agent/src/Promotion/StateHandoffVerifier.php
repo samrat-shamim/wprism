@@ -170,6 +170,14 @@ final class StateHandoffVerifier {
             if ($beforeWasBoundMissing) {
                 continue;
             }
+            if (self::is_theme_switch_storage_transition(
+                (string) $name,
+                $beforeRecord,
+                $afterRecord,
+                $desired
+            )) {
+                continue;
+            }
             if (is_array($afterRecord) && is_array($desiredRecord)
                 && ($desiredRecord['state'] ?? null) !== 'absent'
                 && Canon::encode($afterRecord) === Canon::encode($desiredRecord)) {
@@ -178,5 +186,40 @@ final class StateHandoffVerifier {
             $unexpected[] = (string) $name;
         }
         return $unexpected;
+    }
+
+    /**
+     * WordPress flips the newly-active theme's `theme_mods_*` autoload mode
+     * from `off` to `on` inside switch_theme() even when every captured
+     * authored sub-key is byte-identical (measured against WordPress 7.0.3 in
+     * the core conformance target). That storage-only lifecycle delta is safe
+     * exactly when the row belongs to the frozen desired stylesheet and ends
+     * at the frozen desired autoload value. Any value change still reaches the
+     * ordinary refusal above/below, so a theme hook cannot hide authored state.
+     *
+     * @param mixed $beforeRecord
+     * @param mixed $afterRecord
+     * @param array<string,array<string,mixed>> $desired
+     */
+    private static function is_theme_switch_storage_transition(
+        string $name,
+        mixed $beforeRecord,
+        mixed $afterRecord,
+        array $desired
+    ): bool {
+        $stylesheet = $desired['stylesheet']['value'] ?? null;
+        $desiredRecord = $desired[$name] ?? null;
+        return is_string($stylesheet)
+            && $stylesheet !== ''
+            && hash_equals('theme_mods_' . $stylesheet, $name)
+            && is_array($beforeRecord)
+            && is_array($afterRecord)
+            && is_array($desiredRecord)
+            && ($beforeRecord['state'] ?? null) === 'present'
+            && ($afterRecord['state'] ?? null) === 'present'
+            && ($desiredRecord['state'] ?? null) === 'present'
+            && Canon::encode($beforeRecord['value'] ?? null) === Canon::encode($afterRecord['value'] ?? null)
+            && ($beforeRecord['autoload'] ?? null) !== ($afterRecord['autoload'] ?? null)
+            && ($afterRecord['autoload'] ?? null) === ($desiredRecord['autoload'] ?? null);
     }
 }

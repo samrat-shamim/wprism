@@ -343,7 +343,7 @@ final class RecoverCommand {
         // Proved BEFORE step 1, where this file's own doctrine puts every
         // pre-condition (see operatorDirected()'s comment on the checkpoint
         // read): refusing here drives zero steps and touches no lease. Step 3
-        // is a stock `wp db import` (CodeDeploy::recoveryDbImportArgs()), which
+        // is the authenticated checkpoint-open -> isolated db-import pipeline, which
         // on a network replaces every blog plus wp_users/wp_blogs/wp_sitemeta
         // — this is the most destructive verb in the product and it was the
         // only one with no topology gate at any layer. `--list` above stays
@@ -491,7 +491,10 @@ final class RecoverCommand {
             if (!$begin['ok']) {
                 return ['recovered' => false, 'steps' => $steps];
             }
-            $import = self::step($transport, 'import', CodeDeploy::recoveryDbImportArgs($checkpoint));
+            $import = self::resultStep(
+                'import',
+                CodeDeploy::encryptedCheckpointImport($transport, $transport->repoPath(), $checkpoint)
+            );
             $steps[] = $import;
             $recovered = $import['ok'];
         } finally {
@@ -743,9 +746,9 @@ final class RecoverCommand {
      * Where the operator-directed checkpoint lives on the target.
      *
      * `cli/duo`'s `cmd_promote_internal()` writes it at
-     * `<repo>/.duo/checkpoints/promote-<owner>.sql`, and the receipt names the
+     * `<repo>/.duo/checkpoints/promote-<owner>.sql.enc`, and the receipt names the
      * owner, so the path is derived rather than guessed. `DeployCommand::run()`
-     * is the second writer, at `<repo>/.duo/checkpoints/deploy-<owner>.sql`;
+     * is the second writer, at `<repo>/.duo/checkpoints/deploy-<owner>.sql.enc`;
      * `RetainedCheckpoints::prefixForRow()` reads which of the two a catalog
      * row came from off the row's own id and returns promote's prefix for a
      * signed receipt, so the verified path resolves to exactly the string it
@@ -811,7 +814,11 @@ final class RecoverCommand {
      * @return array<string,mixed>
      */
     private static function step(EnvironmentDriver $transport, string $name, array $args): array {
-        $result = $transport->captureWp($args);
+        return self::resultStep($name, $transport->captureWp($args));
+    }
+
+    /** @param array<string,mixed> $result @return array<string,mixed> */
+    private static function resultStep(string $name, array $result): array {
         $ok = ($result['exit'] ?? 1) === 0;
         $step = [
             'detail' => $ok ? 'completed' : self::STEP_FAILED_DETAIL,

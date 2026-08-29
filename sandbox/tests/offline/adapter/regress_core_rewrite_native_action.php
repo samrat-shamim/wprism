@@ -829,4 +829,23 @@ duo_check(
 );
 $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
 
+$coreConformance = (string) file_get_contents($root . '/sandbox/conformance/checks/core.sh');
+duo_check(
+    str_contains(
+        $coreConformance,
+        "apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported"
+    )
+        && str_contains($coreConformance, 'native rewrite found extended rewrite_rules option topology')
+        && str_contains(
+            $coreConformance,
+            "[ \"\$(wp_conf2 option get permalink_structure)\" = '/journal/%postname%/' ]"
+        )
+        && str_contains(
+            $coreConformance,
+            'rewrite topology refusal published apply_in_progress before mutation'
+        )
+        && !str_contains($coreConformance, 'dropped rewrite write did not fail through the exact required action'),
+    'core live evidence pins an unreviewed rewrite hook to the before-mutation topology refusal'
+);
+
 duo_check_summary('core rewrite native action');

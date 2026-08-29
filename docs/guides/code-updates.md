@@ -35,7 +35,7 @@ The commands are documented in
    claim refuses here, *before* any lease exists.
 7. **promotion-begin** — an exact owner/artifact session on the target.
 8. **checkpoint** — a whole-database export under that same lease, retained at
-   `<repo>/.duo/checkpoints/deploy-<owner>.sql` beside the
+   `<repo>/.duo/checkpoints/deploy-<owner>.sql.enc` beside the
    `deploy-<owner>.json` artifact of step 5. It sits here, not earlier, because
    the dump has to contain the promotion lease row it was taken under — that is
    what makes `duo recover`'s abort → begin → import → final abort sequence
@@ -275,10 +275,10 @@ activated today already has a baseline the next time it matters.
 
 Four consequences follow, and the third is the one teams get wrong:
 
-1. A plugin with no recorded baseline is not drift — it is simply unminted,
-   and Duo skips it rather than inventing a comparison. In practice this means
-   a plugin that was inactive at the last deploy or capture, since anything
-   active then was recorded whether or not target state named it.
+1. With no `code_versions` record at all, capture establishes the initial
+   baseline. Once a baseline exists, an active managed plugin missing from it
+   is blocking `code_baseline_missing`, not an invisible comparison: capture
+   leaves the old record unchanged and deploy is the explicit acceptance path.
 2. A theme slot whose *slug* changed is not drift either; that is a
    `code_mismatch`/plan concern, not a version comparison on one theme.
 3. **A downgrade is the same `code_drift` as an upgrade.** There is no separate
@@ -607,24 +607,36 @@ running `duo` must be able to write the repository the compile will hash:
 
 Both verbs run the identical resolver as an automatic host-side phase,
 `<verb> phase: code-resolve`, immediately **before `compile`** and therefore
-before `promotion-begin` — outside every promotion lease, with no checkpoint
-taken and nothing to compensate if it refuses. It is completely silent for a
-repository that declares no lock (a legacy format-1 repository, or a state-only
-one), so such a deploy prints exactly the phase lines it always did.
+before `promotion-begin`. Unlike the explicit `duo code-resolve` verb, the
+automatic phase never materializes the canonical repository. It copies the
+declared repository into a mode-0700 target-visible directory under
+`.duo/code-release-prepare/`, excluding `.git` and all prior `.duo` runtime
+state; resolves and target-verifies the locked trees only there; compiles the
+immutable artifact from that prepared repository; and removes the directory in
+a `finally` on success or refusal. A compile or later preflight failure
+therefore leaves no dependency bytes in the canonical repository and needs no
+repository cleanup. Concurrent releases use independently minted staging
+identities rather than writing the same ignored component paths.
 
-On **ssh with a lock present**, the phase reads the target's inventory first
-and then does the least it can: every component already at its declared
-`tree_sha256` is reported `UNCHANGED` and nothing is transferred at all; the
-missing ones are resolved on this host and pushed through the six steps above,
-with the target-side digest check in front of every rename. A drifted
-component refuses before compile, naming it. Because the phase runs before
-`compile` and therefore before `promotion-begin`, a refusal here is a deploy
-that never started: no lease, no checkpoint, nothing to compensate.
+The phase is completely silent for a repository that declares no lock (a
+legacy format-1 repository, or a state-only one), so such a deploy prints
+exactly the phase lines it always did.
+
+On **ssh with a lock present**, the target repository is copied into that
+private target-side preparation directory first. Missing components are
+resolved on the host and pushed through the six verified steps above, but the
+rename destination is the private preparation directory, never the canonical
+repository. A drifted component in the copied snapshot refuses before compile,
+naming it. A refusal here is a deploy that never started: no lease, no
+checkpoint, no canonical repository mutation, and no compensation.
 
 The practical consequence, restated for the split: **resolution still happens
-on the host and never on the target.** What changed is that you no longer have
-to remember to run it — `duo deploy` does, from the same lock, through the same
-cache, with the same two digests verified.
+on the host and never fetches from the target.** What changed is that you no
+longer have to remember to run it — `duo deploy` resolves into its private
+preparation repository, from the same lock, through the same cache, with the
+same two digests verified. Run the explicit `duo code-resolve` verb only when
+you intentionally want a working repository materialized for inspection or
+another local tool.
 
 ### What the split does NOT change
 

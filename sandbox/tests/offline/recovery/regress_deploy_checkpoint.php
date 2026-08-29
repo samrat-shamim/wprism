@@ -29,6 +29,7 @@ declare(strict_types=1);
 // From offline/recovery/: two hops to the corpus root, four to the repo root.
 require_once __DIR__ . '/../../lib/check.php';
 
+require_once __DIR__ . '/../../../../agent/src/Recovery/RetainedCheckpointCipher.php';
 require_once __DIR__ . '/../../../../cli/src/Command/DeployCommand.php';
 require_once __DIR__ . '/../../../../cli/src/Recovery/RetainedCheckpoints.php';
 
@@ -36,10 +37,55 @@ use Duo\Orchestrator\DeployCommand;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\RetainedCheckpoints;
+use Duo\RetainedCheckpointCipher;
 
 const DEPLOY_CHECKPOINT_REPO = '/fixture/repo';
 const DEPLOY_CHECKPOINT_RUN_ID = 'checkpoint-test-owner';
 const DEPLOY_CHECKPOINT_HASH = '4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b';
+
+foreach (['AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY', 'NONCE_KEY'] as $saltName) {
+    if (!defined($saltName)) {
+        define($saltName, hash('sha256', 'deploy-checkpoint-fixture-' . $saltName));
+    }
+}
+
+// A full authentication pass precedes the output pass, so corruption near
+// EOF cannot feed an importer a valid SQL prefix before failing.
+$cipherRoot = sys_get_temp_dir() . '/duo-retained-cipher-' . bin2hex(random_bytes(6));
+mkdir($cipherRoot . '/.duo/checkpoints', 0700, true);
+$cipherPath = $cipherRoot . '/.duo/checkpoints/deploy-cipher-test.sql.enc';
+$plain = "CREATE TABLE prior_state (id bigint);\n" . str_repeat('checkpoint-payload-', 140000);
+$plainInput = fopen('php://temp', 'w+b');
+fwrite($plainInput, $plain);
+rewind($plainInput);
+RetainedCheckpointCipher::seal($cipherRoot, $cipherPath, $plainInput);
+fclose($plainInput);
+$cipherBytes = (string) file_get_contents($cipherPath);
+duo_check(!str_contains($cipherBytes, 'CREATE TABLE prior_state'), 'the retained file contains no plaintext SQL');
+duo_check_same(0600, fileperms($cipherPath) & 0777, 'retained ciphertext is owner-readable only');
+$plainOutput = fopen('php://temp', 'w+b');
+RetainedCheckpointCipher::open($cipherRoot, $cipherPath, $plainOutput);
+rewind($plainOutput);
+duo_check_same($plain, stream_get_contents($plainOutput), 'authenticated ciphertext streams back byte-identically');
+fclose($plainOutput);
+
+$tampered = $cipherBytes;
+$tampered[strlen($tampered) - 8] = chr(ord($tampered[strlen($tampered) - 8]) ^ 1);
+file_put_contents($cipherPath, $tampered);
+$refusedOutput = fopen('php://temp', 'w+b');
+duo_check_throws(
+    static fn () => RetainedCheckpointCipher::open($cipherRoot, $cipherPath, $refusedOutput),
+    \RuntimeException::class,
+    'tampered retained ciphertext refuses before restore',
+    'failed authentication'
+);
+rewind($refusedOutput);
+duo_check_same('', stream_get_contents($refusedOutput), 'late ciphertext tampering emits no SQL prefix');
+fclose($refusedOutput);
+@unlink($cipherPath);
+@rmdir($cipherRoot . '/.duo/checkpoints');
+@rmdir($cipherRoot . '/.duo');
+@rmdir($cipherRoot);
 
 /**
  * The same fake-driver shape `offline/cli/regress_deploy_command.php` proves
@@ -87,7 +133,7 @@ final class DeployCheckpointDriver implements EnvironmentDriver {
         }
         if ($command === 'code-preflight') {
             return ['exit' => 0, 'stdout' => json_encode([
-                'format' => 'duo-code-runtime/v1', 'enabled' => true, 'compatible' => true,
+                'format' => 'duo-code-runtime/v1', 'enabled' => true, 'change_required' => true, 'compatible' => true,
                 'code_revision' => $revision,
                 'target' => ['php' => '8.3', 'wordpress' => '6.8', 'source' => 'target-control-plane'],
                 'requirements' => [], 'diagnostics' => [],
@@ -97,6 +143,14 @@ final class DeployCheckpointDriver implements EnvironmentDriver {
             return ['exit' => 0, 'stdout' => 'begun', 'stderr' => ''];
         }
         throw new \RuntimeException("unexpected capture command $command");
+    }
+
+    public function captureWpPipeline(array $producer, array $consumer): array {
+        $this->calls[] = $producer;
+        $this->calls[] = $consumer;
+        $this->events[] = 'capture:db-export';
+
+        return ['exit' => $this->exportExit, 'stdout' => '', 'stderr' => ''];
     }
 
     public function streamWp(array $wpArgs): int {
@@ -188,7 +242,7 @@ function run_deploy_checkpoint(DeployCheckpointDriver $driver, array $extra): ar
     return ['exit' => $exit, 'callbacks' => $callbacks, 'stdout' => $stdout];
 }
 
-$checkpointPath = DEPLOY_CHECKPOINT_REPO . '/.duo/checkpoints/deploy-' . DEPLOY_CHECKPOINT_RUN_ID . '.sql';
+$checkpointPath = DEPLOY_CHECKPOINT_REPO . '/.duo/checkpoints/deploy-' . DEPLOY_CHECKPOINT_RUN_ID . '.sql.enc';
 $artifactPath = DEPLOY_CHECKPOINT_REPO . '/.duo/artifacts/deploy-' . DEPLOY_CHECKPOINT_RUN_ID . '.json';
 
 // ------------------------------------------------------------------ (1) where
@@ -201,7 +255,8 @@ duo_check_same(
     [
         'raw:mkdir', 'capture:compile', 'capture:code-preflight', 'capture:promotion-begin',
         'capture:db-export',
-        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate', 'stream:code-finalize',
+        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate',
+        'stream:lifecycle-settle', 'stream:code-finalize',
     ],
     $happy->events,
     'the checkpoint sits under the lease: after promotion-begin, before code-stage'
@@ -212,21 +267,27 @@ foreach ($happy->calls as $call) {
         $export = $call;
     }
 }
-duo_check_same(
-    ['db', 'export', $checkpointPath, '--porcelain'],
-    $export,
-    'the export is the same primitive and flags promote uses (cli/duo:2386-2388)'
+duo_check_same(['db', 'export', '-'], $export, 'the database export has no durable plaintext output path');
+$seal = null;
+foreach ($happy->calls as $call) {
+    if (in_array('checkpoint-seal', $call, true)) {
+        $seal = $call;
+    }
+}
+duo_check(
+    is_array($seal) && in_array('--output=' . $checkpointPath, $seal, true),
+    'the export stream terminates at the authenticated checkpoint sealer'
 );
 
 // ------------------------------------------------------------------- (2) what
 duo_check_same(
     'deploy-' . DEPLOY_CHECKPOINT_RUN_ID,
-    basename($checkpointPath, '.sql'),
+    basename($checkpointPath, '.sql.enc'),
     'the checkpoint basename is deploy-<runId>'
 );
 duo_check_same(
     basename($artifactPath, '.json'),
-    basename($checkpointPath, '.sql'),
+    basename($checkpointPath, '.sql.enc'),
     'checkpoint and artifact share a stem, which is what the identity grep needs'
 );
 duo_check(
@@ -246,31 +307,30 @@ duo_check(
 duo_check(
     str_contains(
         $happyResult['stdout'],
-        "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize\n"
+        "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize\n"
             . "database checkpoint retained: $checkpointPath\n"
     ),
     'the completion line is unchanged and the retained line follows it, as promote does (cli/duo:2465)'
 );
 
-// A lifecycle-only deploy (no code descriptor) still checkpoints: the hooks it
-// fires are the widest-blast-radius mutation, descriptor or no descriptor.
+// A code-only deploy with no descriptor has nothing to mutate. In particular,
+// it must not manufacture lifecycle side effects (agency audit #77), so it
+// exits before a lease/checkpoint as a disclosed hook-free no-op.
 $legacy = new DeployCheckpointDriver();
 $legacy->codeEnabled = false;
 $legacyResult = run_deploy_checkpoint($legacy, []);
-duo_check_same(0, $legacyResult['exit'], 'a lifecycle-only deploy succeeds');
+duo_check_same(0, $legacyResult['exit'], 'a descriptor-free deploy succeeds as a no-op');
 duo_check_same(
-    ['raw:mkdir', 'capture:compile', 'capture:promotion-begin', 'capture:db-export',
-        'stream:deploy:retire', 'stream:deploy:activate'],
+    ['raw:mkdir', 'capture:compile'],
     $legacy->events,
-    'a deploy with no code descriptor checkpoints before its first lifecycle phase'
+    'a deploy with no code descriptor takes no lease/checkpoint and invokes no lifecycle phase'
 );
 duo_check(
     str_contains(
         $legacyResult['stdout'],
-        "deploy complete: lifecycle-retire -> lifecycle-activate (no code descriptor)\n"
-            . "database checkpoint retained: $checkpointPath\n"
+        "deploy complete: no code descriptor; lifecycle hooks not run\n"
     ),
-    'the lifecycle-only completion line is unchanged and carries the retained line'
+    'the no-op completion line explicitly discloses that lifecycle hooks did not run'
 );
 
 // ----------------------------------------------------- a failed export aborts
@@ -310,7 +370,8 @@ duo_check_same(0, $optOutResult['exit'], '--no-checkpoint deploys successfully')
 duo_check_same(
     [
         'raw:mkdir', 'capture:compile', 'capture:code-preflight', 'capture:promotion-begin',
-        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate', 'stream:code-finalize',
+        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate',
+        'stream:lifecycle-settle', 'stream:code-finalize',
     ],
     $optOut->events,
     '--no-checkpoint reproduces the pre-change wp-call sequence exactly'
@@ -318,8 +379,8 @@ duo_check_same(
 duo_check_same(
     "deploy phase: compile\ndeploy phase: code-preflight\ndeploy phase: promotion-begin\n"
         . "deploy phase: code-stage\ndeploy phase: lifecycle-retire\ndeploy phase: lifecycle-activate\n"
-        . "deploy phase: code-finalize\n"
-        . "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize\n",
+        . "deploy phase: lifecycle-settle\ndeploy phase: code-finalize\n"
+        . "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize\n",
     $optOutResult['stdout'],
     '--no-checkpoint reproduces the pre-change stdout byte for byte'
 );
@@ -367,7 +428,7 @@ duo_check_throws(
 // path: feed the basename DeployCommand just wrote back through the catalog and
 // require the rebuilt path to be the written one. On the prior build parse()
 // throws checkpoint_listing_malformed here.
-$listing = basename($checkpointPath, '.sql') . "\t" . DEPLOY_CHECKPOINT_HASH . "\t1786961410\n";
+$listing = basename($checkpointPath, '.sql.enc') . "\t" . DEPLOY_CHECKPOINT_HASH . "\t1786961410\n";
 $rows = RetainedCheckpoints::parse($listing, '2026-08-17T10:20:10Z');
 duo_check_same(1, count($rows), 'a deploy checkpoint line becomes one catalog row');
 duo_check_same('deploy-' . DEPLOY_CHECKPOINT_RUN_ID, $rows[0]['id'], 'the row id is the deploy file name');
@@ -409,12 +470,13 @@ duo_check_same(
 // ------------------------------------------------- the glob stays a closed set
 $script = RetainedCheckpoints::script(DEPLOY_CHECKPOINT_REPO);
 duo_check(
-    str_contains($script, 'checkpoints/promote-*.sql') && str_contains($script, 'checkpoints/deploy-*.sql'),
+    str_contains($script, 'checkpoints/promote-*.sql.enc')
+        && str_contains($script, 'checkpoints/deploy-*.sql.enc'),
     'the listing script asks the target for both prefixes'
 );
 duo_check(
-    !preg_match('~checkpoints/\*\.sql~', $script),
-    'no bare *.sql glob: materialize-<operation_id>.sql (cli/duo:2126, :2576) stays outside this catalog'
+    !preg_match('~checkpoints/\*\.sql\.enc~', $script),
+    'no bare *.sql.enc glob: materialize-<operation_id>.sql.enc stays outside this catalog'
 );
 duo_check_refuses(
     static fn () => RetainedCheckpoints::parse("materialize-abc\t\t1\n", '2026-08-17T10:20:10Z'),

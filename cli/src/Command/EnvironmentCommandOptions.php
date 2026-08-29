@@ -5,11 +5,12 @@ namespace Duo\Orchestrator;
 
 /** Target-free option grammar for the nested `duo env` command. */
 final class EnvironmentCommandOptions {
-    /** @return array{source:string,branch:string,create:bool,ttl_seconds:int,json:bool} */
+    /** @return array{source:string,branch:string,containment_required:bool,create:bool,ttl_seconds:int,json:bool} */
     public static function materialize(array $args): array {
         $source = null;
         $branch = null;
         $create = false;
+        $containmentRequired = false;
         $ttl = 0;
         $ttlSeen = false;
         $json = false;
@@ -21,6 +22,11 @@ final class EnvironmentCommandOptions {
             if ($arg === '--create') {
                 if ($create) throw new \RuntimeException('duplicate --create');
                 $create = true;
+                continue;
+            }
+            if ($arg === '--require-containment') {
+                if ($containmentRequired) throw new \RuntimeException('duplicate --require-containment');
+                $containmentRequired = true;
                 continue;
             }
             if ($arg === '--format=json') {
@@ -67,6 +73,7 @@ final class EnvironmentCommandOptions {
         return [
             'source' => $source,
             'branch' => $branch,
+            'containment_required' => $containmentRequired,
             'create' => $create,
             'ttl_seconds' => $ttl,
             'json' => $json,

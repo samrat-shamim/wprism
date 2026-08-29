@@ -129,6 +129,8 @@ return [
     'Duo\\Orchestrator\\SurfaceCatalog' => 'src/Assess/SurfaceCatalog.php',
     'Duo\\Orchestrator\\Transport' => 'src/Transport/Transport.php',
     'Duo\\Orchestrator\\Triage' => 'src/Onboarding/Triage.php',
+    'Duo\\Orchestrator\\Unadopt' => 'src/Onboarding/Unadopt.php',
+    'Duo\\Orchestrator\\UnadoptCommand' => 'src/Command/UnadoptCommand.php',
     'Duo\\Orchestrator\\VerifiedRollbackProfile' => 'src/Recovery/VerifiedRollbackProfile.php',
     'Duo\\Orchestrator\\VerifyCommand' => 'src/Command/VerifyCommand.php',
     'Duo\\Orchestrator\\WpOrgReleases' => 'src/Code/WpOrgReleases.php',

@@ -48,6 +48,8 @@ final class EnvironmentProviderCapability {
     public const ENVIRONMENT_TTL = 'environment.ttl';
     /** Readback is distinct from setting a TTL; expiry/reuse is never inferred. */
     public const ENVIRONMENT_TTL_READ = 'environment.ttl.read';
+    /** Closed rehearsal isolation, established before production-derived bytes enter the target. */
+    public const ENVIRONMENT_CONTAINMENT_VERIFY = 'environment.containment.verify';
     public const URL_DISCOVER = 'environment.url.discover';
     public const URL_SET = 'environment.url.set';
     public const REPOSITORY_MATERIALIZE = 'repository.materialize';
@@ -62,6 +64,7 @@ final class EnvironmentProviderCapability {
             self::ENVIRONMENT_DESTROY, self::ENVIRONMENT_DETACH,
             self::ENVIRONMENT_MUTATION_ACQUIRE, self::ENVIRONMENT_MUTATION_READ,
             self::ENVIRONMENT_MUTATION_RELEASE, self::ENVIRONMENT_TTL, self::ENVIRONMENT_TTL_READ,
+            self::ENVIRONMENT_CONTAINMENT_VERIFY,
             self::URL_DISCOVER, self::URL_SET, self::REPOSITORY_MATERIALIZE,
             self::OPERATION_RECEIPTS,
         ];
@@ -162,6 +165,7 @@ final class EnvironmentProviderCapabilityReport {
 final class CommandEnvironmentProvider {
     public const REQUEST_FORMAT = 'duo-branch-environment-provider-request/v1';
     public const RESPONSE_FORMAT = 'duo-branch-environment-provider-response/v1';
+    public const MAX_TIMEOUT_SECONDS = 3600;
     private const OUTPUT_LIMIT = 1048576;
     /** @var ?array{id:string,protocol:int} */
     private ?array $negotiatedProvider = null;
@@ -202,8 +206,8 @@ final class CommandEnvironmentProvider {
             throw new \RuntimeException("env '$environment': environment_provider executable must be absolute");
         }
         $timeout = $cfg['timeout_seconds'] ?? null;
-        if (!is_int($timeout) || $timeout < 1 || $timeout > 60) {
-            throw new \RuntimeException("env '$environment': environment_provider.timeout_seconds must be 1..60");
+        if (!is_int($timeout) || $timeout < 1 || $timeout > self::MAX_TIMEOUT_SECONDS) {
+            throw new \RuntimeException("env '$environment': environment_provider.timeout_seconds must be 1..3600");
         }
         return new self($environment, array_values($command), $timeout);
     }
@@ -347,6 +351,20 @@ final class CommandEnvironmentProvider {
         $closed = proc_close($process);
         $exit = $observedExit ?? $closed;
         if ($exit !== 0) {
+            $failure = self::providerFailureResponse(
+                $stdout,
+                $action,
+                $this->environment,
+                $operationId,
+                $this->negotiatedProvider
+            );
+            if ($failure !== null) {
+                $this->lastResponse = $failure['response'];
+                throw new \RuntimeException(
+                    "environment provider error [{$failure['code']}]: {$failure['message']}; "
+                    . "remediation: {$failure['remediation']}"
+                );
+            }
             throw new \RuntimeException('environment provider failed; provider output is redacted');
         }
         try {
@@ -381,6 +399,76 @@ final class CommandEnvironmentProvider {
             throw new \RuntimeException('environment provider result must be an object');
         }
         return $response;
+    }
+
+    /**
+     * Decode the operator-safe failure channel. Raw stdout/stderr remain
+     * redacted; diagnostics surface only through a canonical, request-bound
+     * error response with three bounded text fields.
+     *
+     * @param ?array{id:string,protocol:int} $negotiatedProvider
+     * @return null|array{code:string,message:string,remediation:string,response:array<string,mixed>}
+     */
+    private static function providerFailureResponse(
+        string $stdout,
+        string $action,
+        string $environment,
+        string $operationId,
+        ?array $negotiatedProvider
+    ): ?array {
+        try {
+            $response = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+            if (!is_array($response) || array_is_list($response)
+                || EnvironmentLifecycleCanon::encode($response) . "\n" !== $stdout) {
+                return null;
+            }
+            self::assertExactKeys(
+                $response,
+                ['action', 'environment', 'format', 'operation_id', 'provider', 'result', 'status'],
+                'environment provider failure response'
+            );
+            if (($response['format'] ?? null) !== self::RESPONSE_FORMAT
+                || ($response['action'] ?? null) !== $action
+                || ($response['environment'] ?? null) !== $environment
+                || ($response['operation_id'] ?? null) !== $operationId
+                || ($response['status'] ?? null) !== 'error'
+                || !is_array($response['provider'] ?? null) || array_is_list($response['provider'])
+                || !is_array($response['result'] ?? null) || array_is_list($response['result'])) {
+                return null;
+            }
+            self::assertExactKeys($response['provider'], ['id', 'protocol'], 'environment provider failure identity');
+            self::assertProviderId($response['provider']['id'] ?? null);
+            if (($response['provider']['protocol'] ?? null) !== 1
+                || ($negotiatedProvider !== null && $response['provider'] !== $negotiatedProvider)) {
+                return null;
+            }
+            self::assertExactKeys(
+                $response['result'],
+                ['code', 'message', 'remediation'],
+                'environment provider failure result'
+            );
+            $code = $response['result']['code'] ?? null;
+            if (!is_string($code) || preg_match('/^[a-z][a-z0-9_.-]{2,63}$/D', $code) !== 1) {
+                return null;
+            }
+            $fields = [];
+            foreach (['message', 'remediation'] as $field) {
+                $value = $response['result'][$field] ?? null;
+                if (!is_string($value) || trim($value) === '' || strlen($value) > 1024
+                    || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $value) === 1) {
+                    return null;
+                }
+                $fields[$field] = trim($value);
+            }
+            return [
+                'code' => $code,
+                'message' => $fields['message'],
+                'remediation' => $fields['remediation'],
+                'response' => $response,
+            ];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /** @param array<string,mixed> $result */
@@ -449,6 +537,23 @@ final class CommandEnvironmentProvider {
             self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), "$action result");
             self::validateIdentity($result);
             self::validateMutation($result, $action);
+            return;
+        }
+        if ($action === 'containment-verify') {
+            self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), 'containment-verify result');
+            self::validateIdentity($result);
+            foreach ([
+                'credential_isolation', 'http_egress_default_denied', 'mail_default_denied',
+                'payment_default_denied', 'queue_default_denied', 'webhook_default_denied',
+            ] as $control) {
+                if (($result[$control] ?? null) !== true) {
+                    throw new \RuntimeException("environment provider containment proof did not establish '$control'");
+                }
+            }
+            if (($result['profile'] ?? null) !== 'agency-rehearsal-v1') {
+                throw new \RuntimeException('environment provider containment proof named the wrong profile');
+            }
+            self::assertHash($result['containment_receipt_sha256'] ?? null, 'containment receipt');
             return;
         }
         if (in_array($action, ['ttl-set', 'ttl-read'], true)) {
@@ -763,7 +868,10 @@ final class EnvironmentLifecycleJournal {
         $actual = array_keys($run);
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);
-        if ($actual !== $expected || $run['format'] !== self::RUN_FORMAT
+        $expectedContained = $expected;
+        $expectedContained[] = 'containment_required';
+        sort($expectedContained, SORT_STRING);
+        if (($actual !== $expected && $actual !== $expectedContained) || $run['format'] !== self::RUN_FORMAT
             || $run['operation_id'] !== $operationId
             || !is_string($run['source_environment']) || $run['source_environment'] === ''
             || !is_string($run['target_environment']) || $run['target_environment'] === ''
@@ -771,6 +879,7 @@ final class EnvironmentLifecycleJournal {
             || !is_string($run['branch_commit'])
             || preg_match('/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/D', $run['branch_commit']) !== 1
             || !is_string($run['intent_sha256']) || preg_match('/^[a-f0-9]{64}$/D', $run['intent_sha256']) !== 1
+            || (array_key_exists('containment_required', $run) && $run['containment_required'] !== true)
             || !in_array($run['mode'], ['attach', 'create'], true)
             || !is_int($run['ttl_seconds']) || $run['ttl_seconds'] < 0
             || !is_string($run['created_at'])) {
@@ -864,7 +973,7 @@ final class EnvironmentLifecycleJournal {
  */
 final class EnvironmentMaterializer {
     /**
-     * @param array{branch:string,create:bool,ttl_seconds:int} $options
+     * @param array{branch:string,containment_required:bool,create:bool,ttl_seconds:int} $options
      * @param callable(EnvironmentDriver,array{artifact_path:string,checkpoint_path:string,compiled_summary:array<string,mixed>,operation_id:string,promotion_owner:string}):array<string,mixed> $promote
      * @return array<string,mixed>
      */
@@ -895,10 +1004,16 @@ final class EnvironmentMaterializer {
         array $options,
         callable $promote
     ): array {
+        // Direct compositions predating the rehearsal containment profile are
+        // ordinary materializations. The public option parser always writes
+        // the explicit boolean; retaining this default keeps that existing
+        // API byte-compatible without weakening `duo rehearse`, which sets it.
+        $options['containment_required'] ??= false;
         $optionKeys = array_keys($options);
         sort($optionKeys, SORT_STRING);
-        if ($optionKeys !== ['branch', 'create', 'ttl_seconds']
+        if ($optionKeys !== ['branch', 'containment_required', 'create', 'ttl_seconds']
             || !is_string($options['branch']) || $options['branch'] === ''
+            || !is_bool($options['containment_required'])
             || !is_bool($options['create'])
             || !is_int($options['ttl_seconds']) || $options['ttl_seconds'] < 0
             || $options['ttl_seconds'] > 2592000
@@ -926,6 +1041,9 @@ final class EnvironmentMaterializer {
             'target_environment' => $targetDriver->name(),
             'ttl_seconds' => $options['ttl_seconds'],
         ];
+        if ($options['containment_required']) {
+            $intent['containment_required'] = true;
+        }
         $intentSha = hash('sha256', EnvironmentLifecycleCanon::encode($intent));
         $latest = $journal->latestForTarget($targetDriver->name());
         $operationId = self::operationId();
@@ -943,7 +1061,7 @@ final class EnvironmentMaterializer {
                 return $completed['data'] + ['operation_id' => $operationId, 'resumed' => true];
             }
         } else {
-            $journal->start($operationId, [
+            $run = [
                 'branch_commit' => $requestedCommit,
                 'branch_ref' => $options['branch'],
                 'created_at' => gmdate('Y-m-d\TH:i:s\Z'),
@@ -954,7 +1072,11 @@ final class EnvironmentMaterializer {
                 'source_environment' => $sourceDriver->name(),
                 'target_environment' => $targetDriver->name(),
                 'ttl_seconds' => $options['ttl_seconds'],
-            ]);
+            ];
+            if ($options['containment_required']) {
+                $run['containment_required'] = true;
+            }
+            $journal->start($operationId, $run);
             $events = $journal->events($operationId);
         }
 
@@ -988,6 +1110,9 @@ final class EnvironmentMaterializer {
             if ($options['ttl_seconds'] > 0) {
                 $targetRequired[] = EnvironmentProviderCapability::ENVIRONMENT_TTL;
                 $targetRequired[] = EnvironmentProviderCapability::ENVIRONMENT_TTL_READ;
+            }
+            if ($options['containment_required']) {
+                $targetRequired[] = EnvironmentProviderCapability::ENVIRONMENT_CONTAINMENT_VERIFY;
             }
             $targetCapabilities->require($targetRequired, "materialize a $mode branch environment");
             self::requireDriver($sourceDriver, 'refresh');
@@ -1208,6 +1333,27 @@ final class EnvironmentMaterializer {
                 self::recordPhase($journal, $operationId, 'target-fence-released', self::publicEvidence($currentFence));
             }
 
+            // Production-derived snapshot bytes cross into a rehearsal only
+            // after the host authority has established and read back every
+            // control in the closed profile. The provider result is bound to
+            // this target identity and held mutation fence, then retained in
+            // the final materialization receipt.
+            $containment = null;
+            if ($options['containment_required']) {
+                $containmentInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence) + [
+                    'profile' => 'agency-rehearsal-v1',
+                ];
+                self::recordIntent($journal, $operationId, 'containment-verify', $containmentInput);
+                $containment = self::phaseData($journal, $operationId, 'containment-verified');
+                if ($containment === null) {
+                    $containment = $targetProvider->perform('containment-verify', $operationId, $containmentInput);
+                    self::assertSameIdentity($targetIdentity, $containment);
+                    self::recordPhase($journal, $operationId, 'containment-verified', self::publicEvidence($containment));
+                } else {
+                    self::assertSameIdentity($targetIdentity, $containment);
+                }
+            }
+
             $restoreInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence) + [
                 'database_sha256' => $snapshot['database_sha256'], 'media_sha256' => $snapshot['media_sha256'],
                 'snapshot_set_id' => $snapshot['snapshot_set_id'],
@@ -1285,7 +1431,7 @@ final class EnvironmentMaterializer {
             if ($promotionReceipt === null) {
                 $promotionReceipt = self::invokePromotion($promote, $targetDriver, [
                     'artifact_path' => $artifactPath,
-                    'checkpoint_path' => rtrim($targetDriver->repoPath(), '/') . '/.duo/checkpoints/materialize-' . $operationId . '.sql',
+                    'checkpoint_path' => rtrim($targetDriver->repoPath(), '/') . '/.duo/checkpoints/materialize-' . $operationId . '.sql.enc',
                     'compiled_summary' => $compiled['summary'],
                     'operation_id' => $operationId,
                     'promotion_owner' => $promotionOwner,
@@ -1374,6 +1520,10 @@ final class EnvironmentMaterializer {
                 'ttl_receipt_sha256' => $ttl['ttl_receipt_sha256'] ?? null, 'promotion_receipt_sha256' => $promotionReceipt['receipt_sha256'],
                 'checkpoint_identity' => $promotionReceipt['checkpoint_identity'], 'source_provider' => $sourceCapabilities->pin(), 'target_provider' => $targetCapabilities->pin(),
             ];
+            if (is_array($containment)) {
+                $receipt['containment_profile'] = $containment['profile'];
+                $receipt['containment_receipt_sha256'] = $containment['containment_receipt_sha256'];
+            }
             $receipt['receipt_sha256'] = hash('sha256', EnvironmentLifecycleCanon::encode($receipt));
             self::recordPhase($journal, $operationId, 'complete', $receipt);
             return $receipt + ['resumed' => $latest !== null];

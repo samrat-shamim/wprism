@@ -276,7 +276,7 @@ duo_check(
 $operatorVerified = AdapterCertification::verifyFile($library, $site, 'acme-shop', $manifest, $site . '/adapters/certifications/acme-shop.json');
 $operatorEnvelope = $operatorVerified['envelope'];
 duo_check_same(
-    'certified',
+    'experimental',
     $operatorVerified['claim']['status'] ?? null,
     'and it verifies live, under trust root site'
 );
@@ -300,7 +300,7 @@ duo_check(
     . $liveStatusFlip . ')'
 );
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $operatorEnvelope)['claim']['status'] ?? null,
     'and it still does NOT reach an already-frozen snapshot — the asymmetry T6 §2 defers is preserved exactly, '
     . 'because closing it would claim a custody property this profile does not have'
@@ -377,7 +377,7 @@ duo_check_same(
     . 'frozen path used to reason about as "the operator\'s own"'
 );
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'it verifies frozen too, before anything is revoked — the control this whole section is measured against'
 );
@@ -450,7 +450,7 @@ duo_check(
 // future one that broke this path outright; what the sentence claims is that
 // the snapshot still VERIFIES, so that is what is asserted.
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'while the FROZEN path is unaffected by the delegator\'s revocation alone: it holds the delegate\'s own '
     . 'record and no delegation document, so the snapshot still verifies — revoking the DELEGATE\'s fingerprint '
@@ -470,7 +470,7 @@ duo_check(
 );
 $installRevocations([], $platformId, $platformKey['secret']);
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'removing the document restores the verdict: ABSENCE means "nothing is revoked", which is the shipped state '
     . 'of every site and the reason this channel costs nothing until it is used'
@@ -588,7 +588,7 @@ file_put_contents($revocationsPath, AdapterCertification::signRevocations(
 // and inert" is never silent; and TAMPERING still hard-refuses, which is what
 // keeps the state named rather than a hole.
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'a revocation signed by a key the SHIPPED root does not carry is INERT: its entries do not apply, and the '
     . 'site keeps working — the honest posture for a channel that is empty until enrollment'
@@ -625,7 +625,7 @@ $tamperedInertStatement['issued_at'] = '2026-05-02T00:00:00Z';
 $tamperedInert['statement'] = (object) $tamperedInertStatement;
 file_put_contents($revocationsPath, Canon::encode($tamperedInert));
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'editing a document whose signer is not installed changes nothing either: with no key to check it against, '
     . 'there is no verdict about its bytes to give — which is precisely why inert is the honest answer and not '
@@ -696,7 +696,7 @@ $installRevocations(
     $platformKey['secret']
 );
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'an entry binds the key FINGERPRINT, not the id: naming the vendor\'s id over somebody else\'s key material '
     . 'revokes nothing, because an id can be re-minted over new material and material cannot'
@@ -720,7 +720,7 @@ $installRevocations(
     $platformKey['secret']
 );
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'a SCHEDULED revocation grants its subject until its own instant, judged against the same named host clock '
     . '(`$now ?? time()`) every window in this file reads'
@@ -870,7 +870,7 @@ $second = $root . '/second-library';
 rev_copy_tree($library, $second);
 $installRevocations([], $platformId, $platformKey['secret']);
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'the first library, with the document removed, verifies again'
 );

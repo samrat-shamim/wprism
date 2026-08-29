@@ -42,7 +42,7 @@ ECOMMERCE_HOST_GID="$(id -g)"
 SITE="siterepo/${PAIR}1"
 OTHER_SITE="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
-V1_CHECKPOINT_TARGET="$OTHER_SITE/.duo/checkpoints/ecommerce-v1.sql"
+V1_CHECKPOINT_TARGET="$OTHER_SITE/.tmp-ecommerce-v1.sql"
 for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do
   if [ -e "$pair_path" ] || [ -L "$pair_path" ]; then
     fail "refusing to reuse pre-existing pair path: $pair_path"
@@ -270,7 +270,7 @@ artifact_for_new_deploy() {
 }
 artifact_for_promote_output() {
   local output="$1" checkpoint run_id artifact
-  checkpoint="$(sed -n 's#^database checkpoint: /siterepo/\.duo/checkpoints/promote-\(.*\)\.sql$#\1#p' <<<"$output" | tail -1)"
+  checkpoint="$(sed -n 's#^database checkpoint: /siterepo/\.duo/checkpoints/promote-\(.*\)\.sql\.enc$#\1#p' <<<"$output" | tail -1)"
   [ -n "$checkpoint" ] || fail 'promote output did not expose its exact database checkpoint run'
   artifact="$OTHER_SITE/.duo/artifacts/promote-$checkpoint.json"
   [ -f "$artifact" ] || fail "promote receipt for checkpoint run '$checkpoint' is missing: $artifact"
@@ -1307,7 +1307,7 @@ assert_receipt() {
     promote-*.json)
       run_id="${basename#promote-}"
       run_id="${run_id%.json}"
-      checkpoint="$OTHER_SITE/.duo/checkpoints/promote-$run_id.sql"
+      checkpoint="$OTHER_SITE/.duo/checkpoints/promote-$run_id.sql.enc"
       [ -s "$checkpoint" ] || fail "$label receipt is not bound to a non-empty pair-local checkpoint: $checkpoint"
       ;;
     *) fail "$label artifact is not a deploy/promote receipt: $artifact" ;;
@@ -2199,7 +2199,8 @@ git -C "$SITE" add -A
 git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'code: opt in WooCommerce extension and storefront v1'
 git -C "$SITE" push -qu origin main
 git clone -q "$ORIGIN" "$OTHER_SITE"
-if ! php "$DUO" --envs-file="$ENVS_FILE" env-set target --name=duo_commerce_extension_gateway_secret --value=target-only-synthetic-secret >/dev/null; then
+if ! printf '%s\n' 'target-only-synthetic-secret' \
+  | php "$DUO" --envs-file="$ENVS_FILE" env-set target --name=duo_commerce_extension_gateway_secret --stdin >/dev/null; then
   fail "target env-owned gateway secret could not be provisioned through duo env-set"
 fi
 assert_eq source-only-synthetic-secret "$(source_wp option get duo_commerce_extension_gateway_secret)" "source env-owned gateway secret"
@@ -2690,10 +2691,10 @@ V2_FAILED_CHECKPOINT="$(sed -n 's/^database checkpoint: //p' <<<"$V2_BROKEN_OUT"
 [ -n "$V2_FAILED_CHECKPOINT" ] || fail 'broken v2 activation did not report its checkpoint'
 V2_FAILED_RUN_ID="$(basename "$V2_FAILED_CHECKPOINT")"
 V2_FAILED_RUN_ID="${V2_FAILED_RUN_ID#promote-}"
-V2_FAILED_RUN_ID="${V2_FAILED_RUN_ID%.sql}"
+V2_FAILED_RUN_ID="${V2_FAILED_RUN_ID%.sql.enc}"
 [[ "$V2_FAILED_RUN_ID" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{32}$ ]] || fail "failed v2 checkpoint run identity is malformed: $V2_FAILED_RUN_ID"
-assert_eq "/siterepo/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql" "$V2_FAILED_CHECKPOINT" 'failed v2 checkpoint path/run identity'
-V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql"
+assert_eq "/siterepo/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc" "$V2_FAILED_CHECKPOINT" 'failed v2 checkpoint path/run identity'
+V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"
 V2_FAILED_ARTIFACT_FILE="$OTHER_SITE/.duo/artifacts/promote-$V2_FAILED_RUN_ID.json"
 [ -s "$V2_FAILED_CHECKPOINT_HOST" ] || fail 'failed v2 checkpoint not target-visible and non-empty'
 [ -f "$V2_FAILED_ARTIFACT_FILE" ] || fail 'failed v2 compiled artifact does not share the checkpoint run identity'
@@ -2730,15 +2731,13 @@ cp -a "$FIXTURE/v1/wp-content/themes/$CHILD_THEME" "$OTHER_SITE/.tmp-v1-code/wp-
 rm -rf -- "$OTHER_SITE/.tmp-v1-code"
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'full managed v1 code tree before checkpoint recovery'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'v1 code revision before checkpoint recovery'
-control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT" >/dev/null
-control_wp beginArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT" >/dev/null
-V2_RECOVERY_LOCK="$(ledger_value promotion_lock)"
-jq -e --arg owner "$V2_FAILED_OWNER" --arg artifact "$V2_FAILED_ARTIFACT" \
-  '.owner == $owner and .artifact_hash == $artifact and .phase == "checkpoint"' <<<"$V2_RECOVERY_LOCK" >/dev/null \
-  || fail 'failed v2 checkpoint recovery lease is not bound to the original owner/artifact'
 assert_eq "$V2_FAILED_CHECKPOINT_SHA256" "$(sha256sum "$V2_FAILED_CHECKPOINT_HOST" | awk '{print $1}')" 'failed v2 checkpoint bytes before recovery import'
-control_wp recoveryDbImportArgs "$V2_FAILED_CHECKPOINT" >/dev/null
-control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT" >/dev/null
+if ! V2_RECOVERY_OUT="$(php "$DUO" --envs-file="$ENVS_FILE" recover target \
+  --restore="$V2_FAILED_RUN_ID" --writers-excluded --operator-directed 2>&1)"; then
+  echo "$V2_RECOVERY_OUT" >&2
+  fail 'failed v2 encrypted checkpoint recovery did not complete'
+fi
+assert_phase_order "$V2_RECOVERY_OUT" '  abort: ok' '  begin: ok' '  import: ok' '  final-abort: ok'
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'full managed v1 code tree after checkpoint recovery'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'v1 revision after failed-v2 checkpoint restore'
 assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'v1 scalar after checkpoint restore'
@@ -3494,7 +3493,7 @@ chmod 0644 "$V1_CHECKPOINT_TARGET"
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET" | awk '{print $1}')" 'immutable v1 database checkpoint bytes before rollback import'
 grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_CHECKPOINT_TARGET" \
   || fail 'immutable v1 database checkpoint lost the raw scalar option value before rollback import'
-control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql" >/dev/null
+control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1.sql" >/dev/null
 ROLLBACK_SETTING_AFTER_IMPORT="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")"
 printf 'exact v1 raw setting immediately after checkpoint import: %s\n' "$ROLLBACK_SETTING_AFTER_IMPORT" >&2
 ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'active_plugins' LIMIT 1")"

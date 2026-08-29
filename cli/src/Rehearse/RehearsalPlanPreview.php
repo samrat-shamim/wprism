@@ -163,7 +163,7 @@ final class RehearsalPlanPreview {
     ];
 
     /** The closed context keys `build()` accepts. */
-    private const CONTEXT_KEYS = ['branch', 'env', 'generated_at', 'operation', 'source_env'];
+    private const CONTEXT_KEYS = ['branch', 'containment_proof', 'env', 'generated_at', 'operation', 'source_env'];
 
     /**
      * Build the `duo-rehearsal-preview/v1` document.
@@ -235,7 +235,9 @@ final class RehearsalPlanPreview {
             'source_env' => $context['source_env'],
             'branch' => $context['branch'],
             'operation' => $context['operation'],
-            'disclosure' => RehearsalDisclosure::block(),
+            'disclosure' => is_array($context['containment_proof'] ?? null)
+                ? RehearsalDisclosure::verifiedBlock($context['containment_proof'])
+                : RehearsalDisclosure::block(),
             'categories' => $categories,
             'touch_classes' => self::touchClasses($categories),
             'scope' => [
@@ -371,7 +373,7 @@ final class RehearsalPlanPreview {
 
     /**
      * @param array<string,mixed> $context
-     * @return array{branch:string,env:string,generated_at:string,operation:string,source_env:string}
+     * @return array{branch:string,containment_proof:?array,env:string,generated_at:string,operation:string,source_env:string}
      */
     private static function context(array $context): array {
         $unknown = array_diff(array_keys($context), self::CONTEXT_KEYS);
@@ -390,7 +392,15 @@ final class RehearsalPlanPreview {
                 'request one of ' . implode(', ', ProjectionVocabulary::OPERATIONS)
             );
         }
-        $out = ['operation' => $operation];
+        $proof = $context['containment_proof'] ?? null;
+        if ($proof !== null && !is_array($proof)) {
+            throw self::refuse(
+                'rehearsal_preview_unbuildable',
+                'the rehearsal preview containment proof is not an object',
+                're-run duo rehearse so the materialization receipt can be bound into the preview'
+            );
+        }
+        $out = ['containment_proof' => $proof, 'operation' => $operation];
         foreach (['branch', 'env', 'generated_at', 'source_env'] as $key) {
             $value = $context[$key] ?? null;
             if (!is_string($value) || $value === '') {

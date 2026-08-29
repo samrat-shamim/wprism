@@ -682,9 +682,8 @@ final class ManifestValidate {
                 'spec_window' => 'MEASURED, not declared — the accepted set is whatever the shipped '
                     . 'validate_adapter_contract() answers over the probed integers, so a widened or narrowed '
                     . 'window moves this block with no edit here.',
-                'top_level_keys' => 'The SIGNER\'s partition, and since WP-4.3 the load-time set too — but only '
-                    . 'for a `spec_version: 3` manifest. A v2 manifest still loads with an unrecognised '
-                    . 'top-level key and is refused only at signing time, and a v3 manifest may declare keys '
+                'top_level_keys' => 'The SIGNER\'s partition and the load-time base set for every accepted '
+                    . 'manifest version. A manifest may declare keys '
                     . 'BEYOND these arms when a declared engine feature claims them, so this block is the base '
                     . 'set rather than the whole answer for one manifest (see `enforced_by`, `status`). Those '
                     . 'further keys carry their arm in `engine_features.implemented.<feature>.sections`, never '
@@ -851,11 +850,9 @@ final class ManifestValidate {
      * is private to `AdapterCertification`, and until WP-4.3 the only place it
      * spoke was a certificate-signing run, which most authors reach long after
      * the typo. `enforced_by`/`not_enforced_by` are in the document rather than
-     * in a guide because the honest statement of this set is now conditional
-     * rather than uniform: it refuses at load for a `spec_version: 3` manifest
-     * and at signing for every manifest, and a v2 manifest still admits
-     * `totally_made_up_section` — which is exactly what keeps the flip from
-     * moving one shipped byte.
+     * in a guide because authors need the same closed answer at every accepted
+     * manifest version. The known v2 `_draft` authoring sidecar is the sole
+     * load-only exception and remains unsignable.
      *
      * The three arms are kept apart rather than merged: a key's ARM decides
      * what a derived ratification says about it (an entity section becomes a
@@ -878,17 +875,16 @@ final class ManifestValidate {
             'all' => $all,
             'enforced_by' => 'Duo\\AdapterCertification::siteRatification() — signing refuses a key it cannot '
                 . 'classify, by name, at every spec_version; and '
-                . 'Duo\\AdapterContractGrammar::validate_adapter_contract() — loading a `spec_version: 3` '
-                . 'manifest refuses an unrecognised top-level key, by name, before any value in it is read',
-            'not_enforced_by' => 'Duo\\ManifestValidator::validate_manifest() for a `spec_version: 2` manifest '
-                . '— the open v2 behaviour is unchanged byte for byte, so a transposed section name there '
-                . 'still loads and does nothing',
-            'status' => 'ENFORCED at `spec_version: 3` (WP-4.3, spec/repo-format.md "Spec v3" § v3.3); v2 '
-                . 'manifests keep today\'s open behaviour. The set GROWS only through § v3.2\'s channel: a '
+                . 'Duo\\AdapterContractGrammar::validate_adapter_contract() — loading any accepted manifest '
+                . 'version refuses an unrecognised top-level key, by name, before any value in it is read',
+            'not_enforced_by' => 'No accepted manifest version. The recognised `_draft` authoring sidecar is '
+                . 'admitted only at v2 and remains refused by the signer; arbitrary keys have no exception',
+            'status' => 'ENFORCED from `spec_version: 2` (spec/repo-format.md "Spec v3" § v3.3). The set '
+                . 'GROWS only through § v3.2\'s channel: a '
                 . 'key claimed by a declared engine feature this engine implements is admitted beside these '
                 . 'arms, a key claimed by a feature it does not implement refuses by FEATURE name, and a key '
-                . 'nothing claims refuses as an unrecognised section. `_draft` is refused deliberately — it '
-                . 'is `duo adapter-draft`\'s sidecar, to be stripped before install, not a declaration.',
+                . 'nothing claims refuses as an unrecognised section. `_draft` is the recognised v2 authoring '
+                . 'sidecar and is refused from v3; it must be stripped before install.',
         ];
     }
 

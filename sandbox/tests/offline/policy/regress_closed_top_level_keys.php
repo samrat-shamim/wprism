@@ -328,10 +328,10 @@ $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
 // product reads it from outside; a suite that measures the rule is not the
 // product.
 $closedSince = (int) (new ReflectionClass(AdapterContractGrammar::class))->getConstant('CLOSED_KEY_SET_SINCE');
-$open = $closedSince - 1;
+$open = $N - 1;
 
 // ===========================================================================
-echo "\nPART 1 — the SHIPPED engine: v$open is open, and stays open byte for byte\n";
+echo "\nPART 1 — the SHIPPED engine: every accepted manifest version is closed\n";
 // ===========================================================================
 
 $shipped = closed_keys_report($open);
@@ -339,21 +339,16 @@ $report('engine DUO_SPEC_VERSION: ' . $N . '; probes stamped v' . $open
     . '; partition: ' . count($shipped['partition']) . ' keys');
 $report('implemented engine features: ' . implode(', ', AdapterContractGrammar::implemented_features()));
 
-// THE EMPIRICAL BASELINE THIS RIDER TURNS ON. A v2 manifest declaring an
-// invented section and a transposed one loads, exactly as it did before this
-// rider, and that is not an oversight being tolerated — it is the flag-day
-// invariant. Any other answer here would change how a shipped manifest is read.
-duo_check_same(
-    null,
-    $shipped['verdicts']['typo_and_invented'],
-    'v' . $open . ' IS OPEN: a spec_version ' . $open . ' manifest declaring `totally_made_up_section` and a '
-        . 'transposed `optoins` still loads — the behaviour WP-4.3 leaves untouched, which is what makes it '
-        . 'digest-neutral, and which the flip preserved by NOT re-stamping the library'
+duo_check(
+    str_contains((string) $shipped['verdicts']['typo_and_invented'], "'optoins'")
+        && str_contains((string) $shipped['verdicts']['typo_and_invented'], "'totally_made_up_section'"),
+    'v' . $open . ' IS CLOSED: a legacy manifest declaring an invented section and a transposed `options` '
+        . 'key refuses both by name instead of silently omitting managed state'
 );
 duo_check_same(
     null,
     $shipped['verdicts']['draft_sidecar'],
-    '...and so does `duo adapter-draft` output carrying `_draft`, at v' . $open
+    'the recognised `duo adapter-draft` `_draft` sidecar remains admissible at v' . $open
 );
 
 // Digest neutrality, measured over the library rather than argued.
@@ -379,7 +374,7 @@ duo_check_same(
         . 'key set refuses none of the library'
 );
 duo_check_same(
-    [$open => true, DUO_SPEC_VERSION => true],
+    [DUO_SPEC_VERSION - 1 => true, DUO_SPEC_VERSION => true],
     $declaredVersions,
     'and the library exercises both admitted versions through deliberate per-adapter feature migrations'
 );
@@ -517,8 +512,8 @@ duo_check(
     str_contains($invented, "'optoins'") && str_contains($invented, "'totally_made_up_section'")
         && str_contains($invented, 'does not recognise')
         && str_contains($invented, 'spec/repo-format.md § v3.3'),
-    'VERDICT 1 (unclaimed unknown key): the SAME manifest that loads at v' . $open . ' refuses at v' . ($N + 1)
-        . ', naming BOTH offending keys and the rule'
+    'VERDICT 1 (unclaimed unknown key): the same manifest refuses at v' . $open . ' and v' . ($N + 1)
+        . ', naming both offending keys and the rule'
 );
 duo_check(
     str_contains($invented, 'correct the spelling'),
@@ -681,9 +676,10 @@ Canon::write_file($scratch . '/adapter-packages/acme-above/package/manifest.json
 
 $shippedRun = $run([PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]);
 duo_check(
-    str_contains($shippedRun['stdout'], '[ok] acme-at-open'),
-    'THE BASELINE, THROUGH THE PRODUCT PATH: on the shipped engine `duo manifest-validate` reports [ok] for a '
-        . 'v' . $open . ' manifest carrying `totally_made_up_section` — the open era, still inside the window'
+    str_contains($shippedRun['stdout'], '[error] acme-at-open')
+        && str_contains($shippedRun['stdout'], "'totally_made_up_section'"),
+    'THE FIX, THROUGH THE PRODUCT PATH: on the shipped engine `duo manifest-validate` rejects a v' . $open
+        . ' manifest carrying `totally_made_up_section` by name'
 );
 duo_check(
     str_contains($shippedRun['stdout'], '[error] acme-at-closed')
@@ -754,7 +750,7 @@ duo_check_same(0, $gate['exit'], '`php tools/wire-surface.php --check` — a mak
 duo_check(
     str_contains(
         (string) file_get_contents($repo . '/docs/wire-surface.md'),
-        '### R-21 — The top-level manifest key set is closed at `spec_version: 3`, from one definition'
+        '### R-21 — The top-level manifest key set is closed from `spec_version: 2`, from one definition'
     ),
     'and the register carries R-21, the row that records the set as a one-way door with one definition'
 );

@@ -288,27 +288,19 @@ final class AdapterContractGrammar {
     ];
 
     /**
-     * The first `spec_version` at which the top-level key set is CLOSED
-     * (spec/repo-format.md § v3.3, WP-4.3).
+     * The first accepted `spec_version` at which the top-level key set is
+     * CLOSED (spec/repo-format.md § v3.3).
      *
-     * 3 and not 2, and that is the whole flag-day safety of this rule: a v2
-     * manifest keeps the open behaviour byte for byte, so none of the 16
-     * shipped manifests changes behaviour, no manifest byte moves and no
-     * adapter digest moves (AGENTS.md rule 2). That is still true after
-     * WP-4.12's flip, and it is the no-restamp rule (§ v3.12) that keeps it
-     * true: the whole library still declares 2, which is BELOW this gate even
-     * though `DUO_SPEC_VERSION` is now 3.
-     *
-     * What the flip changed is reachability. At DUO_SPEC_VERSION 2 the branch
-     * below could not be reached through the product path at all — the window
-     * {1, 2} refused a v3 manifest wholesale one step earlier — so the rule was
-     * measured against a synthetic N+1 engine. It is now live for any manifest
-     * that declares 3, and `regress_closed_top_level_keys.php` reads both arms
-     * in one run of the real `duo manifest-validate`. Its N+1 tree is kept for
-     * the one thing the shipped engine still cannot show: at N = 4 the window's
-     * floor is this gate, so the open era stops existing.
+     * Unknown v2 keys used to load as inert data. That made a transposed
+     * section indistinguishable from an intentional no-op and could omit an
+     * entire managed surface. Closing both accepted versions changes no
+     * shipped manifest bytes or adapter digests: every shipped key is already
+     * in the signer partition or claimed by an implemented engine feature.
      */
-    private const CLOSED_KEY_SET_SINCE = 3;
+    private const CLOSED_KEY_SET_SINCE = 2;
+
+    /** `_draft` is a known authoring sidecar, admitted only by the v2 authoring workflow. */
+    private const DRAFT_SIDECAR_REFUSED_SINCE = 3;
 
     /**
      * The RESERVED top-level key: the executable adapter lane's attachment
@@ -363,18 +355,9 @@ final class AdapterContractGrammar {
     /**
      * The first `spec_version` at which the top-level key set is CLOSED.
      *
-     * Public since WP-4.12, for one caller and one reason. `duo adapter-draft`
-     * emits a manifest that CARRIES `_draft`, and this rule refuses that key at
-     * or above this version by design (§ v3.3: an authoring artifact must not
-     * enter the identity row a certificate covers). Before the flip the two
-     * could not collide — the engine's window topped out one below this gate,
-     * so every draft it emitted was admissible. After the flip they collide by
-     * default, and the generator has to choose its stamp from the rule rather
-     * than from a literal that would rot the next time either moves.
-     *
-     * Exposing the number is not exposing a decision: nothing may relax the
-     * gate, and `AdapterDraft` uses it only to pick the highest ACCEPTED
-     * version that still admits its sidecar, refusing loudly when none does.
+     * Public for schema/reporting code that describes when unknown keys stop
+     * being accepted. Draft version selection probes the grammar directly;
+     * `_draft` is a known authoring sidecar, not an unknown manifest section.
      */
     public static function closed_key_set_since(): int {
         return self::CLOSED_KEY_SET_SINCE;
@@ -743,9 +726,7 @@ final class AdapterContractGrammar {
         // value is well-formed — an author who misspelled a section should be
         // told that, not handed a refusal about the contents of a section the
         // engine does not have.
-        if ($spec >= self::CLOSED_KEY_SET_SINCE) {
-            self::assert_top_level_keys($name, $spec, $manifest);
-        }
+        self::assert_top_level_keys($name, $spec, $manifest);
         // WP-6.4, and FIRST among the value checks because it is the one that
         // can only be reached by walking the whole channel: the section exists
         // for this engine (assert_section_versions()), the feature that claims
@@ -970,6 +951,12 @@ final class AdapterContractGrammar {
     private static function assert_top_level_keys(string $name, int $spec, array $manifest): void {
         $admitted = self::admitted_top_level_keys($manifest);
         $unknown = array_values(array_diff(array_map('strval', array_keys($manifest)), $admitted));
+        // `duo adapter-draft` emits one recognised authoring sidecar at v2.
+        // It remains unsignable and is refused from v3; no arbitrary key gets
+        // this exception, so misspelled or invented v2 sections fail closed.
+        if ($spec < self::DRAFT_SIDECAR_REFUSED_SINCE) {
+            $unknown = array_values(array_diff($unknown, ['_draft']));
+        }
         if ($unknown === []) {
             return;
         }

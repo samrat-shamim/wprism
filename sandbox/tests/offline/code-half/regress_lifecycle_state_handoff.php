@@ -78,6 +78,57 @@ $check(
     'managed lifecycle changes and an authored record already advanced to exact desired state must be composable'
 );
 
+$themeStorageDesired = OptionState::document([
+    'stylesheet' => $present('target-theme'),
+    'theme_mods_target-theme' => OptionState::present(['background_color' => 'desired'], 'on'),
+]);
+$themeStorageBefore = OptionState::document([
+    'stylesheet' => $present('source-theme'),
+    'theme_mods_target-theme' => OptionState::present([], 'off'),
+]);
+$themeStorageAfter = OptionState::document([
+    'stylesheet' => $present('target-theme'),
+    'theme_mods_target-theme' => OptionState::present([], 'on'),
+]);
+$check(
+    $recordGate->invoke(null, $themeStorageBefore, $themeStorageAfter, $themeStorageDesired) === [],
+    'switch_theme may flip only the desired theme_mods storage mode to the frozen desired autoload value'
+);
+$themeStorageAfterMutation = OptionState::document([
+    'stylesheet' => $present('target-theme'),
+    'theme_mods_target-theme' => OptionState::present(['background_color' => 'hook-mutated'], 'on'),
+]);
+$check(
+    $recordGate->invoke(
+        null,
+        $themeStorageBefore,
+        $themeStorageAfterMutation,
+        $themeStorageDesired
+    ) === ['theme_mods_target-theme'],
+    'the theme_mods storage exception cannot hide an authored value mutation'
+);
+$wrongThemeStorageBefore = OptionState::document([
+    'stylesheet' => $present('source-theme'),
+    'theme_mods_other-theme' => OptionState::present([], 'off'),
+]);
+$wrongThemeStorageAfter = OptionState::document([
+    'stylesheet' => $present('target-theme'),
+    'theme_mods_other-theme' => OptionState::present([], 'on'),
+]);
+$wrongThemeStorageDesired = OptionState::document([
+    'stylesheet' => $present('target-theme'),
+    'theme_mods_other-theme' => OptionState::present(['background_color' => 'desired'], 'on'),
+]);
+$check(
+    $recordGate->invoke(
+        null,
+        $wrongThemeStorageBefore,
+        $wrongThemeStorageAfter,
+        $wrongThemeStorageDesired
+    ) === ['theme_mods_other-theme'],
+    'a storage-only delta for any theme other than the frozen desired stylesheet remains blocked'
+);
+
 $desiredPresent = $present('desired');
 $wooLikeBefore = OptionState::document([
     'authored_setting' => OptionState::deleted($desiredPresent, true),

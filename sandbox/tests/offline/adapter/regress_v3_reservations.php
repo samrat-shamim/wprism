@@ -507,13 +507,15 @@ duo_check_same(
     . 'the host cannot read refuses the whole document'
 );
 duo_check_same(
-    ['certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed', 'third_party_signed', 'uncertified'],
+    [
+        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unexercised',
+        'signed_unpinned', 'site_signed', 'third_party_signed', 'uncertified',
+    ],
     (static function (array $words): array {
         sort($words, SORT_STRING);
         return $words;
     })((array) (new ReflectionClass(AdapterObservation::class))->getConstant('CERTIFICATIONS')),
-    'and the host vocabulary is the six it was PLUS exactly one — nothing renamed, nothing dropped, which is '
-    . 'what makes this an addition to a closed set rather than a new set'
+    'and the host vocabulary admits both the reviewer tier and the distinct unexercised-signature state'
 );
 duo_check(
     !method_exists(AdapterSources::class, 'reserved_certification_refusal'),

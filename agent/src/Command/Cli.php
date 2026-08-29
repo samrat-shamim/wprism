@@ -16,11 +16,13 @@ require_once __DIR__ . '/../Review/PlanView.php';
 // refusal suites load this file without agent/duo.php's bootstrap — and it is
 // a leaf grammar file that requires nothing of its own.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
+require_once __DIR__ . '/../Adapter/LifecycleSettlement.php';
+require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
 
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -578,12 +580,14 @@ final class Cli {
      * --repo=<path> : Site repo root (contains site.duo.json).
      * --compiled=<path> : Frozen compiler artifact selected by the host.
      * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * --promotion-owner=<token> : Required host promotion lease owner.
      * [--json] : JSON report.
      * [--format=<format>] : Output format. Accepts json.
      *
      * @subcommand code-preflight
      */
     public function code_preflight($args, $assoc) {
+        $summary = null;
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('code-preflight', '--repo');
             $compiledPath = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('code-preflight', '--compiled');
@@ -596,6 +600,9 @@ final class Cli {
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'code-preflight');
             WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
         }
         if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
@@ -612,6 +619,89 @@ final class Cli {
             $summary['target']['wordpress'],
             count($summary['requirements'])
         ));
+    }
+
+    /**
+     * Run every adapter-declared asynchronous lifecycle completion gate for
+     * one immutable artifact. The host invokes this only after fresh-process
+     * activation and before code-finalize/state apply.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand lifecycle-settle
+     */
+    public function lifecycle_settle($args, $assoc) {
+        $summary = null;
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--repo');
+            $compiled = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--artifact-hash');
+            $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--promotion-owner');
+            $summary = LifecycleSettlement::run(
+                (string) $repo,
+                (string) $compiled,
+                (string) $artifactHash,
+                (string) $owner
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'lifecycle-settle');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            '%d asynchronous lifecycle completion gate(s) verified',
+            $summary['actions']
+        ));
+    }
+
+    /**
+     * Seal a database export arriving on stdin without writing durable
+     * plaintext. This is an orchestrator-only pipeline boundary.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --output=<path> : Canonical .duo/checkpoints/*.sql.enc output.
+     *
+     * @subcommand checkpoint-seal
+     */
+    public function checkpoint_seal($args, $assoc) {
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-seal', '--repo');
+            $output = $assoc['output'] ?? throw CommandRefusalException::invalidArgument('checkpoint-seal', '--output');
+            RetainedCheckpointCipher::seal((string) $repo, (string) $output);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
+    }
+
+    /**
+     * Authenticate and stream one retained checkpoint to stdout. The caller
+     * pipes it directly into isolated `wp db import -`.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --input=<path> : Canonical .duo/checkpoints/*.sql.enc input.
+     *
+     * @subcommand checkpoint-open
+     */
+    public function checkpoint_open($args, $assoc) {
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--repo');
+            $input = $assoc['input'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--input');
+            RetainedCheckpointCipher::open((string) $repo, (string) $input);
+        } catch (\Throwable $t) {
+            WP_CLI::error($t->getMessage());
+        }
     }
 
     /**
@@ -1022,11 +1112,27 @@ final class Cli {
      *   every classified component is one it actually inventoried, at the same version and tree digest.
      *   The classification is inside the proposal digest, so it must be supplied identically to the
      *   --confirm run.
+     * [--archive-interrupted-to=<absolute-sibling>] : Preserve a sealed ambiguous interrupted attempt by
+     *   atomically moving the complete repository root to this absent sibling and recreating the configured path.
      * [--format=<format>] : Output format. Accepts json.
      */
     public function init($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
+            if (isset($assoc['archive-interrupted-to'])) {
+                foreach (['confirm', 'allow-unmanaged-plugins', 'code-lock-b64'] as $exclusive) {
+                    if (isset($assoc[$exclusive])) {
+                        throw CommandRefusalException::invalidArgument('init', '--archive-interrupted-to');
+                    }
+                }
+                $result = Init::archiveInterrupted((string) $repo, (string) $assoc['archive-interrupted-to']);
+                if (($assoc['format'] ?? '') === 'json') {
+                    WP_CLI::line(json_encode($result, JSON_UNESCAPED_SLASHES));
+                    return;
+                }
+                WP_CLI::success('archived interrupted init at ' . $result['archive'] . '; rerun duo init');
+                return;
+            }
             // DUO-3516: before anything can move it. The evidence recorder
             // compares against this to refuse writing into a directory that
             // replaced the one this command reviewed.
@@ -1090,6 +1196,7 @@ final class Cli {
      *   resurrect a selected tombstone or mint a new identity.
      * [--scope-request-b64=<request>] : Orchestrator-reserved compact scope request.
      * [--orchestrator-environment=<name>] : Orchestrator-reserved host presentation context.
+     * [--expected-repository-branch=<name>] : Orchestrator-reserved target branch binding.
      * [--json]           : JSON summary (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -1118,13 +1225,21 @@ final class Cli {
                     || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $hostEnvironment) !== 1)) {
                 throw new \RuntimeException('duo: capture received an invalid orchestrator environment context');
             }
+            $expectedBranch = $assoc['expected-repository-branch'] ?? null;
+            if ($expectedBranch !== null
+                && (!is_string($expectedBranch) || $expectedBranch === '' || strlen($expectedBranch) > 255
+                    || str_contains($expectedBranch, "\0") || str_contains($expectedBranch, "\n")
+                    || str_contains($expectedBranch, "\r"))) {
+                throw new \RuntimeException('duo: capture received an invalid expected repository branch');
+            }
             $summary = Capture::run(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('capture', '--repo'),
                 $assoc['out'] ?? null,
                 isset($assoc['force-unresolved-refs']),
                 $scopeRequest,
                 $hostEnvironment,
-                self::internal_adapter_library($assoc)
+                self::internal_adapter_library($assoc),
+                $expectedBranch
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capture');
@@ -1292,13 +1407,28 @@ final class Cli {
      * [--category=<ids>] : Comma-separated closed plan-view categories; requests a bounded display view.
      * [--action=<buckets>] : Comma-separated closed plan-view action buckets; requests a bounded display view.
      * [--entity=<kinds>] : Comma-separated closed plan-view entity kinds; requests a bounded display view.
+     * [--cursor=<token>] : Opaque continuation emitted by the preceding page of the same plan/filter set.
      * [--limit=<1..200>] : Canonical maximum ordinary rows for an explicit plan view (default 200).
+     * [--view-only] : With --format=json and a view request, emit only the bounded page envelope.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
     public function plan($args, $assoc) {
+        $viewRequest = null;
+        $viewOnly = false;
+        $plan = null;
         try {
             $viewRequest = PlanView::requestFromAssoc($assoc);
+            $viewOnly = array_key_exists('view-only', $assoc);
+            if ($viewOnly && ($viewRequest === null || ($assoc['format'] ?? '') !== 'json')) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'plan --view-only requires a JSON plan-view request',
+                    'supply --format=json plus a category, action, entity, cursor, or limit view argument',
+                    [],
+                    'duo: --view-only requires --format=json and a plan-view argument'
+                );
+            }
             $options = [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
@@ -1349,9 +1479,12 @@ final class Cli {
             self::halt_json_failure($t, $assoc, 'plan');
             WP_CLI::error($t->getMessage());
         }
+        if (!is_array($plan)) {
+            return;
+        }
         // See capture(): --json arrives here as $assoc['format'] === 'json', never $assoc['json'].
         if (($assoc['format'] ?? '') === 'json') {
-            WP_CLI::line(json_encode($plan, JSON_UNESCAPED_SLASHES));
+            WP_CLI::line(json_encode($viewOnly ? $plan['plan_view'] : $plan, JSON_UNESCAPED_SLASHES));
             return;
         }
         // A view is an explicit, bounded alternate rendering. With no view
@@ -1644,7 +1777,7 @@ final class Cli {
         }
         $envMissingRequired = array_filter($plan['env_missing'] ?? [], fn($r) => !empty($r['required']));
         if ($envMissingRequired) {
-            WP_CLI::warning('required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting');
+            WP_CLI::warning('required env value(s) missing — pipe the value to `wp duo env-set --name=<name> --stdin` before promoting');
         }
     }
 
@@ -1764,11 +1897,9 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * --name=<name>       : Must be declared class="env" in a loaded manifest or site.duo.json.
-     * [--value=<value>]   : Plain value — scriptable/CI use. Mutually exclusive with --stdin. A
-     *   value passed this way lands in shell history/process listings on most systems; prefer
-     *   --stdin for anything genuinely secret when run interactively.
      * [--stdin]           : Read the value interactively from STDIN with terminal echo disabled
-     *   (`stty -echo`, restored afterward) — never printed back. Mutually exclusive with --value.
+     *   (`stty -echo`, restored afterward) — never printed back. Non-interactive callers pipe one
+     *   newline-terminated value; command-line values are refused because argv is observable.
      *   Deliberately NOT named --prompt: wp-cli itself reserves that flag globally (it triggers
      *   wp-cli's own generic per-parameter prompting and is consumed before any command ever sees
      *   it in $assoc — confirmed live, not assumed; an isset($assoc['prompt']) check is silently
@@ -1797,25 +1928,25 @@ final class Cli {
             $name = $assoc['name'] ?? throw CommandRefusalException::invalidArgument('env-set', '--name');
             $hasValue = array_key_exists('value', $assoc);
             $hasStdin = isset($assoc['stdin']);
-            if ($hasValue && $hasStdin) {
+            if ($hasValue) {
                 throw new CommandRefusalException(
                     'invalid_arguments',
-                    'env-set accepts exactly one value source',
-                    'pass exactly one of --value or --stdin and rerun env-set',
+                    'env-set does not accept --value because command-line arguments are observable',
+                    'remove --value and pipe one newline-terminated value through --stdin',
                     [],
-                    'pass exactly one of --value or --stdin, not both'
+                    'remove --value and use --stdin'
                 );
             }
-            if (!$hasValue && !$hasStdin) {
+            if (!$hasStdin) {
                 throw new CommandRefusalException(
                     'invalid_arguments',
-                    'env-set requires a value source',
-                    'pass one of --value=<value> or --stdin and rerun env-set',
+                    'env-set requires --stdin',
+                    'pipe one newline-terminated value through --stdin and rerun env-set',
                     [],
-                    'one of --value=<value> or --stdin is required'
+                    '--stdin is required'
                 );
             }
-            $value = $hasStdin ? self::read_masked_value("value for '$name': ") : (string) $assoc['value'];
+            $value = self::read_masked_value("value for '$name': ");
             $result = Apply::set_env_option($repo, (string) $name, $value);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'env-set');
@@ -2148,6 +2279,7 @@ final class Cli {
      * [--format=<format>] : Output format. Accepts json.
      */
     public function deploy($args, $assoc) {
+        $summary = null;
         try {
             $summary = Deploy::run($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo'), [
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
@@ -2165,6 +2297,9 @@ final class Cli {
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'deploy');
             WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
         }
         if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
@@ -3945,9 +4080,8 @@ final class Cli {
         }
         if (($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
-            return;
-        }
-        foreach ($report['manifests'] as $row) {
+        } else {
+            foreach ($report['manifests'] as $row) {
             $verdict = (string) ($row['verdict']['status'] ?? $row['status'] ?? 'unsupported');
             $source = is_array($row['source'] ?? null) ? $row['source'] : [];
             WP_CLI::line('CAPABILITY ' . $row['name'] . ' ' . strtoupper($verdict));
@@ -3982,13 +4116,17 @@ final class Cli {
                 }
             }
         }
-        foreach ($report['profiles'] as $name => $profile) {
-            WP_CLI::line('PROFILE ' . $name . ' ' . strtoupper((string) $profile['status']));
+            foreach ($report['profiles'] as $name => $profile) {
+                WP_CLI::line('PROFILE ' . $name . ' ' . strtoupper((string) $profile['status']));
+            }
+            WP_CLI::line(($report['evidence_scope'] ?? null) === 'per_subject'
+                ? 'evidence: per subject (see each manifest/profile)'
+                : 'evidence bundle: ' . ($report['evidence']['bundle_digest'] ?? 'none'));
+            WP_CLI::line('registry sha256: ' . ($report['registry_sha256'] ?? 'none'));
         }
-        WP_CLI::line(($report['evidence_scope'] ?? null) === 'per_subject'
-            ? 'evidence: per subject (see each manifest/profile)'
-            : 'evidence bundle: ' . ($report['evidence']['bundle_digest'] ?? 'none'));
-        WP_CLI::line('registry sha256: ' . ($report['registry_sha256'] ?? 'none'));
+        if (!$all && ($report['ready'] ?? false) !== true) {
+            WP_CLI::halt(3);
+        }
     }
     /**
      * MUP §4.5: one read-only pass answering "what is here, and what does the

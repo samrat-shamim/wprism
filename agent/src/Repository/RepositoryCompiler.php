@@ -557,7 +557,7 @@ final class RepositoryCompiler {
         if ($codeDescriptor !== null) {
             $payload['code'] = $codeDescriptor;
         }
-        return CompiledRepository::create($payload);
+        return CompiledRepository::create($payload, $this->mediaCatalog->directory());
     }
 
     private function add(string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {

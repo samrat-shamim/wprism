@@ -17,9 +17,8 @@ declare(strict_types=1);
  *   - a complete `wp duo plan --format=json` envelope with a valid
  *     `category_summary`, in several variants selected by `$DUO_PLAN`;
  *   - a `wp duo compile --format=json` summary carrying a content address and
- *     NO code descriptor, so promotion takes its documented pre-code
- *     lifecycle path (retire -> activate -> apply) and the fixture does not
- *     have to simulate code staging;
+ *     NO code descriptor by default, so content-only promotion runs no
+ *     lifecycle hooks; `DUO_CODE_ENABLED=1` selects a code-bearing summary;
  *   - answers for promotion's own phases, each with an injectable exit code;
  *   - two real commits in the site repository, so `--from` has a matching ref
  *     (`HEAD`) and a deliberately non-matching one (`other`).
@@ -38,6 +37,7 @@ declare(strict_types=1);
  *   DUO_LIFECYCLE_EXIT=<n>   `duo deploy --lifecycle-phase=...` exit code
  *   DUO_APPLY_EXIT=<n>       `duo apply` exit code
  *   DUO_COMPILE_EXIT=<n>     `duo compile` exit code
+ *   DUO_CODE_ENABLED=1       select the code-bearing compile summary
  *
  * Usage: make-release-site.php <dir>
  */
@@ -250,6 +250,16 @@ file_put_contents("$dir/fixtures/compile.json", json_encode([
     'resolved_adapters' => [],
     'revision' => str_repeat('c3', 32),
 ], JSON_UNESCAPED_SLASHES) . "\n");
+file_put_contents("$dir/fixtures/compile-code.json", json_encode([
+    'artifact_hash' => str_repeat('a1', 32),
+    'code' => [
+        'code_revision' => str_repeat('d4', 32),
+        'format' => 1,
+    ],
+    'manifests' => str_repeat('b2', 32),
+    'resolved_adapters' => [],
+    'revision' => str_repeat('c3', 32),
+], JSON_UNESCAPED_SLASHES) . "\n");
 
 // Two real commits: `HEAD` is what the target is on, `other` is a ref that
 // resolves locally and deliberately does not match it.
@@ -290,8 +300,10 @@ case " $* " in
       [ "${DUO_COMPILE_EXIT:-0}" = 0 ] || { echo 'compile refused' >&2; exit "${DUO_COMPILE_EXIT}"; }
       out=""
       for a in "$@"; do case "$a" in --out=*) out="${a#--out=}" ;; esac; done
-      [ -n "$out" ] && cp "$DUO_FIXTURES/compile.json" "$out"
-      cat "$DUO_FIXTURES/compile.json"; exit 0 ;;
+      compile="$DUO_FIXTURES/compile.json"
+      [ "${DUO_CODE_ENABLED:-0}" = 1 ] && compile="$DUO_FIXTURES/compile-code.json"
+      [ -n "$out" ] && cp "$compile" "$out"
+      cat "$compile"; exit 0 ;;
   *" duo pending "*)
       # DUO-3521: the review queue, so a suite can drive `duo pending`'s
       # bounded human view against a queue it chose the size of.
@@ -301,10 +313,27 @@ case " $* " in
       exit 0 ;;
   *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
   *" duo promotion-abort "*) exit "${DUO_ABORT_EXIT:-0}" ;;
+  *" duo code-preflight "*)
+      printf '%s\n' '{"format":"duo-code-runtime/v1","enabled":true,"change_required":true,"compatible":true,"code_revision":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
+      exit 0 ;;
+  *" duo code-stage "*) exit 0 ;;
   *" duo deploy "*) exit "${DUO_LIFECYCLE_EXIT:-0}" ;;
+  *" duo lifecycle-settle "*) exit 0 ;;
+  *" duo code-finalize "*) exit 0 ;;
   *" duo apply "*) exit "${DUO_APPLY_EXIT:-0}" ;;
+  *" duo checkpoint-seal "*)
+      out=""
+      for a in "$@"; do case "$a" in --output=*) out="${a#--output=}" ;; esac; done
+      [ -n "$out" ] || exit 2
+      cat > "$out"
+      exit "${DUO_SEAL_EXIT:-0}" ;;
   *" db export "*)
-      for a in "$@"; do case "$a" in /*) printf 'fixture checkpoint\n' > "$a" ;; esac; done
+      for a in "$@"; do
+        case "$a" in
+          -) printf 'fixture checkpoint\n' ;;
+          /*) printf 'fixture checkpoint\n' > "$a" ;;
+        esac
+      done
       exit "${DUO_EXPORT_EXIT:-0}" ;;
   *" db import "*) exit "${DUO_IMPORT_EXIT:-0}" ;;
 SH;

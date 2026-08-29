@@ -312,18 +312,35 @@ final class ApplicationContract {
             $path = "contract.declarations.journeys[$index]";
             self::closedKeys(
                 $journey,
-                ['id', 'url', 'expect_status', 'expect_contains', 'affected_surfaces'],
-                ['render_contains'],
+                ['id', 'affected_surfaces'],
+                [
+                    'body', 'cookies', 'expect_contains', 'expect_headers', 'expect_json',
+                    'expect_status', 'headers', 'method', 'render_contains', 'steps', 'url',
+                ],
                 $path
             );
             self::nonEmptyString($journey['id'], "$path.id");
-            self::nonEmptyString($journey['url'], "$path.url");
-            if (!is_int($journey['expect_status'])) {
-                throw self::refuseShape("$path.expect_status must be an integer");
-            }
-            self::nonEmptyString($journey['expect_contains'], "$path.expect_contains");
             if (!is_array($journey['affected_surfaces']) || !array_is_list($journey['affected_surfaces'])) {
                 throw self::refuseShape("$path.affected_surfaces must be a list");
+            }
+            $hasSteps = array_key_exists('steps', $journey);
+            $hasSingleRequest = array_key_exists('url', $journey);
+            if ($hasSteps === $hasSingleRequest) {
+                throw self::refuseShape("$path must declare exactly one of url or steps");
+            }
+            if ($hasSteps) {
+                if (!is_array($journey['steps']) || !array_is_list($journey['steps']) || $journey['steps'] === []) {
+                    throw self::refuseShape("$path.steps must be a non-empty list");
+                }
+                foreach ($journey['steps'] as $stepIndex => $step) {
+                    $stepPath = "$path.steps[$stepIndex]";
+                    if (!is_array($step) || array_is_list($step)) {
+                        throw self::refuseShape("$stepPath must be an object");
+                    }
+                    self::validateJourneyRequest($step, $stepPath, true);
+                }
+            } else {
+                self::validateJourneyRequest($journey, $path, false);
             }
         }
 
@@ -343,6 +360,63 @@ final class ApplicationContract {
             foreach ($labels as $id => $label) {
                 self::nonEmptyString($label, 'contract.declarations.surface_labels.' . (string) $id);
             }
+        }
+    }
+
+    /** @param array<string,mixed> $request */
+    private static function validateJourneyRequest(array $request, string $path, bool $step): void {
+        if ($step) {
+            self::closedKeys(
+                $request,
+                ['id', 'url', 'expect_status'],
+                [
+                    'body', 'cookies', 'expect_contains', 'expect_headers', 'expect_json',
+                    'headers', 'method', 'render_contains',
+                ],
+                $path
+            );
+            self::nonEmptyString($request['id'], "$path.id");
+        }
+        self::nonEmptyString($request['url'], "$path.url");
+        if (!is_int($request['expect_status'])) {
+            throw self::refuseShape("$path.expect_status must be an integer");
+        }
+        if (array_key_exists('method', $request)) {
+            self::nonEmptyString($request['method'], "$path.method");
+        }
+        if (array_key_exists('body', $request) && !is_string($request['body'])) {
+            throw self::refuseShape("$path.body must be a string");
+        }
+        if (array_key_exists('expect_contains', $request)) {
+            self::nonEmptyString($request['expect_contains'], "$path.expect_contains");
+        }
+        if (array_key_exists('render_contains', $request)) {
+            self::nonEmptyString($request['render_contains'], "$path.render_contains");
+        }
+        foreach (['headers', 'cookies', 'expect_headers', 'expect_json'] as $key) {
+            if (!array_key_exists($key, $request)) {
+                continue;
+            }
+            $values = $request[$key];
+            if (!is_array($values) || ($values !== [] && array_is_list($values))) {
+                throw self::refuseShape("$path.$key must be an object");
+            }
+            foreach ($values as $name => $value) {
+                self::nonEmptyString((string) $name, "$path.$key key");
+                if (!is_scalar($value) && $value !== null) {
+                    throw self::refuseShape("$path.$key." . (string) $name . ' must be a scalar or null');
+                }
+                if ($key !== 'expect_json' && !is_string($value)) {
+                    throw self::refuseShape("$path.$key." . (string) $name . ' must be a string');
+                }
+            }
+        }
+        if (!array_key_exists('expect_contains', $request)
+            && !array_key_exists('expect_headers', $request)
+            && !array_key_exists('expect_json', $request)) {
+            throw self::refuseShape(
+                "$path must declare at least one of expect_contains, expect_headers or expect_json"
+            );
         }
     }
 

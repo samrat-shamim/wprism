@@ -141,6 +141,7 @@ PHP;
         if (!is_array($summary)
             || ($summary['format'] ?? null) !== 'duo-code-runtime/v1'
             || ($summary['enabled'] ?? null) !== true
+            || !is_bool($summary['change_required'] ?? null)
             || ($summary['compatible'] ?? null) !== true
             || !hash_equals($codeRevision, (string) ($summary['code_revision'] ?? ''))
             || !is_array($summary['target'] ?? null)
@@ -333,6 +334,56 @@ PHP;
         return self::controlArgs(['db', 'import', $checkpoint]);
     }
 
+    /**
+     * Export directly into authenticated ciphertext. No durable plaintext
+     * path exists: the transport connects the two WP-CLI process streams.
+     *
+     * @return array{exit:int,stdout:string,stderr:string}
+     */
+    public static function encryptedCheckpoint(
+        EnvironmentDriver $transport,
+        string $repo,
+        string $checkpoint
+    ): array {
+        if (!is_callable([$transport, 'captureWpPipeline'])) {
+            return [
+                'exit' => 1,
+                'stdout' => '',
+                'stderr' => 'the target transport does not implement the authenticated checkpoint stream',
+            ];
+        }
+
+        return $transport->captureWpPipeline(
+            ['db', 'export', '-'],
+            self::controlArgs(['duo', 'checkpoint-seal', '--repo=' . $repo, '--output=' . $checkpoint])
+        );
+    }
+
+    /**
+     * Authenticate the entire ciphertext, then stream it into the isolated
+     * database importer without a durable plaintext staging file.
+     *
+     * @return array{exit:int,stdout:string,stderr:string}
+     */
+    public static function encryptedCheckpointImport(
+        EnvironmentDriver $transport,
+        string $repo,
+        string $checkpoint
+    ): array {
+        if (!is_callable([$transport, 'captureWpPipeline'])) {
+            return [
+                'exit' => 1,
+                'stdout' => '',
+                'stderr' => 'the target transport does not implement the authenticated checkpoint stream',
+            ];
+        }
+
+        return $transport->captureWpPipeline(
+            self::controlArgs(['duo', 'checkpoint-open', '--repo=' . $repo, '--input=' . $checkpoint]),
+            self::controlArgs(['db', 'import', '-'])
+        );
+    }
+
     /** @return array<int,string> */
     public static function stageArgs(string $repo, string $artifact, string $owner, string $artifactHash): array {
         return self::controlArgs([
@@ -365,6 +416,22 @@ PHP;
             $args[] = '--promotion-hold';
         }
         return self::controlArgs($args);
+    }
+
+    /** @return array<int,string> */
+    public static function lifecycleSettleArgs(
+        string $repo,
+        string $artifact,
+        string $artifactHash,
+        string $owner
+    ): array {
+        // Deliberately not controlArgs(): settlement runs the newly activated
+        // plugin and its native queue provider in a fresh ordinary process.
+        return [
+            'duo', 'lifecycle-settle', '--repo=' . $repo,
+            '--compiled=' . $artifact, '--artifact-hash=' . $artifactHash,
+            '--promotion-owner=' . $owner,
+        ];
     }
 
     /** @return array<int,string> */

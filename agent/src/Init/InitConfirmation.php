@@ -69,6 +69,8 @@ final class InitConfirmation {
         $gitCreated = false;
         $gitIdentity = null;
         $gitRootIdentity = null;
+        $gitattributesPublication = null;
+        $lfsConfigPublication = null;
         $gitignorePublication = null;
         $siteFile = null;
         $sitePublication = null;
@@ -295,6 +297,66 @@ final class InitConfirmation {
                         'duo: injected failure after Git initialization and before its complete ownership manifest'
                     );
                 }
+            }
+            if (!$gitCreated) {
+                $attemptRecord['owned']['git_created'] = false;
+            }
+            $gitattributesPath = $repo . '/.gitattributes';
+            $attemptRecord['phase'] = 'gitattributes-planned';
+            $attemptRecord['owned']['gitattributes_plan'] = [
+                'expected_identity' => (string) ($proposal['state']['gitattributes_identity'] ?? ''),
+                'previous' => is_file($gitattributesPath) && !is_link($gitattributesPath)
+                    ? Canon::read_file($gitattributesPath)
+                    : null,
+            ];
+            $attemptPublication = InitAttemptJournal::write(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
+            $gitattributesPublication = InitRepositoryBoundary::ensure_gitattributes(
+                $repo,
+                (string) ($proposal['state']['gitattributes_identity'] ?? '')
+            );
+            $attemptRecord['phase'] = 'gitattributes-ready';
+            $attemptRecord['owned']['gitattributes_publication'] = $gitattributesPublication;
+            $attemptRecord['owned']['gitattributes_identity'] = InitOwnedArtifacts::regular_file_identity(
+                $gitattributesPath,
+                '.gitattributes'
+            );
+            $attemptPublication = InitAttemptJournal::write(
+                $repo,
+                $attemptRecord,
+                (string) $attemptPublication['published']
+            );
+
+            $lfsRequired = ($proposal['state']['git_lfs']['required'] ?? false) === true;
+            if ($lfsRequired) {
+                $lfsConfigPath = $repo . '/.git/config';
+                $attemptRecord['phase'] = 'git-lfs-planned';
+                $attemptRecord['owned']['lfs_config_plan'] = [
+                    'expected_identity' => (string) ($proposal['state']['git_lfs']['config_identity'] ?? ''),
+                    'previous' => Canon::read_file($lfsConfigPath),
+                ];
+                $attemptPublication = InitAttemptJournal::write(
+                    $repo,
+                    $attemptRecord,
+                    (string) $attemptPublication['published']
+                );
+                $lfsConfigPublication = InitRepositoryBoundary::configure_git_lfs(
+                    $repo,
+                    true,
+                    (string) ($proposal['state']['git_lfs']['config_identity'] ?? '')
+                );
+                $attemptRecord['phase'] = 'git-lfs-ready';
+                $attemptRecord['owned']['lfs_config_publication'] = $lfsConfigPublication;
+                $attemptPublication = InitAttemptJournal::write(
+                    $repo,
+                    $attemptRecord,
+                    (string) $attemptPublication['published']
+                );
+            }
+            if ($gitCreated) {
                 $gitIdentity = InitOwnedArtifacts::directory_identity($repo . '/.git', 'Git metadata root');
                 $attemptRecord['phase'] = 'git-ready';
                 $attemptRecord['owned']['git_identity'] = $gitIdentity;
@@ -307,9 +369,6 @@ final class InitConfirmation {
                     && getenv('DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE') === '1') {
                     throw new \RuntimeException('duo: injected init failure after Git metadata creation');
                 }
-            }
-            if (!$gitCreated) {
-                $attemptRecord['owned']['git_created'] = false;
             }
             $gitignorePath = $repo . '/.gitignore';
             $attemptRecord['phase'] = 'gitignore-planned';
@@ -598,6 +657,29 @@ final class InitConfirmation {
             )) {
                 throw new \RuntimeException('duo: init .gitignore changed before initial capture');
             }
+            if (is_array($gitattributesPublication) && !hash_equals(
+                (string) $gitattributesPublication['published'],
+                InitOwnedArtifacts::regular_file_identity($repo . '/.gitattributes', '.gitattributes')
+            )) {
+                throw new \RuntimeException('duo: init .gitattributes changed before initial capture');
+            }
+            $reviewedGitattributes = (string) ($proposal['state']['gitattributes_identity'] ?? '');
+            if (!is_array($gitattributesPublication)
+                && !hash_equals(
+                    $reviewedGitattributes,
+                    InitOwnedArtifacts::owned_file_boundary_identity(
+                        $repo . '/.gitattributes',
+                        '.gitattributes'
+                    )
+                )) {
+                throw new \RuntimeException('duo: init .gitattributes changed before initial capture');
+            }
+            if (is_array($lfsConfigPublication) && !$gitCreated && !hash_equals(
+                (string) $lfsConfigPublication['published'],
+                InitOwnedArtifacts::regular_file_identity($repo . '/.git/config', 'Git local config')
+            )) {
+                throw new \RuntimeException('duo: init Git LFS configuration changed before initial capture');
+            }
             $reviewedGitignore = (string) ($proposal['state']['gitignore_identity'] ?? '');
             if (!is_array($gitignorePublication)
                 && !hash_equals(
@@ -796,6 +878,20 @@ final class InitConfirmation {
                 }
                 if (is_array($gitignorePublication)) {
                     InitOwnedArtifacts::compensate_owned_file($repo . '/.gitignore', $gitignorePublication, '.gitignore');
+                }
+                if (is_array($lfsConfigPublication) && !$gitCreated) {
+                    InitOwnedArtifacts::compensate_owned_file(
+                        $repo . '/.git/config',
+                        $lfsConfigPublication,
+                        'Git local config'
+                    );
+                }
+                if (is_array($gitattributesPublication)) {
+                    InitOwnedArtifacts::compensate_owned_file(
+                        $repo . '/.gitattributes',
+                        $gitattributesPublication,
+                        '.gitattributes'
+                    );
                 }
                 if ($gitCreated && is_string($gitIdentity)
                     && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {

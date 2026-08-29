@@ -62,7 +62,7 @@ final class AdapterObservation {
      * list and the agent's own are the same set, in both directions.
      */
     private const CERTIFICATIONS = [
-        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unpinned', 'site_signed',
+        'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unexercised', 'signed_unpinned', 'site_signed',
         'third_party_signed', 'uncertified',
     ];
     private const CLAIM_STATUSES = ['certified', 'excluded', 'experimental', 'uncertified', 'unsupported'];

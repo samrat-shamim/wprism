@@ -1495,9 +1495,9 @@ check(
 check(
     str_contains((string) ($topLevel['enforced_by'] ?? ''), 'siteRatification')
         && str_contains((string) ($topLevel['enforced_by'] ?? ''), 'validate_adapter_contract')
-        && str_contains((string) ($topLevel['not_enforced_by'] ?? ''), 'ManifestValidator')
-        && str_contains((string) ($topLevel['status'] ?? ''), 'WP-4.3'),
-    'the block states BOTH halves of the truth — it refuses at signing at every version AND at load for a spec_version 3 manifest, while a v2 manifest still admits an unrecognised key — and names the rider'
+        && str_contains((string) ($topLevel['not_enforced_by'] ?? ''), 'No accepted manifest version')
+        && str_contains((string) ($topLevel['status'] ?? ''), 'spec_version: 2'),
+    'the block states that signing and loading both refuse unknown keys at every accepted version, with only the recognised v2 draft sidecar excepted'
 );
 // The growth rule belongs in the published document and not only in the spec:
 // an author reading `all` would otherwise conclude that the 33 keys are the

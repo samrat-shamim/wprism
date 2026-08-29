@@ -5,6 +5,7 @@ Duo initialization proposal sha256:555555555555555555555555555555555555555555555
     active theme: stylesheet=twentytwentyone, template=twentytwentyone
   state: /siterepo (site.duo.json + canonical capture baseline)
   Git: available (2.47.2)
+  Git LFS: prepared for media/** (unknown)
   adapters: core, woocommerce
   media: unknown (0 attachment(s), 0 unavailable)
   redacted risk surfaces: 0 secret-shaped option value(s), 0 PII-shaped user-meta value(s); values are never included

@@ -524,8 +524,14 @@ $localPresentationCancelled = RefreshFieldDiff::interactiveResolution(
 rewind($localPresentationOut);
 $localPresentationTranscript = (string) stream_get_contents($localPresentationOut);
 $localPresentationPublic = Canon::encode($localPresentationProjection['diff']);
+$localTitleRaw = [
+    'base' => '"TTY Base"',
+    'branch' => '"TTY Branch\\u001bLabel"',
+    'production' => '"TTY Production"',
+];
 $check($localPresentationCancelled === null
     && count($localPresentation['auto'] ?? []) === 3
+    && count($localPresentation['comparisons'] ?? []) === 3
     && str_contains($localPresentationTranscript, 'auto=production')
     && substr_count($localPresentationTranscript, 'auto=branch') >= 2
     && str_contains($localPresentationTranscript, 'post')
@@ -534,6 +540,18 @@ $check($localPresentationCancelled === null
     && str_contains($localPresentationTranscript, 'label="TTY Branch Label"')
     && str_contains($localPresentationTranscript, 'label="TTY Production Label"')
     && str_contains($localPresentationTranscript, 'label="path:sidebars/TTY Fallback.json"')
+    && str_contains($localPresentationTranscript, 'compare base state=present')
+    && str_contains($localPresentationTranscript, 'compare branch state=present')
+    && str_contains($localPresentationTranscript, 'compare production state=present')
+    && str_contains(
+        $localPresentationTranscript,
+        'path bytes=26 sha256=' . hash('sha256', 'posts/post/tty-conflict.md')
+    )
+    && array_reduce(array_keys($localTitleRaw), static fn(bool $ok, string $role): bool => $ok
+        && str_contains($localPresentationTranscript, 'compare ' . $role . ' state=present')
+        && str_contains($localPresentationTranscript, 'value member=title bytes=' . strlen($localTitleRaw[$role])
+            . ' sha256=' . hash('sha256', $localTitleRaw[$role])
+            . ' utf8=' . json_encode($localTitleRaw[$role], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)), true)
     && !str_contains($localPresentationTranscript, "\x1b")
     && !str_contains($localPresentationTranscript, "\x7f")
     && !str_contains($localPresentationPublic, 'TTY Branch')
@@ -551,7 +569,7 @@ $check($localPresentationCancelled === null
             $localPresentationProjection['diff']['records']
         )), static fn(array $change): bool => ($change['category'] ?? null) === 'conflicting'))
     ))), 'TTY Branch'),
-    'private interactive presentation previews every automatic plan record and sanitized local labels without adding them to public contracts');
+    'private interactive presentation shows exact B/W/P path and field evidence with per-value hashes without adding it to public contracts');
 $malformedPresentation = $localPresentation;
 foreach ($malformedPresentation['labels'] as $selector => $label) {
     $malformedPresentation['labels'][$selector] = "unsafe\x1b";
@@ -579,6 +597,44 @@ $refuses(static fn() => RefreshFieldDiff::interactivePresentation(
     $localPresentationProjection['diff'],
     $localPresentationProjection['bundle']
 ), 'local presentation recomputes the complete plan hash before reading an automatic-row label');
+
+$largeRaw = [
+    'base' => "{\"widgets\":\"" . str_repeat('A', 5000) . "\"}\n",
+    'branch' => "{\"widgets\":\"" . str_repeat('B', 5000) . "\"}\n",
+    'production' => "{\"widgets\":\"" . str_repeat('C', 5000) . "\"}\n",
+];
+$largePlan = $plan;
+$largePlan['entries'] = [[
+    'id' => 'sidebar:large-private-comparison',
+    'identity' => 'large-private-comparison',
+    'type' => 'sidebar', 'category' => 'conflicting', 'in_scope' => true,
+    'versions' => [
+        'base' => $row('large-private-comparison', 'sidebar', 'sidebars/large.json', $largeRaw['base']),
+        'production' => $row('large-private-comparison', 'sidebar', 'sidebars/large.json', $largeRaw['production']),
+        'branch' => $row('large-private-comparison', 'sidebar', 'sidebars/large.json', $largeRaw['branch']),
+    ],
+    'selected_source' => null, 'selected' => null,
+]];
+unset($largePlan['plan_hash']);
+$largePlan = RefreshPlan::normalizePlan($largePlan);
+$largeProjection = RefreshFieldDiff::project($largePlan, [
+    'base' => $policy(), 'production' => $policy(), 'branch' => $policy(),
+]);
+$largePresentation = RefreshFieldDiff::interactivePresentation(
+    $largePlan, $largeProjection['diff'], $largeProjection['bundle']
+);
+$largeIn = fopen('php://temp', 'r+');
+$largeOut = fopen('php://temp', 'r+');
+fwrite($largeIn, "q\n");
+rewind($largeIn);
+RefreshFieldDiff::interactiveResolution($largeProjection['diff'], $largeIn, $largeOut, $largePresentation);
+rewind($largeOut);
+$largeTranscript = (string) stream_get_contents($largeOut);
+$check(strlen($largeTranscript) < 15000
+    && substr_count($largeTranscript, 'truncated=yes') === 3
+    && array_reduce($largeRaw, static fn(bool $ok, string $raw): bool => $ok
+        && str_contains($largeTranscript, 'bytes=' . strlen($raw) . ' sha256=' . hash('sha256', $raw)), true),
+    'privileged comparison bounds every large value preview while retaining its exact byte count and SHA-256');
 
 $autoPlan = $plan;
 $autoPlan['plan_hash'] = hash('sha256', 'interactive-auto-fields');

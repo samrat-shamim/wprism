@@ -122,6 +122,10 @@ final class InitPlanner {
         $ledger = InitSiteProbe::ledger();
         $existing = self::existing_config($repo, $adapterLibrary);
         $gitignoreIdentity = InitOwnedArtifacts::owned_file_boundary_identity($repo . '/.gitignore', '.gitignore');
+        $gitattributesIdentity = InitOwnedArtifacts::owned_file_boundary_identity(
+            $repo . '/.gitattributes',
+            '.gitattributes'
+        );
         $manifests = self::installed_manifests($repo, $adapterLibrary);
         $activePlugins = array_values(array_filter(
             (array) get_option('active_plugins', []),
@@ -376,6 +380,13 @@ final class InitPlanner {
             throw new \RuntimeException('duo: init database probe failed: ' . $wpdb->last_error);
         }
         $media = InitSiteProbe::media();
+        $gitLfs = InitRepositoryBoundary::git_lfs_probe(
+            $repo,
+            (int) ($media['attachments'] ?? 0) > 0,
+            (string) $git['mode']
+        );
+        $unsupported = array_merge($unsupported, $gitLfs['blockers']);
+        unset($gitLfs['blockers']);
         $risks = InitSiteProbe::risk();
         if (!empty($media['unavailable'])) {
             $unsupported[] = [
@@ -521,6 +532,8 @@ final class InitPlanner {
                 'repository' => $logicalRepo,
                 'repository_identity' => $rootIdentity,
                 'git' => ['mode' => $git['mode'], 'version' => $git['version']],
+                'git_lfs' => $gitLfs,
+                'gitattributes_identity' => $gitattributesIdentity,
                 'gitignore_identity' => $gitignoreIdentity,
                 'ledger' => ['rows' => $ledger['rows'], 'tables' => $ledger['tables']],
                 'risk_surfaces' => $risks,

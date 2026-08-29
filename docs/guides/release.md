@@ -271,18 +271,25 @@ is the standing rule for internal identifiers in a human view: `duo verify
 prints are consumed by `--restore`. Artifact hashes, lease owners and
 operation ids stay in `--format=json`.
 
-## `--from` is a binding assertion, not a git transport
+## `--from` delivers one verified fast-forward
 
 ```sh
 "$DUO_CLI" release production --from=main
 ```
 
-Release resolves that ref in your local site repository with `git rev-parse`,
-reads the target repository's `HEAD`, and refuses on a mismatch with the next
-action `reconcile` and the literal command to run. It fetches nothing, pushes
-nothing and checks out nothing. Getting code onto the target is `duo deploy`
-and the code-release provider's job, and release invents no second path to do
-it — see [code-updates.md](code-updates.md).
+Release resolves the ref and commit in your local site repository. If the
+target is behind, the executing command requires a clean named target
+worktree, fetches that same advertised branch or tag from the target's
+configured `origin`, proves the fetched commit equals the local commit, and
+performs a hook-free fast-forward before planning. It never pushes, overwrites
+dirty work, resets divergent history, or accepts a same-name ref with different
+bytes. Publish the reviewed branch/tag to the shared origin first.
+
+`--plan-only` remains strictly read-only, so it reports
+`release_ref_mismatch` when delivery would be needed; run the executing release
+to perform delivery. Repository delivery updates the site repository, while
+the subsequent deploy/code-release path still owns materializing the compiled
+code descriptor into WordPress — see [code-updates.md](code-updates.md).
 
 ## `--profile` and `--accept-weaker-recovery`
 
@@ -420,7 +427,8 @@ resume, reconcile or recover.
 | `release_live_effect_undeclared` | The release enters the code lifecycle window, where hooks fire, and no reviewed live external effect is declared for it. | `declare in contract` |
 | `release_deletes_not_authorized` | The plan deletes owned entities and `--with-deletes` was not given. | none — this is an authorization flag, not an assessment gap |
 | `release_delete_unsupported` | A deletion lands on a surface whose deletion semantics are declared unsupported. | `exclude` |
-| `release_ref_mismatch` | The target `HEAD` is not the ref `--from` asserted. | reconcile the code first |
+| `release_ref_mismatch` | Read-only `--plan-only` found a target `HEAD` different from `--from`. | run the executing release or deliver first |
+| `release_delivery_failed` | The target is dirty/detached/divergent, cannot fetch the ref, or fetched a different commit. | repair the named delivery phase and retry |
 
 The third and fourth rows are the same rule seen twice, and it is the hardest
 line this profile holds: *unknown containment or recovery semantics never

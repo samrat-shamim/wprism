@@ -70,6 +70,9 @@ final class CodeResolveCommand {
     /** Target-side staging root for a push, under the repository's own `.duo/`. */
     public const PUSH_STAGING = '.duo/code-push';
 
+    /** Disposable target-visible repository snapshots used by release compilation. */
+    public const RELEASE_STAGING = '.duo/code-release-prepare';
+
     /**
      * Which inventory proof is being taken. Not decoration: each one may state
      * a different thing about what the target currently holds, and saying the
@@ -188,6 +191,164 @@ final class CodeResolveCommand {
             fwrite(STDERR, "duo: $verb: refusing before compile; no lifecycle or code materialization occurred\n");
             return 1;
         }
+    }
+
+    /**
+     * Compile one release from an isolated, target-visible repository snapshot.
+     *
+     * A format-2 repository deliberately omits locked third-party component
+     * bytes. The public `duo code-resolve` verb materializes those bytes into
+     * the repository because that is exactly what its operator requested.
+     * Automatic deploy/promote compilation has a different transaction
+     * boundary: leaving those bytes in the canonical repository before a
+     * promotion lease or checkpoint makes a failed preflight a repository
+     * mutation with no compensation (agency audit finding 72).
+     *
+     * This boundary snapshots the repository under its private `.duo/`
+     * runtime directory, resolves only inside that snapshot, compiles through
+     * the supplied product callback, and removes the snapshot in `finally`.
+     * The snapshot path is visible through every transport, so the agent that
+     * compiles is also the authority that hashes the resolved trees. A
+     * format-1 repository takes the old direct path and pays no snapshot or
+     * target-read cost.
+     *
+     * @template T
+     * @param callable(string):T $compile receives the target-visible repository path
+     * @return T|int the compile result, or exit 1 after a rendered resolution refusal
+     */
+    public static function releaseCompile(
+        EnvironmentDriver $transport,
+        string $verb,
+        callable $compile
+    ): mixed {
+        $driver = $transport->driverId();
+        if ($driver !== 'local' && $driver !== 'docker' && $driver !== 'ssh') {
+            return $compile(rtrim($transport->repoPath(), '/'));
+        }
+
+        $repo = rtrim($transport->repoPath(), '/');
+        try {
+            $hostRepo = self::hostRepo($transport);
+            $declared = $hostRepo === null
+                ? self::targetDeclaresLock($transport, $repo)
+                : CodeResolver::declaredLock($hostRepo) !== null;
+            if (!$declared) {
+                return $compile($repo);
+            }
+
+            echo "$verb phase: code-resolve\n";
+            $token = bin2hex(random_bytes(12));
+            $targetStage = $repo . '/' . self::RELEASE_STAGING . '/' . $token;
+            $hostStage = $hostRepo === null
+                ? null
+                : rtrim($hostRepo, '/') . '/' . self::RELEASE_STAGING . '/' . $token;
+            self::snapshotForRelease($transport, $repo, $targetStage);
+            try {
+                if ($hostStage === null) {
+                    // SSH resolves on the host and pushes into the disposable
+                    // repository. targetResolve() performs the staged and
+                    // post-publish inventory proofs before compile sees it.
+                    self::targetResolve($transport, '', false, false, null, $targetStage, false);
+                } else {
+                    $lock = CodeResolver::declaredLock($hostStage);
+                    if ($lock === null) {
+                        throw self::releaseStageFailed(
+                            "duo: the isolated repository snapshot at $targetStage did not carry the declared lock"
+                        );
+                    }
+                    $rows = self::resolver(false, null)->resolve($hostStage, $lock['components'], false);
+                    self::assertInventory(
+                        $transport,
+                        $targetStage,
+                        $lock['components'],
+                        self::PROOF_STAGED
+                    );
+                    self::render($lock['path'], $rows, false, $verb);
+                }
+
+                return $compile($targetStage);
+            } finally {
+                self::removeReleaseStaging($transport, $targetStage);
+            }
+        } catch (CommandRefusalException $refusal) {
+            self::renderRefusal($refusal, "$verb: code-resolve");
+            fwrite(
+                STDERR,
+                "duo: $verb: refusing before compile; the canonical repository was not materialized\n"
+            );
+            return 1;
+        } catch (\Throwable $error) {
+            fwrite(STDERR, "duo: $verb: code-resolve: " . $error->getMessage() . "\n");
+            fwrite(
+                STDERR,
+                "duo: $verb: refusing before compile; the canonical repository was not materialized\n"
+            );
+            return 1;
+        }
+    }
+
+    /** Whether a target-only repository declares the locked code format. */
+    private static function targetDeclaresLock(EnvironmentDriver $transport, string $repo): bool {
+        $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.duo.json'));
+        if ($site['exit'] !== 0) {
+            return false;
+        }
+        $document = json_decode(trim($site['stdout']), true);
+        $code = is_array($document) ? ($document['code'] ?? null) : null;
+
+        return is_array($code) && ($code['format'] ?? null) === 2;
+    }
+
+    /** Create one complete repository snapshot without copying runtime state. */
+    private static function snapshotForRelease(
+        EnvironmentDriver $transport,
+        string $repo,
+        string $stage
+    ): void {
+        $archive = $stage . '.tar';
+        $script = 'umask 077; mkdir -p ' . escapeshellarg(dirname($stage))
+            . ' && tar -C ' . escapeshellarg($repo)
+            . " --exclude='./.git' --exclude='./.duo' -cf " . escapeshellarg($archive) . ' .'
+            . ' && mkdir ' . escapeshellarg($stage)
+            . ' && tar --no-same-owner -xf ' . escapeshellarg($archive) . ' -C ' . escapeshellarg($stage)
+            . ' && rm -f ' . escapeshellarg($archive);
+        $result = $transport->captureRaw($script);
+        if ($result['exit'] !== 0) {
+            $transport->captureRaw(
+                'rm -f ' . escapeshellarg($archive) . '; rm -rf ' . escapeshellarg($stage)
+            );
+            throw self::releaseStageFailed(
+                'duo: the target could not create an isolated repository snapshot for release compilation',
+                $result
+            );
+        }
+    }
+
+    /** Remove only a release snapshot whose identity this class minted. */
+    private static function removeReleaseStaging(EnvironmentDriver $transport, string $stage): void {
+        if (!str_contains($stage, '/' . self::RELEASE_STAGING . '/')) {
+            return;
+        }
+        $transport->captureRaw('rm -rf ' . escapeshellarg($stage));
+    }
+
+    /** @param array{exit:int,stdout:string,stderr:string}|null $result */
+    private static function releaseStageFailed(
+        string $operatorMessage,
+        ?array $result = null
+    ): CommandRefusalException {
+        $detail = $result === null
+            ? $operatorMessage
+            : $operatorMessage . ' (exit ' . $result['exit'] . '): '
+                . trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+
+        return new CommandRefusalException(
+            self::REASON_PUSH_FAILED,
+            'locked component bytes could not be prepared in an isolated repository for release compilation',
+            'inspect the target filesystem and retry; the canonical repository was not materialized',
+            [],
+            $detail
+        );
     }
 
     /**
@@ -348,9 +509,11 @@ final class CodeResolveCommand {
         string $verb,
         bool $dryRun,
         bool $offline,
-        ?string $cacheDir
+        ?string $cacheDir,
+        ?string $repoOverride = null,
+        bool $render = true
     ): ?int {
-        $repo = rtrim($transport->repoPath(), '/');
+        $repo = rtrim($repoOverride ?? $transport->repoPath(), '/');
         $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.duo.json'));
         if ($site['exit'] !== 0) {
             // Not a silent skip: compile reads the same file one phase later
@@ -451,7 +614,9 @@ final class CodeResolveCommand {
                 'detail' => $outcome['detail'],
             ];
         }
-        self::render($relative, $rows, $dryRun, $verb);
+        if ($render) {
+            self::render($relative, $rows, $dryRun, $verb);
+        }
 
         return $verb === '' ? 0 : null;
     }

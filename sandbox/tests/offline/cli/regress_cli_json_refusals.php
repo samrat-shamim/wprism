@@ -99,12 +99,15 @@ namespace Duo {
     final class Apply {
         public static ?\Throwable $planFailure = null;
         public static ?\Throwable $applyFailure = null;
+        public static array $planResult = [];
+        public static array $lastPlanOptions = [];
 
         public static function plan($repo, array $options): array {
+            self::$lastPlanOptions = $options;
             if (self::$planFailure !== null) {
                 throw self::$planFailure;
             }
-            return [];
+            return self::$planResult;
         }
 
         public static function apply($repo, array $options): array {
@@ -415,6 +418,40 @@ namespace {
             && !str_contains(json_encode($scopedView), 'deliberately-not-decoded'),
         'direct agent plan typed-refuses scoped view flags before decoding or echoing scope evidence'
     );
+
+    \Duo\Apply::$planResult = ['plan_view' => [
+        'format' => 'duo-plan-view/v2',
+        'page' => ['next_cursor' => null, 'has_more' => false],
+        'rows' => [],
+    ]];
+    WP_CLI::reset();
+    $cli->plan([], [
+        'repo' => '/fixture',
+        'action' => 'create',
+        'limit' => '20',
+        'view-only' => true,
+        'format' => 'json',
+    ]);
+    $viewOnly = json_decode(WP_CLI::$lines[0] ?? '', true);
+    check(
+        ($viewOnly['format'] ?? null) === 'duo-plan-view/v2'
+            && array_keys($viewOnly) === ['format', 'page', 'rows']
+            && array_key_exists('cursor', \Duo\Apply::$lastPlanOptions['plan_view'] ?? [])
+            && \Duo\Apply::$lastPlanOptions['plan_view']['cursor'] === null,
+        'plan --view-only emits only the bounded page while Apply still builds it through the real view request path'
+    );
+    $priorPlanOptions = \Duo\Apply::$lastPlanOptions;
+    $missingView = invoke_json(static fn() => $cli->plan([], [
+        'repo' => '/fixture',
+        'view-only' => true,
+        'format' => 'json',
+    ]));
+    check(
+        ($missingView['reason_code'] ?? null) === 'invalid_arguments'
+            && \Duo\Apply::$lastPlanOptions === $priorPlanOptions,
+        'plan --view-only without a view selector refuses before plan execution'
+    );
+    \Duo\Apply::$planResult = [];
 
     echo "\n== deliberately public gates keep stable diagnostics ==\n";
     \Duo\Capture::$failure = new \Duo\CommandRefusalException(
@@ -1114,10 +1151,11 @@ namespace {
     // — a scoring verdict is never one, which is the point of that command;
     // 32 with WP-2.5's `adapter-deletion-feasibility`, which answers
     // DeleteGuardEvaluator::lock_index() for a PROPOSED deletion selector's
-    // guards at authoring time.
+    // guards at authoring time; 33 with the asynchronous `lifecycle-settle`
+    // completion gate.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 32, 'every one of the 32 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 33, 'every one of the 33 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -1356,15 +1394,15 @@ namespace {
             '--name is required for env-set',
             null,
         ],
-        'env-set with both value sources' => [
+        'env-set with command-line value' => [
             static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key', 'value' => 'v', 'stdin' => true, 'format' => 'json']),
-            'env-set accepts exactly one value source',
-            '--value or --stdin',
+            'env-set does not accept --value because command-line arguments are observable',
+            'remove --value and pipe one newline-terminated value through --stdin',
         ],
-        'env-set with neither value source' => [
+        'env-set without stdin' => [
             static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key', 'format' => 'json']),
-            'env-set requires a value source',
-            '--value=<value> or --stdin',
+            'env-set requires --stdin',
+            'pipe one newline-terminated value through --stdin',
         ],
         'classify missing --set' => [
             static fn() => $cli->classify([], ['repo' => '/fixture', 'format' => 'json']),
@@ -1802,13 +1840,13 @@ namespace {
             static fn() => $cli->env_set([], ['repo' => '/fixture']),
             '--name required',
         ],
-        'env-set with both value sources' => [
+        'env-set with command-line value' => [
             static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key', 'value' => 'v', 'stdin' => true]),
-            'pass exactly one of --value or --stdin, not both',
+            'remove --value and use --stdin',
         ],
-        'env-set with neither value source' => [
+        'env-set without stdin' => [
             static fn() => $cli->env_set([], ['repo' => '/fixture', 'name' => 'acme_key']),
-            'one of --value=<value> or --stdin is required',
+            '--stdin is required',
         ],
         'orphans missing <table>' => [
             static fn() => $cli->orphans([], []),

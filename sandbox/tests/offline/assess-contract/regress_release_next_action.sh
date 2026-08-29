@@ -36,7 +36,15 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-release-next-action.XXXXXX")"
-trap 'rm -rf "$TMP"' EXIT INT TERM
+RESPONDER_PID=""
+cleanup() {
+  if [ -n "$RESPONDER_PID" ]; then
+    kill "$RESPONDER_PID" 2>/dev/null || true
+    wait "$RESPONDER_PID" 2>/dev/null || true
+  fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT INT TERM
 
 FAILURES=0
 pass() { printf 'ok: %s\n' "$*"; }
@@ -69,6 +77,15 @@ export DUO_SITE_REPO="$SITE"
 export DUO_CALLS="$TMP/calls.txt"
 PATH="$TMP/site/bin:$PATH"
 export PATH
+php "$ROOT/sandbox/tests/fixtures/release/journey-responder.php" "$TMP/journey-address" \
+  >"$TMP/journey-responder.out" 2>"$TMP/journey-responder.err" &
+RESPONDER_PID=$!
+for _ in $(seq 1 100); do
+  [ -s "$TMP/journey-address" ] && break
+  sleep 0.01
+done
+[ -s "$TMP/journey-address" ] || { cat "$TMP/journey-responder.err" >&2; exit 1; }
+export DUO_JOURNEY_URL="http://$(cat "$TMP/journey-address")/release-ready"
 
 # duo <stdout-file> [args...] -> exit code
 duo() {
@@ -107,6 +124,13 @@ foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
         $contract["declarations"]["surfaces"][$index]["handling"] = "preserve local";
     }
 }
+$contract["declarations"]["journeys"] = [[
+    "affected_surfaces" => ["plugin:unmanaged-widget", "post_type:page", "post_type:widget_item"],
+    "expect_contains" => "release journey ready",
+    "expect_status" => 200,
+    "id" => "release-ready",
+    "url" => getenv("DUO_JOURNEY_URL"),
+]];
 $proposal["contract"] = $contract;
 file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 ' "$SITE/.duo/contract/fixture/proposed.json"
@@ -191,7 +215,7 @@ say 'every observed post-freeze failure maps to exactly one next action'
 
 # incomplete_lifecycle -> recover. The lifecycle phase fails, and the target's
 # own re-read then reports the interrupted window.
-DUO_LIFECYCLE_EXIT=7 DUO_PLAN_AFTER=plan-incomplete-lifecycle DUO_PLAN_AFTER_CALL=3 \
+DUO_CODE_ENABLED=1 DUO_LIFECYCLE_EXIT=7 DUO_PLAN_AFTER=plan-incomplete-lifecycle DUO_PLAN_AFTER_CALL=3 \
   release "lifecycle" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed release exits 1' || fail "a failed release exited $STATUS"
@@ -239,8 +263,8 @@ STATUS=$?
 # and must be unchanged. A release that printed its own version of them would
 # mean the state machine had been forked.
 PHASES=$(grep -E '^promote (phase|complete):' "$TMP/released.txt" | sed -e 's/^promote phase: //' -e 's/^promote complete: .*/complete/' | tr '\n' ' ')
-[ "$PHASES" = "compile promotion-begin checkpoint lifecycle-retire lifecycle-activate apply complete " ] \
-  && pass 'the existing promote phase sequence and its output bytes are unchanged' \
+[ "$PHASES" = "compile promotion-begin checkpoint apply complete " ] \
+  && pass 'content-only promotion runs no lifecycle hooks and keeps the remaining phase bytes stable' \
   || fail "promote's phase output changed: $PHASES"
 grep -Fq 'database checkpoint retained:' "$TMP/released.txt" \
   && pass "promote's own checkpoint-retained line still prints" \

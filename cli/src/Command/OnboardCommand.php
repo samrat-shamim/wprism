@@ -116,7 +116,7 @@ final class OnboardCommand {
         }
         echo "Onboarding 2/3: assess the installed site without changing managed state.\n";
         $exit = $assess($driver, [], $sourceRoot);
-        if ($exit !== 0) {
+        if ($exit !== 0 && $exit !== AssessCommand::COMPLETE_WITH_GAPS_EXIT) {
             return $exit;
         }
         $handoffReceipt = null;

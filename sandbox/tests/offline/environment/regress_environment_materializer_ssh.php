@@ -228,6 +228,13 @@ if ($sub === 'compile') {
     echo file_get_contents((string) getenv('DUO_SSH_PROOF_SUMMARY')); exit(0);
 }
 if ($sub === 'plan') { echo file_get_contents((string) getenv('DUO_SSH_PROOF_PLAN')); exit(0); }
+if ($sub === 'checkpoint-seal') {
+    $output = $find('--output=');
+    if (!is_string($output) || $output === '') exit(2);
+    $input = stream_get_contents(STDIN);
+    if (!is_string($input) || $input === '' || file_put_contents($output, $input, LOCK_EX) === false) exit(1);
+    exit(0);
+}
 if ($duo === false && in_array('eval', $args, true)) {
     foreach ($args as $arg) {
         if (str_contains((string) $arg, 'get_option')) {
@@ -240,6 +247,7 @@ if ($duo === false && in_array('eval', $args, true)) {
 if (($sub === 'db' && $duo !== false && (($args[$duo + 2] ?? '') === 'export'))
     || ($duo === false && (($args[0] ?? '') === 'db') && (($args[1] ?? '') === 'export'))) {
     $path = (string) ($duo === false ? ($args[2] ?? '') : ($args[$duo + 3] ?? ''));
+    if ($path === '-') { echo "duo frozen checkpoint\n"; exit(0); }
     if ($path === '' || file_put_contents($path, "duo frozen checkpoint\n", LOCK_EX) === false) exit(1);
     echo "Exported to '$path'\n"; exit(0);
 }

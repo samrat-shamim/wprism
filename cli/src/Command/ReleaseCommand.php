@@ -56,17 +56,16 @@ use Duo\CommandRefusalException;
  *     the journeys `duo verify` reads all live in it. The refusal is a
  *     PRE-authorization refusal and therefore carries a §2.1 gap action
  *     (`declare in contract`), never a release next action.
- *  2. **Target facts.** One `wp duo plan --format=json` read, its complete
+ *  2. **Repository delivery + target facts.** One `wp duo plan --format=json` read, its complete
  *     envelope proved through `PlanContract::requireComplete()`; the same
  *     plan rendered through `PlanSummary::render()` for the drift/readiness
  *     check; the target repository `HEAD` read through the driver; and the
- *     target's own content-addressed artifact hash. `--from <ref>` is a
- *     BINDING ASSERTION, not a git transport: the ref is resolved in the
- *     local site repository, compared with the target `HEAD`, and a mismatch
- *     refuses with the next action `reconcile` and the literal command. This
- *     command runs `git rev-parse` and nothing else — no fetch, no push, no
- *     checkout. MUP invents no code-shipping path that `promote` and the
- *     code-release provider do not already own.
+ *     target's own content-addressed artifact hash. `--from <ref>` resolves
+ *     the exact local commit and, for an executing release, fast-forwards a
+ *     clean named target worktree to the same advertised origin ref before
+ *     the plan is built. Hash equality prevents a same-name remote ref from
+ *     selecting different bytes; divergent history refuses. `--plan-only`
+ *     remains read-only and reports a mismatch instead of delivering it.
  *  3. **Projection + pre-freeze refusals.** The projection is REGENERATED
  *     from current facts (MUP §3.4's refresh row: "any assess, status, or
  *     release regenerates projection.json"), never read from disk — a
@@ -282,7 +281,19 @@ final class ReleaseCommand {
             );
         }
 
-        // 2. Target facts.
+        // 2. Repository delivery, then target facts. Executing --from is the
+        // authority to fast-forward a clean named target worktree. Plan-only
+        // remains byte-read-only and can only check the existing binding.
+        $head = self::targetHead($driver);
+        if ($flags['from'] !== null) {
+            $resolved = self::localRevision($siteRepo, $flags['from']);
+            if (!hash_equals($resolved, $head)) {
+                if ($flags['plan_only']) {
+                    self::bindRef($flags['from'], $head, $siteRepo, $driver, $resolved);
+                }
+                $head = self::deliverRef($flags['from'], $resolved, $siteRepo, $driver);
+            }
+        }
         $plan = self::targetPlan($driver);
         // Pending deletions are this command's own decision, not an
         // assessment gap: `AuthorizationPlan::refusals()` refuses them by name
@@ -303,7 +314,6 @@ final class ReleaseCommand {
             self::surfaceLabels($contract),
             deletionAuthorityOwnedByCaller: true
         );
-        $head = self::targetHead($driver);
         $target = [
             'artifact_hash' => self::targetArtifactHash($driver),
             'code_revision_from' => $head,
@@ -702,32 +712,26 @@ final class ReleaseCommand {
         return 1;
     }
 
-    /**
-     * `--from <ref>` — a binding assertion over the target's own `HEAD`.
-     *
-     * The ref is resolved with `git rev-parse` in the LOCAL site repository
-     * and compared with the revision the target repository is actually on.
-     * Nothing is fetched, pushed or checked out: shipping code is
-     * `promote`'s and the code-release provider's job, and a release that
-     * quietly moved a target's git state would be exactly the invented
-     * transport MUP §2.3 forbids.
-     */
-    private static function bindRef(?string $ref, string $head, string $siteRepo, EnvironmentDriver $driver): void {
+    /** `--plan-only` can check a ref binding but may not deliver it. */
+    private static function bindRef(
+        ?string $ref,
+        string $head,
+        string $siteRepo,
+        EnvironmentDriver $driver,
+        ?string $resolved = null
+    ): void {
         if ($ref === null) {
             return;
         }
-        $resolved = self::localRevision($siteRepo, $ref);
+        $resolved ??= self::localRevision($siteRepo, $ref);
         if (hash_equals($resolved, $head)) {
             return;
         }
         throw new CommandRefusalException(
             'release_ref_mismatch',
-            'the target repository is not on the revision --from asserts, so this release would authorize one '
-                . 'revision and mutate from another',
-            'reconcile the two before releasing: bring the target repository to ' . substr($resolved, 0, 12)
-                . ' through the deployment path that owns it, confirm with duo status '
-                . self::token($driver->name()) . ', then re-run duo release --from with the same ref. Do not '
-                . 'retry this release: it asserted a revision the target is not on, so a retry asserts it again',
+            'plan-only cannot describe the asserted revision because the target repository is on another commit',
+            'run the same release without --plan-only to let Duo fast-forward the clean named target from its '
+                . 'origin, or deliver ' . substr($resolved, 0, 12) . ' through an approved path and rerun plan-only',
             [[
                 'code' => 'ref_mismatch',
                 'failure_class' => 'ref_mismatch',
@@ -736,6 +740,109 @@ final class ReleaseCommand {
                 'asserted_ref' => preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/-]{0,127}$/D', $ref) === 1 ? $ref : '<ref>',
             ]]
         );
+    }
+
+    /**
+     * Deliver one advertised local branch/tag to a clean target by exact hash.
+     * Fetch can add object-cache bytes; the worktree/ref itself moves only by
+     * a hook-free fast-forward and is re-read before planning.
+     */
+    private static function deliverRef(
+        string $ref,
+        string $resolved,
+        string $siteRepo,
+        EnvironmentDriver $driver
+    ): string {
+        $remoteRef = self::localDeliveryRef($siteRepo, $ref);
+        $repo = escapeshellarg($driver->repoPath());
+        $expected = escapeshellarg($resolved);
+        $source = escapeshellarg($remoteRef);
+        $script = 'repo=' . $repo . '; expected=' . $expected . '; source_ref=' . $source . '; '
+            . 'test -z "$(git -C "$repo" status --porcelain --untracked-files=all)" || exit 67; '
+            . 'branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD) || exit 68; '
+            . 'test -n "$branch" || exit 68; '
+            . 'git -c core.hooksPath=/dev/null -C "$repo" fetch --no-tags origin "$source_ref" >/dev/null 2>&1 || exit 69; '
+            . 'actual=$(git -C "$repo" rev-parse --verify FETCH_HEAD^{commit}) || exit 69; '
+            . 'test "$actual" = "$expected" || exit 70; '
+            . 'git -C "$repo" merge-base --is-ancestor HEAD "$expected" || exit 71; '
+            . 'git -c core.hooksPath=/dev/null -C "$repo" reset --hard "$expected" >/dev/null 2>&1 || exit 72; '
+            . 'actual=$(git -C "$repo" rev-parse --verify HEAD) || exit 72; '
+            . 'test "$actual" = "$expected" || exit 72; printf "%s" "$actual"';
+        $result = $driver->captureRaw($script);
+        $exit = (int) ($result['exit'] ?? 1);
+        $actual = trim((string) ($result['stdout'] ?? ''));
+        if ($exit === 0 && hash_equals($resolved, $actual)) {
+            return $actual;
+        }
+        [$message, $remediation] = match ($exit) {
+            67 => [
+                'the target repository has tracked or untracked work, so release delivery cannot move it safely',
+                'review and commit or remove the target worktree changes, then rerun the same release',
+            ],
+            68 => [
+                'the target repository is detached, so release delivery has no named branch to fast-forward',
+                'switch the target to the intended named branch, then rerun the same release',
+            ],
+            69 => [
+                'the target could not fetch the asserted branch or tag from its configured origin',
+                'publish the local ref to the target origin and repair its fetch credentials, then rerun the same release',
+            ],
+            70 => [
+                'the target origin ref does not resolve to the exact local commit selected by --from',
+                'push the reviewed local ref without rewriting it, verify both sides name the same commit, then rerun',
+            ],
+            71 => [
+                'the selected release is not a fast-forward of the target repository',
+                'reconcile target history explicitly; Duo release will not reset or overwrite divergent history',
+            ],
+            default => [
+                'the target repository did not complete and verify the requested fast-forward delivery',
+                'inspect target Git health and permissions, restore a clean named worktree, then rerun the release',
+            ],
+        };
+        throw new CommandRefusalException('release_delivery_failed', $message, $remediation, [[
+            'code' => 'repository_delivery_failed',
+            'phase' => match ($exit) {
+                67 => 'cleanliness', 68 => 'branch', 69 => 'fetch', 70 => 'identity', 71 => 'fast_forward',
+                default => 'materialize',
+            },
+        ]]);
+    }
+
+    /** Resolve only an advertised local branch/tag; expressions are not transport identities. */
+    private static function localDeliveryRef(string $siteRepo, string $ref): string {
+        $result = self::localGit($siteRepo, [
+            'rev-parse', '--symbolic-full-name', '--verify', '--end-of-options', $ref,
+        ]);
+        $resolved = trim($result['stdout']);
+        if ($result['exit'] !== 0
+            || preg_match('#^refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/-]{0,240}$#D', $resolved) !== 1
+            || str_contains($resolved, '..') || str_contains($resolved, '//')) {
+            throw new CommandRefusalException(
+                'release_ref_not_deliverable',
+                'the asserted revision is not an advertised local branch or tag that a target origin can fetch',
+                'name a local branch or tag, publish it to the target origin, then rerun release --from with that name'
+            );
+        }
+        return $resolved;
+    }
+
+    /** @return array{exit:int,stdout:string} */
+    private static function localGit(string $siteRepo, array $args): array {
+        $process = @proc_open(
+            array_merge(['git', '-C', $siteRepo], $args),
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            null,
+            ['bypass_shell' => true]
+        );
+        if (!is_resource($process)) return ['exit' => 127, 'stdout' => ''];
+        $stdout = stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return ['exit' => proc_close($process), 'stdout' => is_string($stdout) ? $stdout : ''];
     }
 
     /** The local site repository's own resolution of one ref. */

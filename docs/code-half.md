@@ -366,7 +366,7 @@ consumes it atomically with the canonical handoff. Failure leaves it unresolved,
 blocking every materializer/lifecycle/apply continuation and every different
 owner/artifact until the retained pre-lifecycle checkpoint and known
 pre-promotion code revision are restored. A standalone `duo deploy` retains
-that checkpoint too, as `.duo/checkpoints/deploy-<owner>.sql`, so this is the
+that checkpoint too, as `.duo/checkpoints/deploy-<owner>.sql.enc`, so this is the
 recovery source on the deploy path as much as on the promote path.
 Plan/status exposes the receipt as a
 non-forceable `incomplete_lifecycle` finding. This remains mandatory on a first

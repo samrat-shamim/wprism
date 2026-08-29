@@ -619,9 +619,9 @@ $vendorVerified = AdapterCertification::verifyFile(
     $certificatePath
 );
 duo_check_same(
-    'certified',
+    'experimental',
     $vendorVerified['claim']['status'] ?? null,
-    'and the certificate it minted verifies live, under the enrolled root it chains to'
+    'and the unexercised signature verifies live without becoming a certified claim'
 );
 duo_check_same(
     AdapterCertification::TRUST_ROOT_SITE,
@@ -678,11 +678,9 @@ $surveyWord = static function (string $name) use ($site, $adapterLibrary): ?stri
 };
 $pinRepository($adapterName);
 duo_check_same(
-    AdapterSources::CERTIFICATION_SITE_SIGNED,
+    AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
-    'an adapter certified under a DELEGATED vendor key projects `site_signed` — not `third_party_signed` — and '
-    . 'that is the grammar working, not a gap: the delegate resolves under trust root `site`, so the word '
-    . 'follows the ROOT that vouched rather than the party that holds the key'
+    'an unexercised adapter approval under a delegated vendor key projects `signed_unexercised`'
 );
 
 // ---------------------------------------------------------------------------
@@ -924,9 +922,9 @@ $vendorVerified = AdapterCertification::verifyFile(
 $vendorEnvelope = $vendorVerified['envelope'];
 $pinRepository($adapterName);
 duo_check_same(
-    AdapterSources::CERTIFICATION_SITE_SIGNED,
+    AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
-    'and the repository is pinned to it again — the control every refusal below is measured against'
+    'and the repository preserves the signed_unexercised control every refusal below is measured against'
 );
 
 // (a) A NAME OUTSIDE THE GRANT. The delegator holds `acme-*`; the delegate was
@@ -983,10 +981,9 @@ duo_check_same(
 );
 $setClock('2026-06-01T00:00:00Z');
 duo_check_same(
-    AdapterSources::CERTIFICATION_SITE_SIGNED,
+    AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
-    'moving the clock back restores it — the window is read live on every resolution, never cached into the '
-    . 'certificate'
+    'moving the clock back restores the signed approval — the window is read live on every resolution'
 );
 
 // (c) THE DELEGATOR IS REVOKED, through the typed out-of-band channel rather
@@ -1037,7 +1034,7 @@ duo_check(
     . 'no agent release and no site file touched (' . $revokedDelegator . ')'
 );
 duo_check_same(
-    'certified',
+    'experimental',
     AdapterCertification::verifyFrozen(
         $adapterLibrary,
         $adapterName,
@@ -1105,14 +1102,14 @@ duo_check(
         (string) $drilled['inert_before_enrollment']['message'],
         'is not installed in capabilities/adapter-authorities.json'
     )
-    && $drilled['inert_before_enrollment']['certified_alpha_still_verifies'] === 'certified',
+    && $drilled['inert_before_enrollment']['certified_alpha_still_verifies'] === 'experimental',
     'THE DRILL\'S FIRST FINDING, and it is an ordering one: BEFORE enrollment a correctly-signed revocation is '
     . 'INERT — reported, never obeyed, and the site keeps working. Revocation capability is something enrollment '
     . 'BUYS; an agent with an empty root has none, which is why G4 orders (3) before admission'
 );
 foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
     duo_check_same(
-        'certified',
+        'experimental',
         (string) $drilled['before'][$id]['verdict'],
         "control: $id verifies before the burn — every measurement below is against this"
     );
@@ -1140,7 +1137,7 @@ duo_check(
     . 'revocation mechanisms answered without reading the source'
 );
 duo_check_same(
-    'certified',
+    'experimental',
     (string) $beta['verdict'],
     'BLAST RADIUS: the site certified under the OTHER operator key is untouched — one burnt fingerprint burns '
     . 'one identity, not a fleet'
@@ -1192,7 +1189,7 @@ duo_check_same(
 );
 foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
     duo_check_same(
-        'certified',
+        'experimental',
         (string) $drilled['restored'][$id],
         "stand-down: removing the document restores $id — ABSENCE means \"nothing is revoked\", which is the "
         . 'shipped state of every site and the reason this channel costs nothing until it is used'

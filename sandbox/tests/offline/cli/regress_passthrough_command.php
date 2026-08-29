@@ -127,6 +127,22 @@ assert_passthrough(
 );
 
 $envDriver = new RecordingInputPassthroughDriver();
+$argvValueDriver = new RecordingInputPassthroughDriver();
+ob_start();
+$argvValueExit = PassthroughCommand::runEnvSet(
+    $argvValueDriver,
+    ['--name=gateway_secret', '--value=observable-secret', '--format=json']
+);
+$argvValueJson = (string) ob_get_clean();
+$argvValueRecord = json_decode(trim($argvValueJson), true);
+assert_passthrough(
+    $argvValueExit === 1
+        && ($argvValueRecord['error'] ?? null) === 'invalid_arguments'
+        && str_contains((string) ($argvValueRecord['remediation'] ?? ''), 'pipe one newline-terminated value')
+        && $argvValueDriver->calls === [],
+    'host env-set refuses an argv value before target resolution'
+);
+
 $echoTransitions = [];
 $inputLifecycle = [];
 $envDriver->onInstruction = static function () use (&$inputLifecycle): void {
@@ -211,7 +227,7 @@ assert_passthrough(
     'an unavailable target is started only after the host read and echo restoration, then returns its exact failure'
 );
 
-$pipedDriver = new RecordingPassthroughDriver();
+$pipedDriver = new RecordingInputPassthroughDriver();
 $pipedEchoTouched = false;
 $pipedEnvSet = PassthroughCommand::runEnvSet(
     $pipedDriver,
@@ -220,11 +236,44 @@ $pipedEnvSet = PassthroughCommand::runEnvSet(
     static function (bool $_enabled) use (&$pipedEchoTouched): bool {
         $pipedEchoTouched = true;
         return true;
-    }
+    },
+    static fn(): string => "piped-secret\n"
 );
 assert_passthrough(
-    $pipedEnvSet === 23 && !$pipedEchoTouched && count($pipedDriver->calls) === 1,
-    'piped env-set input needs no terminal mutation and keeps passthrough behavior'
+    $pipedEnvSet === 23
+        && !$pipedEchoTouched
+        && count($pipedDriver->calls) === 1
+        && file_get_contents($pipedDriver->inputPath) === "piped-secret\n",
+    'piped env-set input needs no terminal mutation and uses the same bounded detached handoff'
+);
+
+$timeoutDriver = new RecordingInputPassthroughDriver();
+$timeoutDriver->blockAfterReadMarker = tempnam(sys_get_temp_dir(), 'duo-env-set-timeout-');
+$timeoutClock = [0.0, 0.1, 0.2, 2.0];
+$timeoutStarted = microtime(true);
+$timeoutExit = PassthroughCommand::runEnvSet(
+    $timeoutDriver,
+    ['--name=gateway_secret', '--stdin'],
+    static fn(): bool => false,
+    static fn(bool $_enabled): bool => true,
+    static fn(): string => "same-secret\n",
+    static function () use (&$timeoutClock): float {
+        return $timeoutClock === [] ? 2.0 : (float) array_shift($timeoutClock);
+    },
+    1.0
+);
+$timeoutElapsed = microtime(true) - $timeoutStarted;
+@unlink((string) $timeoutDriver->blockAfterReadMarker);
+assert_passthrough(
+    $timeoutExit === 75 && $timeoutElapsed < 2.0,
+    'a stuck post-handoff target returns bounded outcome-unknown exit 75 instead of occupying the worker forever'
+);
+$passthroughSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Command/PassthroughCommand.php');
+assert_passthrough(
+    str_contains($passthroughSource, 'Retry the identical --stdin value: env-set is idempotent')
+        && str_contains($passthroughSource, 'plan remains red until')
+        && str_contains($passthroughSource, 'ENV_SET_OUTCOME_TIMEOUT_SECONDS = 300.0'),
+    'timeout diagnosis names the safe idempotent retry and the production five-minute bound'
 );
 
 $malformedStdinDriver = new RecordingInputPassthroughDriver();

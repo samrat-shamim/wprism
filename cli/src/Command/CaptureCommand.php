@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/CommandOutput.php';
+require_once __DIR__ . '/HostProcess.php';
 require_once __DIR__ . '/PassthroughCommand.php';
 
 /** Host command handler for capture's local --scope-contract flag handling. */
@@ -12,10 +13,13 @@ final class CaptureCommand {
     public static function run(
         EnvironmentDriver $driver,
         array $extra,
-        ?string $envsFileOverride = null
+        ?string $envsFileOverride = null,
+        ?callable $currentBranch = null
     ): int {
         $forward = [];
         $contractPath = null;
+        $targetBranch = null;
+        $writesRepository = true;
         foreach ($extra as $arg) {
             if (!is_string($arg) || PassthroughCommand::isHostOwnedTargetFlag($arg)) {
                 return self::scopeRefusal(
@@ -33,6 +37,36 @@ final class CaptureCommand {
                     'capture received an orchestrator-reserved presentation argument',
                     'remove --orchestrator-environment and retry capture'
                 );
+            }
+            if ($arg === '--expected-repository-branch'
+                || str_starts_with($arg, '--expected-repository-branch=')) {
+                return self::scopeRefusal(
+                    $extra,
+                    'invalid_arguments',
+                    'capture received an orchestrator-reserved branch binding',
+                    'remove --expected-repository-branch and use --target-branch=<name> when an explicit destination is required'
+                );
+            }
+            if ($arg === '--target-branch' || (str_starts_with($arg, '--target-branch')
+                && !str_starts_with($arg, '--target-branch='))) {
+                return self::scopeRefusal(
+                    $extra,
+                    'invalid_arguments',
+                    'capture received a malformed target branch flag',
+                    'supply exactly --target-branch=<named-branch>'
+                );
+            }
+            if (str_starts_with($arg, '--target-branch=')) {
+                if ($targetBranch !== null) {
+                    return self::scopeRefusal(
+                        $extra,
+                        'invalid_arguments',
+                        'capture received more than one target branch',
+                        'supply exactly one --target-branch=<named-branch>'
+                    );
+                }
+                $targetBranch = substr($arg, strlen('--target-branch='));
+                continue;
             }
             if (str_starts_with($arg, '--scope-request-b64')) {
                 return self::scopeRefusal(
@@ -71,6 +105,9 @@ final class CaptureCommand {
                 }
                 continue;
             }
+            if ($arg === '--out' || str_starts_with($arg, '--out=')) {
+                $writesRepository = false;
+            }
             $forward[] = $arg;
         }
         if ($contractPath !== null) {
@@ -91,9 +128,38 @@ final class CaptureCommand {
         if ($envsFileOverride === null) {
             $forward[] = '--orchestrator-environment=' . $driver->name();
         }
+        if ($writesRepository) {
+            if ($targetBranch === null) {
+                $currentBranch ??= static function (): ?string {
+                    $cwd = getcwd();
+                    if (!is_string($cwd) || $cwd === '') return null;
+                    $result = HostProcess::run(['git', '-C', $cwd, 'symbolic-ref', '--quiet', '--short', 'HEAD']);
+                    return $result['exit'] === 0 ? trim($result['stdout']) : null;
+                };
+                $targetBranch = $currentBranch();
+            }
+            if (!is_string($targetBranch) || !self::validBranch($targetBranch)) {
+                return self::scopeRefusal(
+                    $extra,
+                    'capture_branch_unresolved',
+                    'capture cannot bind its repository write to a valid named branch',
+                    'run from the intended named checkout or supply --target-branch=<named-branch>'
+                );
+            }
+            $forward[] = '--expected-repository-branch=' . $targetBranch;
+        }
         return $driver->streamWp(
             array_merge(['duo', 'capture', '--repo=' . $driver->repoPath()], $forward)
         );
+    }
+
+    private static function validBranch(string $branch): bool {
+        if ($branch === '' || strlen($branch) > 255 || str_contains($branch, "\0")
+            || str_contains($branch, "\n") || str_contains($branch, "\r")) {
+            return false;
+        }
+        $result = HostProcess::run(['git', 'check-ref-format', '--branch', $branch]);
+        return $result['exit'] === 0 && trim($result['stdout']) === $branch;
     }
 
     private static function scopeRefusal(

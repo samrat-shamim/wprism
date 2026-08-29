@@ -103,6 +103,17 @@ function woo_effect_lifecycle(string $id = 'woocommerce-plugin-lifecycle'): arra
     return woo_effect_irreversible($id, 'external', 'plugin_lifecycle', 'woocommerce/woocommerce.php');
 }
 
+/** @return list<array<string,mixed>> */
+function woo_effect_lifecycle_settlement(): array {
+    return [
+        woo_effect_db_table('woocommerce-lifecycle-migration-options', 'options'),
+        woo_effect_db_table('woocommerce-lifecycle-migration-actions', 'actionscheduler_actions'),
+        woo_effect_db_table('woocommerce-lifecycle-migration-claims', 'actionscheduler_claims'),
+        woo_effect_db_table('woocommerce-lifecycle-migration-groups', 'actionscheduler_groups'),
+        woo_effect_db_table('woocommerce-lifecycle-migration-logs', 'actionscheduler_logs'),
+    ];
+}
+
 /** @return array<string,mixed> */
 function woo_effect_hook(string $id, string $hook): array {
     return woo_effect_irreversible($id, 'external', 'hook', $hook);
@@ -747,15 +758,24 @@ foreach (woo_effect_product_permalink_route() as $effect) {
         'effect' => $effect,
     ];
 }
+$settlementSource = 'provider:woocommerce-lifecycle-migrations/settle_lifecycle_migrations';
+foreach (woo_effect_lifecycle_settlement() as $effect) {
+    $expectedWooRows[] = [
+        'manifest' => 'woocommerce',
+        'phase' => 'lifecycle-settle',
+        'source' => $settlementSource,
+        'effect' => $effect,
+    ];
+}
 usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
     implode("\0", [$a['phase'], $a['manifest'], (string) $a['effect']['id']]),
     implode("\0", [$b['phase'], $b['manifest'], (string) $b['effect']['id']])
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 77
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 82
         && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 194
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 271,
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 276,
     'Woo inventory exposes exact transient/version, hierarchy/rewrite, TEC marker/purge rollback, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php');
@@ -819,6 +839,7 @@ $retentionSchedulerKeys = array_keys((array) ($wooManifest['actions'][6] ?? []))
 $lookupKeys = array_keys((array) ($wooManifest['actions'][7] ?? []));
 $reviewRewriteKeys = array_keys((array) ($wooManifest['actions'][8] ?? []));
 $productRouteKeys = array_keys((array) ($wooManifest['actions'][9] ?? []));
+$settlementKeys = array_keys((array) ($wooManifest['actions'][10] ?? []));
 sort($nativeKeys, SORT_STRING);
 sort($providerKeys, SORT_STRING);
 sort($hierarchyKeys, SORT_STRING);
@@ -829,8 +850,9 @@ sort($retentionSchedulerKeys, SORT_STRING);
 sort($lookupKeys, SORT_STRING);
 sort($reviewRewriteKeys, SORT_STRING);
 sort($productRouteKeys, SORT_STRING);
+sort($settlementKeys, SORT_STRING);
 woo_effect_check(
-    count((array) ($wooManifest['actions'] ?? [])) === 10
+    count((array) ($wooManifest['actions'] ?? [])) === 11
         && $nativeKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && $providerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $hierarchyKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
@@ -841,6 +863,7 @@ woo_effect_check(
         && $lookupKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $reviewRewriteKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && $productRouteKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
+        && $settlementKeys === ['args', 'capability', 'effects', 'kind', 'phase', 'provider']
         && ($wooManifest['actions'][1]['triggers'] ?? null) === $cacheTriggers
         && ($wooManifest['actions'][1]['args'] ?? null) === ['groups' => ['woocommerce-attributes', 'shipping_zones', 'taxes']]
         && ($wooManifest['actions'][2]['provider'] ?? null) === 'woocommerce-hierarchy-lookups'
@@ -900,6 +923,15 @@ woo_effect_check(
         && ($wooManifest['actions'][9]['triggers'] ?? null) === ['option:woocommerce_permalinks']
         && ($wooManifest['actions'][9]['effects'] ?? null) === woo_effect_product_permalink_route(),
     'the product-permalink child declares its sanitizer, single-generation, nested-option, and TEC rollback effects'
+);
+woo_effect_check(
+    ($wooManifest['actions'][10]['provider'] ?? null) === 'woocommerce-lifecycle-migrations'
+        && ($wooManifest['actions'][10]['capability'] ?? null) === 'settle_lifecycle_migrations'
+        && ($wooManifest['actions'][10]['phase'] ?? null) === 'lifecycle_settle'
+        && ($wooManifest['actions'][10]['args'] ?? null) === []
+        && !array_key_exists('triggers', $wooManifest['actions'][10])
+        && ($wooManifest['actions'][10]['effects'] ?? null) === woo_effect_lifecycle_settlement(),
+    'the lifecycle settlement action is code-transition-selected and checkpoints every migration queue write surface'
 );
 $lookupEffectsById = [];
 foreach ((array) ($wooManifest['actions'][7]['effects'] ?? []) as $effect) {
@@ -1080,12 +1112,24 @@ woo_effect_check(
             ],
             'capabilities' => ['rebuild_product_lookups'],
         ],
+        [
+            'id' => 'woocommerce-lifecycle-migrations',
+            'version' => '1.0.0',
+            'source' => 'manifest',
+            'plugin' => 'woocommerce/woocommerce.php',
+            'requires' => [
+                'functions' => ['get_option'],
+                'classes' => ['WP_CLI'],
+            ],
+            'capabilities' => ['settle_lifecycle_migrations'],
+        ],
     ] && $providerContractNames === [
         'woocommerce-cache' => ['invalidate_cache_groups'],
         'woocommerce-hierarchy-lookups' => [],
         'woocommerce-fulfillment-prerequisites' => [],
         'woocommerce-scheduler-settings' => [],
         'woocommerce-product-lookups' => ['rebuild_product_lookups'],
+        'woocommerce-lifecycle-migrations' => ['settle_lifecycle_migrations'],
     ],
     'Woo provider declarations retain exact identities and requirements while migrated capability contracts are manifest data consumed by the engine runtime'
 );

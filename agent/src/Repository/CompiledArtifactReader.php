@@ -41,7 +41,11 @@ final class CompiledArtifactReader {
                 // raw document before from_array() can allocate that third.
                 unset($raw);
             }
-            $artifact = CompiledRepository::from_array($decoded);
+            $repositoryMedia = dirname($path, 3) . '/media';
+            $artifact = CompiledRepository::from_array(
+                $decoded,
+                is_dir($repositoryMedia) ? $repositoryMedia : null
+            );
         } catch (\Throwable $t) {
             throw self::artifact_exception('compiled_artifact_invalid', $path, $t->getMessage());
         }

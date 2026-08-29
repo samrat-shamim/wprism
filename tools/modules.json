@@ -747,7 +747,7 @@
             ]
           }
         ],
-        "file_count": 32,
+        "file_count": 33,
         "files": [
           "Apply.php",
           "ApplyFieldMaterializer.php",
@@ -770,6 +770,7 @@
           "CacheInvalidationTransaction.php",
           "ConvergenceVerifier.php",
           "EntityAdopter.php",
+          "EnvironmentValues.php",
           "IncompleteApplyMarker.php",
           "MenuMaterializer.php",
           "MetaOwnerRangeLock.php",
@@ -964,6 +965,22 @@
           "StateTransitionJournal.php"
         ]
       },
+      "Recovery": {
+        "layer": "engine",
+        "purpose": "Target-local retained-checkpoint protection: streaming authenticated encryption and authenticated-before-output restore over operator-directed database evidence.",
+        "status": "populated",
+        "entry_points": [
+          "RetainedCheckpointCipher"
+        ],
+        "depends_on": [
+          "Recovery"
+        ],
+        "exceptions": [],
+        "file_count": 1,
+        "files": [
+          "RetainedCheckpointCipher.php"
+        ]
+      },
       "Delete": {
         "layer": "engine",
         "purpose": "Deletion authority, deletion guards, orphan repair and the executors that remove owned entities and record tombstones.",
@@ -1146,7 +1163,8 @@
           "AdapterProbe",
           "AdapterRegistry",
           "ManifestProviderRuntime",
-          "DeletionFeasibility"
+          "DeletionFeasibility",
+          "LifecycleSettlement"
         ],
         "depends_on": [
           "Adapter",
@@ -1159,7 +1177,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 17,
+        "file_count": 18,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1171,6 +1189,7 @@
           "AdapterSources.php",
           "DeletionFeasibility.php",
           "IdentityNamespaces.php",
+          "LifecycleSettlement.php",
           "ManifestProviderRuntime.php",
           "ProviderActionBatchBuilder.php",
           "ProviderSdk.php",
@@ -1199,6 +1218,7 @@
           "Policy",
           "Promotion",
           "Publication",
+          "Recovery",
           "Repository",
           "Review",
           "Scope"
@@ -1389,6 +1409,7 @@
         "entry_points": [
           "Doctor",
           "Adopt",
+          "Unadopt",
           "BootstrapEligibility",
           "ClassificationBatch",
           "Init",
@@ -1400,7 +1421,7 @@
           "Transport"
         ],
         "exceptions": [],
-        "file_count": 7,
+        "file_count": 8,
         "files": [
           "Adopt.php",
           "BootstrapEligibility.php",
@@ -1408,7 +1429,8 @@
           "Doctor.php",
           "Init.php",
           "Pending.php",
-          "Triage.php"
+          "Triage.php",
+          "Unadopt.php"
         ]
       },
       "Adapter": {
@@ -1505,7 +1527,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 35,
+        "file_count": 36,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1541,6 +1563,7 @@
           "ReleaseCommand.php",
           "ScopeCommand.php",
           "StatusCommand.php",
+          "UnadoptCommand.php",
           "VerifyCommand.php"
         ]
       },

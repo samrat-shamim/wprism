@@ -5,6 +5,7 @@ namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/DurableFilesystem.php';
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/AttachmentNativeMetadataGenerator.php';
 if (!class_exists(CompiledRepository::class, false)) {
@@ -28,10 +29,10 @@ if (!class_exists(CompiledRepository::class, false)) {
 final class AttachmentFilesystemTransaction {
     private const FORMAT = 'duo-attachment-filesystem-transaction/v1';
     private const DIRECTORY = 'attachment-filesystem';
-    private const MAX_FILE_BYTES = 268435456;
+    private const MAX_FILE_BYTES = MediaPayloadAuthority::MAX_FILE_BYTES;
     private const MAX_ATTACHMENT_BYTES = 536870912;
     /** Originals + before-images + generated files + metadata for one apply. */
-    private const MAX_TRANSACTION_BYTES = 1073741824;
+    private const MAX_TRANSACTION_BYTES = MediaPayloadAuthority::MAX_AGGREGATE_BYTES;
     private const MAX_DERIVATIVES = 512;
     /** Native sizes + edited backup sizes + attached/original_image. */
     private const MAX_OWNED_PRIOR_FILES = 1026;
@@ -286,9 +287,12 @@ final class AttachmentFilesystemTransaction {
         }
         $this->assert_private_directory($preflightRoot, 'attachment markerless media preflight directory');
         foreach ($this->journal['rows'] as $position => $row) {
-            $bytes = $this->compiled->media_content((string) $row['media_blob']);
             $path = $preflightRoot . '/' . $position . '-' . basename((string) $row['original_path']);
-            $this->write_new_file($path, $bytes, 'attachment markerless media preflight file');
+            $this->write_new_media_file(
+                $path,
+                (string) $row['media_blob'],
+                'attachment markerless media preflight file'
+            );
             $metadataGenerator->preflight((string) $row['mime'], $path);
         }
         $this->remove_owned_tree($preflightRoot);
@@ -468,13 +472,13 @@ final class AttachmentFilesystemTransaction {
                 throw new \RuntimeException('duo: attachment metadata staging directory could not be created');
             }
             $this->assert_private_directory($stageDirectory, 'attachment metadata staging directory');
-            $bytes = $this->compiled->media_content((string) $row['media_blob']);
-            if (strlen($bytes) > self::MAX_FILE_BYTES
-                || !hash_equals((string) $row['original_sha256'], hash('sha256', $bytes))) {
+            $mediaName = (string) $row['media_blob'];
+            if ($this->compiled->media_size($mediaName) > self::MAX_FILE_BYTES
+                || !hash_equals((string) $row['original_sha256'], $this->compiled->media_sha256($mediaName))) {
                 throw new \RuntimeException('duo: attachment metadata staging input disagrees with compiled bytes');
             }
             $stageOriginal = $stageDirectory . '/' . basename((string) $row['original_path']);
-            $this->write_new_file($stageOriginal, $bytes, 'attachment metadata staging original');
+            $this->write_new_media_file($stageOriginal, $mediaName, 'attachment metadata staging original');
             $metadata = $generator->generate((int) $row['attachment_id'], $stageOriginal);
             $result = $this->seal_generated_result($position, $row, $stageOriginal, $metadata);
             $this->write_json_file($resultPath, $result, 'attachment generated result');
@@ -897,9 +901,9 @@ final class AttachmentFilesystemTransaction {
         $this->journal['phase'] = 'publishing_originals';
         $this->write_journal();
         foreach ($this->journal['rows'] as $position => $row) {
-            $bytes = $this->compiled->media_content((string) $row['media_blob']);
-            if (strlen($bytes) > self::MAX_FILE_BYTES
-                || !hash_equals((string) $row['original_sha256'], hash('sha256', $bytes))) {
+            $mediaName = (string) $row['media_blob'];
+            if ($this->compiled->media_size($mediaName) > self::MAX_FILE_BYTES
+                || !hash_equals((string) $row['original_sha256'], $this->compiled->media_sha256($mediaName))) {
                 throw new \RuntimeException('duo: compiled attachment original exceeds or disagrees with its bounded upload authority');
             }
             $prior = $this->original_prior($row);
@@ -927,9 +931,9 @@ final class AttachmentFilesystemTransaction {
             if (!$this->states_equal($prior, $current)) {
                 throw new \RuntimeException('duo: attachment original changed after its before-image was frozen; recovery_required');
             }
-            $this->atomic_replace(
+            $this->atomic_replace_media(
                 (string) $row['original_path'],
-                $bytes,
+                $mediaName,
                 $prior,
                 (int) $prior['publish_mode']
             );
@@ -1004,6 +1008,74 @@ final class AttachmentFilesystemTransaction {
         $after = $this->observe_path($relative);
         $desired = hash('sha256', $bytes);
         if (!$this->state_is_desired($after, $desired, $publishMode)) {
+            throw new \RuntimeException('duo: attachment destination atomic replacement failed exact readback');
+        }
+    }
+
+    private function atomic_replace_media(
+        string $relative,
+        string $mediaName,
+        array $expected,
+        int $publishMode
+    ): void {
+        $this->assert_safe_publication_mode($publishMode);
+        $this->ensure_parent_directories($relative);
+        $target = $this->absolute_path($relative);
+        $parent = dirname($target);
+        $parentIdentity = $this->contained_directory_identity($parent, 'attachment destination directory');
+        if (!$this->states_equal($expected, $this->observe_path($relative))) {
+            throw new \RuntimeException('duo: attachment destination changed immediately before atomic replacement');
+        }
+        $temp = $parent . '/.duo-attachment-' . (string) $this->journal['intent_id'] . '-'
+            . bin2hex(random_bytes(8)) . '.tmp';
+        $handle = @fopen($temp, 'x+b');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException('duo: attachment destination temp file could not be created');
+        }
+        try {
+            if (!@chmod($temp, $publishMode)) {
+                throw new \RuntimeException('duo: attachment destination temp mode could not be sealed');
+            }
+            $this->compiled->copy_media_to_stream($mediaName, $handle);
+            if (!fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
+                throw new \RuntimeException('duo: attachment destination temp durability check failed');
+            }
+            $tempStat = fstat($handle);
+            $parentStat = $this->contained_directory_identity($parent, 'attachment destination directory');
+            if (!is_array($tempStat) || !is_array($parentStat)
+                || !$this->directory_identities_equal($parentIdentity, $parentStat)
+                || (string) ($tempStat['dev'] ?? '') !== (string) ($parentStat['dev'] ?? '')
+                || (((int) ($tempStat['mode'] ?? 0)) & 0777) !== $publishMode) {
+                throw new \RuntimeException('duo: attachment temp and destination are not on one filesystem');
+            }
+        } catch (\Throwable $failure) {
+            @unlink($temp);
+            throw $failure;
+        } finally {
+            fclose($handle);
+        }
+        if (!$this->states_equal($expected, $this->observe_path($relative))) {
+            @unlink($temp);
+            throw new \RuntimeException('duo: attachment destination changed before atomic rename');
+        }
+        $beforeRenameParent = $this->contained_directory_identity($parent, 'attachment destination directory');
+        if (!$this->directory_identities_equal($parentIdentity, $beforeRenameParent) || !@rename($temp, $target)) {
+            @unlink($temp);
+            throw new \RuntimeException('duo: attachment destination atomic publication failed');
+        }
+        $this->sync_file($target);
+        $this->sync_directory($parent);
+        if (!$this->directory_identities_equal(
+            $parentIdentity,
+            $this->contained_directory_identity($parent, 'attachment destination directory')
+        )) {
+            throw new \RuntimeException('duo: attachment destination directory changed during atomic publication; recovery_required');
+        }
+        if (!$this->state_is_desired(
+            $this->observe_path($relative),
+            $this->compiled->media_sha256($mediaName),
+            $publishMode
+        )) {
             throw new \RuntimeException('duo: attachment destination atomic replacement failed exact readback');
         }
     }
@@ -1443,14 +1515,13 @@ final class AttachmentFilesystemTransaction {
         if ($this->journal === null) return;
         $total = 0;
         foreach ($this->journal['rows'] as $row) {
-            $bytes = $this->compiled->media_content((string) $row['media_blob']);
-            $size = strlen($bytes);
+            $mediaName = (string) $row['media_blob'];
+            $size = $this->compiled->media_size($mediaName);
             if ($size > self::MAX_FILE_BYTES
-                || !hash_equals((string) $row['original_sha256'], hash('sha256', $bytes))) {
+                || !hash_equals((string) $row['original_sha256'], $this->compiled->media_sha256($mediaName))) {
                 throw new \RuntimeException('duo: attachment transaction original payload is oversized or changed');
             }
             $this->add_transaction_bytes($total, $size);
-            unset($bytes);
             foreach ($row['prior'] as $prior) {
                 $this->add_transaction_bytes($total, (int) ($prior['size'] ?? 0));
             }
@@ -1473,7 +1544,7 @@ final class AttachmentFilesystemTransaction {
     private function add_transaction_bytes(int &$total, int $bytes): void {
         if ($bytes < 0 || $bytes > self::MAX_TRANSACTION_BYTES - $total) {
             throw new \RuntimeException(
-                'duo: attachment filesystem transaction exceeds its 1 GiB aggregate byte authority'
+                'duo: attachment filesystem transaction exceeds its 64 GiB aggregate byte authority'
             );
         }
         $total += $bytes;
@@ -1711,6 +1782,38 @@ final class AttachmentFilesystemTransaction {
             if (!fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
                 throw new \RuntimeException("duo: $purpose durability check failed");
             }
+        } finally {
+            fclose($handle);
+        }
+        $after = $this->contained_directory_identity($directory, "$purpose directory");
+        if (!$this->directory_identities_equal($identity, $after) || !@rename($temp, $path)) {
+            @unlink($temp);
+            throw new \RuntimeException("duo: $purpose atomic publication failed");
+        }
+        $this->sync_file($path);
+        $this->sync_directory($directory);
+    }
+
+    private function write_new_media_file(string $path, string $mediaName, string $purpose): void {
+        if (file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("duo: $purpose destination already exists");
+        }
+        $directory = dirname($path);
+        $identity = $this->contained_directory_identity($directory, "$purpose directory");
+        $temp = $directory . '/.duo-new-' . bin2hex(random_bytes(8)) . '.tmp';
+        $handle = @fopen($temp, 'x+b');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("duo: $purpose temp could not be created");
+        }
+        try {
+            $this->harden_private_handle($handle, "$purpose temp");
+            $this->compiled->copy_media_to_stream($mediaName, $handle);
+            if (!fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
+                throw new \RuntimeException("duo: $purpose durability check failed");
+            }
+        } catch (\Throwable $failure) {
+            @unlink($temp);
+            throw $failure;
         } finally {
             fclose($handle);
         }

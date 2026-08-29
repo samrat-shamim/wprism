@@ -253,12 +253,6 @@ parameters:
 			path: agent/src/Command/Cli.php
 
 		-
-			message: '#^Variable \$plan might not be defined\.$#'
-			identifier: variable.undefined
-			count: 5
-			path: agent/src/Command/Cli.php
-
-		-
 			message: '#^Variable \$repo might not be defined\.$#'
 			identifier: variable.undefined
 			count: 1
@@ -279,19 +273,13 @@ parameters:
 		-
 			message: '#^Variable \$summary might not be defined\.$#'
 			identifier: variable.undefined
-			count: 31
+			count: 27
 			path: agent/src/Command/Cli.php
 
 		-
 			message: '#^Variable \$table might not be defined\.$#'
 			identifier: variable.undefined
 			count: 2
-			path: agent/src/Command/Cli.php
-
-		-
-			message: '#^Variable \$viewRequest might not be defined\.$#'
-			identifier: variable.undefined
-			count: 1
 			path: agent/src/Command/Cli.php
 
 		-
@@ -497,12 +485,6 @@ parameters:
 			identifier: staticMethod.notFound
 			count: 1
 			path: agent/src/Capture/InitialCaptureBoundary.php
-
-		-
-			message: '#^PHPDoc tag @var with type array\{category\: list\<string\>, action\: list\<string\>, entity\: list\<string\>, limit\: int\} is not subtype of native type array\{category\: array, action\: array, entity\: array, limit\: int\<1, 200\>\}\.$#'
-			identifier: varTag.nativeType
-			count: 1
-			path: agent/src/Review/PlanView.php
 
 		-
 			message: '#^Variable \$typedFailure on left side of \?\? always exists and is not nullable\.$#'

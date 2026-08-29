@@ -152,6 +152,7 @@ $check($request === [
     'category' => ['authored_state', 'media'],
     'action' => ['create', 'update'],
     'entity' => ['post', 'attachment'],
+    'cursor' => null,
     'limit' => 2,
 ], 'agent parser canonicalizes/dedupes closed CSV dimensions and a canonical limit');
 if ($request === null) {
@@ -178,8 +179,8 @@ foreach (['0', '201'] as $rawLimit) {
 
 $view = AgentPlanView::build($plan, $tree, $deletions, $request);
 $check(array_keys($view) === [
-    'format', 'authoritative', 'redaction', 'order', 'filters', 'counts', 'full_plan', 'rows',
-], 'view has a closed ordered v1 envelope');
+    'format', 'authoritative', 'redaction', 'order', 'filters', 'counts', 'page', 'full_plan', 'rows',
+], 'view has a closed ordered v2 envelope');
 $check($view['format'] === AgentPlanView::FORMAT
     && $view['authoritative'] === false
     && $view['redaction'] === 'values_omitted'
@@ -188,10 +189,15 @@ $check($view['format'] === AgentPlanView::FORMAT
 $check($view['counts'] === [
     'full' => 211,
     'matching' => 206,
+    'offset' => 0,
     'shown' => 2,
-    'omitted' => 204,
+    'remaining' => 204,
     'forced_safety' => 6,
-], 'view carries exact ordinary/full/matching/shown/omitted and forced-safety evidence');
+], 'view carries exact ordinary/full/matching/page and forced-safety evidence');
+$check(($view['page']['has_more'] ?? null) === true
+    && is_string($view['page']['next_cursor'] ?? null)
+    && strlen($view['page']['next_cursor']) === 48,
+    'first page emits one opaque continuation cursor');
 $check(($view['full_plan']['action_counts'] ?? null) === [
     'create' => 205, 'update' => 2, 'adopt' => 1, 'unchanged' => 1,
     'drift' => 2, 'conflict' => 1, 'collision' => 1, 'delete' => 2,
@@ -253,6 +259,40 @@ $check(HostPlanView::requestFromArgs([
     '--category=media,authored_state,media', '--action=update,create', '--entity=attachment,post', '--limit=2',
 ]) === $request, 'host status parser has agent-equivalent closed CSV normalization');
 
+$pageRequest = $request;
+$pagedSelectors = [];
+$pageCount = 0;
+do {
+    $pageView = AgentPlanView::build($plan, $tree, $deletions, $pageRequest);
+    $check(HostPlanView::violations($plan, json_decode(json_encode($pageView), true), $pageRequest) === [],
+        'host accepts each emitted same-snapshot cursor page');
+    foreach ($pageView['rows'] as $pageRow) {
+        if (($pageRow['safety'] ?? true) === false) {
+            $pagedSelectors[] = $pageRow['bucket'] . "\0" . $pageRow['selector'];
+        }
+    }
+    $pageCount++;
+    $pageRequest['cursor'] = $pageView['page']['next_cursor'];
+} while ($pageRequest['cursor'] !== null);
+$check($pageCount === 103
+    && count($pagedSelectors) === 206
+    && count(array_unique($pagedSelectors)) === 206,
+    'following emitted cursors enumerates every matching ordinary row exactly once without full-plan ingestion');
+
+$stalePlan = $plan;
+$stalePlan['create'][] = ['uuid' => 'later-row', 'type' => 'post', 'path' => 'posts/later.md'];
+$staleTree = $tree;
+$staleTree['later-row'] = ['type' => 'post', 'data' => ['type' => 'page']];
+$staleRequest = $request;
+$staleRequest['cursor'] = $view['page']['next_cursor'];
+try {
+    AgentPlanView::build($stalePlan, $staleTree, $deletions, $staleRequest);
+    $check(false, 'a cursor from an older plan must not index a changed plan');
+} catch (CommandRefusalException $e) {
+    $check($e->reasonCode === 'plan_view_cursor_stale',
+        'a cursor from an older plan typed-refuses as stale');
+}
+
 $hostCategoryLines = PlanContract::categorySummaryHumanLines(
     json_decode(json_encode($categorySummary, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR),
     $request['category']
@@ -269,7 +309,7 @@ $check(HostPlanView::violations($plan, $badSelector, $request) !== [],
     'host rejects a selector not bound to its full-plan source row');
 $badCounts = $decodedView;
 $badCounts['counts']['shown'] = 1;
-$badCounts['counts']['omitted'] = 205;
+$badCounts['counts']['remaining'] = 205;
 $check(HostPlanView::violations($plan, $badCounts, $request) !== [],
     'host rejects a view that omits arbitrary matching ordinary rows below the cap');
 $actionPlan = $emptyPlan();
@@ -287,7 +327,8 @@ $forgedActionView = $exactActionView;
 array_pop($forgedActionView['rows']);
 $forgedActionView['counts']['matching'] = 1;
 $forgedActionView['counts']['shown'] = 1;
-$forgedActionView['counts']['omitted'] = 0;
+$forgedActionView['counts']['remaining'] = 0;
+$forgedActionView['page'] = ['next_cursor' => null, 'has_more' => false];
 $check(HostPlanView::violations($actionPlan, $forgedActionView, $exactActionRequest) !== [],
     'host recomputes action-only selection and rejects a consistently undercounted omitted row');
 $missingSafety = $decodedView;
@@ -308,6 +349,7 @@ foreach ([
     ['category' => 'unknown'],
     ['action' => ''],
     ['entity' => 'post,unknown'],
+    ['cursor' => 'not-an-emitted-cursor'],
     ['limit' => '02'],
     ['limit' => '201'],
 ] as $bad) {

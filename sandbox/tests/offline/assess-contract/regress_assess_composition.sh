@@ -2,7 +2,7 @@
 # Regression — round-3 MUP §2.1, §4.1, §4.6: `duo assess <env>` composes the
 # whole read-only assessment in one fixed order, refuses (rather than
 # partially succeeding) when the target is unreachable or unsupported, and
-# succeeds with an exit status of 0 even when every surface is blocked.
+# returns the distinct readiness exit 3 when a complete report is red.
 #
 # This drives the real `php cli/duo` over a `local` transport with a fake
 # `wp` on PATH, not the command class in isolation. Three of the things
@@ -63,7 +63,7 @@ say 'composition order'
 ( cd "$TMP/site/repo" && run_assess "$TMP/calls.txt" "$TMP/out.json" "$TMP/err.txt" \
     assess fixture --format=json )
 STATUS=$?
-check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "a bounded assessment exits 0 (got $STATUS)"
+check "$([ "$STATUS" = 3 ] && echo 0 || echo 1)" "a complete red assessment exits 3 (got $STATUS)"
 [ -s "$TMP/err.txt" ] && { fail "assess wrote to stderr on success"; cat "$TMP/err.txt" >&2; } \
   || pass 'a successful assessment writes nothing to stderr'
 
@@ -315,7 +315,7 @@ say 'the human view'
 ( cd "$TMP/site/repo" && run_assess "$TMP/callsh.txt" "$TMP/outh.txt" "$TMP/errh.txt" \
     assess fixture )
 STATUS=$?
-check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "the human view exits 0 (got $STATUS)"
+check "$([ "$STATUS" = 3 ] && echo 0 || echo 1)" "the red human view exits 3 (got $STATUS)"
 
 # T6 §3.7 item 2: the `unknown:` block's third line. Its absence was the
 # difference between an operator seeing "Duo cannot see this part of your
@@ -405,8 +405,8 @@ PROPOSAL_BEFORE=$(cat "$TMP/site/repo/.duo/contract/fixture/proposed.json")
 ( cd "$TMP/site/repo" && DUO_LIBRARY_SKEW=1 run_assess "$TMP/calls-skew.txt" "$TMP/skew.json" "$TMP/skew.err" \
     assess fixture --format=json )
 STATUS=$?
-check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" \
-  "assessment under a library mismatch is still a bounded assessment, exit 0 (got $STATUS)"
+check "$([ "$STATUS" = 3 ] && echo 0 || echo 1)" \
+  "assessment under a library mismatch is complete but red, exit 3 (got $STATUS)"
 [ -s "$TMP/skew.err" ] && { fail 'a mismatched assessment wrote to stderr'; cat "$TMP/skew.err" >&2; } \
   || pass 'the mismatch is a report section, not an error stream'
 php -r '
@@ -488,7 +488,7 @@ say 'the adoption preview travels through the report and the human view'
 ( cd "$TMP/site/repo" && DUO_ADOPTION_SEED=1 run_assess "$TMP/calls5.txt" "$TMP/out5.json" "$TMP/err5.txt" \
     assess fixture --format=json )
 STATUS=$?
-check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "an adoption-seed assessment succeeds (got $STATUS)"
+check "$([ "$STATUS" = 3 ] && echo 0 || echo 1)" "an adoption-seed assessment is complete but red (got $STATUS)"
 php -r '
 $d = json_decode(file_get_contents($argv[1]), true);
 $a = $d["authority"]["adoption"] ?? null;
@@ -521,7 +521,7 @@ assert_contains "$TMP/out4.json" '"reason_code":"host_preflight_failed"' \
   'a host preflight failure emits the same refusal envelope'
 
 # ------------------------------------------------------- blocked but bounded
-say 'blocked surfaces are still a successful assessment'
+say 'blocked surfaces produce a complete red assessment'
 BLOCKED=$(php -r '
 $d = json_decode(file_get_contents($argv[1]), true);
 $n = 0;
@@ -529,14 +529,14 @@ foreach ($d["surfaces"] as $row) { if ($row["handling"] === "block") { $n++; } }
 echo $n;
 ' "$TMP/out.json")
 check "$([ "$BLOCKED" -ge 2 ] && echo 0 || echo 1)" \
-  "the successful run reported $BLOCKED blocked surface(s) and still exited 0"
+  "the complete run reported $BLOCKED blocked surface(s) and exited 3"
 
 # ------------------------------------------------------- flag grammar closure
 say 'flag grammar'
 ( cd "$TMP/site/repo" && run_assess "$TMP/calls5.txt" "$TMP/out5.json" "$TMP/err5.txt" \
     assess fixture --operation=release --format=json )
 STATUS=$?
-check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "--operation narrows the projection (exit $STATUS)"
+check "$([ "$STATUS" = 3 ] && echo 0 || echo 1)" "--operation narrows the red projection (exit $STATUS)"
 NARROW_CAPS=$(grep -c 'duo capabilities ' "$TMP/calls5.txt")
 check "$([ "$NARROW_CAPS" = 1 ] && echo 0 || echo 1)" \
   "one product operation costs one registry call (got $NARROW_CAPS)"

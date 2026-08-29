@@ -17,7 +17,7 @@ use Duo\CommandRefusalException;
  *
  * Two writers retain a whole-database dump per release and neither of them
  * ever removes one: `cli/duo`'s `cmd_promote_internal()` writes
- * `.duo/checkpoints/promote-<run-id>.sql` (cli/duo:2236) and
+ * `.duo/checkpoints/promote-<run-id>.sql.enc` (cli/duo:2236) and
  * `DeployCommand::run()` writes `deploy-<run-id>.sql` under the same lease
  * (DeployCommand.php:67). A target that has released weekly for a year holds
  * fifty-two whole-DB dumps and no verb in the product deletes any of them.

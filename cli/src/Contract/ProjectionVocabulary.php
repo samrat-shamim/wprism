@@ -188,8 +188,8 @@ final class ProjectionVocabulary {
      * a valid certificate with nothing explaining the gap.
      */
     public const ANNOTATION_SITE_SIGNED_UNPINNED =
-        'this adapter carries valid signed evidence that is not a certified claim: its repository pin does not '
-        . 'bind both source "site" and the certificate-derived digest, or its evidence is no longer current';
+        'this adapter carries valid signed evidence that is not a certified claim: no site exercise was recorded, '
+        . 'its repository pin is not exact, or its evidence is no longer current';
 
     /**
      * T6 §3.6's literal sentence, printed once per principal.

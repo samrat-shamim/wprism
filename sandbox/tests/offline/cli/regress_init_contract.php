@@ -121,6 +121,12 @@ $proposal = [
             'spec_version' => DUO_SPEC_VERSION,
         ],
         'git' => ['mode' => 'initialize-on-confirm', 'version' => 'git version 2.51.0'],
+        'git_lfs' => [
+            'required' => true,
+            'version' => 'git-lfs/3.7.1',
+            'config_identity' => 'initialize-on-confirm',
+        ],
+        'gitattributes_identity' => 'absent',
         'gitignore_identity' => 'absent',
         'ledger' => ['rows' => 0, 'tables' => 0],
         'media' => ['strategy' => 'local', 'attachments' => 2, 'unavailable' => 0],
@@ -231,6 +237,7 @@ file_put_contents(
     $handoffTarget . '/.gitignore',
     (string) file_get_contents(__DIR__ . '/../../../site-repo.gitignore.template')
 );
+file_put_contents($handoffTarget . '/.gitattributes', "media/** filter=lfs diff=lfs merge=lfs -text\n");
 file_put_contents($handoffTarget . '/site.duo.json', "{}\n");
 file_put_contents($handoffTarget . '/code/.keep', "\n");
 file_put_contents($handoffTarget . '/state/.keep', "\n");
@@ -379,7 +386,7 @@ check(
         // the re-proposal that carries the host's code classification, and the
         // confirmation. Each can be refused with the same v1 envelope, so each
         // has to reach the same host renderer.
-        && substr_count($initHandlerSource, '$renderRefusal($e->refusal);') === 3
+        && substr_count($initHandlerSource, '$renderRefusal($e->refusal);') === 4
         && substr_count($initHandlerSource, 'callable $readLine') === 1,
     'init keeps a thin cli facade while every refusal phase uses the shared host renderer'
 );
@@ -551,6 +558,7 @@ $proposalMethod = $agentInit->getMethod('proposal');
 $confirmMethod = $agentInit->getMethod('confirm');
 $proposalParameters = $proposalMethod->getParameters();
 $confirmParameters = $confirmMethod->getParameters();
+$archiveMethod = $agentInit->getMethod('archiveInterrupted');
 $publicAgentInitMethods = array_map(
     static fn(ReflectionMethod $method): string => $method->getName(),
     $agentInit->getMethods(ReflectionMethod::IS_PUBLIC)
@@ -558,7 +566,7 @@ $publicAgentInitMethods = array_map(
 sort($publicAgentInitMethods, SORT_STRING);
 check(
     $agentInit->getFileName() === realpath(__DIR__ . '/../../../../agent/src/Init/Init.php')
-        && $publicAgentInitMethods === ['confirm', 'proposal']
+        && $publicAgentInitMethods === ['archiveInterrupted', 'confirm', 'proposal']
         && $proposalMethod->isPublic() && $proposalMethod->isStatic()
         // DUO-3499 added exactly one optional trailing parameter to each: the
         // host's code classification. Both stay defaulted, so every existing
@@ -577,6 +585,11 @@ check(
         && $proposalParameters[2]->isDefaultValueAvailable()
         && $proposalParameters[2]->getDefaultValue() === null
         && (string) $proposalMethod->getReturnType() === 'array'
+        && $archiveMethod->isPublic() && $archiveMethod->isStatic()
+        && (string) $archiveMethod->getReturnType() === 'array'
+        && array_map(static fn(ReflectionParameter $parameter): string => $parameter->getName(), $archiveMethod->getParameters())
+            === ['repo', 'archive']
+        && str_contains($initFacadeSource, 'return InitRecovery::archive_interrupted_attempt($repo, $archive);')
         && $confirmMethod->isPublic() && $confirmMethod->isStatic()
         && count($confirmParameters) === 4
         && $confirmParameters[0]->getName() === 'repo'
@@ -636,6 +649,49 @@ try {
         'typed init journal rejects a backward phase transition'
     );
 }
+
+$archiveFixture = (realpath(sys_get_temp_dir()) ?: sys_get_temp_dir())
+    . '/duo-init-archive-' . bin2hex(random_bytes(6));
+$archiveRepo = $archiveFixture . '/site';
+$archiveTarget = $archiveFixture . '/site-interrupted-20260829';
+if (!mkdir($archiveRepo . '/.duo-init-code-partial', 0700, true)) {
+    fail('could not create the interrupted-init archive fixture');
+}
+file_put_contents($archiveRepo . '/.duo-init-code-partial/payload', "partial\n");
+$archiveStat = lstat($archiveRepo);
+if (!is_array($archiveStat)) fail('could not stat the interrupted-init archive fixture');
+$archiveRootIdentity = 'sha256:' . hash('sha256', \Duo\Canon::encode([
+    'device' => (string) $archiveStat['dev'],
+    'inode' => (string) $archiveStat['ino'],
+]));
+$archiveAttempt = [
+    'format' => \Duo\InitProtocol::ATTEMPT_FORMAT,
+    'owned' => ['code_stage' => $archiveRepo . '/.duo-init-code-partial'],
+    'phase' => 'code-staging',
+    'proposal' => ['digest' => str_repeat('a', 64)],
+    'repository' => $archiveRepo,
+    'repository_identity' => $archiveRootIdentity,
+];
+\Duo\InitAttemptJournal::write($archiveRepo, $archiveAttempt, 'absent');
+$archiveReceipt = \Duo\InitRecovery::archive_interrupted_attempt($archiveRepo, $archiveTarget);
+check(
+    ($archiveReceipt['format'] ?? null) === \Duo\InitRecovery::ARCHIVE_FORMAT
+        && ($archiveReceipt['resumed'] ?? null) === false
+        && is_dir($archiveRepo)
+        && (scandir($archiveRepo) ?: []) === ['.', '..']
+        && is_file($archiveTarget . '/.duo-init-attempt')
+        && file_get_contents($archiveTarget . '/.duo-init-code-partial/payload') === "partial\n",
+    'ambiguous interrupted init moves the complete exact root to an explicit sibling and recreates an empty configured path'
+);
+rmdir($archiveRepo);
+$resumedArchive = \Duo\InitRecovery::archive_interrupted_attempt($archiveRepo, $archiveTarget);
+check(
+    ($resumedArchive['resumed'] ?? null) === true && is_dir($archiveRepo),
+    'archive recovery resumes the bounded post-rename crash window without touching preserved evidence'
+);
+register_shutdown_function(static function () use ($archiveFixture): void {
+    exec('rm -rf ' . escapeshellarg($archiveFixture));
+});
 
 $initCompensationSource = $confirmationSource;
 check(str_contains($plannerSource, "'code' => 'repository_external_writer_exclusion'"), 'target proposal binds the generic repository writer-exclusion advisory');
@@ -808,7 +864,7 @@ check(
 check(
     str_contains($recoverySource, "'verify-interrupted-precommit-init'")
         && str_contains($recoverySource, 'roll back only payloads carrying complete deletion authority')
-        && str_contains($recoverySource, 'partial or ambiguous artifacts are retained')
+        && str_contains($recoverySource, 'supported whole-root interrupted archive transaction')
         && str_contains($recoverySource, "'verify-interrupted-committed-init'")
         && str_contains($recoverySource, 'appears to have durable committed-state proof')
         && str_contains($recoverySource, 'only exact proof permits clearing the sealed journal'),
@@ -1274,6 +1330,122 @@ check(is_array($ignorePublication)
     && str_contains($generatedIgnore, "/.duo-init-code-*\n")
     && str_contains($generatedIgnore, "/state.capture.lock\n"),
     'first init writes every target-local authority and environment overlay ignore rule');
+
+// Agency media is repository content, but ordinary Git is not its transport.
+// Init owns both halves of that contract: the reviewed media attribute and a
+// repository-local LFS configuration, with exact prior bytes available for
+// compensation if confirmation fails.
+$lfsFixture = sys_get_temp_dir() . '/duo-init-lfs-' . bin2hex(random_bytes(6));
+$lfsBin = $lfsFixture . '-bin';
+if (!mkdir($lfsFixture, 0777, true) || !mkdir($lfsBin, 0777, true)) {
+    fail('could not create the init Git LFS fixture');
+}
+$oldPath = (string) getenv('PATH');
+$realGit = trim((string) shell_exec('command -v git'));
+register_shutdown_function(static function () use ($lfsFixture, $lfsBin, $oldPath): void {
+    putenv('PATH=' . $oldPath);
+    exec('rm -rf ' . escapeshellarg($lfsFixture) . ' ' . escapeshellarg($lfsBin));
+});
+exec(escapeshellarg($realGit) . ' init ' . escapeshellarg($lfsFixture) . ' 2>&1', $lfsInitOutput, $lfsInitExit);
+check($lfsInitExit === 0, 'Git LFS fixture starts as an ordinary local worktree');
+$lfsWrapper = <<<'PHP'
+#!/usr/bin/env php
+<?php
+$args = $argv;
+array_shift($args);
+$real = (string) getenv('DUO_TEST_REAL_GIT');
+if ($args === ['lfs', 'version']) {
+    if (getenv('DUO_TEST_LFS_UNAVAILABLE') === '1') {
+        fwrite(STDERR, "git: 'lfs' is not a git command\n");
+        exit(1);
+    }
+    fwrite(STDOUT, "git-lfs/3.7.1 (Duo offline fixture)\n");
+    exit(0);
+}
+if (count($args) >= 4 && $args[0] === '-C' && $args[2] === 'lfs') {
+    $repo = $args[1];
+    if ($args[3] === 'install') {
+        foreach ([
+            ['filter.lfs.clean', 'git-lfs clean -- %f'],
+            ['filter.lfs.smudge', 'git-lfs smudge -- %f'],
+            ['filter.lfs.process', 'git-lfs filter-process'],
+            ['filter.lfs.required', 'true'],
+        ] as [$key, $value]) {
+            $command = escapeshellarg($real) . ' -C ' . escapeshellarg($repo)
+                . ' config --local ' . escapeshellarg($key) . ' ' . escapeshellarg($value);
+            passthru($command, $exit);
+            if ($exit !== 0) exit($exit);
+        }
+        exit(0);
+    }
+    if ($args[3] === 'env') {
+        fwrite(STDOUT, "LocalWorkingDir=$repo\nLocalGitDir=$repo/.git\n");
+        exit(0);
+    }
+}
+$command = escapeshellarg($real) . ' ' . implode(' ', array_map('escapeshellarg', $args));
+passthru($command, $exit);
+exit($exit);
+PHP;
+file_put_contents($lfsBin . '/git', $lfsWrapper);
+chmod($lfsBin . '/git', 0755);
+putenv('DUO_TEST_REAL_GIT=' . $realGit);
+putenv('PATH=' . $lfsBin . ':' . $oldPath);
+putenv('DUO_TEST_LFS_UNAVAILABLE=1');
+$missingLfs = \Duo\InitRepositoryBoundary::git_lfs_probe($lfsFixture, true, 'existing-worktree');
+check(
+    count($missingLfs['blockers']) === 1
+        && ($missingLfs['blockers'][0]['code'] ?? null) === 'git_lfs_unavailable',
+    'a site with media blocks before init when the target cannot execute Git LFS'
+);
+putenv('DUO_TEST_LFS_UNAVAILABLE');
+$gitattributesPublication = \Duo\InitRepositoryBoundary::ensure_gitattributes($lfsFixture, 'absent');
+$gitattributes = (string) file_get_contents($lfsFixture . '/.gitattributes');
+check(
+    is_array($gitattributesPublication)
+        && str_contains($gitattributes, "media/** filter=lfs diff=lfs merge=lfs -text\n"),
+    'init publishes the closed Git LFS attribute for every repository media object'
+);
+$lfsProbe = \Duo\InitRepositoryBoundary::git_lfs_probe($lfsFixture, true, 'existing-worktree');
+check(
+    $lfsProbe['required'] === true
+        && $lfsProbe['version'] === 'git-lfs/3.7.1 (Duo offline fixture)'
+        && $lfsProbe['blockers'] === [],
+    'a material-media proposal proves Git LFS availability before confirmation'
+);
+$priorLfsConfigIdentity = \Duo\InitOwnedArtifacts::regular_file_identity(
+    $lfsFixture . '/.git/config',
+    'Git local config'
+);
+$priorLfsConfig = (string) file_get_contents($lfsFixture . '/.git/config');
+$lfsPublication = \Duo\InitRepositoryBoundary::configure_git_lfs(
+    $lfsFixture,
+    true,
+    $priorLfsConfigIdentity
+);
+exec(
+    escapeshellarg($realGit) . ' -C ' . escapeshellarg($lfsFixture)
+        . ' check-attr filter -- media/fixture.bin 2>&1',
+    $lfsAttributeOutput,
+    $lfsAttributeExit
+);
+check(
+    is_array($lfsPublication)
+        && $lfsAttributeExit === 0
+        && implode("\n", $lfsAttributeOutput) === 'media/fixture.bin: filter: lfs',
+    'confirmation installs repository-local Git LFS and verifies the effective media attribute'
+);
+\Duo\InitOwnedArtifacts::compensate_owned_file(
+    $lfsFixture . '/.git/config',
+    $lfsPublication,
+    'Git local config'
+);
+check(
+    file_get_contents($lfsFixture . '/.git/config') === $priorLfsConfig,
+    'a failed existing-worktree confirmation restores the exact prior Git config bytes'
+);
+putenv('PATH=' . $oldPath);
+
 $legacyIgnoreFixture = sys_get_temp_dir() . '/duo-init-legacy-ignore-' . bin2hex(random_bytes(6));
 if (!mkdir($legacyIgnoreFixture, 0777, true)) fail('could not create the legacy ignore fixture');
 register_shutdown_function(static function () use ($legacyIgnoreFixture): void {
@@ -1704,9 +1876,9 @@ check(
     'a present owned file holding exactly the prior version reads as already compensated (the seed was put back)'
 );
 check(
-    substr_count($recoverySource, 'InitOwnedArtifacts::owned_file_already_compensated(') === 2
+    substr_count($recoverySource, 'InitOwnedArtifacts::owned_file_already_compensated(') === 4
         && str_contains($ownedArtifactsSource, 'public static function owned_file_already_compensated('),
-    'both owned-file publications — site.duo.json and .gitignore — carry the same idempotence guard as their sibling branches'
+    'all owned-file publications — site config, Git LFS config, attributes, and ignores — carry the same idempotence guard as their sibling branches'
 );
 
 // DUO-3421: both owned-file publications are strictly write-ahead — the plan,

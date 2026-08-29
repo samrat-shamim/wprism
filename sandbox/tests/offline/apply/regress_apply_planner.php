@@ -22,6 +22,7 @@ require_once __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 use Duo\ApplyPlanner;
 use Duo\ApplyPlanBuilder;
 use Duo\Canon;
+use Duo\EnvironmentValues;
 use Duo\OptionState;
 use Duo\Policy;
 use Duo\Snapshot;
@@ -523,6 +524,81 @@ $check(
         && $envOptions === $envOptionsBefore,
     'env projection: reads every declaration once, preserves order, and does not mutate rules'
 );
+
+$expectedReads = [];
+$intendedProjection = ApplyPlanner::env_missing_projection(
+    $envOptions,
+    static fn(string $name): mixed => $name === 'empty_required' ? 'different' : ($envValues[$name] ?? null),
+    static function (string $name) use (&$expectedReads): ?string {
+        $expectedReads[] = $name;
+        return match ($name) {
+            'm_present' => 'configured',
+            'empty_required' => 'intended',
+            default => null,
+        };
+    }
+);
+$check(
+    $intendedProjection['env_missing'] === [
+        ['name' => 'z_optional', 'required' => false],
+        ['name' => 'a_required', 'required' => true],
+        ['name' => 'empty_required', 'required' => true],
+    ],
+    'env intended values: an exact required value is green while an absent optional value remains visible'
+);
+$check(
+    $intendedProjection['warnings'] === [
+        "env_missing: option 'a_required' is required and not yet provisioned on "
+            . "this environment — see 'wp duo env-set --name=a_required --stdin'",
+        "env_missing: option 'empty_required' is required and different from its intended value on "
+            . "this environment — see 'wp duo env-set --name=empty_required --stdin'",
+    ] && $expectedReads === ['z_optional', 'a_required', 'm_present', 'empty_required'],
+    'env intended values: missing and mismatched required values have distinct diagnostics and every binding is read'
+);
+
+$unboundProjection = ApplyPlanner::env_missing_projection(
+    ['present_required' => ['class' => 'env', 'required' => true]],
+    static fn(string $name): string => 'live-value',
+    static fn(string $name): ?string => null
+);
+$check(
+    $unboundProjection['warnings'] === [
+        "env_missing: option 'present_required' is required and present but has no intended-value binding on "
+            . "this environment — see 'wp duo env-set --name=present_required --stdin'",
+    ],
+    'env intended values: a non-empty live value without recorded intent remains red'
+);
+
+$envRepo = sys_get_temp_dir() . '/duo-env-values-' . getmypid();
+if (!is_dir($envRepo)) {
+    mkdir($envRepo, 0700, true);
+}
+register_shutdown_function(static function () use ($envRepo): void {
+    @unlink($envRepo . '/' . EnvironmentValues::FILE);
+    @rmdir($envRepo);
+});
+$check(EnvironmentValues::read($envRepo) === [], 'env intended values: an absent target-local file means no bindings');
+EnvironmentValues::set($envRepo, 'zeta', 'second-secret');
+EnvironmentValues::set($envRepo, 'alpha', 'first-secret');
+$envPath = $envRepo . '/' . EnvironmentValues::FILE;
+$check(
+    EnvironmentValues::read($envRepo) === ['alpha' => 'first-secret', 'zeta' => 'second-secret']
+        && (fileperms($envPath) & 0777) === 0600
+        && file_get_contents($envPath) === "{\n    \"alpha\": \"first-secret\",\n    \"zeta\": \"second-secret\"\n}\n",
+    'env intended values: writes are canonical, cumulative, and owner-only'
+);
+chmod($envPath, 0644);
+$insecureRefusal = null;
+try {
+    EnvironmentValues::read($envRepo);
+} catch (\RuntimeException $failure) {
+    $insecureRefusal = $failure->getMessage();
+}
+$check(
+    $insecureRefusal === 'duo: .duo-env-values.json must be readable only by its owner (mode 0600)',
+    'env intended values: group/world-readable secret files refuse rather than being trusted'
+);
+chmod($envPath, 0600);
 
 // ---------------------------------------------------------- lifecycle_comparison_hash
 

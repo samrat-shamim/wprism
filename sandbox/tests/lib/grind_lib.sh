@@ -1119,7 +1119,7 @@ recover_cycle() {
   local retainedLine retainedId
   retainedLine="$(grep -F 'database checkpoint retained: ' "$RELEASE_OUT" | tail -1 || true)"
   if [ -n "$retainedLine" ]; then
-    retainedId="$(basename "${retainedLine#*database checkpoint retained: }" .sql | tr -d '\r')"
+    retainedId="$(basename "${retainedLine#*database checkpoint retained: }" .sql.enc | tr -d '\r')"
     [ "$retainedId" = "$RECEIPT_ID" ] \
       || fail "$scenario: the catalog lists '$RECEIPT_ID' first, but the release retained '$retainedId'"
   fi

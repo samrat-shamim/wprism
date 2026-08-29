@@ -317,8 +317,9 @@ check($sources === [
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
     'native:rewrite.flush',
     'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
+    'provider:woocommerce-lifecycle-migrations/settle_lifecycle_migrations',
 ], 'Woo policy declares only the bounded transient, cache, hierarchy/route, fulfillment prerequisite, scheduler-setting, '
-    . 'product-lookup, and authored product-permalink repairs, and no whole-catalog projection');
+    . 'product-lookup, authored product-permalink, and lifecycle-settlement repairs, and no whole-catalog projection');
 check(array_filter($actions, static fn(array $row): bool => array_key_exists('command', $row)) === [],
     'no Woo action carries an executable command string');
 

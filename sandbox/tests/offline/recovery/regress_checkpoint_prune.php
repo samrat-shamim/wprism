@@ -5,7 +5,7 @@
  *
  * Two writers retain a whole-database dump per release and nothing in the
  * product ever removed one: promote writes
- * `.duo/checkpoints/promote-<run-id>.sql` (cli/duo:2236) and deploy writes
+ * `.duo/checkpoints/promote-<run-id>.sql.enc` (cli/duo:2236) and deploy writes
  * `deploy-<run-id>.sql` (DeployCommand.php:67). This suite pins the ONE verb
  * that removes them, and specifically the five properties that separate it
  * from "an rm with a nice name":
@@ -285,7 +285,7 @@ duo_check_same(
 
 $one = [prune_retained_row(RetainedCheckpoints::DEPLOY_ID_PREFIX, 'run-9', 1_772_000_100)];
 duo_check_same(
-    'p=\'/srv/site-repo/.duo/checkpoints/deploy-run-9.sql\'; if [ -e "$p" ]; then '
+    'p=\'/srv/site-repo/.duo/checkpoints/deploy-run-9.sql.enc\'; if [ -e "$p" ]; then '
     . 'if rm -f "$p"; then printf \'%s\\t%s\\n\' \'deploy-run-9\' removed; '
     . 'else printf \'%s\\t%s\\n\' \'deploy-run-9\' failed; fi; '
     . 'else printf \'%s\\t%s\\n\' \'deploy-run-9\' absent; fi; exit 0',
@@ -366,13 +366,13 @@ $result = prune_run($driver, ['--prune-retained=1', '--confirm-prune']);
 duo_check_same(0, $result['exit'], 'a confirmed prune exits 0');
 duo_check_same(1, count($driver->mutating), 'and issues exactly ONE mutating call: the whole removal is one script');
 duo_check(
-    str_contains($driver->mutating[0], "/.duo/checkpoints/promote-r2.sql'")
-        && str_contains($driver->mutating[0], "/.duo/checkpoints/deploy-r1.sql'"),
+    str_contains($driver->mutating[0], "/.duo/checkpoints/promote-r2.sql.enc'")
+        && str_contains($driver->mutating[0], "/.duo/checkpoints/deploy-r1.sql.enc'"),
     'naming exactly the candidate paths'
 );
 duo_check(
-    !str_contains($driver->mutating[0], 'promote-r6.sql')
-        && !str_contains($driver->mutating[0], 'deploy-r5.sql'),
+    !str_contains($driver->mutating[0], 'promote-r6.sql.enc')
+        && !str_contains($driver->mutating[0], 'deploy-r5.sql.enc'),
     'and never the newest of either verb'
 );
 duo_check(
