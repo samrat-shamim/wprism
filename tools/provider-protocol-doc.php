@@ -351,9 +351,12 @@ function provider_doc_build(string $repo): string {
   "cli_image": "wordpress:cli-php8.3",
   "database_image": "mariadb:11",
   "proxy_image": "nginx:1.29-alpine",
+  "cron_guard": "<repo>/sandbox/containment/block-cron.php",
   "mail_shim": "<repo>/sandbox/containment/refuse-sendmail.sh",
   "php_ini": "<repo>/sandbox/containment/php.ini",
   "proxy_config": "<repo>/sandbox/containment/nginx.conf",
+  "sanitization_policy": "<machine-local>/snapshot-sanitization.json",
+  "sanitization_policy_sha256": "<sha256-of-that-file>",
   "runtime_sources": {
     "adapter_packages": "<repo>/adapter-packages",
     "agent": "<repo>/agent",
@@ -363,6 +366,16 @@ function provider_doc_build(string $repo): string {
 ```
 
 DOC;
+    $out .= "`state_root` must be an existing, non-symlink directory owned by the provider\n";
+    $out .= "process uid and mode `0700`. The sanitization policy is required, machine-local,\n";
+    $out .= "non-symlink and hash-pinned. Its `wprism-reference-snapshot-sanitization-policy/v1`\n";
+    $out .= "object names the exact source, asserts a reviewed exhaustive credential inventory\n";
+    $out .= "with a review id/revision, and lists supported exact locators: `wp_` `wp_options`\n";
+    $out .= "rows to replace with explicit sandbox/disabled handles and uploads-relative regular\n";
+    $out .= "files to remove. Either list may be empty. Its required WordPress-auth rule disables\n";
+    $out .= "every `wp_users` password/activation key and removes session/application-password\n";
+    $out .= "usermeta, refusing any unparseable row shape. This is bounded human-reviewed inventory,\n";
+    $out .= "not regex discovery; an inventory needing another locator kind must refuse.\n\n";
     $out .= "Before constructing the Docker transport, create\n";
     $out .= "`<state_root>/contained-preview.env` as a mode-0600 placeholder. The provider\n";
     $out .= "atomically replaces it with lease credentials during `create`; it is not a file an\n";
@@ -396,24 +409,33 @@ DOC;
     $out .= "model, boots only the DB, proves its isolated network/volume/principal/grants, and only\n";
     $out .= "then starts WordPress and the proxy. It proves the live container networks, mounts,\n";
     $out .= "images, users, dropped capabilities, no-new-privileges settings, environment allowlist,\n";
-    $out .= "absence of workers/default routes, and the exact mail/proxy control-file hashes. HTTP,\n";
+    $out .= "absence of workers/default routes, and the exact mail/proxy/cron control-file hashes. HTTP,\n";
     $out .= "payment and webhook escape are denied by the app containers' internal-only network.\n";
     $out .= "Queue escape is denied by that same boundary plus the isolated lease DB and disabled\n";
-    $out .= "WordPress cron/updaters with no worker service. Mail is forced through the hashed refusal/\n";
+    $out .= "WordPress cron/updaters with no worker service; nginx and a hash-pinned staged MU guard\n";
+    $out .= "both block direct `/wp-cron.php`. Mail is forced through the hashed refusal/\n";
     $out .= "capture shim.\n\n";
+    $out .= "Only the sanitized set is durably published, before WordPress can execute restored bytes.\n";
+    $out .= "The receipt records policy/review, sanitization and exact snapshot witnesses without\n";
+    $out .= "plaintext or per-credential digests. Snapshot abort, journaled restore success/failure,\n";
+    $out .= "and reap idempotently unlink exact private snapshot/session paths while retaining only\n";
+    $out .= "nonsecret retry receipts. This is logical deletion, not a physical secure-erasure\n";
+    $out .= "claim.\n\n";
     $out .= "The containment receipt binds the target identity, resource and lease generation/id/\n";
-    $out .= "ownership receipt, held fence generation/id/owner/receipt, profile, and observed topology.\n";
+    $out .= "ownership receipt, held fence generation/id/owner/receipt, profile, sanitized snapshot\n";
+    $out .= "admission evidence, and observed topology.\n";
     $out .= "An exact retry re-runs the probes and returns the same receipt; any topology or control\n";
     $out .= "drift refuses. Reap proves the lease's containers, networks, volumes, staged runtime and\n";
     $out .= "credentials absent.\n\n";
     $out .= "This boundary trusts the host kernel, Docker daemon, configured image identities, provider\n";
-    $out .= "and control files. A host/Docker administrator can bypass it and is out of scope. Restored\n";
-    $out .= "application data may still contain opaque secrets; isolation prevents their network use\n";
-    $out .= "but does not sanitize them. Browser-side effects outside the server containers are also\n";
+    $out .= "and control files, plus the human assertion that the machine-local policy is exhaustive.\n";
+    $out .= "The provider does not infer undeclared secrets. A host/Docker administrator can bypass\n";
+    $out .= "it and is out of scope. Browser-side effects outside the server containers are also\n";
     $out .= "out of scope. Docker Engine with Compose v2 and the four configured images must be\n";
     $out .= "available locally. Run `make regress-rehearsal-containment-live` for the real three-\n";
     $out .= "environment source/preview/independent-target lane; `--topology-only` exercises the\n";
-    $out .= "standalone containment topology when the ordinary pair is unavailable.\n\n";
+    $out .= "standalone containment topology when the ordinary pair is unavailable. The full lane\n";
+    $out .= "uses `WPRISM_CONTAINMENT_DB_PORT` (default `3317`) for its shared DB loopback port.\n\n";
     $out .= "Two habits it demonstrates that this contract does not spell out but every operation\n";
     $out .= "depends on:\n\n";
     $out .= "* **idempotency per `operation_id`.** Any response may be lost after the work\n";

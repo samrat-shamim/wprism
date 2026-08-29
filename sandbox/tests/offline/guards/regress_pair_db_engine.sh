@@ -349,8 +349,8 @@ grep -Fq 'container_name: wprism-shared-db' "$ROOT/sandbox/db.yml" \
   || fail "db.yml no longer declares wprism-shared-db"
 grep -Fq 'image: mariadb:11' "$ROOT/sandbox/db.yml" \
   || fail "db.yml's image moved -- the MySQL lane must never retag the shared MariaDB"
-grep -Fq '"127.0.0.1:3316:3306"' "$ROOT/sandbox/db.yml" \
-  || fail "db.yml's published port moved"
-pass "db.yml still publishes mariadb:11 as wprism-shared-db on 3316"
+grep -Fq '"127.0.0.1:${WPRISM_SHARED_DB_PORT:-3316}:3306"' "$ROOT/sandbox/db.yml" \
+  || fail "db.yml's published port lost its task-specific override with default 3316"
+pass "db.yml still defaults mariadb:11 / wprism-shared-db to 3316 and permits a task-scoped port override"
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_DB_ENGINE PASSED\033[0m\n'

@@ -148,6 +148,7 @@ services:
     networks: [wprism-shared]
     environment:
       <<: *wp-env-base
+      HOME: /tmp
       WORDPRESS_DB_NAME: wp_${WPRISM_PAIR}1
     volumes: *vol1
     mem_limit: 768m
@@ -190,6 +191,7 @@ services:
     networks: [wprism-shared]
     environment:
       <<: *wp-env-base
+      HOME: /tmp
       WORDPRESS_DB_NAME: wp_${WPRISM_PAIR}2
     volumes: *vol2
     mem_limit: 768m

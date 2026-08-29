@@ -476,7 +476,11 @@ before restoring production-derived bytes it requires an exact
 withholds that capability. Its opt-in standalone `contained_preview` mode is
 the development example: isolated lease DB/volumes and credentials, internal-
 only WordPress/CLI, mail refusal, cron/workers off, and loopback ingress only
-through a credential-free proxy. Setup and trust boundaries are in
+through a credential-free proxy. A hash-pinned machine-local policy must also
+assert the exhaustive credential inventory and enumerate the exact supported
+database rebinds/media removals before sanitized snapshot admission; built-in
+WordPress passwords, activation keys, sessions and application passwords are
+disabled/removed exhaustively. Setup and trust boundaries are in
 [the provider guide](../branch-environment-provider.md#enabling-the-contained-preview).
 Contained evidence gathering still does not turn an `Experimental` or
 `Uncertified` capability into a qualified one.

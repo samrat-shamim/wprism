@@ -1614,8 +1614,8 @@ final class EnvironmentMaterializer {
             $prepareIntent = self::phaseData($journal, $operationId, 'snapshot-prepare-intent');
             $snapshotRead = self::phaseData($journal, $operationId, 'snapshot-read');
             $snapshotAborted = self::phaseData($journal, $operationId, 'snapshot-aborted');
-            $needsSnapshotCleanup = ($prepared !== null || $prepareIntent !== null)
-                && $snapshotRead === null && $snapshotAborted === null;
+            $needsSnapshotCleanup = ($prepared !== null || $prepareIntent !== null || $snapshotRead !== null)
+                && $snapshotAborted === null;
             if ($needsSnapshotCleanup && $sourceProvider === null) {
                 throw new \RuntimeException('pre-target reap requires the source provider to abort its prepared snapshot session');
             }
@@ -1651,7 +1651,11 @@ final class EnvironmentMaterializer {
                 } else {
                     self::assertSnapshotPrepared($prepared, $sourceIdentity, $session, $sourceCaps->pin());
                 }
-                self::abortPreparedSnapshot($sourceProvider, $sourceCaps, $journal, $operationId, true);
+                // Reaching this target-free branch proves that no target
+                // acquisition intent exists (an intent is recovered above).
+                // Explicit reap may therefore dispose an immutable source set
+                // that a crash left between snapshot-read and target acquire.
+                self::abortPreparedSnapshot($sourceProvider, $sourceCaps, $journal, $operationId, true, true);
             }
             self::cleanupCandidateRef($journal, $operationId);
             $receipt = [
@@ -2272,19 +2276,21 @@ final class EnvironmentMaterializer {
     }
 
     /**
-     * Automatic catch cleanup stops before a create intent: the provider may
-     * have created the exact set but lost its response, so retry must preserve
-     * that deterministic session. Explicit reap is permitted to abort it.
+     * Automatic catch cleanup stops before a create intent or after immutable
+     * readback: the provider may have created the exact set but lost its
+     * response, so retry must preserve that deterministic session. Explicit
+     * target-free reap is permitted to abort either state.
      */
     private static function abortPreparedSnapshot(
         CommandEnvironmentProvider $provider,
         ?EnvironmentProviderCapabilityReport $capabilities,
         EnvironmentLifecycleJournal $journal,
         string $operationId,
-        bool $forceAfterCreateIntent = false
+        bool $forceAfterCreateIntent = false,
+        bool $forceAfterSnapshotRead = false
     ): void {
         if ($capabilities === null || self::phaseData($journal, $operationId, 'snapshot-aborted') !== null
-            || self::phaseData($journal, $operationId, 'snapshot-read') !== null
+            || (!$forceAfterSnapshotRead && self::phaseData($journal, $operationId, 'snapshot-read') !== null)
             || (!$forceAfterCreateIntent && self::phaseData($journal, $operationId, 'snapshot-create-intent') !== null)) return;
         $prepared = self::phaseData($journal, $operationId, 'snapshot-prepared');
         if ($prepared === null) return;

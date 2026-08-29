@@ -63,9 +63,12 @@ if ($contained) {
         'cli_image' => 'wordpress:cli-php8.3',
         'database_image' => 'mariadb:11',
         'proxy_image' => 'nginx:1.29-alpine',
+        'cron_guard' => $sandbox . '/containment/block-cron.php',
         'mail_shim' => $sandbox . '/containment/refuse-sendmail.sh',
         'php_ini' => $sandbox . '/containment/php.ini',
         'proxy_config' => $sandbox . '/containment/nginx.conf',
+        'sanitization_policy' => __DIR__ . '/contained-sanitization-policy.json',
+        'sanitization_policy_sha256' => hash_file('sha256', __DIR__ . '/contained-sanitization-policy.json'),
         'runtime_sources' => [
             'adapter_packages' => $root . '/adapter-packages',
             'agent' => $root . '/agent',

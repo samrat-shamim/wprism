@@ -92,8 +92,11 @@
 //   // Optional `contained_preview` is the complete object generated in
 //   // docs/branch-environment-provider.md §7. It changes the target to the
 //   // standalone sandbox/contained-preview.yml project. Before constructing
-//   // DockerTransport, create `<state_root>/contained-preview.env` mode 0600;
+//   // DockerTransport, make state_root a current-uid-owned, non-symlink 0700
+//   // directory and create `<state_root>/contained-preview.env` mode 0600;
 //   // create atomically replaces that placeholder with per-lease credentials.
+//   // Contained mode also requires the hash-pinned machine-local exhaustive
+//   // sanitization policy described in that guide; unsupported locators refuse.
 // }
 //
 // `port` is the pair's PUBLISHED host port. Live, the URL is discovered from
@@ -277,7 +280,7 @@ function ref_checked(array $argv, ?string $stdin = null, ?string $cwd = null, ?a
 
 function ref_remove_tree(string $path): void {
     if (is_link($path) || is_file($path)) {
-        @chmod($path, 0600);
+        if (!is_link($path)) @chmod($path, 0600);
         if (!unlink($path)) throw new RuntimeException("could not remove '$path'");
         return;
     }
@@ -299,14 +302,19 @@ function ref_remove_tree(string $path): void {
 }
 
 function ref_chmod_tree(string $path, int $mode = 0777): void {
-    if (!file_exists($path) && !is_link($path)) return;
+    // PHP chmod follows links. Never change a path until lstat-equivalent
+    // is_link has proved it is not a link, including nested state injected
+    // after the provider's earlier shape validation.
+    if (is_link($path) || !file_exists($path)) return;
     @chmod($path, $mode);
-    if (!is_dir($path) || is_link($path)) return;
+    if (!is_dir($path)) return;
     $iterator = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::SELF_FIRST
     );
-    foreach ($iterator as $item) @chmod($item->getPathname(), $mode);
+    foreach ($iterator as $item) {
+        if (!$item->isLink()) @chmod($item->getPathname(), $mode);
+    }
 }
 
 /** Deterministic byte/tree digest for the provider's opaque media store. */
@@ -504,6 +512,132 @@ function ref_target_contains_path(string $target, string $protected): bool {
     return $target === $protected || str_starts_with($protected, $target . '/');
 }
 
+/** @param list<string> $expected */
+function ref_assert_key_set(array $value, array $expected, string $label): void {
+    $actual = array_keys($value);
+    sort($actual, SORT_STRING);
+    sort($expected, SORT_STRING);
+    ref_require($actual === $expected, "$label has a noncanonical key set");
+}
+
+function ref_effective_uid(): int {
+    ref_require(function_exists('posix_geteuid'), 'contained-preview ownership checks require posix_geteuid');
+    $uid = posix_geteuid();
+    ref_require(is_int($uid) && $uid >= 0, 'could not read the contained-preview provider uid');
+    return $uid;
+}
+
+function ref_assert_current_owner(string $path, string $label): void {
+    $owner = fileowner($path);
+    ref_require(is_int($owner) && $owner === ref_effective_uid(), "$label is not owned by the current provider uid");
+}
+
+function ref_assert_contained_state_root(string $requested, string $resolved): void {
+    ref_require(!is_link($requested), 'contained-preview state_root must not be a symlink');
+    ref_require(is_dir($requested) && realpath($requested) === $resolved, 'contained-preview state_root is unavailable');
+    ref_assert_current_owner($resolved, 'contained-preview state_root');
+    ref_require((fileperms($resolved) & 0777) === 0700, 'contained-preview state_root must be mode 0700');
+}
+
+/** @return array<string,mixed> */
+function ref_load_sanitization_policy(string $requestedPath, string $resolvedPath, string $expectedSha, string $sourceEnvironment): array {
+    ref_require(!is_link($requestedPath), 'contained-preview sanitization policy must not be a symlink');
+    ref_require(is_file($resolvedPath), 'contained-preview sanitization policy is unavailable');
+    $actualSha = hash_file('sha256', $resolvedPath);
+    ref_require(
+        is_string($actualSha) && preg_match('/^[a-f0-9]{64}$/D', $expectedSha) === 1
+            && hash_equals($expectedSha, $actualSha),
+        'contained-preview sanitization policy differs from its configured sha256 pin'
+    );
+    $policy = ref_json_file($resolvedPath, null);
+    ref_require(is_array($policy) && !array_is_list($policy), 'contained-preview sanitization policy is malformed');
+    ref_assert_key_set($policy, ['assertion', 'database', 'format', 'media', 'source_environment', 'wordpress_auth'], 'contained-preview sanitization policy');
+    ref_require(
+        ($policy['format'] ?? null) === 'wprism-reference-snapshot-sanitization-policy/v1',
+        'contained-preview sanitization policy format is unsupported'
+    );
+    ref_require(($policy['source_environment'] ?? null) === $sourceEnvironment, 'contained-preview sanitization policy names another source environment');
+
+    $assertion = $policy['assertion'] ?? null;
+    ref_require(is_array($assertion) && !array_is_list($assertion), 'contained-preview sanitization assertion is malformed');
+    ref_assert_key_set($assertion, ['credential_inventory', 'review_id', 'revision'], 'contained-preview sanitization assertion');
+    ref_require(($assertion['credential_inventory'] ?? null) === 'exhaustive', 'contained-preview policy must assert an exhaustive reviewed credential inventory');
+    ref_require(
+        is_string($assertion['review_id'] ?? null)
+            && preg_match('/^[A-Za-z0-9._:@+-]{8,128}$/D', $assertion['review_id']) === 1,
+        'contained-preview sanitization review_id is invalid'
+    );
+    ref_require(is_int($assertion['revision'] ?? null) && $assertion['revision'] >= 1, 'contained-preview sanitization revision must be positive');
+
+    $database = $policy['database'] ?? null;
+    ref_require(is_array($database) && !array_is_list($database), 'contained-preview database sanitization policy is malformed');
+    ref_assert_key_set($database, ['options', 'table_prefix'], 'contained-preview database sanitization policy');
+    ref_require(($database['table_prefix'] ?? null) === 'wp_', 'reference contained-preview sanitizer supports only the reviewed wp_ table prefix');
+    $options = $database['options'] ?? null;
+    ref_require(is_array($options) && array_is_list($options), 'contained-preview policy wp_options credential locators must be a list');
+    $optionNames = [];
+    foreach ($options as $index => $option) {
+        ref_require(is_array($option) && !array_is_list($option), "contained-preview option locator $index is malformed");
+        ref_assert_key_set($option, ['action', 'name', 'replacement'], "contained-preview option locator $index");
+        ref_require(($option['action'] ?? null) === 'replace', "contained-preview option locator $index has an unsupported action");
+        ref_require(
+            is_string($option['name'] ?? null) && preg_match('/^[A-Za-z0-9_.:-]{1,191}$/D', $option['name']) === 1,
+            "contained-preview option locator $index has an invalid name"
+        );
+        ref_require(
+            is_string($option['replacement'] ?? null)
+                && preg_match('#^[A-Za-z0-9._:@+/=-]{1,256}$#D', $option['replacement']) === 1,
+            "contained-preview option locator $index has an invalid sandbox replacement"
+        );
+        ref_require(
+            str_contains(strtolower((string) $option['replacement']), 'sandbox')
+                || str_contains(strtolower((string) $option['replacement']), 'disabled'),
+            "contained-preview option locator $index replacement is not an explicit sandbox/disabled handle"
+        );
+        ref_require(!isset($optionNames[$option['name']]), "contained-preview option locator '{$option['name']}' is duplicated");
+        $optionNames[$option['name']] = true;
+    }
+
+    $media = $policy['media'] ?? null;
+    ref_require(is_array($media) && array_is_list($media), 'contained-preview policy media credential locators must be a list');
+    $mediaPaths = [];
+    foreach ($media as $index => $locator) {
+        ref_require(is_array($locator) && !array_is_list($locator), "contained-preview media locator $index is malformed");
+        ref_assert_key_set($locator, ['action', 'path'], "contained-preview media locator $index");
+        ref_require(($locator['action'] ?? null) === 'remove', "contained-preview media locator $index has an unsupported action");
+        $relative = $locator['path'] ?? null;
+        ref_require(is_string($relative) && $relative !== '' && !str_starts_with($relative, '/'), "contained-preview media locator $index is not relative");
+        $segments = explode('/', $relative);
+        foreach ($segments as $segment) {
+            ref_require($segment !== '' && $segment !== '.' && $segment !== '..', "contained-preview media locator $index is not normalized");
+            ref_require(preg_match('/^[A-Za-z0-9._@+-]{1,255}$/D', $segment) === 1, "contained-preview media locator $index has an unsupported path segment");
+        }
+        ref_require(!isset($mediaPaths[$relative]), "contained-preview media locator '$relative' is duplicated");
+        $mediaPaths[$relative] = true;
+    }
+    $wordpressAuth = $policy['wordpress_auth'] ?? null;
+    ref_require(is_array($wordpressAuth) && !array_is_list($wordpressAuth), 'contained-preview WordPress auth policy is malformed');
+    ref_assert_key_set(
+        $wordpressAuth,
+        ['activation_key_replacement', 'password_replacement', 'remove_usermeta_keys'],
+        'contained-preview WordPress auth policy'
+    );
+    ref_require(
+        is_string($wordpressAuth['password_replacement'] ?? null)
+            && preg_match('/^[A-Za-z0-9!._:@+-]{8,128}$/D', $wordpressAuth['password_replacement']) === 1
+            && (str_contains(strtolower($wordpressAuth['password_replacement']), 'sandbox')
+                || str_contains(strtolower($wordpressAuth['password_replacement']), 'disabled')),
+        'contained-preview WordPress password replacement must be an explicit sandbox/disabled non-password value'
+    );
+    ref_require($wordpressAuth['activation_key_replacement'] === '', 'contained-preview WordPress activation keys must be cleared');
+    $removeKeys = $wordpressAuth['remove_usermeta_keys'] ?? null;
+    ref_require(is_array($removeKeys) && array_is_list($removeKeys), 'contained-preview WordPress auth usermeta removals must be a list');
+    sort($removeKeys, SORT_STRING);
+    ref_require($removeKeys === ['_application_passwords', 'session_tokens'], 'contained-preview WordPress auth policy must remove sessions and application passwords');
+    $policy['_sha256'] = $actualSha;
+    return $policy;
+}
+
 /** @return array<string,mixed> */
 function ref_config(string $path): array {
     $config = ref_json_file($path, null);
@@ -518,6 +652,7 @@ function ref_config(string $path): array {
             "reference provider config is missing '$key'"
         );
     }
+    $requestedStateRoot = (string) $config['state_root'];
     foreach (['compose_dir', 'controller_repo', 'pair_script', 'state_root'] as $pathKey) {
         $config[$pathKey] = ref_config_path((string) $config[$pathKey], $pathKey);
     }
@@ -538,7 +673,8 @@ function ref_config(string $path): array {
             ($contained['format'] ?? null) === 'wprism-reference-contained-preview/v1',
             'contained_preview format is not wprism-reference-contained-preview/v1'
         );
-        foreach (['compose_file', 'mail_shim', 'php_ini', 'proxy_config'] as $pathKey) {
+        $requestedPolicyPath = $contained['sanitization_policy'] ?? null;
+        foreach (['compose_file', 'cron_guard', 'mail_shim', 'php_ini', 'proxy_config', 'sanitization_policy'] as $pathKey) {
             ref_require(is_string($contained[$pathKey] ?? null) && $contained[$pathKey] !== '', "contained_preview is missing '$pathKey'");
             $contained[$pathKey] = ref_config_path((string) $contained[$pathKey], "contained_preview $pathKey");
         }
@@ -579,8 +715,18 @@ function ref_config(string $path): array {
             );
         }
         ref_require(is_file($contained['compose_file']), 'contained_preview compose file is unavailable');
+        ref_require(is_file($contained['cron_guard']), 'contained_preview cron guard is unavailable');
         ref_require(is_file($contained['mail_shim']) && is_executable($contained['mail_shim']), 'contained_preview mail shim must be executable');
         ref_require(is_file($contained['php_ini']), 'contained_preview PHP configuration is unavailable');
+        ref_require(is_string($requestedPolicyPath), 'contained_preview sanitization policy path is invalid');
+        ref_require(is_string($contained['sanitization_policy_sha256'] ?? null), 'contained_preview sanitization policy sha256 pin is absent');
+        $contained['_sanitization_policy'] = ref_load_sanitization_policy(
+            $requestedPolicyPath,
+            (string) $contained['sanitization_policy'],
+            (string) $contained['sanitization_policy_sha256'],
+            (string) $config['source_environment']
+        );
+        ref_assert_contained_state_root($requestedStateRoot, (string) $config['state_root']);
         $config['contained_preview'] = $contained;
     }
     $scope = $config['destroy_scope'] ?? 'side';
@@ -659,7 +805,8 @@ function ref_config(string $path): array {
     }
     if ($contained !== null) {
         foreach ([
-            $contained['compose_file'], $contained['mail_shim'], $contained['php_ini'], $contained['proxy_config'],
+            $contained['compose_file'], $contained['cron_guard'], $contained['mail_shim'], $contained['php_ini'], $contained['proxy_config'],
+            $contained['sanitization_policy'],
             ...array_values($contained['runtime_sources']),
         ] as $protectedPath) {
             ref_require(!ref_target_contains_path((string) $target['repo'], (string) $protectedPath), "reference provider target repo contains contained-preview authority '$protectedPath'");
@@ -706,7 +853,7 @@ function ref_resource_config_sha256(array $config): string {
     $containedIdentity = null;
     if (ref_containment_enabled($config)) {
         $containedIdentity = ref_contained_config($config);
-        foreach (['compose_file', 'mail_shim', 'php_ini', 'proxy_config'] as $key) {
+        foreach (['compose_file', 'cron_guard', 'mail_shim', 'php_ini', 'proxy_config', 'sanitization_policy'] as $key) {
             $digest = hash_file('sha256', (string) $containedIdentity[$key]);
             ref_require(is_string($digest), "could not hash contained-preview '$key'");
             $containedIdentity[$key . '_sha256'] = $digest;
@@ -738,6 +885,9 @@ function ref_source_config_sha256(array $config, string $environmentName, array 
         'environment_config' => $environment,
         'format' => $config['format'],
         'pair' => $config['pair'],
+        'sanitization_policy_sha256' => ref_containment_enabled($config)
+            ? ref_contained_config($config)['sanitization_policy_sha256']
+            : null,
         'state_root' => $config['state_root'],
     ]);
 }
@@ -1046,6 +1196,7 @@ function ref_contained_compose_environment(array $config, array $resource): arra
     $env['WPRISM_PREVIEW_DB_PASSWORD'] = (string) $runtime['database_password'];
     $env['WPRISM_PREVIEW_DB_ROOT_PASSWORD'] = (string) $runtime['database_root_password'];
     $env['WPRISM_PREVIEW_DB_USER'] = (string) $runtime['database_user'];
+    $env['WPRISM_PREVIEW_CRON_GUARD'] = $runtime['runtime_root'] . '/block-cron.php';
     $env['WPRISM_PREVIEW_MAIL_SHIM'] = $runtime['runtime_root'] . '/refuse-sendmail.sh';
     $env['WPRISM_PREVIEW_PHP_INI'] = $runtime['runtime_root'] . '/php.ini';
     $env['WPRISM_PREVIEW_PLATFORM_SRC'] = $runtime['runtime_root'] . '/platform';
@@ -1056,6 +1207,37 @@ function ref_contained_compose_environment(array $config, array $resource): arra
     $env['WPRISM_PREVIEW_PROXY_IMAGE'] = (string) $contained['proxy_image'];
     $env['WPRISM_PREVIEW_WP_IMAGE'] = (string) $contained['wordpress_image'];
     return $env;
+}
+
+function ref_assert_tree_has_no_symlinks(string $root, string $label): void {
+    ref_require(is_dir($root) && !is_link($root), "$label root is not a plain directory");
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $item) {
+        ref_require(!$item->isLink(), "$label contains unsupported symlink '{$item->getPathname()}'");
+    }
+}
+
+function ref_private_tree(string $root, string $label): void {
+    ref_require(is_dir($root) && !is_link($root), "$label root is not a plain directory");
+    chmod($root, 0700);
+    ref_assert_current_owner($root, $label);
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $item) {
+        $path = $item->getPathname();
+        ref_require(!$item->isLink(), "$label contains unsupported symlink '$path'");
+        chmod($path, $item->isDir() ? 0700 : 0600);
+        ref_assert_current_owner($path, $label);
+        ref_require(
+            (fileperms($path) & 0777) === ($item->isDir() ? 0700 : 0600),
+            "$label path '$path' is not private"
+        );
+    }
 }
 
 /** @param array<string,mixed> $config @return list<string> */
@@ -1132,6 +1314,12 @@ function ref_stage_contained_runtime(array $config, array $resource): void {
     $contained = ref_contained_config($config);
     $runtime = ref_contained_runtime($config, $resource);
     $root = (string) $runtime['runtime_root'];
+    // Reject every source link before cp or chmod. Otherwise cp can preserve a
+    // link and the final chmod walk can mutate authority outside the staged
+    // tree through its referent.
+    foreach ($contained['runtime_sources'] as $name => $source) {
+        ref_assert_tree_has_no_symlinks((string) $source, "contained-preview runtime source '$name'");
+    }
     ref_remove_tree($root);
     if (!mkdir($root, 0700, true)) throw new RuntimeException('could not create contained-preview runtime staging');
     foreach ($contained['runtime_sources'] as $name => $source) {
@@ -1139,9 +1327,10 @@ function ref_stage_contained_runtime(array $config, array $resource): void {
         if (!mkdir($destination, 0700)) throw new RuntimeException("could not stage contained-preview runtime '$name'");
         ref_checked(['cp', '-R', rtrim((string) $source, '/') . '/.', $destination]);
     }
-    foreach (['mail_shim' => 'refuse-sendmail.sh', 'php_ini' => 'php.ini', 'proxy_config' => 'nginx.conf'] as $key => $name) {
+    foreach (['cron_guard' => 'block-cron.php', 'mail_shim' => 'refuse-sendmail.sh', 'php_ini' => 'php.ini', 'proxy_config' => 'nginx.conf'] as $key => $name) {
         ref_require(copy((string) $contained[$key], $root . '/' . $name), "could not stage contained-preview '$key'");
     }
+    ref_assert_tree_has_no_symlinks($root, 'contained-preview staged runtime');
     ref_chmod_tree($root, 0555);
 }
 
@@ -1152,6 +1341,7 @@ function ref_assert_staged_contained_runtime(array $config, array $resource): vo
     foreach (['adapter-packages', 'agent', 'platform'] as $directory) {
         ref_require(is_dir($root . '/' . $directory), "contained-preview staged '$directory' is absent");
     }
+    ref_require(is_file($root . '/block-cron.php'), 'contained-preview staged cron guard is absent');
     ref_require(is_file($root . '/refuse-sendmail.sh') && is_executable($root . '/refuse-sendmail.sh'), 'contained-preview staged mail shim is absent');
     ref_require(is_file($root . '/php.ini'), 'contained-preview staged PHP configuration is absent');
     ref_require(is_file($root . '/nginx.conf'), 'contained-preview staged proxy configuration is absent');
@@ -1436,6 +1626,7 @@ function ref_probe_contained_rendered_model(array $config, array $environment, a
         ['destination' => '/usr/local/etc/php/conf.d/zz-wprism-containment.ini', 'rw' => false, 'source' => $runtimeRoot . '/php.ini', 'type' => 'bind'],
         ['destination' => '/var/www/html', 'rw' => true, 'source' => 'wordpress', 'type' => 'volume'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/adapter-packages', 'rw' => false, 'source' => $runtimeRoot . '/adapter-packages', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php', 'rw' => false, 'source' => $runtimeRoot . '/block-cron.php', 'type' => 'bind'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/platform', 'rw' => false, 'source' => $runtimeRoot . '/platform', 'type' => 'bind'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/wprism', 'rw' => false, 'source' => $runtimeRoot . '/agent', 'type' => 'bind'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/wprism-loader.php', 'rw' => false, 'source' => $runtimeRoot . '/agent/wprism-loader.php', 'type' => 'bind'],
@@ -1608,6 +1799,7 @@ function ref_probe_contained_topology(array $config, array $environment, array $
         ['destination' => '/usr/local/etc/php/conf.d/zz-wprism-containment.ini', 'rw' => false, 'source' => $runtime['runtime_root'] . '/php.ini', 'type' => 'bind'],
         ['destination' => '/var/www/html', 'rw' => true, 'source' => (string) $contained['project'] . '-wordpress', 'type' => 'volume'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/adapter-packages', 'rw' => false, 'source' => $runtime['runtime_root'] . '/adapter-packages', 'type' => 'bind'],
+        ['destination' => '/var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php', 'rw' => false, 'source' => $runtime['runtime_root'] . '/block-cron.php', 'type' => 'bind'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/platform', 'rw' => false, 'source' => $runtime['runtime_root'] . '/platform', 'type' => 'bind'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/wprism', 'rw' => false, 'source' => $runtime['runtime_root'] . '/agent', 'type' => 'bind'],
         ['destination' => '/var/www/html/wp-content/mu-plugins/wprism-loader.php', 'rw' => false, 'source' => $runtime['runtime_root'] . '/agent/wprism-loader.php', 'type' => 'bind'],
@@ -1712,15 +1904,25 @@ function ref_probe_contained_topology(array $config, array $environment, array $
         'contained preview database principal is not scoped only to its lease database'
     );
 
+    $cronGuardHash = hash_file('sha256', $runtime['runtime_root'] . '/block-cron.php');
     $mailShimHash = hash_file('sha256', $runtime['runtime_root'] . '/refuse-sendmail.sh');
     $phpIniHash = hash_file('sha256', $runtime['runtime_root'] . '/php.ini');
     $proxyConfigHash = hash_file('sha256', $runtime['runtime_root'] . '/nginx.conf');
-    ref_require(is_string($mailShimHash) && is_string($phpIniHash) && is_string($proxyConfigHash), 'contained preview control files cannot be hashed');
+    ref_require(
+        is_string($cronGuardHash) && is_string($mailShimHash) && is_string($phpIniHash) && is_string($proxyConfigHash),
+        'contained preview control files cannot be hashed'
+    );
     $observedHashes = trim(ref_checked([
         'docker', 'exec', (string) $environment['container'], 'sha256sum',
         '/usr/local/bin/wprism-refuse-sendmail', '/usr/local/etc/php/conf.d/zz-wprism-containment.ini',
+        '/var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php',
     ]));
-    ref_require(str_contains($observedHashes, $mailShimHash) && str_contains($observedHashes, $phpIniHash), 'contained preview mail controls differ inside WordPress');
+    ref_require(
+        str_contains($observedHashes, $cronGuardHash)
+            && str_contains($observedHashes, $mailShimHash)
+            && str_contains($observedHashes, $phpIniHash),
+        'contained preview mail or cron controls differ inside WordPress'
+    );
     $observedProxyConfig = trim(ref_checked([
         'docker', 'exec', (string) $contained['proxy_container'], 'sha256sum', '/etc/nginx/nginx.conf',
     ]));
@@ -1790,6 +1992,7 @@ function ref_probe_contained_topology(array $config, array $environment, array $
         ],
         'mail_capture_present' => true,
         'mail_refusal_sha256' => $mailShimHash,
+        'cron_guard_sha256' => $cronGuardHash,
         'mounts' => [
             'database' => $observedDbMounts, 'proxy' => $observedProxyMounts,
             'wordpress' => $observedWpMounts,
@@ -1816,7 +2019,7 @@ function ref_probe_contained_topology(array $config, array $environment, array $
         ],
         'security' => $securityWitness,
         'web_ingress' => '127.0.0.1:' . (string) $environment['port'],
-        'wordpress_runtime' => ['automatic_updater' => false, 'wp_cron' => false],
+        'wordpress_runtime' => ['automatic_updater' => false, 'direct_wp_cron_guard' => true, 'wp_cron' => false],
         'ingress_services' => ['proxy'],
         'worker_services' => [],
     ];
@@ -1980,11 +2183,12 @@ function ref_destroy_contained_preview(array $config, array $environment, array 
 }
 
 /** @param array<string,mixed> $config @param array<string,mixed> $resource @return list<string> */
-function ref_contained_database_command(array $config, array $resource, bool $dump = false): array {
+function ref_contained_database_command(array $config, array $resource, bool $dump = false, bool $selectDatabase = false): array {
     $contained = ref_contained_config($config);
     $program = $dump ? 'mariadb-dump' : 'mariadb';
     $script = 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec ' . $program . ' -uroot';
-    if ($dump) $script .= ' --single-transaction --skip-comments --skip-dump-date "$MARIADB_DATABASE"';
+    if ($dump) $script .= ' --single-transaction --skip-comments --skip-dump-date --skip-extended-insert "$MARIADB_DATABASE"';
+    if ($selectDatabase) $script .= ' "$MARIADB_DATABASE"';
     return ref_contained_compose_command($config, [
         'exec', '-T', (string) $contained['database_service'], 'sh', '-c', $script,
     ]);
@@ -2002,7 +2206,7 @@ function ref_restore_contained_database(array $config, array $environment, array
         $cwd,
         $composeEnv
     );
-    ref_checked(ref_contained_database_command($config, $resource), $dump, $cwd, $composeEnv);
+    ref_checked(ref_contained_database_command($config, $resource, false, true), $dump, $cwd, $composeEnv);
     if ($dump !== '') {
         $readback = ref_checked(ref_contained_database_command($config, $resource, true), null, $cwd, $composeEnv);
         ref_require(hash('sha256', $readback) === hash('sha256', $dump), 'contained-preview database restore readback differs from the immutable snapshot bytes');
@@ -2013,10 +2217,11 @@ function ref_restore_contained_database(array $config, array $environment, array
  * @param array<string,mixed> $identity
  * @param array<string,mixed> $fence
  * @param array<string,mixed> $input
+ * @param array<string,mixed> $sanitization
  * @param array<string,mixed> $topology
  * @return array<string,mixed>
  */
-function ref_containment_preimage(array $identity, array $fence, array $input, array $topology): array {
+function ref_containment_preimage(array $identity, array $fence, array $input, array $sanitization, array $topology): array {
     return [
         'environment_identity' => $identity['environment_identity'],
         'format' => 'wprism-reference-containment-receipt/v1',
@@ -2031,7 +2236,43 @@ function ref_containment_preimage(array $identity, array $fence, array $input, a
         'profile' => $input['profile'],
         'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1],
         'resource_id' => $identity['resource_id'],
+        'snapshot_sanitization' => $sanitization,
         'topology' => $topology,
+    ];
+}
+
+/** @param array<string,mixed> $state @param array<string,mixed> $config @param array<string,mixed> $input @return array<string,mixed> */
+function ref_containment_sanitization_evidence(array $state, array $config, string $operation, array $input): array {
+    $key = ref_snapshot_key((string) $config['source_environment'], $operation);
+    $snapshot = $state['snapshots'][$key] ?? null;
+    $policy = ref_contained_config($config)['_sanitization_policy'];
+    ref_require(is_array($policy), 'contained-preview sanitization policy is unavailable');
+    if (!is_array($snapshot)) {
+        ref_require(($input['topology_only'] ?? null) === true, 'containment verification requires this operation\'s sanitized immutable snapshot');
+        return [
+            'admission' => 'no-production-bytes',
+            'format' => 'wprism-reference-containment-sanitization/v1',
+            'policy_sha256' => $policy['_sha256'],
+            'snapshot_set_id' => null,
+        ];
+    }
+    ref_require(!array_key_exists('topology_only', $input), 'topology-only containment cannot be used when an operation snapshot exists');
+    $sanitization = $snapshot['sanitization'] ?? null;
+    ref_require(is_array($sanitization) && !array_is_list($sanitization), 'contained snapshot has no sanitization receipt');
+    ref_require(
+        ($sanitization['policy_sha256'] ?? null) === $policy['_sha256']
+            && is_array($sanitization['preimage'] ?? null)
+            && ref_hash($sanitization['preimage']) === ($sanitization['receipt_sha256'] ?? null),
+        'contained snapshot sanitization receipt is invalid or uses another policy'
+    );
+    return [
+        'admission' => 'sanitized-snapshot',
+        'database_sha256' => $snapshot['database_sha256'],
+        'format' => 'wprism-reference-containment-sanitization/v1',
+        'media_sha256' => $snapshot['media_sha256'],
+        'policy_sha256' => $sanitization['policy_sha256'],
+        'receipt_sha256' => $sanitization['receipt_sha256'],
+        'snapshot_set_id' => $snapshot['snapshot_set_id'],
     ];
 }
 
@@ -2065,7 +2306,8 @@ function ref_revalidate_containment(array $state, array $config, array $environm
 function ref_dump_command(array $config, string $database): array {
     return [
         'docker', 'exec', (string) $config['db_container'], 'mariadb-dump',
-        '--single-transaction', '--skip-comments', '--skip-dump-date', '-uroot', '-proot', $database,
+        '--single-transaction', '--skip-comments', '--skip-dump-date', '--skip-extended-insert',
+        '-uroot', '-proot', $database,
     ];
 }
 
@@ -2084,10 +2326,10 @@ function ref_dump_database(array $config, string $database): string {
  * `wp wprism refresh-export` on the source between snapshot-prepare and
  * snapshot-create. That row is a lock, not authored or runtime state; a
  * witness that treated its timestamp as "the source changed" refused every
- * live WordPress source (grind_mup.sh step 5). The snapshot bytes
- * themselves stay raw and complete — only the two-sided comparison ignores
- * the lock's value. Nothing else is normalised: a real write between prepare
- * and create still refuses.
+ * live WordPress source (grind_mup.sh step 5). Only the two-sided comparison
+ * ignores the lock's value. In contained mode the reviewed sanitizer
+ * transforms configured credential locators before durable publication;
+ * nothing else is normalised.
  */
 function ref_freeze_witness(string $dump): string {
     $normalised = preg_replace(
@@ -2096,6 +2338,195 @@ function ref_freeze_witness(string $dump): string {
         $dump
     );
     return hash('sha256', is_string($normalised) ? $normalised : $dump);
+}
+
+function ref_mysql_string_decode(string $literal): string {
+    ref_require(
+        strlen($literal) >= 2 && $literal[0] === "'" && $literal[strlen($literal) - 1] === "'",
+        'wp_options sanitizer encountered a non-string field'
+    );
+    $body = substr($literal, 1, -1);
+    $decoded = '';
+    for ($index = 0, $length = strlen($body); $index < $length; $index++) {
+        $byte = $body[$index];
+        if ($byte !== '\\') {
+            $decoded .= $byte;
+            continue;
+        }
+        ref_require(++$index < $length, 'wp_options sanitizer encountered a truncated SQL escape');
+        $escaped = $body[$index];
+        $decoded .= match ($escaped) {
+            '0' => "\0", 'b' => "\x08", 'n' => "\n", 'r' => "\r", 't' => "\t", 'Z' => "\x1a",
+            default => $escaped,
+        };
+    }
+    return $decoded;
+}
+
+function ref_mysql_string_encode(string $value): string {
+    return "'" . strtr($value, [
+        '\\' => '\\\\', "\0" => '\\0', "\x08" => '\\b', "\n" => '\\n', "\r" => '\\r', "\t" => '\\t',
+        "\x1a" => '\\Z', "'" => "\\'",
+    ]) . "'";
+}
+
+/** @param array<string,mixed> $policy @return array{database:string,witness:array<string,mixed>} */
+function ref_sanitize_wordpress_auth(string $dump, array $policy): array {
+    $quoted = "'(?>[^'\\\\]+|\\\\.)*'";
+    $userRows = substr_count($dump, 'INSERT INTO `wp_users` VALUES ');
+    $parsedUsers = 0;
+    $auth = $policy['wordpress_auth'];
+    $usersPattern = "~^INSERT INTO `wp_users` VALUES \\(([0-9]+),($quoted),($quoted),($quoted),($quoted),($quoted),($quoted),($quoted),([0-9]+),($quoted)\\);$~m";
+    $sanitized = preg_replace_callback(
+        $usersPattern,
+        static function (array $match) use ($auth, &$parsedUsers): string {
+            $parsedUsers++;
+            return 'INSERT INTO `wp_users` VALUES (' . $match[1] . ',' . $match[2] . ','
+                . ref_mysql_string_encode((string) $auth['password_replacement']) . ','
+                . $match[4] . ',' . $match[5] . ',' . $match[6] . ',' . $match[7] . ','
+                . ref_mysql_string_encode((string) $auth['activation_key_replacement']) . ','
+                . $match[9] . ',' . $match[10] . ');';
+        },
+        $dump
+    );
+    ref_require(is_string($sanitized) && $parsedUsers === $userRows, 'WordPress user credential rows have an unsupported dump shape');
+
+    $metaRows = substr_count($sanitized, 'INSERT INTO `wp_usermeta` VALUES ');
+    $parsedMeta = 0;
+    $removed = array_fill_keys($auth['remove_usermeta_keys'], 0);
+    $metaPattern = "~^INSERT INTO `wp_usermeta` VALUES \\(([0-9]+),([0-9]+),($quoted),($quoted)\\);(?:\\r?\\n)?~m";
+    $sanitized = preg_replace_callback(
+        $metaPattern,
+        static function (array $match) use (&$parsedMeta, &$removed): string {
+            $parsedMeta++;
+            $key = ref_mysql_string_decode($match[3]);
+            if (!array_key_exists($key, $removed)) return $match[0];
+            $removed[$key]++;
+            return '';
+        },
+        $sanitized
+    );
+    ref_require(is_string($sanitized) && $parsedMeta === $metaRows, 'WordPress usermeta credential rows have an unsupported dump shape');
+    ksort($removed, SORT_STRING);
+    return [
+        'database' => $sanitized,
+        'witness' => [
+            'activation_keys_cleared' => $parsedUsers,
+            'application_password_rows_removed' => $removed['_application_passwords'],
+            'passwords_disabled' => $parsedUsers,
+            'session_rows_removed' => $removed['session_tokens'],
+            'usermeta_rows_parsed' => $parsedMeta,
+            'users_rows_parsed' => $parsedUsers,
+        ],
+    ];
+}
+
+/**
+ * Transform only exact, reviewed wp_options locators. `--skip-extended-insert`
+ * makes each row independently parseable; an unfamiliar dump shape or a
+ * missing/duplicated reviewed row refuses instead of guessing at secrets.
+ *
+ * @param array<string,mixed> $policy
+ * @return array{database:string,witnesses:array<string,mixed>}
+ */
+function ref_sanitize_database(string $dump, array $policy): array {
+    $configured = [];
+    foreach ($policy['database']['options'] as $locator) {
+        $configured[(string) $locator['name']] = (string) $locator['replacement'];
+    }
+    if ($configured === []) {
+        $auth = ref_sanitize_wordpress_auth($dump, $policy);
+        return ['database' => $auth['database'], 'witnesses' => ['options' => [], 'wordpress_auth' => $auth['witness']]];
+    }
+    $witnesses = [];
+    $sanitized = $dump;
+    $quoted = "'(?>[^'\\\\]+|\\\\.)*'";
+    foreach ($configured as $name => $replacement) {
+        $nameLiteral = preg_quote(ref_mysql_string_encode($name), '~');
+        $pattern = "~^(INSERT INTO `wp_options` VALUES \\([0-9]+,$nameLiteral,)($quoted)(,($quoted)\\);)$~m";
+        $count = 0;
+        $sanitized = preg_replace_callback(
+            $pattern,
+            static function (array $match) use ($name, $replacement, &$witnesses): string {
+                $source = ref_mysql_string_decode($match[2]);
+                ref_require(!hash_equals($source, $replacement), "reviewed wp_options locator '$name' is already its sandbox replacement");
+                $witnesses[] = [
+                    'action' => 'replace',
+                    'name' => $name,
+                    'replacement_sha256' => hash('sha256', $replacement),
+                ];
+                return $match[1] . ref_mysql_string_encode($replacement) . $match[3];
+            },
+            $sanitized,
+            -1,
+            $count
+        );
+        ref_require(is_string($sanitized), "wp_options sanitizer failed for reviewed locator '$name'");
+        ref_require($count === 1, "reviewed wp_options locator '$name' is absent, duplicated or has an unsupported dump shape");
+    }
+    usort($witnesses, static fn (array $left, array $right): int => strcmp($left['name'], $right['name']));
+    $auth = ref_sanitize_wordpress_auth($sanitized, $policy);
+    return [
+        'database' => $auth['database'],
+        'witnesses' => ['options' => $witnesses, 'wordpress_auth' => $auth['witness']],
+    ];
+}
+
+/** @param array<string,mixed> $policy @return list<array<string,string>> */
+function ref_sanitize_media(string $root, array $policy): array {
+    ref_assert_tree_has_no_symlinks($root, 'contained-preview source media');
+    $witnesses = [];
+    foreach ($policy['media'] as $locator) {
+        $relative = (string) $locator['path'];
+        $path = $root . '/' . $relative;
+        ref_require(is_file($path) && !is_link($path), "reviewed media credential locator '$relative' is absent or not a regular file");
+        ref_require(unlink($path), "reviewed media credential locator '$relative' cannot be removed");
+        ref_require(!ref_path_entry_exists($path), "reviewed media credential locator '$relative' remains after sanitization");
+        $witnesses[] = ['action' => 'remove', 'path' => $relative];
+    }
+    usort($witnesses, static fn (array $left, array $right): int => strcmp($left['path'], $right['path']));
+    ref_private_tree($root, 'contained-preview sanitized media');
+    return $witnesses;
+}
+
+/**
+ * @param array<string,mixed> $config
+ * @return array{database:string,raw_database_witness_sha256:string,raw_media_sha256:string,sanitization:array<string,mixed>,sanitized_media_sha256:string}
+ */
+function ref_sanitize_snapshot(array $config, string $rawDump, string $mediaRoot): array {
+    $contained = ref_contained_config($config);
+    $policy = $contained['_sanitization_policy'];
+    ref_require(is_array($policy), 'contained-preview sanitization policy is unavailable');
+    $rawMedia = ref_tree_hash($mediaRoot);
+    $database = ref_sanitize_database($rawDump, $policy);
+    $mediaWitnesses = ref_sanitize_media($mediaRoot, $policy);
+    $sanitizedMedia = ref_tree_hash($mediaRoot);
+    $preimage = [
+        'database_witnesses' => $database['witnesses'],
+        'format' => 'wprism-reference-snapshot-sanitization-receipt/v1',
+        'media_witnesses' => $mediaWitnesses,
+        'policy' => [
+            'credential_inventory' => $policy['assertion']['credential_inventory'],
+            'review_id' => $policy['assertion']['review_id'],
+            'revision' => $policy['assertion']['revision'],
+            'sha256' => $policy['_sha256'],
+        ],
+        'raw_database_witness_sha256' => ref_freeze_witness($rawDump),
+        'raw_media_sha256' => $rawMedia,
+        'sanitized_database_witness_sha256' => ref_freeze_witness($database['database']),
+        'sanitized_media_sha256' => $sanitizedMedia,
+    ];
+    return [
+        'database' => $database['database'],
+        'raw_database_witness_sha256' => $preimage['raw_database_witness_sha256'],
+        'raw_media_sha256' => $rawMedia,
+        'sanitization' => [
+            'policy_sha256' => $policy['_sha256'],
+            'preimage' => $preimage,
+            'receipt_sha256' => ref_hash($preimage),
+        ],
+        'sanitized_media_sha256' => $sanitizedMedia,
+    ];
 }
 
 /** @param array<string,mixed> $config */
@@ -2170,8 +2601,9 @@ function ref_restore_media_to_container(string $source, string $container): void
 /** @return array<string,mixed> */
 function ref_empty_state(): array {
     return [
-        'acquisitions' => [], 'containments' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
-        'sessions' => [], 'slot_authorities' => [], 'snapshots' => [], 'source_inspections' => [], 'ttls' => [],
+        'acquisitions' => [], 'containments' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [], 'restores' => [],
+        'sessions' => [], 'slot_authorities' => [], 'snapshot_abort_receipts' => [], 'snapshots' => [],
+        'source_inspections' => [], 'ttls' => [],
     ];
 }
 
@@ -2199,9 +2631,11 @@ function ref_load_state(string $root): array {
     if (!array_key_exists('acquisitions', $state)) $state['acquisitions'] = [];
     if (!array_key_exists('containments', $state)) $state['containments'] = [];
     if (!array_key_exists('reap_receipts', $state)) $state['reap_receipts'] = [];
+    if (!array_key_exists('restores', $state)) $state['restores'] = [];
+    if (!array_key_exists('snapshot_abort_receipts', $state)) $state['snapshot_abort_receipts'] = [];
     if (!array_key_exists('slot_authorities', $state)) $state['slot_authorities'] = [];
     if (!array_key_exists('source_inspections', $state)) $state['source_inspections'] = [];
-    foreach (['acquisitions', 'containments', 'fences', 'reap_receipts', 'resources', 'sessions', 'slot_authorities', 'snapshots', 'source_inspections', 'ttls'] as $key) {
+    foreach (['acquisitions', 'containments', 'fences', 'reap_receipts', 'resources', 'restores', 'sessions', 'slot_authorities', 'snapshot_abort_receipts', 'snapshots', 'source_inspections', 'ttls'] as $key) {
         ref_require(
             is_array($state[$key] ?? null) && ($state[$key] === [] || !array_is_list($state[$key])),
             "reference provider state '$key' is malformed"
@@ -2267,10 +2701,55 @@ function ref_log(string $root, array $request): void {
         'input_sha256' => ref_hash($request['input']),
         'operation_id' => $request['operation_id'],
     ];
-    file_put_contents($root . '/actions.ndjson', ref_json($record) . "\n", FILE_APPEND | LOCK_EX);
+    $path = $root . '/actions.ndjson';
+    ref_require(!is_link($path), 'reference provider action log must not be a symlink');
+    ref_require(file_put_contents($path, ref_json($record) . "\n", FILE_APPEND | LOCK_EX) !== false, 'could not append reference provider action log');
+    chmod($path, 0600);
+    ref_assert_current_owner($path, 'reference provider action log');
 }
 
 function ref_snapshot_key(string $environment, string $operation): string { return $environment . '|' . $operation; }
+
+/**
+ * Delete only the operation-derived snapshot paths under the private provider
+ * root. This is logical disposal, not a physical secure-erasure claim.
+ *
+ * @param array<string,mixed> $state
+ * @param array<string,mixed> $config
+ */
+function ref_dispose_snapshot_operation(array &$state, array $config, string $operation): string {
+    $key = ref_snapshot_key((string) $config['source_environment'], $operation);
+    $suffix = hash('sha256', $key);
+    $preparedPath = (string) $config['state_root'] . '/prepared/' . $suffix;
+    $snapshotPath = (string) $config['state_root'] . '/snapshots/' . $suffix;
+    $scratchPath = (string) $config['state_root'] . '/create-media-' . $suffix;
+    $session = $state['sessions'][$key] ?? null;
+    if (is_array($session) && isset($session['path'])) {
+        ref_require($session['path'] === $preparedPath, 'snapshot disposal refuses a foreign prepared-session path');
+    }
+    $snapshot = $state['snapshots'][$key] ?? null;
+    if (is_array($snapshot)) {
+        ref_require(
+            dirname((string) ($snapshot['database_path'] ?? '')) === $snapshotPath
+                && dirname((string) ($snapshot['media_path'] ?? '')) === $snapshotPath,
+            'snapshot disposal refuses a foreign immutable-set path'
+        );
+    }
+    ref_remove_tree($preparedPath);
+    ref_remove_tree($snapshotPath);
+    ref_remove_tree($scratchPath);
+    unset($state['sessions'][$key], $state['snapshots'][$key], $state['source_inspections'][$key]);
+    return ref_hash([
+        'disposition' => 'logically-deleted',
+        'format' => 'wprism-reference-snapshot-disposal/v1',
+        'operation_id' => $operation,
+        'snapshot_key_sha256' => hash('sha256', $key),
+    ]);
+}
+
+function ref_restore_key(string $resourceId, string $operation): string {
+    return $resourceId . '|' . $operation;
+}
 
 /** @param array<string,mixed> $snapshot @return array<string,mixed> */
 function ref_snapshot_result(array $snapshot, bool $read = false): array {
@@ -2503,6 +2982,15 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         $cached = $state['reap_receipts'][$receiptKey] ?? null;
         if (is_array($cached)) return $cached;
     }
+    if ($action === 'snapshot-abort') {
+        $abortKey = ref_snapshot_key($environmentName, $operation);
+        $cached = $state['snapshot_abort_receipts'][$abortKey] ?? null;
+        if (is_array($cached)) {
+            ref_require(($cached['input_sha256'] ?? null) === ref_hash($input), 'snapshot abort retry differs from its disposed session request');
+            ref_require(is_array($cached['result'] ?? null), 'snapshot abort receipt has no result');
+            return $cached['result'];
+        }
+    }
 
     $resourceId = ref_resource_id($config, $environment);
     $resourceConfig = ref_resource_config_sha256($config);
@@ -2724,20 +3212,38 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             $staging = (string) $prepared['path'];
             ref_remove_tree($staging);
             if (!mkdir($staging . '/media', 0700, true)) throw new RuntimeException('could not recreate source snapshot staging');
-            $dump = ref_dump_database($config, (string) $environment['database']);
-            ref_require(
-                file_put_contents($staging . '/database.sql', $dump, LOCK_EX) === strlen($dump),
-                'could not write source database evidence'
-            );
-            ref_copy_media_from_container((string) $environment['container'], $staging . '/media');
-            $databaseHash = hash_file('sha256', $staging . '/database.sql');
-            ref_require(is_string($databaseHash), 'could not hash source database evidence');
-            $prepared['database_sha256'] = $databaseHash;
-            $prepared['database_witness_sha256'] = ref_freeze_witness($dump);
-            $prepared['media_sha256'] = ref_tree_hash($staging . '/media');
-            $prepared['state'] = 'prepared';
-            $state['sessions'][$key] = $prepared;
-            ref_save_state((string) $config['state_root'], $state);
+            try {
+                $dump = ref_dump_database($config, (string) $environment['database']);
+                ref_copy_media_from_container((string) $environment['container'], $staging . '/media');
+                if (ref_containment_enabled($config)) {
+                    $sanitized = ref_sanitize_snapshot($config, $dump, $staging . '/media');
+                    ref_write_private_file($staging . '/database.sql', $sanitized['database']);
+                    ref_private_tree($staging, 'contained-preview prepared snapshot');
+                    $prepared['database_sha256'] = hash('sha256', $sanitized['database']);
+                    $prepared['database_witness_sha256'] = $sanitized['raw_database_witness_sha256'];
+                    $prepared['media_sha256'] = $sanitized['sanitized_media_sha256'];
+                    $prepared['raw_media_sha256'] = $sanitized['raw_media_sha256'];
+                    $prepared['sanitization'] = $sanitized['sanitization'];
+                } else {
+                    ref_require(
+                        file_put_contents($staging . '/database.sql', $dump, LOCK_EX) === strlen($dump),
+                        'could not write source database evidence'
+                    );
+                    $databaseHash = hash_file('sha256', $staging . '/database.sql');
+                    ref_require(is_string($databaseHash), 'could not hash source database evidence');
+                    $prepared['database_sha256'] = $databaseHash;
+                    $prepared['database_witness_sha256'] = ref_freeze_witness($dump);
+                    $prepared['media_sha256'] = ref_tree_hash($staging . '/media');
+                }
+                $prepared['state'] = 'prepared';
+                $state['sessions'][$key] = $prepared;
+                ref_save_state((string) $config['state_root'], $state);
+            } catch (Throwable $error) {
+                ref_remove_tree($staging);
+                unset($state['sessions'][$key]);
+                ref_save_state((string) $config['state_root'], $state);
+                throw $error;
+            }
         }
         return [
             'lease_generation' => $prepared['lease_generation'],
@@ -2767,50 +3273,87 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         $snapshot = $state['snapshots'][$key] ?? null;
         if (!is_array($snapshot)) {
             $currentDump = ref_dump_database($config, (string) $environment['database']);
-            $currentDb = hash('sha256', $currentDump);
             $mediaScratch = (string) $config['state_root'] . '/create-media-' . hash('sha256', $key);
             ref_remove_tree($mediaScratch);
-            ref_copy_media_from_container((string) $environment['container'], $mediaScratch);
-            $currentMedia = ref_tree_hash($mediaScratch);
-            // Fail-closed freeze witness: a source write between prepare and
-            // create refuses rather than quietly combining semantic P with a
-            // different physical set. pair.sh has no pause verb, so the
-            // witness is the whole freeze this provider can offer, and it is
-            // stated rather than implied.
-            $changed = [];
-            $preparedWitness = (string) ($prepared['database_witness_sha256'] ?? $prepared['database_sha256']);
-            if (ref_freeze_witness($currentDump) !== $preparedWitness) $changed[] = 'database';
-            if ($currentMedia !== $prepared['media_sha256']) $changed[] = 'media';
-            ref_require(
-                $changed === [],
-                'source changed between its prepared snapshot session and create (' . implode(',', $changed) . ')'
-            );
-            $snapshotDir = (string) $config['state_root'] . '/snapshots/' . hash('sha256', $key);
-            ref_remove_tree($snapshotDir);
-            if (!mkdir($snapshotDir, 0700, true)) throw new RuntimeException('could not create immutable snapshot directory');
-            file_put_contents($snapshotDir . '/database.sql', $currentDump, LOCK_EX);
-            if (!rename($mediaScratch, $snapshotDir . '/media')) throw new RuntimeException('could not publish immutable media snapshot');
-            $snapshot = [
-                'database_path' => $snapshotDir . '/database.sql',
-                'database_sha256' => $currentDb,
-                'lease_generation' => $prepared['lease_generation'],
-                'lease_id' => $prepared['lease_id'],
-                'lease_receipt_sha256' => $prepared['lease_receipt_sha256'],
-                'media_path' => $snapshotDir . '/media',
-                'media_sha256' => $currentMedia,
-                'retention_receipt_sha256' => ref_hash('retention:' . $key),
-                'semantic_snapshot_sha256' => $input['expected_semantic_snapshot_sha256'],
-                'snapshot_session_id' => $prepared['snapshot_session_id'],
-                'snapshot_set_id' => 'snapshot-set-' . substr(hash('sha256', $key), 0, 20),
-                'source_identity' => $prepared['source_identity'],
-            ];
-            $snapshot['snapshot_set_receipt_sha256'] = ref_hash([
-                'database_sha256' => $snapshot['database_sha256'], 'media_sha256' => $snapshot['media_sha256'],
-                'semantic_snapshot_sha256' => $snapshot['semantic_snapshot_sha256'], 'snapshot_set_id' => $snapshot['snapshot_set_id'],
-            ]);
-            ref_chmod_tree($snapshotDir, 0555);
-            $state['snapshots'][$key] = $snapshot;
-            ref_save_state((string) $config['state_root'], $state);
+            try {
+                ref_copy_media_from_container((string) $environment['container'], $mediaScratch);
+                $snapshotDump = $currentDump;
+                $currentRawMedia = ref_tree_hash($mediaScratch);
+                $sanitization = null;
+                if (ref_containment_enabled($config)) {
+                    $sanitized = ref_sanitize_snapshot($config, $currentDump, $mediaScratch);
+                    $snapshotDump = $sanitized['database'];
+                    $currentRawMedia = $sanitized['raw_media_sha256'];
+                    $sanitization = $sanitized['sanitization'];
+                    ref_require(
+                        is_array($prepared['sanitization'] ?? null)
+                            && ref_json($sanitization) === ref_json($prepared['sanitization']),
+                        'source sanitization receipt changed between prepare and create'
+                    );
+                }
+                // Fail-closed freeze witness: a source write between prepare
+                // and create refuses. The one ignored WordPress cron lock is
+                // documented by ref_freeze_witness(); reviewed credential
+                // transformation must independently reproduce its receipt.
+                $changed = [];
+                $preparedWitness = (string) ($prepared['database_witness_sha256'] ?? $prepared['database_sha256']);
+                if (ref_freeze_witness($currentDump) !== $preparedWitness) $changed[] = 'database';
+                $preparedRawMedia = ref_containment_enabled($config)
+                    ? ($prepared['raw_media_sha256'] ?? null)
+                    : ($prepared['media_sha256'] ?? null);
+                if ($currentRawMedia !== $preparedRawMedia) $changed[] = 'media';
+                ref_require(
+                    $changed === [],
+                    'source changed between its prepared snapshot session and create (' . implode(',', $changed) . ')'
+                );
+                $snapshotDir = (string) $config['state_root'] . '/snapshots/' . hash('sha256', $key);
+                ref_remove_tree($snapshotDir);
+                if (!mkdir($snapshotDir, 0700, true)) throw new RuntimeException('could not create immutable snapshot directory');
+                if (ref_containment_enabled($config)) {
+                    ref_write_private_file($snapshotDir . '/database.sql', $snapshotDump);
+                } else {
+                    ref_require(
+                        file_put_contents($snapshotDir . '/database.sql', $snapshotDump, LOCK_EX) === strlen($snapshotDump),
+                        'could not publish immutable database snapshot'
+                    );
+                }
+                if (!rename($mediaScratch, $snapshotDir . '/media')) throw new RuntimeException('could not publish immutable media snapshot');
+                $snapshot = [
+                    'database_path' => $snapshotDir . '/database.sql',
+                    'database_sha256' => hash('sha256', $snapshotDump),
+                    'lease_generation' => $prepared['lease_generation'],
+                    'lease_id' => $prepared['lease_id'],
+                    'lease_receipt_sha256' => $prepared['lease_receipt_sha256'],
+                    'media_path' => $snapshotDir . '/media',
+                    'media_sha256' => ref_tree_hash($snapshotDir . '/media'),
+                    'retention_receipt_sha256' => ref_hash('retention:' . $key),
+                    'semantic_snapshot_sha256' => $input['expected_semantic_snapshot_sha256'],
+                    'snapshot_session_id' => $prepared['snapshot_session_id'],
+                    'snapshot_set_id' => 'snapshot-set-' . substr(hash('sha256', $key), 0, 20),
+                    'source_identity' => $prepared['source_identity'],
+                ];
+                if (is_array($sanitization)) $snapshot['sanitization'] = $sanitization;
+                $snapshot['snapshot_set_receipt_sha256'] = ref_hash([
+                    'database_sha256' => $snapshot['database_sha256'], 'media_sha256' => $snapshot['media_sha256'],
+                    'sanitization_receipt_sha256' => $sanitization['receipt_sha256'] ?? null,
+                    'semantic_snapshot_sha256' => $snapshot['semantic_snapshot_sha256'], 'snapshot_set_id' => $snapshot['snapshot_set_id'],
+                ]);
+                if (ref_containment_enabled($config)) {
+                    ref_private_tree($snapshotDir, 'contained-preview immutable snapshot');
+                } else {
+                    ref_chmod_tree($snapshotDir, 0555);
+                }
+                $state['snapshots'][$key] = $snapshot;
+                ref_save_state((string) $config['state_root'], $state);
+            } catch (Throwable $error) {
+                ref_remove_tree($mediaScratch);
+                ref_remove_tree((string) $config['state_root'] . '/snapshots/' . hash('sha256', $key));
+                $staging = $prepared['path'] ?? null;
+                if (is_string($staging) && $staging !== '') ref_remove_tree($staging);
+                unset($state['sessions'][$key], $state['snapshots'][$key]);
+                ref_save_state((string) $config['state_root'], $state);
+                throw $error;
+            }
         }
         ref_require(
             ($snapshot['semantic_snapshot_sha256'] ?? null) === ($input['expected_semantic_snapshot_sha256'] ?? null),
@@ -2852,27 +3395,20 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         ] as $provided => $stored) {
             ref_require(($input[$provided] ?? null) === $prepared[$stored], "snapshot abort differs at '$provided'");
         }
-        ref_require(in_array($prepared['state'] ?? null, ['preparing', 'prepared', 'aborted'], true), 'snapshot abort session is not resumable');
-        if (($prepared['state'] ?? null) !== 'aborted') {
-            $staging = $prepared['path'] ?? null;
-            if (is_string($staging) && $staging !== '') ref_remove_tree($staging);
-            $snapshot = $state['snapshots'][$key] ?? null;
-            if (is_array($snapshot)) {
-                $snapshotDir = dirname((string) ($snapshot['database_path'] ?? ''));
-                $expectedDir = (string) $config['state_root'] . '/snapshots/' . hash('sha256', $key);
-                ref_require($snapshotDir === $expectedDir, 'snapshot abort refuses a foreign immutable set path');
-                ref_remove_tree($snapshotDir);
-                unset($state['snapshots'][$key]);
-            }
-        }
-        $prepared['state'] = 'aborted';
-        $state['sessions'][$key] = $prepared;
-        ref_save_state((string) $config['state_root'], $state);
-        return [
+        ref_require(in_array($prepared['state'] ?? null, ['preparing', 'prepared'], true), 'snapshot abort session is not resumable');
+        $result = [
             'disposition' => 'aborted', 'lease_generation' => $prepared['lease_generation'], 'lease_id' => $prepared['lease_id'],
             'lease_receipt_sha256' => $prepared['lease_receipt_sha256'], 'snapshot_session_id' => $prepared['snapshot_session_id'],
             'source_identity' => $prepared['source_identity'],
         ];
+        $disposalReceipt = ref_dispose_snapshot_operation($state, $config, $operation);
+        $state['snapshot_abort_receipts'][$key] = [
+            'disposal_receipt_sha256' => $disposalReceipt,
+            'input_sha256' => ref_hash($input),
+            'result' => $result,
+        ];
+        ref_save_state((string) $config['state_root'], $state);
+        return $result;
     }
 
     if ($action === 'mutation-acquire') {
@@ -2942,7 +3478,8 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             );
         }
         $topology = ref_probe_contained_topology($config, $environment, $resource);
-        $preimage = ref_containment_preimage($identity, $fence, $receiptInput, $topology);
+        $sanitizationEvidence = ref_containment_sanitization_evidence($state, $config, $operation, $input);
+        $preimage = ref_containment_preimage($identity, $fence, $receiptInput, $sanitizationEvidence, $topology);
         $receipt = ref_hash($preimage);
         $result = $identity + [
             'containment_receipt_sha256' => $receipt,
@@ -2977,25 +3514,101 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     if ($action === 'snapshot-restore') {
         ref_require_fence($state, $input, $identity, $resourceConfig);
         ref_revalidate_containment($state, $config, $environment, $resource, $identity);
+        $restoreKey = ref_restore_key($resourceId, $operation);
+        $restoreInputSha = ref_hash($input);
+        $restore = $state['restores'][$restoreKey] ?? null;
+        if (is_array($restore)) {
+            foreach (ref_lease_tuple($identity, $resourceConfig) as $key => $value) {
+                ref_require(($restore[$key] ?? null) === $value, "snapshot restore lease differs at '$key'");
+            }
+            ref_require(($restore['input_sha256'] ?? null) === $restoreInputSha, 'snapshot restore retry differs from its journaled request');
+            if (($restore['state'] ?? null) === 'disposed-success') {
+                ref_require(is_array($restore['result'] ?? null), 'disposed snapshot restore has no result');
+                return $restore['result'];
+            }
+            if (in_array($restore['state'] ?? null, ['failed', 'disposed-failure'], true)) {
+                if ($restore['state'] === 'failed') {
+                    $restore['disposal_receipt_sha256'] = ref_dispose_snapshot_operation($state, $config, $operation);
+                    $restore['state'] = 'disposed-failure';
+                    $state['restores'][$restoreKey] = $restore;
+                    ref_save_state((string) $config['state_root'], $state);
+                }
+                throw new RuntimeException('snapshot restore previously failed and its bytes were logically disposed (receipt ' . $restore['failure_receipt_sha256'] . ')');
+            }
+        }
         $snapshotId = $input['snapshot_set_id'] ?? null;
-        $snapshot = null;
-        foreach ($state['snapshots'] as $candidate) {
-            if (is_array($candidate) && ($candidate['snapshot_set_id'] ?? null) === $snapshotId) $snapshot = $candidate;
+        $snapshotKey = ref_snapshot_key((string) $config['source_environment'], $operation);
+        $snapshot = $state['snapshots'][$snapshotKey] ?? null;
+        if (!is_array($restore)) {
+            ref_require(
+                is_array($snapshot) && ($snapshot['snapshot_set_id'] ?? null) === $snapshotId
+                    && ($input['database_sha256'] ?? null) === $snapshot['database_sha256']
+                    && ($input['media_sha256'] ?? null) === $snapshot['media_sha256'],
+                'snapshot restore is not bound to this operation\'s immutable set'
+            );
+            if (ref_containment_enabled($config)) {
+                $containment = $state['containments'][$resourceId] ?? null;
+                $proved = is_array($containment) ? ($containment['preimage']['snapshot_sanitization'] ?? null) : null;
+                $current = ref_containment_sanitization_evidence($state, $config, $operation, $input);
+                ref_require(
+                    is_array($proved) && ref_json($proved) === ref_json($current)
+                        && ($proved['admission'] ?? null) === 'sanitized-snapshot',
+                    'snapshot restore is not bound to the containment proof\'s sanitized admission receipt'
+                );
+            }
+            $result = $identity + ['snapshot_set_id' => $snapshot['snapshot_set_id']];
+            $restore = ref_lease_tuple($identity, $resourceConfig) + [
+                'input_sha256' => $restoreInputSha,
+                'operation_id' => $operation,
+                'result' => $result,
+                'sanitization_receipt_sha256' => $snapshot['sanitization']['receipt_sha256'] ?? null,
+                'snapshot_set_id' => $snapshot['snapshot_set_id'],
+                'state' => 'restoring',
+            ];
+            $state['restores'][$restoreKey] = $restore;
+            ref_save_state((string) $config['state_root'], $state);
         }
-        ref_require(
-            is_array($snapshot) && ($input['database_sha256'] ?? null) === $snapshot['database_sha256']
-                && ($input['media_sha256'] ?? null) === $snapshot['media_sha256'],
-            'snapshot restore is not bound to the immutable set'
-        );
-        $dump = file_get_contents((string) $snapshot['database_path']);
-        if (!is_string($dump)) throw new RuntimeException('could not read immutable database snapshot');
-        if (ref_containment_enabled($config)) {
-            ref_restore_contained_database($config, $environment, $resource, $dump);
-        } else {
-            ref_restore_database($config, (string) $environment['database'], $dump);
+        if (($restore['state'] ?? null) === 'restoring') {
+            try {
+                ref_require(is_array($snapshot), 'journaled snapshot restore lost its immutable set before application');
+                $dump = file_get_contents((string) $snapshot['database_path']);
+                if (!is_string($dump)) throw new RuntimeException('could not read immutable database snapshot');
+                if (ref_containment_enabled($config)) {
+                    ref_restore_contained_database($config, $environment, $resource, $dump);
+                } else {
+                    ref_restore_database($config, (string) $environment['database'], $dump);
+                }
+                ref_restore_media_to_container((string) $snapshot['media_path'], (string) $environment['container']);
+                $restore['state'] = 'restored';
+                $state['restores'][$restoreKey] = $restore;
+                // Journal successful application before deleting the only
+                // provider copy. A crash can then resume disposal without
+                // replaying or inventing restore success.
+                ref_save_state((string) $config['state_root'], $state);
+            } catch (Throwable $error) {
+                $restore['failure_receipt_sha256'] = ref_hash([
+                    'error_sha256' => hash('sha256', $error->getMessage()),
+                    'format' => 'wprism-reference-snapshot-restore-failure/v1',
+                    'input_sha256' => $restoreInputSha,
+                    'operation_id' => $operation,
+                    'snapshot_set_id' => $restore['snapshot_set_id'],
+                ]);
+                $restore['state'] = 'failed';
+                $state['restores'][$restoreKey] = $restore;
+                ref_save_state((string) $config['state_root'], $state);
+                $restore['disposal_receipt_sha256'] = ref_dispose_snapshot_operation($state, $config, $operation);
+                $restore['state'] = 'disposed-failure';
+                $state['restores'][$restoreKey] = $restore;
+                ref_save_state((string) $config['state_root'], $state);
+                throw $error;
+            }
         }
-        ref_restore_media_to_container((string) $snapshot['media_path'], (string) $environment['container']);
-        return $identity + ['snapshot_set_id' => $snapshot['snapshot_set_id']];
+        ref_require(($restore['state'] ?? null) === 'restored', 'snapshot restore journal has an invalid state');
+        $restore['disposal_receipt_sha256'] = ref_dispose_snapshot_operation($state, $config, $operation);
+        $restore['state'] = 'disposed-success';
+        $state['restores'][$restoreKey] = $restore;
+        ref_save_state((string) $config['state_root'], $state);
+        return $restore['result'];
     }
 
     if ($action === 'repository-materialize') {
@@ -3111,6 +3724,14 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         }
         // Every provider-owned comparison precedes physical cleanup. A corrupt
         // history row is a refusal, never a delete-then-discover-the-gap path.
+        if (ref_containment_enabled($config)) {
+            $resource['snapshot_disposal_receipt_sha256'] = ref_dispose_snapshot_operation(
+                $state,
+                $config,
+                (string) $resource['operation_id']
+            );
+            $state['resources'][$resourceId] = $resource;
+        }
         if ($action === 'destroy') {
             if (ref_containment_enabled($config)) {
                 ref_destroy_contained_preview($config, $environment, $resource);
@@ -3179,8 +3800,9 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
     if ($action !== 'capabilities') ref_assert_action_role($action, $environment);
 
     $planState = $state ?? [
-        'acquisitions' => [], 'containments' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
-        'sessions' => [], 'slot_authorities' => [], 'snapshots' => [], 'source_inspections' => [], 'ttls' => [],
+        'acquisitions' => [], 'containments' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [], 'restores' => [],
+        'sessions' => [], 'slot_authorities' => [], 'snapshot_abort_receipts' => [], 'snapshots' => [],
+        'source_inspections' => [], 'ttls' => [],
     ];
     $url = ref_configured_url($environment);
     $urlSource = 'config';
@@ -3366,7 +3988,7 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
         case 'snapshot-restore':
             if (ref_containment_enabled($config)) {
                 $commands[] = ['argv' => ref_contained_compose_command($config, ['exec', '-T', 'db', 'sh', '-c', 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot']), 'stdin' => 'drop-create'];
-                $commands[] = ['argv' => ref_contained_compose_command($config, ['exec', '-T', 'db', 'sh', '-c', 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot']), 'stdin' => 'immutable-dump'];
+                $commands[] = ['argv' => ref_contained_compose_command($config, ['exec', '-T', 'db', 'sh', '-c', 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$MARIADB_DATABASE"']), 'stdin' => 'immutable-dump'];
             } else {
                 $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot'], 'stdin' => 'drop-create'];
                 $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot', (string) $environment['database']], 'stdin' => 'immutable-dump'];
@@ -3511,8 +4133,12 @@ try {
     } else {
         $root = (string) $config['state_root'];
         ref_require(is_dir($root), 'reference provider state root is unavailable');
-        $lock = fopen($root . '/state.lock', 'c');
+        $lockPath = $root . '/state.lock';
+        ref_require(!is_link($lockPath), 'reference provider state lock must not be a symlink');
+        $lock = fopen($lockPath, 'c');
         if ($lock === false || !flock($lock, LOCK_EX)) throw new RuntimeException('could not lock reference provider state');
+        chmod($lockPath, 0600);
+        ref_assert_current_owner($lockPath, 'reference provider state lock');
         $GLOBALS['wprism_reference_provider_state_lock'] = $lock;
         try {
             $state = ref_load_state($root);
@@ -3536,7 +4162,10 @@ try {
     // failure, so the operator-readable detail is kept beside the state root
     // exactly the way the live materializer fixture does it.
     if (!$planOnly && isset($config) && is_array($config) && is_string($config['state_root'] ?? null) && is_dir($config['state_root'])) {
-        @file_put_contents($config['state_root'] . '/provider-errors.log', $error->getMessage() . "\n", FILE_APPEND | LOCK_EX);
+        $errorPath = $config['state_root'] . '/provider-errors.log';
+        if (!is_link($errorPath) && @file_put_contents($errorPath, $error->getMessage() . "\n", FILE_APPEND | LOCK_EX) !== false) {
+            @chmod($errorPath, 0600);
+        }
     }
     fwrite(STDERR, 'wprism reference env provider: ' . $error->getMessage() . "\n");
     exit(1);

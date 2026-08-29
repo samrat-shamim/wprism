@@ -116,7 +116,11 @@ pair mode is tied to the shared sandbox pair and explicitly withholds
 `contained_preview` mode creates a standalone target with lease-owned database
 and WordPress volumes, a dedicated database principal and credentials, an
 internal-only app network, and a credential-free proxy as its sole loopback
-ingress. It withholds attach/detach because an already-running target cannot
+ingress. It also requires a hash-pinned, machine-local, exhaustively reviewed
+snapshot policy for exact `wp_options` credential rebinds and media removals;
+the policy also mandates disabling every WordPress password/activation key and
+removing sessions/application passwords. Unsupported inventories or dump shapes
+refuse. It withholds attach/detach because an already-running target cannot
 prove that the controls existed before boot. The exact provider object,
 machine-local Docker transport, placeholder environment file and prerequisites
 are in [the generated provider guide](../branch-environment-provider.md#enabling-the-contained-preview).
@@ -147,9 +151,11 @@ The bundled contained preview proves server-side HTTP/payment/webhook denial
 through the app containers' internal-only network; queue denial through the
 same network, an isolated lease database, disabled WordPress cron/updaters and
 no worker; and mail denial through the enforced refusal/capture shim. The
-loopback proxy carries no runtime, repository or database credentials. Host or
-Docker administrators, browser-side effects and secret sanitization inside
-restored opaque application data are outside that boundary.
+loopback proxy carries no runtime, repository or database credentials. Sanitized
+snapshot admission and the reviewed policy hash are receipt-bound before restore;
+the provider does not discover undeclared secrets, so the human exhaustive-inventory
+assertion remains trusted. Host or Docker administrators and browser-side effects
+are outside that boundary.
 
 Containment permits evidence gathering; it does not manufacture certification.
 "I rehearsed it" is not "I qualified it", and a surface reading `Experimental`

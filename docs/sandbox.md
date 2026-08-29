@@ -183,9 +183,13 @@ FLUSH PRIVILEGES;
 re-granting on every `up`.) Root credentials (`root`/`root`) are for admin
 operations only (`CREATE`/`DROP DATABASE`), always via `docker exec
 wprism-shared-db mariadb -uroot ...` from pair.sh — never over the published
-port. That port (`127.0.0.1:3316`, loopback-only) exists solely for a human
+port. That port (`127.0.0.1:${WPRISM_SHARED_DB_PORT:-3316}`, loopback-only;
+normally `3316`) exists solely for a human
 who wants to point a GUI SQL client at the fleet directly; no tooling here
-depends on it. (On the MySQL lane the same admin SQL runs as `docker exec
+depends on it. A live lane that must coexist with a foreign owner may set the
+task-specific `WPRISM_SHARED_DB_PORT` before `pair.sh up`; the containment
+three-environment lane maps its `WPRISM_CONTAINMENT_DB_PORT` (default `3317`)
+to that variable. (On the MySQL lane the same admin SQL runs as `docker exec
 wprism-shared-mysql mysql -uroot ...` on port `3326`; the SQL text above is
 byte-identical for both engines pending the lane's first live
 `caching_sha2_password` probe.)

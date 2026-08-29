@@ -630,6 +630,104 @@ PHP);
         );
         rr_ok(array_column(rr_calls($prepareLoss['target_log']), 'action') === ['capabilities'], 'lost snapshot-prepare reap reaches no target provider action');
 
+        // A controller can also die after immutable snapshot-read publication
+        // but before it journals any target-acquire intent. Build that exact
+        // journal prefix through the public provider/journal contracts: reap
+        // must dispose the retained set/session rather than treating readback
+        // as a reason to retain source bytes indefinitely.
+        $readCrash = rr_fixture($tmp, 'snapshot-read-pre-target-crash');
+        $readOperation = '20260830-000000-1234567890abcdef12345678';
+        $sourceCaps = $readCrash['source_provider']->capabilities($readOperation);
+        $targetCaps = $readCrash['target_provider']->capabilities($readOperation);
+        $run = [
+            'branch_commit' => $readCrash['commit'],
+            'branch_ref' => 'feature',
+            'created_at' => '2026-08-30T00:00:00Z',
+            'format' => EnvironmentLifecycleJournal::RUN_FORMAT,
+            'intent_sha256' => hash('sha256', 'snapshot-read-pre-target-crash'),
+            'mode' => 'attach',
+            'operation_id' => $readOperation,
+            'source_environment' => $readCrash['source']->name(),
+            'target_environment' => $readCrash['target']->name(),
+            'ttl_seconds' => 60,
+        ];
+        $readCrash['journal']->start($readOperation, $run);
+        $readCrash['journal']->append($readOperation, 'preflight', [
+            'source_driver' => [
+                'environment' => $readCrash['source']->name(),
+                'id' => $readCrash['source']->driverId(),
+                'repo_path' => $readCrash['source']->repoPath(),
+            ],
+            'source_provider' => $sourceCaps->pin(),
+            'target_driver' => [
+                'environment' => $readCrash['target']->name(),
+                'id' => $readCrash['target']->driverId(),
+                'repo_path' => $readCrash['target']->repoPath(),
+            ],
+            'target_provider' => $targetCaps->pin(),
+        ]);
+        $sourceIdentity = $readCrash['source_provider']->perform('inspect', $readOperation, ['role' => 'source']);
+        $readCrash['journal']->append($readOperation, 'source-inspected', $sourceIdentity);
+        $session = 'snapshot-session-' . $readOperation;
+        $prepareInput = [
+            'expected_environment_identity' => $sourceIdentity['environment_identity'],
+            'expected_lease_generation' => $sourceIdentity['lease_generation'],
+            'expected_lease_id' => $sourceIdentity['lease_id'],
+            'expected_ownership_receipt_sha256' => $sourceIdentity['ownership_receipt_sha256'],
+            'expected_resource_id' => $sourceIdentity['resource_id'],
+            'snapshot_session_id' => $session,
+        ];
+        $readCrash['journal']->append($readOperation, 'snapshot-prepare-intent', [
+            'action' => 'snapshot-prepare',
+            'input' => $prepareInput,
+            'input_sha256' => hash('sha256', EnvironmentLifecycleCanon::encode($prepareInput)),
+        ]);
+        $prepared = $readCrash['source_provider']->perform('snapshot-prepare', $readOperation, $prepareInput);
+        $readCrash['journal']->append($readOperation, 'snapshot-prepared', $prepared);
+        $createInput = [
+            'expected_semantic_snapshot_sha256' => hash('sha256', 'semantic-production-truth'),
+            'expected_snapshot_session_id' => $prepared['snapshot_session_id'],
+            'expected_source_identity' => $prepared['source_identity'],
+            'expected_source_lease_generation' => $prepared['lease_generation'],
+            'expected_source_lease_id' => $prepared['lease_id'],
+            'expected_source_lease_receipt_sha256' => $prepared['lease_receipt_sha256'],
+            'production_commit' => $readCrash['commit'],
+        ];
+        $readCrash['journal']->append($readOperation, 'snapshot-create-intent', [
+            'action' => 'snapshot-create',
+            'input' => $createInput,
+            'input_sha256' => hash('sha256', EnvironmentLifecycleCanon::encode($createInput)),
+        ]);
+        $created = $readCrash['source_provider']->perform('snapshot-create', $readOperation, $createInput);
+        $readCrash['journal']->append($readOperation, 'snapshot-created', $created);
+        $readInput = [
+            'expected_snapshot_set_id' => $created['snapshot_set_id'],
+            'expected_snapshot_set_receipt_sha256' => $created['snapshot_set_receipt_sha256'],
+            'expected_snapshot_session_id' => $prepared['snapshot_session_id'],
+            'expected_source_identity' => $prepared['source_identity'],
+            'expected_source_lease_generation' => $prepared['lease_generation'],
+            'expected_source_lease_id' => $prepared['lease_id'],
+            'expected_source_lease_receipt_sha256' => $prepared['lease_receipt_sha256'],
+        ];
+        $readCrash['journal']->append($readOperation, 'snapshot-read-intent', [
+            'action' => 'snapshot-read',
+            'input' => $readInput,
+            'input_sha256' => hash('sha256', EnvironmentLifecycleCanon::encode($readInput)),
+        ]);
+        $immutable = $readCrash['source_provider']->perform('snapshot-read', $readOperation, $readInput);
+        $readCrash['journal']->append($readOperation, 'snapshot-read', $immutable);
+        $readReap = rr_reap($readCrash, $readCrash['target_provider']);
+        rr_ok(($readReap['disposition'] ?? null) === 'aborted-no-target', 'pre-target reap disposes a journaled immutable snapshot set');
+        $readAbort = rr_action_calls(rr_calls($readCrash['source_log']), 'snapshot-abort');
+        rr_ok(count($readAbort) === 1
+            && $readAbort[0]['operation_id'] === $readOperation
+            && ($readAbort[0]['input']['expected_snapshot_session_id'] ?? null) === $session,
+            'pre-target immutable reap aborts the exact source snapshot session'
+        );
+        rr_ok(array_column(rr_calls($readCrash['target_log']), 'action') === ['capabilities'],
+            'pre-target immutable reap performs no target provider mutation'
+        );
+
         // The existing promotion path may have committed its own durable
         // receipt while the controller died before journal publication. Retry
         // is reconciliation under the same frozen owner/context, not a second

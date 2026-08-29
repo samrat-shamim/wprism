@@ -442,7 +442,9 @@ production-derived bytes until the machine-local provider returns an exact
 target/resource/lease/fence-bound `environment.containment.verify` receipt.
 The bundled ordinary reference pair withholds that capability. Its opt-in
 `contained_preview` topology proves the server-side controls described in
-[the provider guide](../branch-environment-provider.md#enabling-the-contained-preview).
+[the provider guide](../branch-environment-provider.md#enabling-the-contained-preview),
+including policy-hash/snapshot-bound credential sanitization under an explicit
+human-reviewed exhaustive inventory.
 
 Three consequences follow, and each one is visible in the output rather than
 buried here.

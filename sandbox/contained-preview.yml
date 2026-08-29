@@ -47,6 +47,7 @@ x-preview-volumes: &preview-volumes
   - ${WPRISM_PREVIEW_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
   - ${WPRISM_PREVIEW_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
   - ${WPRISM_PREVIEW_REPO}:/siterepo
+  - ${WPRISM_PREVIEW_CRON_GUARD}:/var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php:ro
   - ${WPRISM_PREVIEW_MAIL_SHIM}:/usr/local/bin/wprism-refuse-sendmail:ro
   - ${WPRISM_PREVIEW_PHP_INI}:/usr/local/etc/php/conf.d/zz-wprism-containment.ini:ro
 

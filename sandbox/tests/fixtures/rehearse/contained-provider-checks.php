@@ -23,6 +23,7 @@ $physicalLog = $scratch . '/physical.ndjson';
 $drift = $scratch . '/drift';
 $cliDrift = $scratch . '/cli-drift';
 $configPath = $scratch . '/provider.json';
+$policyPath = $scratch . '/sanitization-policy.json';
 foreach ([$stateRoot, $compose . '/siterepo/mup1', $compose . '/siterepo/mup2', $bin] as $directory) {
     if (!mkdir($directory, 0700, true) && !is_dir($directory)) throw new RuntimeException("could not create '$directory'");
 }
@@ -60,6 +61,10 @@ $config['contained_preview']['runtime_sources'] = [
     'agent' => $scratch . '/runtime-agent',
     'platform' => $scratch . '/runtime-platform',
 ];
+copy(__DIR__ . '/contained-sanitization-policy.json', $policyPath);
+chmod($policyPath, 0600);
+$config['contained_preview']['sanitization_policy'] = $policyPath;
+$config['contained_preview']['sanitization_policy_sha256'] = hash_file('sha256', $policyPath);
 file_put_contents($configPath, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 
 putenv('PATH=' . $bin . PATH_SEPARATOR . (string) getenv('PATH'));
@@ -68,13 +73,55 @@ putenv('WPRISM_CONTAINED_FAKE_LOG=' . $physicalLog);
 putenv('WPRISM_CONTAINED_FAKE_DRIFT=' . $drift);
 putenv('WPRISM_CONTAINED_FAKE_CLI_DRIFT=' . $cliDrift);
 
-$provider = CommandEnvironmentProvider::fromEnvironment('mup2', [
-    '_machine_local' => true,
-    'environment_provider' => [
-        'command' => [PHP_BINARY, $providerScript, $configPath],
-        'timeout_seconds' => 30,
-    ],
-]);
+$providerFor = static function (string $environment, ?string $path = null) use ($configPath, $providerScript): CommandEnvironmentProvider {
+    return CommandEnvironmentProvider::fromEnvironment($environment, [
+        '_machine_local' => true,
+        'environment_provider' => ['command' => [PHP_BINARY, $providerScript, $path ?? $configPath], 'timeout_seconds' => 30],
+    ]);
+};
+$badModeRoot = $scratch . '/bad-mode-state';
+mkdir($badModeRoot, 0755);
+$badModeConfig = $config;
+$badModeConfig['state_root'] = $badModeRoot;
+$badModePath = $scratch . '/bad-mode-provider.json';
+file_put_contents($badModePath, json_encode($badModeConfig, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+try {
+    $providerFor('mup2', $badModePath)->capabilities('contained-invalid-root-operation-0001');
+    wprism_check(false, 'contained mode refuses a state root broader than 0700');
+} catch (Throwable) {
+    wprism_check(true, 'contained mode refuses a state root broader than 0700');
+}
+$stateLink = $scratch . '/state-link';
+symlink($stateRoot, $stateLink);
+$linkConfig = $config;
+$linkConfig['state_root'] = $stateLink;
+$linkConfigPath = $scratch . '/linked-state-provider.json';
+file_put_contents($linkConfigPath, json_encode($linkConfig, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+try {
+    $providerFor('mup2', $linkConfigPath)->capabilities('contained-invalid-root-operation-0002');
+    wprism_check(false, 'contained mode refuses a symlink state root');
+} catch (Throwable) {
+    wprism_check(true, 'contained mode refuses a symlink state root');
+}
+$emptyPolicy = json_decode((string) file_get_contents($policyPath), true, 512, JSON_THROW_ON_ERROR);
+$emptyPolicy['database']['options'] = [];
+$emptyPolicy['media'] = [];
+$emptyPolicyPath = $scratch . '/empty-sanitization-policy.json';
+file_put_contents($emptyPolicyPath, json_encode($emptyPolicy, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+chmod($emptyPolicyPath, 0600);
+$emptyPolicyRoot = $scratch . '/empty-policy-state';
+mkdir($emptyPolicyRoot, 0700);
+$emptyPolicyConfig = $config;
+$emptyPolicyConfig['state_root'] = $emptyPolicyRoot;
+$emptyPolicyConfig['contained_preview']['sanitization_policy'] = $emptyPolicyPath;
+$emptyPolicyConfig['contained_preview']['sanitization_policy_sha256'] = hash_file('sha256', $emptyPolicyPath);
+$emptyPolicyConfigPath = $scratch . '/empty-policy-provider.json';
+file_put_contents($emptyPolicyConfigPath, json_encode($emptyPolicyConfig, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+$emptyCapabilities = $providerFor('mup2', $emptyPolicyConfigPath)->capabilities('contained-empty-policy-operation-0001')->toArray()['capabilities'];
+wprism_check(in_array('environment.containment.verify', $emptyCapabilities, true), 'an exhaustive reviewed inventory may legitimately contain zero option and media locators');
+
+$provider = $providerFor('mup2');
+$sourceProvider = $providerFor('mup1');
 $operation = 'contained-preview-operation-0000000000000001';
 $capabilities = $provider->capabilities($operation)->toArray()['capabilities'];
 wprism_check(in_array('environment.containment.verify', $capabilities, true), 'contained-preview mode advertises environment.containment.verify');
@@ -82,6 +129,22 @@ wprism_check(!in_array('environment.attach', $capabilities, true), 'contained-pr
 wprism_check(!in_array('environment.detach', $capabilities, true), 'contained-preview mode pairs create only with exact destroy');
 
 $createInput = ['mode' => 'create'];
+$sentinel = $scratch . '/runtime-authority-sentinel';
+file_put_contents($sentinel, "authority\n");
+chmod($sentinel, 0640);
+$runtimeLink = $scratch . '/runtime-agent/authority-link';
+symlink($sentinel, $runtimeLink);
+try {
+    $provider->perform('create', $operation, $createInput);
+    wprism_check(false, 'a symlink in staged runtime authority refuses before preview boot');
+} catch (Throwable) {
+    wprism_check(true, 'a symlink in staged runtime authority refuses before preview boot');
+}
+clearstatcache(true, $sentinel);
+wprism_check_same(0640, fileperms($sentinel) & 0777, 'runtime symlink refusal never chmods its external referent');
+$failedPhysical = json_decode((string) file_get_contents($physicalState), true, 512, JSON_THROW_ON_ERROR);
+wprism_check_same(false, $failedPhysical['database'] ?? null, 'runtime symlink refuses before database boot');
+unlink($runtimeLink);
 touch($cliDrift);
 try {
     $provider->perform('create', $operation, $createInput);
@@ -93,6 +156,57 @@ $failedPhysical = json_decode((string) file_get_contents($physicalState), true, 
 wprism_check_same(false, $failedPhysical['database'] ?? null, 'a hostile rendered CLI model refuses before database boot');
 wprism_check_same(false, $failedPhysical['wordpress'] ?? null, 'a hostile rendered CLI model refuses before WordPress boot');
 unlink($cliDrift);
+$sourceProvider->capabilities($operation);
+$sourceIdentity = $sourceProvider->perform('inspect', $operation, ['role' => 'source']);
+$sourceIdentityInput = [
+    'expected_environment_identity' => $sourceIdentity['environment_identity'],
+    'expected_lease_generation' => $sourceIdentity['lease_generation'],
+    'expected_lease_id' => $sourceIdentity['lease_id'],
+    'expected_ownership_receipt_sha256' => $sourceIdentity['ownership_receipt_sha256'],
+    'expected_resource_id' => $sourceIdentity['resource_id'],
+];
+$prepared = $sourceProvider->perform('snapshot-prepare', $operation, $sourceIdentityInput + [
+    'snapshot_session_id' => 'contained-preview-snapshot-session-0001',
+]);
+$sessionInput = [
+    'expected_snapshot_session_id' => $prepared['snapshot_session_id'],
+    'expected_source_identity' => $prepared['source_identity'],
+    'expected_source_lease_generation' => $prepared['lease_generation'],
+    'expected_source_lease_id' => $prepared['lease_id'],
+    'expected_source_lease_receipt_sha256' => $prepared['lease_receipt_sha256'],
+];
+$snapshot = $sourceProvider->perform('snapshot-create', $operation, $sessionInput + [
+    'expected_semantic_snapshot_sha256' => hash('sha256', 'contained-offline-semantic-snapshot'),
+    'production_commit' => str_repeat('a', 40),
+]);
+$snapshot = $sourceProvider->perform('snapshot-read', $operation, $sessionInput + [
+    'expected_snapshot_set_id' => $snapshot['snapshot_set_id'],
+    'expected_snapshot_set_receipt_sha256' => $snapshot['snapshot_set_receipt_sha256'],
+]);
+$snapshotState = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
+$snapshotKey = 'mup1|' . $operation;
+$preparedPath = (string) $snapshotState['sessions'][$snapshotKey]['path'];
+$databasePath = (string) $snapshotState['snapshots'][$snapshotKey]['database_path'];
+$mediaPath = (string) $snapshotState['snapshots'][$snapshotKey]['media_path'];
+$snapshotDatabase = (string) file_get_contents($databasePath);
+wprism_check_same(0700, fileperms($preparedPath) & 0777, 'contained prepared snapshot directory is mode 0700');
+wprism_check_same(0600, fileperms($preparedPath . '/database.sql') & 0777, 'contained prepared database is mode 0600');
+wprism_check_same(0700, fileperms(dirname($databasePath)) & 0777, 'contained immutable snapshot directory is mode 0700');
+wprism_check_same(0600, fileperms($databasePath) & 0777, 'contained immutable database is mode 0600');
+wprism_check_same(0700, fileperms($mediaPath) & 0777, 'contained immutable media directory is mode 0700');
+wprism_check(!str_contains($snapshotDatabase, 'source-payment-secret-0001'), 'source payment credential is absent before durable snapshot publication');
+wprism_check(!str_contains($snapshotDatabase, 'source-mail-secret-0001'), 'source mail credential is absent before durable snapshot publication');
+wprism_check(str_contains($snapshotDatabase, 'sandbox-payment-disabled'), 'snapshot contains the reviewed sandbox payment rebind');
+wprism_check(str_contains($snapshotDatabase, 'sandbox-mail-disabled'), 'snapshot contains the reviewed sandbox mail rebind');
+wprism_check(!str_contains($snapshotDatabase, 'source-password-hash-0001'), 'source WordPress password hash is absent before durable publication');
+wprism_check(!str_contains($snapshotDatabase, 'source-activation-key-0001'), 'source WordPress activation key is absent before durable publication');
+wprism_check(!str_contains($snapshotDatabase, 'source-session-token-0001'), 'source WordPress sessions are absent before durable publication');
+wprism_check(!str_contains($snapshotDatabase, 'source-application-password-0001'), 'source WordPress application passwords are absent before durable publication');
+wprism_check(str_contains($snapshotDatabase, '!wprism-sandbox-disabled!'), 'all WordPress passwords are rebound to a non-authenticating sandbox value');
+wprism_check(str_contains($snapshotDatabase, 'ordinary_profile'), 'ordinary usermeta survives auth sanitization');
+wprism_check(!file_exists($mediaPath . '/private/source-media-secret.txt'), 'reviewed media credential is absent from the durable snapshot');
+wprism_check(is_file($mediaPath . '/ordinary.txt'), 'ordinary media survives exact-locator sanitization');
+
 $create = $provider->perform('create', $operation, $createInput);
 wprism_check_same('present', $create['presence'] ?? null, 'contained preview is created through the real provider client');
 wprism_check_same('wprism-mup-contained-preview', $create['resource_id'] ?? null, 'contained preview has a topology-specific resource identity');
@@ -121,6 +235,53 @@ foreach ([
 wprism_check_same('agency-rehearsal-v1', $proof['profile'] ?? null, 'contained proof names the closed rehearsal profile');
 $repeat = $provider->perform('containment-verify', $operation, $containmentInput);
 wprism_check_same($proof, $repeat, 'exact containment retry re-probes and returns the same receipt');
+$restoreInput = $fenced + [
+    'database_sha256' => $snapshot['database_sha256'],
+    'media_sha256' => $snapshot['media_sha256'],
+    'snapshot_set_id' => $snapshot['snapshot_set_id'],
+];
+$nestedDisposalLink = $preparedPath . '/injected-authority-link';
+$topLevelDisposalLink = $stateRoot . '/create-media-' . hash('sha256', $snapshotKey);
+symlink($sentinel, $nestedDisposalLink);
+symlink($sentinel, $topLevelDisposalLink);
+$restored = $provider->perform('snapshot-restore', $operation, $restoreInput);
+wprism_check_same($snapshot['snapshot_set_id'], $restored['snapshot_set_id'] ?? null, 'contained restore accepts only its proved sanitized snapshot');
+$afterRestore = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
+wprism_check(!isset($afterRestore['sessions'][$snapshotKey]), 'successful restore disposes the exact prepared session state');
+wprism_check(!isset($afterRestore['snapshots'][$snapshotKey]), 'successful restore disposes the exact immutable snapshot state');
+wprism_check(!file_exists($preparedPath) && !file_exists(dirname($databasePath)), 'successful restore logically deletes exact provider snapshot paths');
+clearstatcache(true, $sentinel);
+wprism_check_same(0640, fileperms($sentinel) & 0777, 'snapshot cleanup never chmods top-level or nested symlink referents');
+wprism_check(!is_link($nestedDisposalLink) && !is_link($topLevelDisposalLink), 'snapshot cleanup unlinks injected top-level and nested links themselves');
+$restoreRecord = $afterRestore['restores'][$create['resource_id'] . '|' . $operation] ?? null;
+wprism_check_same('disposed-success', $restoreRecord['state'] ?? null, 'successful restore journals application before logical disposal');
+$physicalAfterRestore = json_decode((string) file_get_contents($physicalState), true, 512, JSON_THROW_ON_ERROR);
+$restoredDump = (string) ($physicalAfterRestore['restored_dump'] ?? '');
+wprism_check(!str_contains($restoredDump, 'source-payment-secret-0001'), 'preview database cannot read the source payment credential');
+wprism_check(!str_contains($restoredDump, 'source-mail-secret-0001'), 'preview database cannot read the source mail credential');
+wprism_check(!str_contains($restoredDump, 'independent-target-secret-0001'), 'preview database cannot read an independent-target credential');
+wprism_check(str_contains($restoredDump, 'sandbox-payment-disabled'), 'preview database reads the sandbox payment rebind');
+wprism_check(str_contains($restoredDump, '!wprism-sandbox-disabled!'), 'preview database reads only the disabled WordPress password value');
+wprism_check(!str_contains($restoredDump, 'source-session-token-0001'), 'preview database cannot read source WordPress sessions');
+wprism_check(!str_contains($restoredDump, 'source-application-password-0001'), 'preview database cannot read source application passwords');
+$mutationCommandsBeforeRetry = array_values(array_filter(
+    file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [],
+    static function (string $line): bool {
+        $argv = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+        $joined = is_array($argv) ? implode(' ', array_map('strval', $argv)) : '';
+        return str_contains($joined, 'exec mariadb -uroot') || str_starts_with($joined, 'cp ');
+    }
+));
+wprism_check_same($restored, $provider->perform('snapshot-restore', $operation, $restoreInput), 'exact restore retry returns the journaled result after disposal');
+$mutationCommandsAfterRetry = array_values(array_filter(
+    file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [],
+    static function (string $line): bool {
+        $argv = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+        $joined = is_array($argv) ? implode(' ', array_map('strval', $argv)) : '';
+        return str_contains($joined, 'exec mariadb -uroot') || str_starts_with($joined, 'cp ');
+    }
+));
+wprism_check_same($mutationCommandsBeforeRetry, $mutationCommandsAfterRetry, 'exact restore retry never reapplies database or media bytes');
 
 $state = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
 $record = $state['containments'][$create['resource_id']] ?? null;
@@ -128,6 +289,9 @@ wprism_check(is_array($record), 'atomic provider state retains the containment r
 wprism_check_same($operation, $record['preimage']['operation_id'] ?? null, 'containment receipt binds the exact operation');
 wprism_check_same($create['lease_id'], $record['preimage']['lease_id'] ?? null, 'containment receipt binds the exact lease');
 wprism_check_same($fence['mutation_id'], $record['preimage']['mutation_id'] ?? null, 'containment receipt binds the held mutation fence');
+wprism_check_same('sanitized-snapshot', $record['preimage']['snapshot_sanitization']['admission'] ?? null, 'containment receipt proves sanitized snapshot admission');
+wprism_check_same($snapshot['snapshot_set_id'], $record['preimage']['snapshot_sanitization']['snapshot_set_id'] ?? null, 'containment receipt binds the exact sanitized snapshot set');
+wprism_check_same(hash_file('sha256', $policyPath), $record['preimage']['snapshot_sanitization']['policy_sha256'] ?? null, 'containment receipt binds the pinned reviewed policy');
 wprism_check_same(
     $proof['containment_receipt_sha256'] ?? null,
     hash('sha256', json_encode($record['preimage'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)),
@@ -136,6 +300,17 @@ wprism_check_same(
 wprism_check_same(0600, fileperms($stateRoot . '/state.json') & 0777, 'provider receipt state is mode 0600');
 $preimageBytes = json_encode($record['preimage'], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 wprism_check(!str_contains($preimageBytes, (string) $state['resources'][$create['resource_id']]['contained_runtime']['database_password']), 'public containment preimage contains no lease database secret');
+$publicEvidence = (string) file_get_contents($stateRoot . '/state.json')
+    . (string) file_get_contents($stateRoot . '/actions.ndjson')
+    . json_encode([$prepared, $snapshot, $proof, $restored], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+foreach ([
+    'source-payment-secret-0001', 'source-mail-secret-0001', "source-media-secret-0001\n",
+    'source-password-hash-0001', 'source-activation-key-0001', 'source-session-token-0001',
+    'source-application-password-0001',
+] as $secret) {
+    wprism_check(!str_contains($publicEvidence, $secret), 'provider evidence contains no source credential plaintext');
+    wprism_check(!str_contains($publicEvidence, hash('sha256', $secret)), 'provider evidence contains no per-credential digest oracle');
+}
 
 $request = [
     'action' => 'containment-verify', 'environment' => 'mup2',
@@ -185,6 +360,22 @@ try {
 unlink($drift);
 $afterDrift = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
 wprism_check_same($proof['containment_receipt_sha256'], $afterDrift['containments'][$create['resource_id']]['receipt_sha256'] ?? null, 'topology drift cannot mint a replacement containment receipt');
+$cronCanary = $scratch . '/cron-canary-ran';
+$cronProcess = proc_open(
+    [PHP_BINARY, '-r', 'define("DOING_CRON",true);require $argv[1];file_put_contents($argv[2],"ran");', $root . '/sandbox/containment/block-cron.php', $cronCanary],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $cronPipes,
+    null,
+    null,
+    ['bypass_shell' => true]
+);
+if (!is_resource($cronProcess)) throw new RuntimeException('could not run staged cron guard canary');
+fclose($cronPipes[1]);
+fclose($cronPipes[2]);
+wprism_check_same(0, proc_close($cronProcess), 'staged cron guard terminates a direct DOING_CRON bootstrap cleanly');
+wprism_check(!file_exists($cronCanary), 'staged MU cron guard prevents the canary hook from running');
+$nginx = (string) file_get_contents($root . '/sandbox/containment/nginx.conf');
+wprism_check(preg_match('~location = /wp-cron\\.php\\s*\\{\\s*return 404;\\s*\\}~', $nginx) === 1, 'proxy configuration blocks direct wp-cron.php before PHP');
 
 $destroyInput = $fenced + ['compare_and_reap' => true];
 $destroy = $provider->perform('destroy', $operation, $destroyInput);
@@ -195,5 +386,92 @@ wprism_check(!isset($terminal['resources'][$create['resource_id']]['contained_ru
 $logBeforeReplay = hash_file('sha256', $physicalLog);
 wprism_check_same($destroy, $provider->perform('destroy', $operation, $destroyInput), 'exact reap retry returns the terminal receipt');
 wprism_check_same($logBeforeReplay, hash_file('sha256', $physicalLog), 'terminal reap retry executes no Docker command');
+
+$reapOperation = 'contained-preview-operation-0000000000000002';
+$sourceIdentity2 = $sourceProvider->perform('inspect', $reapOperation, ['role' => 'source']);
+$sourceInput2 = [
+    'expected_environment_identity' => $sourceIdentity2['environment_identity'],
+    'expected_lease_generation' => $sourceIdentity2['lease_generation'],
+    'expected_lease_id' => $sourceIdentity2['lease_id'],
+    'expected_ownership_receipt_sha256' => $sourceIdentity2['ownership_receipt_sha256'],
+    'expected_resource_id' => $sourceIdentity2['resource_id'],
+];
+$prepared2 = $sourceProvider->perform('snapshot-prepare', $reapOperation, $sourceInput2 + [
+    'snapshot_session_id' => 'contained-preview-snapshot-session-0002',
+]);
+$sessionInput2 = [
+    'expected_snapshot_session_id' => $prepared2['snapshot_session_id'],
+    'expected_source_identity' => $prepared2['source_identity'],
+    'expected_source_lease_generation' => $prepared2['lease_generation'],
+    'expected_source_lease_id' => $prepared2['lease_id'],
+    'expected_source_lease_receipt_sha256' => $prepared2['lease_receipt_sha256'],
+];
+$snapshot2 = $sourceProvider->perform('snapshot-create', $reapOperation, $sessionInput2 + [
+    'expected_semantic_snapshot_sha256' => hash('sha256', 'contained-offline-reap-snapshot'),
+]);
+$snapshot2 = $sourceProvider->perform('snapshot-read', $reapOperation, $sessionInput2 + [
+    'expected_snapshot_set_id' => $snapshot2['snapshot_set_id'],
+    'expected_snapshot_set_receipt_sha256' => $snapshot2['snapshot_set_receipt_sha256'],
+]);
+$create2 = $provider->perform('create', $reapOperation, ['mode' => 'create']);
+$identity2 = [
+    'expected_environment_identity' => $create2['environment_identity'],
+    'expected_lease_generation' => $create2['lease_generation'],
+    'expected_lease_id' => $create2['lease_id'],
+    'expected_ownership_receipt_sha256' => $create2['ownership_receipt_sha256'],
+    'expected_resource_id' => $create2['resource_id'],
+];
+$fence2 = $provider->perform('mutation-acquire', $reapOperation, $identity2 + ['mutation_owner' => 'contained-reap-owner-0002']);
+$fenced2 = $identity2 + [
+    'expected_mutation_generation' => $fence2['mutation_generation'],
+    'expected_mutation_id' => $fence2['mutation_id'],
+    'expected_mutation_owner' => $fence2['mutation_owner'],
+    'expected_mutation_receipt_sha256' => $fence2['mutation_receipt_sha256'],
+];
+$provider->perform('containment-verify', $reapOperation, $fenced2 + ['profile' => 'agency-rehearsal-v1']);
+$beforeUnrestoredReap = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
+$key2 = 'mup1|' . $reapOperation;
+$preparedPath2 = (string) $beforeUnrestoredReap['sessions'][$key2]['path'];
+$snapshotPath2 = dirname((string) $beforeUnrestoredReap['snapshots'][$key2]['database_path']);
+$provider->perform('destroy', $reapOperation, $fenced2 + ['compare_and_reap' => true]);
+$afterUnrestoredReap = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
+wprism_check(!isset($afterUnrestoredReap['sessions'][$key2], $afterUnrestoredReap['snapshots'][$key2]), 'reap disposes its exact unrestored snapshot/session state');
+wprism_check(!file_exists($preparedPath2) && !file_exists($snapshotPath2), 'reap logically deletes its exact unrestored snapshot/session bytes');
+
+$abortOperation = 'contained-preview-operation-0000000000000003';
+$sourceIdentity3 = $sourceProvider->perform('inspect', $abortOperation, ['role' => 'source']);
+$sourceInput3 = [
+    'expected_environment_identity' => $sourceIdentity3['environment_identity'],
+    'expected_lease_generation' => $sourceIdentity3['lease_generation'],
+    'expected_lease_id' => $sourceIdentity3['lease_id'],
+    'expected_ownership_receipt_sha256' => $sourceIdentity3['ownership_receipt_sha256'],
+    'expected_resource_id' => $sourceIdentity3['resource_id'],
+];
+$prepared3 = $sourceProvider->perform('snapshot-prepare', $abortOperation, $sourceInput3 + [
+    'snapshot_session_id' => 'contained-preview-snapshot-session-0003',
+]);
+$sessionInput3 = [
+    'expected_snapshot_session_id' => $prepared3['snapshot_session_id'],
+    'expected_source_identity' => $prepared3['source_identity'],
+    'expected_source_lease_generation' => $prepared3['lease_generation'],
+    'expected_source_lease_id' => $prepared3['lease_id'],
+    'expected_source_lease_receipt_sha256' => $prepared3['lease_receipt_sha256'],
+];
+$snapshot3 = $sourceProvider->perform('snapshot-create', $abortOperation, $sessionInput3 + [
+    'expected_semantic_snapshot_sha256' => hash('sha256', 'contained-offline-abort-snapshot'),
+]);
+$sourceProvider->perform('snapshot-read', $abortOperation, $sessionInput3 + [
+    'expected_snapshot_set_id' => $snapshot3['snapshot_set_id'],
+    'expected_snapshot_set_receipt_sha256' => $snapshot3['snapshot_set_receipt_sha256'],
+]);
+$beforeAbort = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
+$key3 = 'mup1|' . $abortOperation;
+$preparedPath3 = (string) $beforeAbort['sessions'][$key3]['path'];
+$snapshotPath3 = dirname((string) $beforeAbort['snapshots'][$key3]['database_path']);
+$aborted3 = $sourceProvider->perform('snapshot-abort', $abortOperation, $sessionInput3);
+$afterAbort = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
+wprism_check(!isset($afterAbort['sessions'][$key3], $afterAbort['snapshots'][$key3], $afterAbort['source_inspections'][$key3]), 'snapshot-abort disposes its exact active session/set state');
+wprism_check(!file_exists($preparedPath3) && !file_exists($snapshotPath3), 'snapshot-abort logically deletes its exact session/set bytes');
+wprism_check_same($aborted3, $sourceProvider->perform('snapshot-abort', $abortOperation, $sessionInput3), 'snapshot-abort exact retry returns its retained nonsecret disposal receipt');
 
 wprism_check_summary('contained reference provider');

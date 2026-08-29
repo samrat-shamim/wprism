@@ -19,6 +19,7 @@ PAIR=$([ "$TOPOLOGY_ONLY" -eq 1 ] && printf containprobe || printf containlive)
 PORT1=9340
 PORT2=9341
 PREVIEW_PORT=9342
+SHARED_DB_PORT="${WPRISM_CONTAINMENT_DB_PORT:-3317}"
 HOST_PROBE_PORT=
 SOURCE_ENV="${PAIR}1"
 PREVIEW_ENV="${PAIR}2"
@@ -30,13 +31,17 @@ COMPOSE_ROOT="$TMP/compose"
 PAIR_OWNED=0
 PREVIEW_OWNED=0
 HOST_PROBE_PID=
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_CLI_IMAGE="${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}"
+export WPRISM_SHARED_DB_PORT="$SHARED_DB_PORT"
 
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pair_wp() {
   local side=$1
   shift
-  (cd "$SANDBOX" && docker compose -p "wprism-$PAIR" -f pair.yml run --rm -T "cli$side" wp "$@")
+  (cd "$SANDBOX" && WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" \
+    WPRISM_CLI_IMAGE="$WPRISM_CLI_IMAGE" docker compose -p "wprism-$PAIR" -f pair.yml run --rm -T "cli$side" wp "$@")
 }
 preview_compose() {
   (cd "$SANDBOX" && docker compose --env-file "$STATE/contained-preview.env" \
@@ -102,12 +107,40 @@ if [ "$TOPOLOGY_ONLY" -eq 0 ]; then
   PAIR_OWNED=1
   pair_wp 1 option update wprism_containment_marker source-canary --quiet
   pair_wp 2 option update wprism_containment_marker release-target-canary --quiet
+  pair_wp 1 option update wprism_payment_token source-payment-secret-live --quiet
+  pair_wp 1 option update wprism_mail_token source-mail-secret-live --quiet
+  pair_wp 2 option update wprism_payment_token independent-target-payment-secret-live --quiet
+  pair_wp 2 option update wprism_mail_token independent-target-mail-secret-live --quiet
+  SOURCE_AUTH_USER_ID="$(pair_wp 1 user create containment-source-user source-auth@example.invalid --user_pass=source-auth-password-live --porcelain)"
+  pair_wp 1 user meta update "$SOURCE_AUTH_USER_ID" session_tokens source-session-token-live >/dev/null
+  pair_wp 1 user meta update "$SOURCE_AUTH_USER_ID" _application_passwords source-application-password-live >/dev/null
+  pair_wp 1 db query "UPDATE wp_users SET user_activation_key='source-activation-key-live' WHERE ID=$SOURCE_AUTH_USER_ID" --quiet
+  pair_wp 2 user create independent-target-user target-auth@example.invalid --user_pass=independent-target-password-live --porcelain >/dev/null
+  pair_wp 1 eval 'wp_mkdir_p(WP_CONTENT_DIR."/uploads/private");file_put_contents(WP_CONTENT_DIR."/uploads/private/source-media-secret.txt","source-media-secret-live\n");'
   SOURCE_BEFORE="$(pair_wp 1 option get wprism_containment_marker)"
   TARGET_BEFORE="$(pair_wp 2 option get wprism_containment_marker)"
   [ "$SOURCE_BEFORE" = source-canary ] || fail 'source marker was not seeded'
   [ "$TARGET_BEFORE" = release-target-canary ] || fail 'release-target marker was not seeded'
-  pass 'source and independent release target carry distinct canaries'
+  pass 'source and independent release target carry distinct canaries and credentials'
 fi
+
+POLICY="$TMP/sanitization-policy.json"
+php -r '
+$policy=[
+ "format"=>"wprism-reference-snapshot-sanitization-policy/v1",
+ "source_environment"=>$argv[2],
+ "assertion"=>["credential_inventory"=>"exhaustive","review_id"=>"contained-live-review-0001","revision"=>1],
+ "database"=>["table_prefix"=>"wp_","options"=>[
+  ["action"=>"replace","name"=>"wprism_payment_token","replacement"=>"sandbox-payment-disabled"],
+  ["action"=>"replace","name"=>"wprism_mail_token","replacement"=>"sandbox-mail-disabled"],
+ ]],
+ "media"=>[["action"=>"remove","path"=>"private/source-media-secret.txt"]],
+ "wordpress_auth"=>[
+  "activation_key_replacement"=>"","password_replacement"=>"!wprism-sandbox-disabled!",
+  "remove_usermeta_keys"=>["_application_passwords","session_tokens"],
+ ],
+];file_put_contents($argv[1],json_encode($policy,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n");chmod($argv[1],0600);
+' "$POLICY" "$SOURCE_ENV"
 
 php -r '
 $root=$argv[1];$sandbox=$root."/sandbox";$pair=$argv[2];$state=$argv[3];$port1=(int)$argv[4];$preview=(int)$argv[5];$compose=$argv[8];
@@ -129,12 +162,13 @@ $config=[
   "proxy_container"=>"wprism-$pair-preview-proxy-1","proxy_service"=>"proxy",
   "wordpress_service"=>"wp","cli_service"=>"cli","database"=>"wprism_preview",
   "wordpress_image"=>"wordpress:7.1-php8.3-apache","cli_image"=>"wordpress:cli-php8.3","database_image"=>"mariadb:11","proxy_image"=>"nginx:1.29-alpine",
-  "mail_shim"=>$sandbox."/containment/refuse-sendmail.sh","php_ini"=>$sandbox."/containment/php.ini",
+  "cron_guard"=>$sandbox."/containment/block-cron.php","mail_shim"=>$sandbox."/containment/refuse-sendmail.sh","php_ini"=>$sandbox."/containment/php.ini",
   "proxy_config"=>$sandbox."/containment/nginx.conf",
+  "sanitization_policy"=>$argv[9],"sanitization_policy_sha256"=>hash_file("sha256",$argv[9]),
   "runtime_sources"=>["adapter_packages"=>$root."/adapter-packages","agent"=>$root."/agent","platform"=>$root."/platform"],
  ],
 ];file_put_contents($argv[7],json_encode($config,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n");
-' "$ROOT" "$PAIR" "$STATE" "$PORT1" "$PREVIEW_PORT" "$TMP/origin.git" "$CONFIG" "$COMPOSE_ROOT"
+' "$ROOT" "$PAIR" "$STATE" "$PORT1" "$PREVIEW_PORT" "$TMP/origin.git" "$CONFIG" "$COMPOSE_ROOT" "$POLICY"
 
 LIVE_MODE=materialize
 [ "$TOPOLOGY_ONLY" -eq 0 ] || LIVE_MODE=probe
@@ -154,6 +188,31 @@ fi
 if [ "$TOPOLOGY_ONLY" -eq 0 ]; then
   PREVIEW_MARKER="$(preview_compose run --rm --no-deps -T cli wp option get wprism_containment_marker)"
   [ "$PREVIEW_MARKER" = source-canary ] || fail 'preview did not receive the source snapshot'
+  PREVIEW_PAYMENT="$(preview_compose run --rm --no-deps -T cli wp option get wprism_payment_token)"
+  PREVIEW_MAIL="$(preview_compose run --rm --no-deps -T cli wp option get wprism_mail_token)"
+  [ "$PREVIEW_PAYMENT" = sandbox-payment-disabled ] || fail 'preview payment credential was not rebound to the reviewed sandbox handle'
+  [ "$PREVIEW_MAIL" = sandbox-mail-disabled ] || fail 'preview mail credential was not rebound to the reviewed sandbox handle'
+  [ "$PREVIEW_PAYMENT" != source-payment-secret-live ] && [ "$PREVIEW_PAYMENT" != independent-target-payment-secret-live ] \
+    || fail 'preview can read a source or independent-target payment credential'
+  [ "$PREVIEW_MAIL" != source-mail-secret-live ] && [ "$PREVIEW_MAIL" != independent-target-mail-secret-live ] \
+    || fail 'preview can read a source or independent-target mail credential'
+  docker exec "wprism-$PAIR-preview-wp-1" test ! -e /var/www/html/wp-content/uploads/private/source-media-secret.txt \
+    || fail 'preview can read the reviewed source media credential'
+  preview_compose run --rm --no-deps -T cli wp eval '
+$u=wp_authenticate("containment-source-user","source-auth-password-live");if(!is_wp_error($u))exit(51);
+$u=wp_authenticate("containment-source-user","independent-target-password-live");if(!is_wp_error($u))exit(52);
+$u=get_user_by("login","containment-source-user");if(!$u||$u->user_pass!=="!wprism-sandbox-disabled!"||$u->user_activation_key!=="")exit(53);
+' || fail 'a source/target password authenticates in preview or WordPress auth fields were not disabled'
+  if preview_compose run --rm --no-deps -T cli wp user meta get containment-source-user session_tokens >/dev/null 2>&1; then
+    fail 'preview retained a source WordPress session token'
+  fi
+  if preview_compose run --rm --no-deps -T cli wp user meta get containment-source-user _application_passwords >/dev/null 2>&1; then
+    fail 'preview retained a source WordPress application password'
+  fi
+  if preview_compose run --rm --no-deps -T cli wp user get independent-target-user >/dev/null 2>&1; then
+    fail 'preview contains the independent-target user authority'
+  fi
+  pass 'reviewed app/media credentials and WordPress auth/session authority are absent or disabled; independent-target credentials never enter preview'
 fi
 INTERNAL_GATEWAY="$(docker network inspect "wprism-$PAIR-preview-internal" --format '{{(index .IPAM.Config 0).Gateway}}')"
 docker exec "wprism-$PAIR-preview-wp-1" php -r '
@@ -181,8 +240,29 @@ $names=array_column($n["Containers"]??[],"Name");if($names!==[$argv[2]])exit(1);
 pass 'WP/CLI/DB stay internal; only the credential-free proxy attaches to dedicated ingress'
 
 if [ "$TOPOLOGY_ONLY" -eq 0 ]; then
+  preview_compose run --rm --no-deps -T cli wp cron event schedule wprism_containment_cron_canary now >/dev/null
+fi
+CRON_PROXY_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PREVIEW_PORT/wp-cron.php")"
+[ "$CRON_PROXY_STATUS" = 404 ] || fail 'proxy did not block direct wp-cron.php'
+if [ "$TOPOLOGY_ONLY" -eq 0 ]; then
+  CRON_DIRECT="$(docker exec "wprism-$PAIR-preview-proxy-1" wget -S -O /dev/null http://wp/wp-cron.php 2>&1 || true)"
+  printf '%s' "$CRON_DIRECT" | grep -q '404' || fail 'hash-pinned MU guard did not block direct internal wp-cron.php'
+  CRON_PENDING="$(preview_compose run --rm --no-deps -T cli wp cron event list --hook=wprism_containment_cron_canary --field=hook)"
+  [ "$CRON_PENDING" = wprism_containment_cron_canary ] || fail 'direct cron request ran the scheduled canary hook'
+  pass 'nginx and the hash-pinned MU guard both return 404; the due cron canary remains unexecuted'
+else
+  pass 'nginx returns 404 before a site is restored; topology proof hash-checks the staged MU guard'
+fi
+
+if [ "$TOPOLOGY_ONLY" -eq 0 ]; then
   [ "$(pair_wp 1 option get wprism_containment_marker)" = "$SOURCE_BEFORE" ] || fail 'source changed during rehearsal'
   [ "$(pair_wp 2 option get wprism_containment_marker)" = "$TARGET_BEFORE" ] || fail 'release target changed during rehearsal'
+  [ "$(pair_wp 1 option get wprism_payment_token)" = source-payment-secret-live ] || fail 'source payment credential changed during rehearsal'
+  [ "$(pair_wp 2 option get wprism_payment_token)" = independent-target-payment-secret-live ] || fail 'independent-target credential changed during rehearsal'
+  pair_wp 1 eval '$u=wp_authenticate("containment-source-user","source-auth-password-live");if(is_wp_error($u))exit(61);' \
+    || fail 'source WordPress credential changed during rehearsal'
+  pair_wp 2 eval '$u=wp_authenticate("independent-target-user","independent-target-password-live");if(is_wp_error($u))exit(62);' \
+    || fail 'independent-target WordPress credential changed during rehearsal'
   pass 'source and independent release target remained unchanged while preview ran'
 fi
 

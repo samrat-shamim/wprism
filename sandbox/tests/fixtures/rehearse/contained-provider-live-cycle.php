@@ -73,6 +73,7 @@ if ($mode === 'probe') {
     $fenced = $targetIdentity + $fenceInput($fence);
     $containment = $target->perform('containment-verify', $operation, $fenced + [
         'profile' => 'agency-rehearsal-v1',
+        'topology_only' => true,
     ]);
     $receipt = [
         'containment' => $containment,

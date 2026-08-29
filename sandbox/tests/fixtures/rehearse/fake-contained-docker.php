@@ -9,6 +9,7 @@ $driftPath = (string) getenv('WPRISM_CONTAINED_FAKE_DRIFT');
 $cliDriftPath = (string) getenv('WPRISM_CONTAINED_FAKE_CLI_DRIFT');
 if ($statePath === '' || $logPath === '') exit(90);
 $arguments = array_slice($_SERVER['argv'] ?? [], 1);
+$stdin = (string) stream_get_contents(STDIN);
 file_put_contents($logPath, json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n", FILE_APPEND | LOCK_EX);
 $state = is_file($statePath)
     ? json_decode((string) file_get_contents($statePath), true, 512, JSON_THROW_ON_ERROR)
@@ -32,6 +33,16 @@ $proxyName = "$project-proxy-1";
 $databaseId = str_repeat('d', 64);
 $wordpressId = str_repeat('a', 64);
 $proxyId = str_repeat('7', 64);
+$sourceDatabaseDump = "CREATE TABLE `wp_options` (`option_id` bigint unsigned NOT NULL,`option_name` varchar(191) NOT NULL,`option_value` longtext NOT NULL,`autoload` varchar(20) NOT NULL);\n"
+    . "INSERT INTO `wp_options` VALUES (1,'siteurl','http://127.0.0.1:8181','yes');\n"
+    . "INSERT INTO `wp_options` VALUES (2,'wprism_payment_token','source-payment-secret-0001','no');\n"
+    . "INSERT INTO `wp_options` VALUES (3,'wprism_mail_token','source-mail-secret-0001','no');\n"
+    . "CREATE TABLE `wp_users` (`ID` bigint unsigned NOT NULL);\n"
+    . "INSERT INTO `wp_users` VALUES (1,'admin','source-password-hash-0001','admin','admin@example.invalid','','2026-01-01 00:00:00','source-activation-key-0001',0,'Admin');\n"
+    . "CREATE TABLE `wp_usermeta` (`umeta_id` bigint unsigned NOT NULL);\n"
+    . "INSERT INTO `wp_usermeta` VALUES (1,1,'session_tokens','source-session-token-0001');\n"
+    . "INSERT INTO `wp_usermeta` VALUES (2,1,'_application_passwords','source-application-password-0001');\n"
+    . "INSERT INTO `wp_usermeta` VALUES (3,1,'ordinary_profile','ordinary-value');\n";
 
 $phpBase = [
     'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
@@ -112,6 +123,7 @@ $wpMounts = [
     $mount('bind', $value('WPRISM_PREVIEW_AGENT_SRC'), '/var/www/html/wp-content/mu-plugins/wprism', false),
     $mount('bind', $value('WPRISM_PREVIEW_AGENT_SRC') . '/wprism-loader.php', '/var/www/html/wp-content/mu-plugins/wprism-loader.php', false),
     $mount('bind', $value('WPRISM_PREVIEW_ADAPTER_PACKAGES_SRC'), '/var/www/html/wp-content/mu-plugins/adapter-packages', false),
+    $mount('bind', $value('WPRISM_PREVIEW_CRON_GUARD'), '/var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php', false),
     $mount('bind', $value('WPRISM_PREVIEW_PLATFORM_SRC'), '/var/www/html/wp-content/mu-plugins/platform', false),
     $mount('bind', $value('WPRISM_PREVIEW_REPO'), '/siterepo', true),
     $mount('bind', $value('WPRISM_PREVIEW_MAIL_SHIM'), '/usr/local/bin/wprism-refuse-sendmail', false),
@@ -186,7 +198,7 @@ if (($arguments[0] ?? null) === 'compose') {
             'WPRISM_PREVIEW_DB_NAME', 'WPRISM_PREVIEW_DB_PASSWORD', 'WPRISM_PREVIEW_DB_ROOT_PASSWORD',
             'WPRISM_PREVIEW_DB_USER', 'WPRISM_PREVIEW_MAIL_SHIM', 'WPRISM_PREVIEW_PHP_INI',
             'WPRISM_PREVIEW_PLATFORM_SRC', 'WPRISM_PREVIEW_PORT', 'WPRISM_PREVIEW_REPO',
-            'WPRISM_PREVIEW_PROXY_CONFIG',
+            'WPRISM_PREVIEW_PROXY_CONFIG', 'WPRISM_PREVIEW_CRON_GUARD',
         ] as $key) {
             $state['runtime'][$key] = (string) getenv($key);
         }
@@ -213,6 +225,7 @@ if (($arguments[0] ?? null) === 'compose') {
             ['type' => 'bind', 'source' => $value('WPRISM_PREVIEW_AGENT_SRC'), 'target' => '/var/www/html/wp-content/mu-plugins/wprism', 'read_only' => true],
             ['type' => 'bind', 'source' => $value('WPRISM_PREVIEW_AGENT_SRC') . '/wprism-loader.php', 'target' => '/var/www/html/wp-content/mu-plugins/wprism-loader.php', 'read_only' => true],
             ['type' => 'bind', 'source' => $value('WPRISM_PREVIEW_ADAPTER_PACKAGES_SRC'), 'target' => '/var/www/html/wp-content/mu-plugins/adapter-packages', 'read_only' => true],
+            ['type' => 'bind', 'source' => $value('WPRISM_PREVIEW_CRON_GUARD'), 'target' => '/var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php', 'read_only' => true],
             ['type' => 'bind', 'source' => $value('WPRISM_PREVIEW_PLATFORM_SRC'), 'target' => '/var/www/html/wp-content/mu-plugins/platform', 'read_only' => true],
             ['type' => 'bind', 'source' => $value('WPRISM_PREVIEW_REPO'), 'target' => '/siterepo'],
             ['type' => 'bind', 'source' => $value('WPRISM_PREVIEW_MAIL_SHIM'), 'target' => '/usr/local/bin/wprism-refuse-sendmail', 'read_only' => true],
@@ -304,6 +317,13 @@ if (($arguments[0] ?? null) === 'compose') {
             echo "GRANT USAGE ON *.* TO `fixture`@`%`\n";
             $grantDatabase = strtr($value('WPRISM_PREVIEW_DB_NAME'), ['\\' => '\\\\', '_' => '\\_', '%' => '\\%']);
             echo 'GRANT ALL PRIVILEGES ON `' . $grantDatabase . '`.* TO `fixture`@`%`' . "\n";
+        } elseif (str_contains($joined, 'mariadb-dump')) {
+            echo (string) ($state['restored_dump'] ?? '');
+        } elseif (str_contains($joined, 'exec mariadb -uroot')) {
+            if (!str_starts_with($stdin, 'DROP DATABASE')) {
+                $state['restored_dump'] = $stdin;
+                $save($state);
+            }
         }
         exit(0);
     }
@@ -364,11 +384,29 @@ if (($arguments[0] ?? null) === 'ps') {
     exit(0);
 }
 if (($arguments[0] ?? null) === 'port') {
+    if (($arguments[1] ?? null) === 'wprism-mup-wp1-1') {
+        echo "127.0.0.1:8181\n";
+        exit(0);
+    }
     if (!$state['proxy']) exit(1);
     echo '127.0.0.1:' . $value('WPRISM_PREVIEW_PORT') . "\n";
     exit(0);
 }
+if (($arguments[0] ?? null) === 'cp') {
+    $source = (string) ($arguments[1] ?? '');
+    $destination = (string) ($arguments[2] ?? '');
+    if ($source === 'wprism-mup-wp1-1:/var/www/html/wp-content/uploads/.') {
+        if (!is_dir($destination . '/private') && !mkdir($destination . '/private', 0700, true)) exit(93);
+        file_put_contents($destination . '/ordinary.txt', "ordinary-media\n");
+        file_put_contents($destination . '/private/source-media-secret.txt', "source-media-secret-0001\n");
+    }
+    exit(0);
+}
 if (($arguments[0] ?? null) === 'exec') {
+    if (($arguments[1] ?? null) === 'wprism-shared-db' && in_array('mariadb-dump', $arguments, true)) {
+        echo $sourceDatabaseDump;
+        exit(0);
+    }
     if (in_array('cat', $arguments, true) && in_array('/proc/net/route', $arguments, true)) {
         echo "Iface\tDestination\tGateway\tFlags\neth0\t00A3A8C0\t00000000\t0001\n";
         exit(0);
@@ -381,8 +419,10 @@ if (($arguments[0] ?? null) === 'exec') {
         } else {
             $mail = $value('WPRISM_PREVIEW_MAIL_SHIM');
             $ini = $value('WPRISM_PREVIEW_PHP_INI');
+            $cron = $value('WPRISM_PREVIEW_CRON_GUARD');
             echo hash_file('sha256', $mail) . "  /usr/local/bin/wprism-refuse-sendmail\n";
             echo hash_file('sha256', $ini) . "  /usr/local/etc/php/conf.d/zz-wprism-containment.ini\n";
+            echo hash_file('sha256', $cron) . "  /var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php\n";
         }
     }
     exit(0);
