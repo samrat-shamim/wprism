@@ -26,7 +26,7 @@ use PHPUnit\Framework\TestCase;
  *   - a renamed member of the signed statement fails the same way, proving the
  *     closed key sets are read out of the `assertExactKeys()` call sites;
  *   - a new `sodium_crypto_sign_detached()` call site fails the completeness
- *     gate, so a fourth signed surface cannot ship unregistered;
+ *     gate, so another signed surface cannot ship unregistered;
  *   - a THIRD expiry member appearing in AdapterCertification fails the gate
  *     that backs row R-14, which records the certification engine's expiry
  *     vocabulary as EXACTLY `not_after`/`not_before` (WP-4.8 turned that row
@@ -188,7 +188,7 @@ final class WireSurfaceTest extends TestCase
         $path = (string) self::$fixture . '/cli/src/Contract/WireSurfaceProbeSigner.php';
         file_put_contents(
             $path,
-            "<?php\n// A fourth signing surface, added without a register row.\n"
+            "<?php\n// Another signing surface, added without a register row.\n"
                 . "function wprism_wire_surface_probe_sign(string \$m, string \$k): string {\n"
                 . "    return sodium_crypto_sign_detached(\$m, \$k);\n}\n"
         );

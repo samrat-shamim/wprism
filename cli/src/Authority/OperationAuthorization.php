@@ -267,7 +267,7 @@ final class OperationAuthorization {
 
     /** @param array<string,mixed> $trust */
     public static function validateTrust(array $trust): void {
-        self::closedKeys(
+        self::assertExactKeys(
             $trust,
             ['format', 'keys', 'max_clock_skew_seconds', 'max_ttl_seconds'],
             'operation authority policy'
@@ -300,7 +300,7 @@ final class OperationAuthorization {
                     'repair the named authority record before preparing or executing an operation'
                 );
             }
-            self::closedKeys(
+            self::assertExactKeys(
                 $record,
                 ['actor', 'algorithm', 'grants', 'operations', 'public_key', 'status'],
                 "operation authority key '$keyId'"
@@ -327,7 +327,7 @@ final class OperationAuthorization {
 
     /** @param array<string,mixed> $envelope */
     public static function validateEnvelopeShape(array $envelope): void {
-        self::closedKeys($envelope, ['format', 'signature', 'statement'], 'operation authorization');
+        self::assertExactKeys($envelope, ['format', 'signature', 'statement'], 'operation authorization');
         if (($envelope['format'] ?? null) !== self::FORMAT
             || !is_string($envelope['signature'] ?? null)
             || !is_array($envelope['statement'] ?? null)
@@ -348,7 +348,7 @@ final class OperationAuthorization {
 
     /** @param array<string,mixed> $statement */
     public static function validateStatement(array $statement): void {
-        self::closedKeys($statement, [
+        self::assertExactKeys($statement, [
             'actor', 'expires_at', 'issued_at', 'key_id', 'nonce', 'operation', 'operation_id',
             'presentation_digest', 'subject_digest', 'target_id',
         ], 'operation authorization statement');
@@ -374,7 +374,7 @@ final class OperationAuthorization {
 
     /** @param array<string,mixed> $subject */
     private static function validateSubjectProjection(array $subject): void {
-        self::closedKeys($subject, [
+        self::assertExactKeys($subject, [
             'authority_policy_digest', 'operation', 'operation_id', 'presentation_digest',
             'required_grants', 'subject_digest', 'target_id',
         ], 'authorization subject projection');
@@ -398,7 +398,7 @@ final class OperationAuthorization {
      * @param array<string,mixed> $document
      * @param list<string> $expected
      */
-    private static function closedKeys(array $document, array $expected, string $label): void {
+    private static function assertExactKeys(array $document, array $expected, string $label): void {
         $actual = array_keys($document);
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);

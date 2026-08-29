@@ -31,10 +31,11 @@ statement of another?
 | `wprism-adapter-authority-delegations/v1` | `wprism-adapter-authority-delegation-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — one delegation statement — the grant, both key identities and the window | `AdapterCertification::SIGNATURE_DOMAIN_DELEGATION` |
 | `wprism-adapter-authority-revocations/v1` | `wprism-adapter-authority-revocation-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole revocation statement — every entry at once, so no row can be dropped | `AdapterCertification::SIGNATURE_DOMAIN_REVOCATION` |
 | contract attestation (`wprism-contract-attestation/v1`) | `wprism-contract-attestation-signature/v1\0` | domain &#124;&#124; `Canon::encode({attested_digest, format})` | `ContractAttestation::SIGNATURE_DOMAIN` |
+| operation authorization (`wprism-operation-authorization/v1`) | `wprism-operation-authorization-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole ten-member actor/operation/target subject | `OperationAuthorization::SIGNATURE_DOMAIN` |
 | rollback receipt / event (`wprism-rollback-receipt/v2`, `wprism-rollback-event/v1`) | **none** — proved at generation time | `CanonicalJson::encode(payload)` with nothing prepended | `RollbackControl::sign()` |
 
-The first three are separated by construction, and the checker refuses the run if any one of
-them is a prefix of another. The last is not separated at all, and R-03 is where that decision
+Every domain-prefixed surface is separated by construction, and the checker refuses the run if
+any one is a prefix of another. Rollback alone is not separated, and R-03 is where that decision
 and its cost are written down.
 
 ## 2. The register
@@ -63,9 +64,9 @@ and its cost are written down.
 
 **Reserved.** A v3 payload may carry a domain member INSIDE the payload: additive, still canonical, and old signatures keep verifying. The prefix channel is spent.
 
-### R-04 — Both domains end in NUL, and neither is a prefix of the other
+### R-04 — Every separated domain ends in NUL, and none is a prefix of another
 
-**Shipped now.** Checked at generation time against the two projected constants.
+**Shipped now.** Checked at generation time against every projected domain constant.
 
 **Why it cannot change.** The trailing NUL is inside the signed bytes; it is what stops one domain from being a prefix of a longer one and turning a statement of one kind into a valid statement of another. Removing it from either domain is a domain change (R-01).
 
@@ -103,13 +104,13 @@ and its cost are written down.
 
 **Reserved.** A future root chooses one of these two bindings at the moment its first certificate is signed, and never after. There is no third choice, because the scope lists are either inside the signature or enforced live, and doing both is the first option. The same one-way rule is why dropping the window was decidable NOW and never again: a NARROWING admits certificates the wider binding refused, so it may only be made while the root has signed nothing — and this one has not.
 
-### R-09 — The two authority record key sets, and why they are two files
+### R-09 — The authority record key sets stay in decision-specific files
 
-**Shipped now.** Adapter root (`wprism-adapter-authorities/v1`): `{adapter_names, algorithm, public_key, scope, status, trust_tiers}`, and at `wprism-adapter-authorities/v2` the nine of R-18. Contract root (`wprism-contract-attestation-authorities/v1`, at `.wprism/contract/authorities.json`): the four members derived by probe below, scope `contract_attestation`.
+**Shipped now.** Adapter root (`wprism-adapter-authorities/v1`): `{adapter_names, algorithm, public_key, scope, status, trust_tiers}`, and at `wprism-adapter-authorities/v2` the nine of R-18. Contract root (`wprism-contract-attestation-authorities/v1`, at `.wprism/contract/authorities.json`): the four members derived by probe below, scope `contract_attestation`. External operation root (`wprism-operation-authorities/v1`, at `.wprism/authority/authorities.json`): `{actor, algorithm, grants, operations, public_key, status}`.
 
-**Why it cannot change.** The adapter root requires `adapter_names` and `trust_tiers` on EVERY record and validates the whole file the moment it exists, so a single contract-scoped record in that file breaks every adapter certificate in the repository. The two roots can never be merged; each record set can never gain a member, because both are closed in both directions.
+**Why it cannot change.** The adapter root requires `adapter_names` and `trust_tiers` on EVERY record and validates the whole file the moment it exists, so a contract- or operation-scoped record in that file breaks every adapter certificate in the repository. These roots can never be merged; each record set can never gain a member, because all are closed in both directions.
 
-**Reserved.** A third scope word means a third file. That is the shape, and it is already load-bearing.
+**Reserved.** Another scope word means another file. That is the shape, and it is already load-bearing.
 
 ### R-10 — The authorities envelope, and `keys` as a JSON object
 
@@ -119,11 +120,11 @@ and its cost are written down.
 
 **Reserved.** A revocation list (R-15) cannot be added to this envelope: its key set is closed. It needs a new `format` value — which is exactly the channel `wprism-adapter-authorities/v2` used to add the envelope signature (R-18).
 
-### R-11 — Three key-id grammars, and they disagree
+### R-11 — Four key-id grammars, and they disagree
 
-**Shipped now.** Adapter root: `AdapterSources::assert_name()` — lowercase slugs only, must start and end alphanumeric, at least one lowercase letter. Contract root: `/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D`. Recovery root: `[A-Za-z0-9._-]{1,64}`, which admits a leading separator and carries a length bound the adapter root does not have at all. The matrix below is the shipped verdict of each, probe by probe.
+**Shipped now.** Adapter root: `AdapterSources::assert_name()` — lowercase slugs only, must start and end alphanumeric, at least one lowercase letter. Contract root: `/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D`. Recovery root: `[A-Za-z0-9._-]{1,64}`, which admits a leading separator and carries a length bound the adapter root does not have at all. Operation root: `/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D`. The matrix below is the shipped verdict of each, probe by probe.
 
-**Why it cannot change.** A key id is an object-map key in signed documents, the `key_id` member inside a signed statement, and — in the recovery root — a FILENAME (`public-keys/<key_id>.pub`). Narrowing any of the three orphans installed keys and every artifact they signed; widening one makes an id legal in one root and unreadable in another. The divergence itself is now permanent: unifying them would narrow at least two of the three.
+**Why it cannot change.** A key id is an object-map key in signed documents, the `key_id` member inside a signed statement, and — in the recovery root — a FILENAME (`public-keys/<key_id>.pub`). Narrowing any of the four orphans installed keys and every artifact they signed; widening one makes an id legal in one root and unreadable in another. The divergence itself is now permanent: unifying them would narrow at least two of the four.
 
 **Reserved.** A future root may narrow at MINT time (refusing to register a key id) without touching what verification accepts. That is the only safe direction.
 
@@ -135,19 +136,19 @@ and its cost are written down.
 
 **Reserved.** Nothing. A wider name grammar is a wider filename grammar.
 
-### R-13 — Two trust roots, and the shipped library wins the key-id namespace
+### R-13 — Trust roots are separated by decision, and the shipped library wins its namespace
 
-**Shipped now.** Adapter certification: `platform` and `site`. Contract attestation: `site` only — a platform-rooted contract attestation refuses by name (`contract_attestation_trust_root_unsupported`). A site certificate may never claim a key id the shipped file reviews.
+**Shipped now.** Adapter certification: `platform` and `site`. Contract attestation: `site` only — a platform-rooted contract attestation refuses by name (`contract_attestation_trust_root_unsupported`). External operation authority: `.wprism/authority/authorities.json` only, with its own actor, operation and grant scope. A site certificate may never claim a key id the shipped file reviews.
 
 **Why it cannot change.** The `trust_root` word is inside the signed statement and is what a host prints beside a certified claim. The shipped-wins rule needs no repository to evaluate, which is what lets frozen verification enforce it; relaxing it would let a site key answer for a reviewed identity in an artifact already frozen.
 
-**Reserved.** A third root is a new VALUE in a member that already exists — admitted without a schema change, which is why the refusal for an unsupported one is by name.
+**Reserved.** Another adapter-certificate root is a new VALUE in a member that already exists — admitted without a schema change, which is why the refusal for an unsupported one is by name. It does not widen the separate contract or operation authority files.
 
-### R-14 — Expiry exists on two surfaces, reads one clock, and allows no skew
+### R-14 — Expiry semantics are signed and specific to each authority surface
 
-**Shipped now.** Contract attestation: `expires_at` is mandatory, grammar `Y-m-d\TH:i:s\Z` (UTC seconds, checked at both ends so "expired" is never a parse accident), compared against `$now ?? time()` and refused at `>=`. Adapter certification: the expiry vocabulary is EXACTLY `not_after`/`not_before`, mandatory on a `wprism-adapter-authorities/v2` authority record and absent from a v1 one, the identical grammar string, compared against the identical `$now ?? time()` and refused at `>=` — all four facts checked by grep, not asserted. Recovery: `claim_expires_at` bounds a claimant epoch, never a signature.
+**Shipped now.** Contract attestation: `expires_at` is mandatory, grammar `Y-m-d\TH:i:s\Z` (UTC seconds, checked at both ends so "expired" is never a parse accident), compared against `$now ?? time()` and refused at `>=`. Adapter certification: the expiry vocabulary is EXACTLY `not_after`/`not_before`, mandatory on a `wprism-adapter-authorities/v2` authority record and absent from a v1 one, the identical grammar string, compared against the identical `$now ?? time()` and refused at `>=` — all four facts checked by grep, not asserted. Operation authorization: signed `issued_at` and `expires_at` UTC seconds are checked against an explicit verification clock, with the trust policy bounding TTL and future-clock skew; expiry itself has no grace. Recovery: `claim_expires_at` bounds a claimant epoch, never a signature.
 
-**Why it cannot change.** An expired attestation or authority REFUSES; it never silently becomes an unsigned one, because a silent downgrade would make a stale claim indistinguishable from a fresh one at every consumer. There is no skew tolerance in either direction: a wrong operator clock refuses rather than accepts, which is the safe failure and is now the behaviour holders depend on. The adapter root additionally refuses an IMPLAUSIBLE clock — one reading before the record's own `not_before` — BEFORE it tests expiry, because a backwards clock would otherwise find every retired record inside its window; G2-FIXES C1 gave the typed revocation channel the same test against its own `issued_at`, where the failure was OPEN (a backwards clock read an in-force revocation as merely scheduled). WHAT NO CLOCK TEST CAN CLOSE, recorded rather than left to be discovered: a host clock set INSIDE a lapsed window resurrects what that window retired, because both tests read the same wall clock and no clock can witness its own wrongness. Closing it needs a monotonic anchor this product does not have — a signed time beacon, or persisted state the agent refuses to move backwards — and both are new permanent decisions rather than fixes. What IS bounded is the blast radius: since G2-FIXES C3 an expired authority WITHDRAWS the adapters it certified to uncertified instead of refusing the whole site source.
+**Why it cannot change.** An expired attestation or authority REFUSES; it never silently becomes an unsigned one, because a silent downgrade would make a stale claim indistinguishable from a fresh one at every consumer. There is no skew tolerance in either direction: a wrong operator clock refuses rather than accepts, which is the safe failure and is now the behaviour holders depend on. The adapter root additionally refuses an IMPLAUSIBLE clock — one reading before the record's own `not_before` — BEFORE it tests expiry, because a backwards clock would otherwise find every retired record inside its window; G2-FIXES C1 gave the typed revocation channel the same test against its own `issued_at`, where the failure was OPEN (a backwards clock read an in-force revocation as merely scheduled). WHAT NO CLOCK TEST CAN CLOSE, recorded rather than left to be discovered: a host clock set INSIDE a lapsed window resurrects what that window retired, because both tests read the same wall clock and no clock can witness its own wrongness. Closing it needs a monotonic anchor this product does not have — a signed time beacon, or persisted state the agent refuses to move backwards — and both are new permanent decisions rather than fixes. What IS bounded is the blast radius: since G2-FIXES C3 an expired authority WITHDRAWS the adapters it certified to uncertified instead of refusing the whole site source. Operation authorization never downgrades to an interactive prompt: stale or future-dated authority refuses.
 
 **Reserved.** Expiry on the CERTIFICATE itself, as opposed to the authority that signed it, is still a statement member (R-06) and therefore a new format, not a field. A future skew allowance would have to be a REFUSAL widening, which no deployed verifier would apply to an artifact it already holds.
 
@@ -287,24 +288,32 @@ and its cost are written down.
 
 **Reserved.** A FOURTH arm is refused, not reserved: a disposition entry has exactly two section lists (`entity_sections`, `field_sections`) and `non_surface` is the honest name for "in neither", so a fourth would need a disposition member that does not exist and a claim projection that does not read one. Also refused rather than reserved: a roster row naming a key the signer's own partition already carries — that is two spellings of one arm and `feature_key_arms()` throws on it. What IS reserved is the per-manifest scope: the arm is read for the keys a manifest's own declared, implemented features claim, never engine-wide, because a certificate may not claim coverage of a section this engine reads nothing from.
 
+### R-32 — External mutation authority binds one actor, operation, target and immutable subject
+
+**Shipped now.** `wprism-operation-authorization/v1` signs `{actor, expires_at, issued_at, key_id, nonce, operation, operation_id, presentation_digest, subject_digest, target_id}` under `wprism-operation-authorization-signature/v1\0`. Its envelope is `{format, signature, statement}`; its separate `wprism-operation-authorities/v1` policy is `{format, keys, max_clock_skew_seconds, max_ttl_seconds}`. The signed statement binds the presentation digest as well as the machine subject digest, so an actor authorizes the exact plan they saw. Only `recovery`, `release` are admitted.
+
+**Why it cannot change.** Changing any statement member changes the bytes a holder signed. Dropping actor, operation id, target id, nonce, subject digest, presentation digest, issuance or expiry would turn an authorization for one human-visible mutation into authority for another. The trust file is deliberately disjoint from adapter, contract and rollback keys, so reusing one of those keys cannot silently grant external mutation authority.
+
+**Reserved.** A new statement shape or signature framing uses a new `/vN` format and domain, verified beside v1. New operation kinds require both a validator release and an explicit enrolled operation scope; an unknown value is refused. One-time consumption and terminal outcome records are target state outside the signature, so their evolution cannot broaden what these signed bytes authorize.
+
 ## 3. The grammars, as the shipped validators answer them
 
-### 3.1 Key ids, three roots
+### 3.1 Key ids, four roots
 
 Each cell is the verdict of the named validator on that exact probe, obtained by calling it.
 
-| probe | adapter root | contract root | recovery root |
-|---|---|---|---|
-| `wpforms` | accepted | accepted | accepted |
-| `acme.key_1` | accepted | accepted | accepted |
-| `Acme-Key` | refused | accepted | accepted |
-| `2026` | refused | accepted | accepted |
-| `a` | accepted | accepted | accepted |
-| `-leading` | refused | refused | accepted |
-| `trailing-` | refused | accepted | accepted |
-| `kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk` | accepted | refused | refused |
-| `has space` | refused | refused | refused |
-| (empty) | refused | refused | refused |
+| probe | adapter root | contract root | operation root | recovery root |
+|---|---|---|---|---|
+| `wpforms` | accepted | accepted | accepted | accepted |
+| `acme.key_1` | accepted | accepted | accepted | accepted |
+| `Acme-Key` | refused | accepted | accepted | accepted |
+| `2026` | refused | accepted | accepted | accepted |
+| `a` | accepted | accepted | accepted | accepted |
+| `-leading` | refused | refused | refused | accepted |
+| `trailing-` | refused | accepted | accepted | accepted |
+| `kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk` | accepted | refused | refused | refused |
+| `has space` | refused | refused | refused | refused |
+| (empty) | refused | refused | refused | refused |
 
 ### 3.2 The contract authority record, derived from its own refusals
 
@@ -323,7 +332,7 @@ closed set is derived the only honest way: by asking it.
 
 ## 4. Every closed key set the signing runtimes decide
 
-Projected from the call sites that decide them: the three signing files, plus the contract
+Projected from the call sites that decide them: the four signing files, plus the contract
 attestation object itself. Not every row is inside a signature — the recovery runtime's
 request envelope and target record are store shapes — but every one of them refuses a
 MISSING key and an UNKNOWN key with the same failure, so each row is a set that cannot gain a
@@ -373,6 +382,11 @@ regenerates this document and, in doing so, reads the change.
 | `agent/src/Adapter/AdapterCertification.php` | `validateDisposition()` | `site adapter disposition '$name'.evidence` | `bundle_schema`, `tests` |
 | `agent/src/Adapter/AdapterCertification.php` | `validateDisposition()` | `site adapter disposition '$name'.unsupported[$i]` | `operation`, `reason`, `surface` |
 | `agent/src/Adapter/AdapterCertification.php` | `validateDisposition()` | `site adapter disposition '$name'.default_authored_keyspaces[$i]` | `reason`, `status`, `table` |
+| `cli/src/Authority/OperationAuthorization.php` | `validateTrust()` | `operation authority policy` | `format`, `keys`, `max_clock_skew_seconds`, `max_ttl_seconds` |
+| `cli/src/Authority/OperationAuthorization.php` | `validateTrust()` | `operation authority key '$keyId'` | `actor`, `algorithm`, `grants`, `operations`, `public_key`, `status` |
+| `cli/src/Authority/OperationAuthorization.php` | `validateEnvelopeShape()` | `operation authorization` | `format`, `signature`, `statement` |
+| `cli/src/Authority/OperationAuthorization.php` | `validateStatement()` | `operation authorization statement` | `actor`, `expires_at`, `issued_at`, `key_id`, `nonce`, `operation`, `operation_id`, `presentation_digest`, `subject_digest`, `target_id` |
+| `cli/src/Authority/OperationAuthorization.php` | `validateSubjectProjection()` | `authorization subject projection` | `authority_policy_digest`, `operation`, `operation_id`, `presentation_digest`, `required_grants`, `subject_digest`, `target_id` |
 | `recovery/rollback-control.php` | `handleRequest()` | `request` | `action`, `event`, `receipt` |
 | `recovery/rollback-control.php` | `verifySigned()` | `signed $label` | `key_id`, `payload`, `signature` |
 | `recovery/rollback-control.php` | `validateReceipt()` | `receipt payload` (`RECEIPT_KEYS`) | `adapter_versions_sha256`, `artifact_hash`, `checkpoint_sha256`, `claim_ttl_seconds`, `code_release_metadata_sha256`, `created_at`, `encryption_key_id`, `exclusion_token_sha256`, `format`, `generation`, `ledger_session_sha256`, `lifecycle_receipts_sha256`, `owner`, `prior_code_descriptor_sha256`, `prior_verifier_inputs_sha256`, `receipt_id`, `resources_inventory_sha256`, `retention_until`, `runtime_fingerprints_sha256`, `signing_key_id`, `target_id`, `uploads_inventory_sha256` |
@@ -390,7 +404,7 @@ printing a register it cannot stand behind:
    byte-compared; a moved constant, a renamed key, a widened grammar or a reworded refusal
    fails with the first differing line named.
 2. **No signed surface is missing.** Every `sodium_crypto_sign_detached()` call site in
-   `agent/`, `cli/` and `recovery/` is in a file this register covers — 3 today.
+   `agent/`, `cli/` and `recovery/` is in a file this register covers — 4 today.
 3. **No unregistered domain exists.** Every `wprism-…-signature/vN` literal in those trees is
    one of the domains in §1, and none is a prefix of another.
 4. **The bounded vocabularies are still bounded.** `AdapterCertification`'s expiry
@@ -424,7 +438,7 @@ printing a register it cannot stand behind:
     membership equals the shipped library exactly: 17 adapter
     names and 20 `id_kind`s, in both directions, so a seventeenth unprefixed name is a reviewed
     edit rather than a file appearing in a directory (R-27).
-11. **The register has no gaps and no duplicates.** Row ids run R-01 … R-31 with every integer
+11. **The register has no gaps and no duplicates.** Row ids run R-01 … R-32 with every integer
     present exactly once. Ids are ordinal bookkeeping — nothing on disk or in a certificate
     embeds one — but an id nobody can account for reads as a row somebody deleted, and this
     document is the only place a deleted decision would be missed.

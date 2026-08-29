@@ -123,6 +123,7 @@ require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/agent/src/Kernel/ReferenceKindGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/cli/src/Contract/ContractAttestation.php';
+require_once $repo . '/cli/src/Authority/OperationAuthorization.php';
 // WP-5.6's index format. Loaded for its own constants only: the row below
 // reads the format string, the closed key sets and the transport list by
 // reflection, so a member added to the entry grammar moves this document
@@ -154,14 +155,16 @@ use WPrism\IdentityNamespaces;
 use WPrism\Orchestrator\AdapterDistribution;
 use WPrism\Orchestrator\ApplicationContract;
 use WPrism\Orchestrator\ContractAttestation;
+use WPrism\Orchestrator\OperationAuthorization;
 use WPrism\Recovery\CanonicalJson;
 use WPrism\Recovery\RollbackControl;
 use WPrism\ReferenceKindGrammar;
 use WPrism\StructuredEvidence;
 
-/** The three files that own an Ed25519 signature, relative to the repo root. */
+/** The four files that own an Ed25519 signature, relative to the repo root. */
 const WS_SIGNING_FILES = [
     'agent/src/Adapter/AdapterCertification.php',
+    'cli/src/Authority/OperationAuthorization.php',
     'cli/src/Contract/ContractAttestation.php',
     'recovery/rollback-control.php',
 ];
@@ -376,9 +379,9 @@ function ws_key_set_label(string $argument, string $function): string {
 }
 
 /**
- * Gate 1: no signed surface exists outside the three registered files.
+ * Gate 1: no signed surface exists outside the registered files.
  *
- * A fourth signing site would be a fourth set of permanent decisions with no
+ * Another signing site would be another set of permanent decisions with no
  * register row, which is the exact failure this document exists to prevent.
  */
 function ws_assert_signing_files(string $repo): void {
@@ -973,6 +976,32 @@ function ws_signature_inputs(): array {
         'source' => '`ContractAttestation::SIGNATURE_DOMAIN`',
     ];
 
+    $operationStatement = [
+        'actor' => 'orbit:user:wire-surface',
+        'expires_at' => '2030-01-01T00:05:00Z',
+        'issued_at' => '2030-01-01T00:00:00Z',
+        'key_id' => 'wire-surface-key',
+        'nonce' => 'wire-surface-nonce-0001',
+        'operation' => 'release',
+        'operation_id' => 'release:wire-surface',
+        'presentation_digest' => 'sha256:' . str_repeat('1', 64),
+        'subject_digest' => 'sha256:' . str_repeat('2', 64),
+        'target_id' => 'wprism-target:' . str_repeat('3', 64),
+    ];
+    $operationDomain = OperationAuthorization::SIGNATURE_DOMAIN;
+    $operationInput = OperationAuthorization::signingBytes($operationStatement);
+    if (!str_starts_with($operationInput, $operationDomain)
+        || substr($operationInput, strlen($operationDomain)) !== Canon::encode($operationStatement)) {
+        ws_fail('the operation authorization signature input is no longer domain . Canon::encode(statement)');
+    }
+    $rows[] = [
+        'surface' => 'operation authorization (`' . OperationAuthorization::FORMAT . '`)',
+        'domain' => '`' . ws_bytes($operationDomain) . '`',
+        'input' => 'domain &#124;&#124; `Canon::encode(statement)` — the whole '
+            . ws_spelled(count($operationStatement)) . '-member actor/operation/target subject',
+        'source' => '`OperationAuthorization::SIGNATURE_DOMAIN`',
+    ];
+
     $rows[] = [
         'surface' => 'rollback receipt / event (`' . RollbackControl::RECEIPT_FORMAT . '`, `'
             . RollbackControl::EVENT_FORMAT . '`)',
@@ -1021,7 +1050,7 @@ function ws_probe_value(string $class, string $method, array $args): mixed {
  * leading hyphen, a numeric-only id, a 65th character — because the register's
  * claim is not "there is a grammar" but "there are three and they differ".
  *
- * @return array{corpus:list<string>,rows:list<array{probe:string,adapter:string,contract:string,rollback:string}>}
+ * @return array{corpus:list<string>,rows:list<array{probe:string,adapter:string,contract:string,operation:string,rollback:string}>}
  */
 function ws_key_id_matrix(): array {
     $corpus = [
@@ -1038,10 +1067,23 @@ function ws_key_id_matrix(): array {
                 . 'records them as the one AdapterSources::assert_name() grammar'
             );
         }
+        $operationStatement = [
+            'actor' => 'orbit:user:wire-surface',
+            'expires_at' => '2030-01-01T00:05:00Z',
+            'issued_at' => '2030-01-01T00:00:00Z',
+            'key_id' => $probe,
+            'nonce' => 'wire-surface-nonce-0001',
+            'operation' => 'release',
+            'operation_id' => 'release:wire-surface',
+            'presentation_digest' => 'sha256:' . str_repeat('1', 64),
+            'subject_digest' => 'sha256:' . str_repeat('2', 64),
+            'target_id' => 'wprism-target:' . str_repeat('3', 64),
+        ];
         $rows[] = [
             'probe' => $probe === '' ? '(empty)' : '`' . $probe . '`',
             'adapter' => ws_verdict($adapter),
             'contract' => ws_verdict(ws_probe(ContractAttestation::class, 'assertKeyId', [$probe])),
+            'operation' => ws_verdict(ws_probe(OperationAuthorization::class, 'validateStatement', [$operationStatement])),
             'rollback' => ws_verdict(ws_probe(RollbackControl::class, 'assertKeyId', [$probe])),
         ];
     }
@@ -1102,6 +1144,7 @@ function ws_rows(): array {
     $adapterDomain = (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN');
     $contractDomain = (string) ws_const(ContractAttestation::class, 'SIGNATURE_DOMAIN');
     $keyIdPattern = (string) ws_const(ContractAttestation::class, 'KEY_ID_PATTERN');
+    $operationKeyPattern = (string) ws_const(OperationAuthorization::class, 'KEY_PATTERN');
     $expires = (string) ws_const(ContractAttestation::class, 'EXPIRES_FORMAT');
     $sets = ws_indexed_key_sets();
     $rows = [];
@@ -1156,8 +1199,8 @@ function ws_rows(): array {
     ];
     $rows[] = [
         'id' => 'R-04',
-        'title' => 'Both domains end in NUL, and neither is a prefix of the other',
-        'now' => 'Checked at generation time against the two projected constants.',
+        'title' => 'Every separated domain ends in NUL, and none is a prefix of another',
+        'now' => 'Checked at generation time against every projected domain constant.',
         'permanent' => 'The trailing NUL is inside the signed bytes; it is what stops one domain from '
             . 'being a prefix of a longer one and turning a statement of one kind into a valid statement '
             . 'of another. Removing it from either domain is a domain change (R-01).',
@@ -1239,19 +1282,22 @@ function ws_rows(): array {
     ];
     $rows[] = [
         'id' => 'R-09',
-        'title' => 'The two authority record key sets, and why they are two files',
+        'title' => 'The authority record key sets stay in decision-specific files',
         'now' => 'Adapter root (`' . AdapterCertification::AUTHORITIES_FORMAT . '`): '
             . ws_set($sets, 'validateAuthorityRecord') . ', and at `'
             . AdapterCertification::AUTHORITIES_FORMAT_V2 . '` the nine of R-18. Contract root (`'
             . ContractAttestation::AUTHORITIES_FORMAT . '`, at `'
             . ContractAttestation::AUTHORITIES_RELATIVE . '`): the four members derived by probe below, '
-            . 'scope `' . ContractAttestation::SCOPE . '`.',
+            . 'scope `' . ContractAttestation::SCOPE . '`. External operation root (`'
+            . OperationAuthorization::TRUST_FORMAT . '`, at `'
+            . OperationAuthorization::TRUST_RELATIVE . '`): '
+            . ws_set($sets, "operation authority key '\$keyId'") . '.',
         'permanent' => 'The adapter root requires `adapter_names` and `trust_tiers` on EVERY record and '
-            . 'validates the whole file the moment it exists, so a single contract-scoped record in that '
-            . 'file breaks every adapter certificate in the repository. The two roots can never be '
-            . 'merged; each record set can never gain a member, because both are closed in both '
+            . 'validates the whole file the moment it exists, so a contract- or operation-scoped record in '
+            . 'that file breaks every adapter certificate in the repository. These roots can never be '
+            . 'merged; each record set can never gain a member, because all are closed in both '
             . 'directions.',
-        'reserved' => 'A third scope word means a third file. That is the shape, and it is already '
+        'reserved' => 'Another scope word means another file. That is the shape, and it is already '
             . 'load-bearing.',
     ];
     $rows[] = [
@@ -1273,17 +1319,18 @@ function ws_rows(): array {
     ];
     $rows[] = [
         'id' => 'R-11',
-        'title' => 'Three key-id grammars, and they disagree',
+        'title' => 'Four key-id grammars, and they disagree',
         'now' => 'Adapter root: `AdapterSources::assert_name()` — lowercase slugs only, must start and '
             . 'end alphanumeric, at least one lowercase letter. Contract root: `' . $keyIdPattern
             . '`. Recovery root: `[A-Za-z0-9._-]{1,64}`, which admits a leading separator and carries a '
-            . 'length bound the adapter root does not have at all. The '
+            . 'length bound the adapter root does not have at all. Operation root: `'
+            . $operationKeyPattern . '`. The '
             . 'matrix below is the shipped verdict of each, probe by probe.',
         'permanent' => 'A key id is an object-map key in signed documents, the `key_id` member inside a '
             . 'signed statement, and — in the recovery root — a FILENAME (`public-keys/<key_id>.pub`). '
-            . 'Narrowing any of the three orphans installed keys and every artifact they signed; widening '
+            . 'Narrowing any of the four orphans installed keys and every artifact they signed; widening '
             . 'one makes an id legal in one root and unreadable in another. The divergence itself is now '
-            . 'permanent: unifying them would narrow at least two of the three.',
+            . 'permanent: unifying them would narrow at least two of the four.',
         'reserved' => 'A future root may narrow at MINT time (refusing to register a key id) without '
             . 'touching what verification accepts. That is the only safe direction.',
     ];
@@ -1301,29 +1348,34 @@ function ws_rows(): array {
     ];
     $rows[] = [
         'id' => 'R-13',
-        'title' => 'Two trust roots, and the shipped library wins the key-id namespace',
+        'title' => 'Trust roots are separated by decision, and the shipped library wins its namespace',
         'now' => 'Adapter certification: `' . AdapterCertification::TRUST_ROOT_PLATFORM . '` and `'
             . AdapterCertification::TRUST_ROOT_SITE . '`. Contract attestation: `'
             . ContractAttestation::TRUST_ROOT_SITE . '` only — a platform-rooted contract attestation '
-            . 'refuses by name (`contract_attestation_trust_root_unsupported`). A site certificate may '
+            . 'refuses by name (`contract_attestation_trust_root_unsupported`). External operation authority: '
+            . '`' . OperationAuthorization::TRUST_RELATIVE . '` only, with its own actor, operation and grant '
+            . 'scope. A site certificate may '
             . 'never claim a key id the shipped file reviews.',
         'permanent' => 'The `trust_root` word is inside the signed statement and is what a host prints '
             . 'beside a certified claim. The shipped-wins rule needs no repository to evaluate, which is '
             . 'what lets frozen verification enforce it; relaxing it would let a site key answer for a '
             . 'reviewed identity in an artifact already frozen.',
-        'reserved' => 'A third root is a new VALUE in a member that already exists — admitted without a '
-            . 'schema change, which is why the refusal for an unsupported one is by name.',
+        'reserved' => 'Another adapter-certificate root is a new VALUE in a member that already exists — '
+            . 'admitted without a schema change, which is why the refusal for an unsupported one is by name. '
+            . 'It does not widen the separate contract or operation authority files.',
     ];
     $rows[] = [
         'id' => 'R-14',
-        'title' => 'Expiry exists on two surfaces, reads one clock, and allows no skew',
+        'title' => 'Expiry semantics are signed and specific to each authority surface',
         'now' => 'Contract attestation: `expires_at` is mandatory, grammar `' . $expires
             . '` (UTC seconds, checked at both ends so "expired" is never a parse accident), compared '
             . 'against `$now ?? time()` and refused at `>=`. Adapter certification: the expiry vocabulary '
             . 'is EXACTLY `not_after`/`not_before`, mandatory on a `'
             . AdapterCertification::AUTHORITIES_FORMAT_V2 . '` authority record and absent from a v1 one, '
             . 'the identical grammar string, compared against the identical `$now ?? time()` and refused '
-            . 'at `>=` — all four facts checked by grep, not asserted. Recovery: `claim_expires_at` '
+            . 'at `>=` — all four facts checked by grep, not asserted. Operation authorization: signed '
+            . '`issued_at` and `expires_at` UTC seconds are checked against an explicit verification clock, '
+            . 'with the trust policy bounding TTL and future-clock skew; expiry itself has no grace. Recovery: `claim_expires_at` '
             . 'bounds a claimant epoch, never a signature.',
         'permanent' => 'An expired attestation or authority REFUSES; it never silently becomes an '
             . 'unsigned one, because a silent downgrade would make a stale claim indistinguishable from a '
@@ -1340,7 +1392,8 @@ function ws_rows(): array {
             . 'anchor this product does not have — a signed time beacon, or persisted state the agent '
             . 'refuses to move backwards — and both are new permanent decisions rather than fixes. What '
             . 'IS bounded is the blast radius: since G2-FIXES C3 an expired authority WITHDRAWS the '
-            . 'adapters it certified to uncertified instead of refusing the whole site source.',
+            . 'adapters it certified to uncertified instead of refusing the whole site source. Operation '
+            . 'authorization never downgrades to an interactive prompt: stale or future-dated authority refuses.',
         'reserved' => 'Expiry on the CERTIFICATE itself, as opposed to the authority that signed it, is '
             . 'still a statement member (R-06) and therefore a new format, not a field. A future skew '
             . 'allowance would have to be a REFUSAL widening, which no deployed verifier would apply to '
@@ -1963,6 +2016,28 @@ function ws_rows(): array {
             . 'because a certificate may not claim coverage of a section this engine reads nothing from.',
     ];
 
+    $rows[] = [
+        'id' => 'R-32',
+        'title' => 'External mutation authority binds one actor, operation, target and immutable subject',
+        'now' => '`' . OperationAuthorization::FORMAT . '` signs '
+            . ws_set($sets, 'operation authorization statement') . ' under `'
+            . ws_bytes(OperationAuthorization::SIGNATURE_DOMAIN) . '`. Its envelope is '
+            . ws_set($sets, 'operation authorization') . '; its separate `'
+            . OperationAuthorization::TRUST_FORMAT . '` policy is '
+            . ws_set($sets, 'operation authority policy') . '. The signed statement binds the presentation '
+            . 'digest as well as the machine subject digest, so an actor authorizes the exact plan they saw. '
+            . 'Only ' . '`' . implode('`, `', OperationAuthorization::OPERATIONS) . '` are admitted.',
+        'permanent' => 'Changing any statement member changes the bytes a holder signed. Dropping actor, '
+            . 'operation id, target id, nonce, subject digest, presentation digest, issuance or expiry would '
+            . 'turn an authorization for one human-visible mutation into authority for another. The trust '
+            . 'file is deliberately disjoint from adapter, contract and rollback keys, so reusing one of those '
+            . 'keys cannot silently grant external mutation authority.',
+        'reserved' => 'A new statement shape or signature framing uses a new `/vN` format and domain, verified '
+            . 'beside v1. New operation kinds require both a validator release and an explicit enrolled operation '
+            . 'scope; an unknown value is refused. One-time consumption and terminal outcome records are target '
+            . 'state outside the signature, so their evolution cannot broaden what these signed bytes authorize.',
+    ];
+
     return $rows;
 }
 
@@ -2153,7 +2228,7 @@ function ws_set(array $sets, string $label): string {
 }
 
 /**
- * Every closed key set the three signed surfaces reach, in source order.
+ * Every closed key set the signed surfaces reach, in source order.
  *
  * @return list<array{file:string,function:string,label:string,keys:list<string>,optional:list<string>}>
  */
@@ -2169,6 +2244,7 @@ function ws_all_key_sets(): array {
     $rows = [];
     $sources = [
         ['agent/src/Adapter/AdapterCertification.php', ['assertExactKeys'], AdapterCertification::class, null],
+        ['cli/src/Authority/OperationAuthorization.php', ['assertExactKeys'], OperationAuthorization::class, null],
         ['recovery/rollback-control.php', ['assertExactKeys'], RollbackControl::class, null],
         ['cli/src/Contract/ApplicationContract.php', ['closedKeys'], ApplicationContract::class, 'validateAttestation'],
     ];
@@ -2203,6 +2279,7 @@ function ws_build(string $repo): string {
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_DELEGATION'),
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_REVOCATION'),
         (string) ws_const(ContractAttestation::class, 'SIGNATURE_DOMAIN'),
+        OperationAuthorization::SIGNATURE_DOMAIN,
     ];
     foreach ($domains as $domain) {
         if (!str_ends_with($domain, "\0")) {
@@ -2243,8 +2320,8 @@ function ws_build(string $repo): string {
     foreach (ws_signature_inputs() as $row) {
         $out .= "| {$row['surface']} | {$row['domain']} | {$row['input']} | {$row['source']} |\n";
     }
-    $out .= "\nThe first three are separated by construction, and the checker refuses the run if any one of\n";
-    $out .= "them is a prefix of another. The last is not separated at all, and R-03 is where that decision\n";
+    $out .= "\nEvery domain-prefixed surface is separated by construction, and the checker refuses the run if\n";
+    $out .= "any one is a prefix of another. Rollback alone is not separated, and R-03 is where that decision\n";
     $out .= "and its cost are written down.\n\n";
 
     $out .= "## 2. The register\n\n";
@@ -2256,11 +2333,11 @@ function ws_build(string $repo): string {
     }
 
     $out .= "## 3. The grammars, as the shipped validators answer them\n\n";
-    $out .= "### 3.1 Key ids, three roots\n\n";
+    $out .= "### 3.1 Key ids, four roots\n\n";
     $out .= "Each cell is the verdict of the named validator on that exact probe, obtained by calling it.\n\n";
-    $out .= "| probe | adapter root | contract root | recovery root |\n|---|---|---|---|\n";
+    $out .= "| probe | adapter root | contract root | operation root | recovery root |\n|---|---|---|---|---|\n";
     foreach (ws_key_id_matrix()['rows'] as $row) {
-        $out .= "| {$row['probe']} | {$row['adapter']} | {$row['contract']} | {$row['rollback']} |\n";
+        $out .= "| {$row['probe']} | {$row['adapter']} | {$row['contract']} | {$row['operation']} | {$row['rollback']} |\n";
     }
     $out .= "\n### 3.2 The contract authority record, derived from its own refusals\n\n";
     $out .= "`ContractAttestation::validateRecord()` keeps its vocabulary in a local variable, so the\n";
@@ -2271,7 +2348,7 @@ function ws_build(string $repo): string {
     }
 
     $out .= "\n## 4. Every closed key set the signing runtimes decide\n\n";
-    $out .= "Projected from the call sites that decide them: the three signing files, plus the contract\n";
+    $out .= "Projected from the call sites that decide them: the four signing files, plus the contract\n";
     $out .= "attestation object itself. Not every row is inside a signature — the recovery runtime's\n";
     $out .= "request envelope and target record are store shapes — but every one of them refuses a\n";
     $out .= "MISSING key and an UNKNOWN key with the same failure, so each row is a set that cannot gain a\n";
