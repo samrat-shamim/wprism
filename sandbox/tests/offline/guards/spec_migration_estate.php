@@ -9,8 +9,8 @@
  * `agent/wprism.php` and `platform/adapter-library/capabilities/platform.json`, which restates
  * them (AGENTS.md rule 8; `ManifestDispositions::platform_boundary()` throws
  * "platform version disagrees with the loaded agent" the moment they diverge).
- * `cli/src/Onboarding/Adopt.php:147-150` tars `agent manifests recovery` as ONE
- * archive, so a site never sees half of that pair. A rehearsal state is
+ * `cli/src/Onboarding/Adopt.php:212-226` embeds the manifest library in agent/
+ * and tars `agent recovery` as ONE archive, so a site never sees half of that pair. A rehearsal state is
  * therefore the pair `(defines, manifest library)` — and since a PHP process
  * can define `WPRISM_AGENT_VERSION` exactly once, each state must be its own
  * process. That is the whole reason this file exists beside the suite instead
@@ -1277,7 +1277,7 @@ function rehearsal_probes(string $estate, string $state): array {
  * The projections and orchestrator-side gates, for one state.
  *
  * These live in `cli/` and `recovery/`, which the flag day ships beside the
- * agent (`Adopt.php:153-155` tars `agent manifests recovery`; `cli/` is the
+ * agent (`Adopt.php:212-226` embeds the library in agent/ and tars `agent recovery`; `cli/` is the
  * operator's own checkout). They are driven in-process at this state's defines
  * rather than through the `wprism` executable: that shell resolves the defines
  * from the checkout's `agent/wprism.php` (`AdapterCertify::boot()`:1465-1481) and

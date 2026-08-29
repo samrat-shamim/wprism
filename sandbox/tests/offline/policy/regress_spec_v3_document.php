@@ -170,8 +170,8 @@ wprism_check(
 );
 
 // v3.2 — ENFORCED (WP-4.2). The channel now has exactly one reader across the
-// three trees `Adopt.php` tars (`agent manifests recovery`), which is the
-// grammar that implements it. A SECOND reader appearing here is the alarm this
+// three product trees (`agent`, `cli`, `recovery`); Adopt.php:212-226 embeds the
+// manifest library in agent/ and archives `agent recovery`. A SECOND reader is the alarm this
 // assertion exists for: it would mean the feature vocabulary acquired a
 // consumer that could disagree with the one definition.
 //

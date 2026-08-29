@@ -1855,9 +1855,9 @@ each input so a self-derived equality cannot pass vacuously.
   is fleet telemetry and is not met, so the window stays open.
 
 Rollback, until that dated decision, is the shipped atomic bundle swap run
-backwards: redeploying the historical pre-capsule `agent manifests recovery`
-archive restores the v2 agent AND the v2 manifest library it shipped
-with, as one archive through the four atomic journal surfaces (`Adopt.php:322-350`), so there is no partial
+backwards: redeploying the prior-version `agent recovery` archive restores the
+v2 agent AND its embedded v2 manifest library as one archive through the three
+journaled surfaces (`Adopt.php:600-603`), so there is no partial
 runtime/library state. The original flag-day rehearsal remains clean because its captured A/B estate
 predates later per-adapter restamps. A site that has adopted the current PMPro digest must instead restore
 or recompile against the old PMPro manifest as part of that bundle rollback; its current pin cannot match

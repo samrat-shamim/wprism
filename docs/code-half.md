@@ -487,7 +487,7 @@ volumes:
 
 No named volume is declared for `/var/www/html` under this profile — that is the entire point of the change (§2.2's "docker: bind-mount, no separate sync step" design). `uploads/` still needs to survive independent of `code/` churn (media is `state/`'s concern per spec, not code/'s) — for the spike, `wp-content/uploads/` can stay inside the bind-mounted tree (simplest, matches how a real full-tree deployment behaves — uploads is a subdirectory of the webroot on disk, just excluded from git via `code/.gitignore`, not excluded from the filesystem).
 
-### 5.2 Script outline — `sandbox/tests/spike_f_code.sh`
+### 5.2 Historical spike outline
 
 Following the existing spike scripts' exact shape (helper functions, `say`/`pass`/`fail`, `wp_f1`/`wp_f2` wrappers):
 
@@ -621,9 +621,8 @@ the plan `code_mismatch` bucket, deploy's hook-firing reconciliation outside
 the canary, and forceable lifecycle compatibility reporting. The 2026-08-07
 first functional skeleton extends that with a descriptor-hashed code payload:
 `code_revision_stale` is now a non-forceable ordering gate until host
-stage → lifecycle → finalize completes. `sandbox/tests/spike_g_code.sh`
-remains evidence for the earlier bind-mounted lifecycle leg, not proof of
-the new materializer path.
+stage → lifecycle → finalize completes. The earlier bind-mounted lifecycle
+experiment remains design context, not proof of the new materializer path.
 
 The skeleton's promotion boundary is deliberately split as well: only
 `promotion-begin` may create/recover the bounded cross-process owner/artifact

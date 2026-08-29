@@ -23,7 +23,8 @@ require_once __DIR__ . '/../Transport/SshTransport.php';
  * -----------------------
  * WPrism orchestrates providers; it does not supply hosting, so every customer
  * writes their own (tools/reference-env-provider.php:2-11 is DEV-ONLY, and
- * Adopt.php tars only `agent manifests recovery`). Before this command the
+ * Adopt.php embeds the assembled adapters in agent/ and tars only
+ * `agent recovery`). Before this command the
  * only way to exercise a provider was `wprism env materialize`, whose second
  * provider action is `snapshot-prepare` — the one that FREEZES the named
  * production source (EnvironmentLifecycle.php:1013-1021). Learning the

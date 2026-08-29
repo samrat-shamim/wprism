@@ -16,9 +16,9 @@
  *
  * THE PREDICATE (named: the identity-comparison predicate)
  * -------------------------------------------------------
- * Over every `*.php` file under the three shipped roots — `agent/`, `cli/`,
- * `recovery/`; `cli/src/Onboarding/Adopt.php` tars `agent manifests recovery`
- * and `cli/` is the orchestrator that produces what they consume — a unit is a
+ * Over every `*.php` file under the three product roots — `agent/`, `cli/`,
+ * `recovery/`; `cli/src/Onboarding/Adopt.php:212-226` embeds the manifest library
+ * in agent/ and archives `agent recovery`, while `cli/` produces what they consume — a unit is a
  * CANDIDATE when both arms hold. A unit is one outermost `function` body; a
  * nested closure belongs to the method that contains it, because the reviewer's
  * question is "which entry point can refuse", not "which brace block".

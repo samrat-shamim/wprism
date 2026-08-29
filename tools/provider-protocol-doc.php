@@ -314,8 +314,8 @@ function provider_doc_build(string $repo): string {
     $out .= "\n## 7. The worked example\n\n";
     $out .= '`tools/reference-env-provider.php` implements all ' . count($actions) . " actions against WPrism's own\n";
     $out .= "sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB). It is **DEV-ONLY** —\n";
-    $out .= "`tools/` never ships, and `cli/src/Onboarding/Adopt.php` tars only `agent`,\n";
-    $out .= "`manifests` and `recovery` — so read it as a demonstration of this document, not as\n";
+    $out .= "`tools/` never ships. `cli/src/Onboarding/Adopt.php` embeds the assembled adapter library\n";
+    $out .= "in `agent/` and tars only `agent recovery`, so read this as a demonstration, not as\n";
     $out .= "an artifact you can deploy. Its `--print-plan` flag runs the same negotiation and\n";
     $out .= "argument validation and prints the command boundary an action would use, executing\n";
     $out .= "nothing.\n\n";

@@ -4,8 +4,8 @@ sandbox/siterepo/
 sandbox/tmp/
 
 # issue #3277: pair.sh writes this so docker compose auto-loads
-# WPRISM_AGENT_SRC/WPRISM_MANIFESTS_SRC (resolved against THIS checkout's own
-# canonical root) for any subsequent compose call made by any script from
+# WPRISM_AGENT_SRC/WPRISM_ADAPTER_PACKAGES_SRC/WPRISM_PLATFORM_SRC (resolved
+# against THIS checkout's own canonical root) for subsequent compose calls from
 # sandbox/ — never committed, since the paths it holds are host- and
 # checkout-specific.
 sandbox/.env
@@ -56,8 +56,9 @@ sandbox/certification-bundles/
 
 # WPRISM WP-4: the repo-root dev toolchain (composer.json / phpstan.neon.dist /
 # .php-cs-fixer.dist.php / phpunit.xml.dist) is structurally unshippable —
-# cli/src/Onboarding/Adopt.php tars exactly `agent manifests recovery`, so none of this
-# can reach a managed site. What follows is the toolchain's *machine-local*
+# cli/src/Onboarding/Adopt.php embeds the assembled adapter library in agent/
+# and tars exactly `agent recovery`, so none of this can reach a managed site.
+# What follows is the toolchain's *machine-local*
 # output: installed vendor code and analyser caches. composer.lock is NOT
 # ignored — it is the pinned, reproducible input every developer must
 # resolve identically, and tests/Tooling asserts the drop-in itself

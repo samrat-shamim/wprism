@@ -286,16 +286,16 @@ const WPRISM_CURRENT_DIGESTS = [
     'paid-memberships-pro' => '70b0a7cb07b54118dd4645be00bc60bbe1ab0a10972e7b6c3fbe26971c759bdd',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
     'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
-    'the-events-calendar' => '7027ed71fe7346417f728e3a29299fe167c6d662fb8b451faf84d8d4bdb81b39',
+    'the-events-calendar' => '9ce61ef048461919d3414629b099d8a26e9a4e5c25e90eb5fec634b48df6430e',
     'woocommerce' => 'bc76c97206b5f8af22dbd1cfab5973b1c5415d4c45dfddcad02110f6f525323c',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_MANIFEST_HASH = 'd505246dc59ee5effbae863bb14e16b91b36c1a4b38c37672ed3f4a547da5bf2';
+const WPRISM_CURRENT_MANIFEST_HASH = 'b10861937d3f7ad13263221da117c91866a2b1de116e42f0e3f31ed379f3c5ca';
 const WPRISM_CURRENT_REGISTRY_SHA = '010967c0ff23cb8dcd875944bd8d113f294daaf9002d4b226c7fc32ba4f42c86';
-const WPRISM_CURRENT_SNAPSHOT_SHA = '67d561b3597389d0275255f39f1afb44a602ffedeebfabbc784ad3b95d02204c';
+const WPRISM_CURRENT_SNAPSHOT_SHA = '02455df4366952f9e58da1638277d54b7ae292e7be4b288231567355367e256b';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(

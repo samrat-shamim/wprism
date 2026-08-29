@@ -201,9 +201,9 @@ final class AdapterKitTest extends TestCase
         $this->assertSame(AdapterKit::ADOPTION_TAR, AdapterKit::adoptionTar(self::repoRoot()));
 
         $root = $this->fixtureRoot([
-            AdapterKit::ADOPT_PATH => "<?php\n\$cmd = 'tar -cf ' . escapeshellarg(\$localArchive) . ' agent manifests recovery sandbox';\n",
+            AdapterKit::ADOPT_PATH => "<?php\n\$cmd = 'tar -cf ' . escapeshellarg(\$localArchive) . ' agent recovery sandbox';\n",
         ]);
-        $this->assertSame(['agent', 'manifests', 'recovery', 'sandbox'], AdapterKit::adoptionTar($root));
+        $this->assertSame(['agent', 'recovery', 'sandbox'], AdapterKit::adoptionTar($root));
     }
 
     public function testUnreadableAdoptionTarRefuses(): void

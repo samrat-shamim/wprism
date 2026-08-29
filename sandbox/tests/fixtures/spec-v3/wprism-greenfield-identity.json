@@ -11,7 +11,7 @@
         "paid-memberships-pro": "70b0a7cb07b54118dd4645be00bc60bbe1ab0a10972e7b6c3fbe26971c759bdd",
         "polylang": "60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548",
         "redirection": "6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7",
-        "the-events-calendar": "7027ed71fe7346417f728e3a29299fe167c6d662fb8b451faf84d8d4bdb81b39",
+        "the-events-calendar": "9ce61ef048461919d3414629b099d8a26e9a4e5c25e90eb5fec634b48df6430e",
         "woocommerce": "bc76c97206b5f8af22dbd1cfab5973b1c5415d4c45dfddcad02110f6f525323c",
         "wprism-agency-cpt": "174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab",
         "wps-hide-login": "4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050",
@@ -31,7 +31,7 @@
         "paid-memberships-pro": "30056db13a7ed10e6a6a326c5dc74c78c7acb9f12ef47a4f19a58f732360767f",
         "polylang": "ce528f0361b733048822c182039f572689c91a002de82c57f596d3dfef1c6e13",
         "redirection": "9d19654602f48d32610679cf701995bfb906d632da4990ffd0de1f813e7eeb8c",
-        "the-events-calendar": "b1576e18f9817b5fff7d653b868a42d0037b645589dcfd4b3f3b68120e1a777e",
+        "the-events-calendar": "acf24e467340adf413584c270bbab99e266aa4a9f22eb2becda02b592aa0c492",
         "woocommerce": "831de4a2b82f0bf4078ff9f3ef1e904d206c3ab535765d292796880f168864be",
         "wprism-agency-cpt": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf",
         "wps-hide-login": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5",
@@ -40,7 +40,7 @@
     },
     "pin_sets": {
         "all-17": {
-            "manifest_hash": "d505246dc59ee5effbae863bb14e16b91b36c1a4b38c37672ed3f4a547da5bf2",
+            "manifest_hash": "b10861937d3f7ad13263221da117c91866a2b1de116e42f0e3f31ed379f3c5ca",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -70,7 +70,7 @@
             "pins": ["code-snippets", "core", "paid-memberships-pro"]
         },
         "core+polylang+the-events-calendar": {
-            "manifest_hash": "f76307a624fdef5292108351dfc5d454cc5031da4731df36f2e9c3007734b0f2",
+            "manifest_hash": "a0b77844e146ae2cd5d04f25a1c904824c916dacaa7365a92a8b87b825e1d5b7",
             "pins": ["core", "polylang", "the-events-calendar"]
         },
         "core+woocommerce+acf": {
@@ -87,5 +87,5 @@
         }
     },
     "registry_sha256": "010967c0ff23cb8dcd875944bd8d113f294daaf9002d4b226c7fc32ba4f42c86",
-    "snapshot_sha256": "67d561b3597389d0275255f39f1afb44a602ffedeebfabbc784ad3b95d02204c"
+    "snapshot_sha256": "02455df4366952f9e58da1638277d54b7ae292e7be4b288231567355367e256b"
 }

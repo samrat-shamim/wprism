@@ -821,8 +821,8 @@ provider stdout/stderr is never among them.
 
 `tools/reference-env-provider.php` implements all 19 actions against WPrism's own
 sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB). It is **DEV-ONLY** —
-`tools/` never ships, and `cli/src/Onboarding/Adopt.php` tars only `agent`,
-`manifests` and `recovery` — so read it as a demonstration of this document, not as
+`tools/` never ships. `cli/src/Onboarding/Adopt.php` embeds the assembled adapter library
+in `agent/` and tars only `agent recovery`, so read this as a demonstration, not as
 an artifact you can deploy. Its `--print-plan` flag runs the same negotiation and
 argument validation and prints the command boundary an action would use, executing
 nothing.
