@@ -57,6 +57,11 @@ use Duo\CommandRefusalException;
  */
 final class RehearsalDisclosure {
     public const FORMAT = 'duo-rehearsal-disclosure/v1';
+    public const VERIFIED_FORMAT = 'duo-rehearsal-containment-proof/v1';
+    public const VERIFIED_PROFILE = 'agency-rehearsal-v1';
+    public const PREFLIGHT = 'containment: required — production-derived bytes will not enter the rehearsal '
+        . 'until its machine-local provider proves credential isolation and default-denied HTTP, mail, payment, '
+        . 'webhook, and queue destinations.';
 
     /**
      * The one containment word MUP can honestly emit for a rehearsal
@@ -106,6 +111,87 @@ final class RehearsalDisclosure {
         self::assertVocabulary();
 
         return [self::BANNER, self::CONSEQUENCE];
+    }
+
+    /** @return list<string> */
+    public static function preflightLines(): array {
+        return [self::PREFLIGHT];
+    }
+
+    /**
+     * Reduce a complete materialization receipt to the public containment
+     * proof a rehearsal preview binds. A missing field is a refusal even
+     * after materialization: no caller may infer isolation from success.
+     *
+     * @return array{containment_receipt_sha256:string,environment_identity:string,format:string,materialization_receipt_sha256:string,operation_id:string,profile:string}
+     */
+    public static function verifiedProof(mixed $receipt): array {
+        if (!is_array($receipt) || array_is_list($receipt)
+            || ($receipt['containment_profile'] ?? null) !== self::VERIFIED_PROFILE) {
+            throw self::proofRefusal('the materialization returned no agency rehearsal containment profile');
+        }
+        foreach (['containment_receipt_sha256', 'environment_identity', 'operation_id', 'receipt_sha256'] as $field) {
+            if (!is_string($receipt[$field] ?? null) || $receipt[$field] === '') {
+                throw self::proofRefusal("the materialization containment evidence has no '$field'");
+            }
+        }
+        foreach (['containment_receipt_sha256', 'receipt_sha256'] as $field) {
+            if (preg_match('/^[a-f0-9]{64}$/D', $receipt[$field]) !== 1) {
+                throw self::proofRefusal("the materialization containment evidence has a malformed '$field'");
+            }
+        }
+
+        return [
+            'containment_receipt_sha256' => $receipt['containment_receipt_sha256'],
+            'environment_identity' => $receipt['environment_identity'],
+            'format' => self::VERIFIED_FORMAT,
+            'materialization_receipt_sha256' => $receipt['receipt_sha256'],
+            'operation_id' => $receipt['operation_id'],
+            'profile' => self::VERIFIED_PROFILE,
+        ];
+    }
+
+    /** @param array<string,mixed> $proof @return list<string> */
+    public static function verifiedLines(array $proof): array {
+        $block = self::verifiedBlock($proof);
+
+        return [
+            'containment: sandboxed — provider verified ' . self::VERIFIED_PROFILE
+                . '; receipt=' . $block['receipt_sha256'] . '.',
+            'consequence: this receipt permits contained evidence gathering; capability authorization still '
+                . 'requires the applicable reviewed disposition and certification evidence.',
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $proof
+     * @return array<string,mixed>
+     */
+    public static function verifiedBlock(array $proof): array {
+        $expected = [
+            'containment_receipt_sha256', 'environment_identity', 'format',
+            'materialization_receipt_sha256', 'operation_id', 'profile',
+        ];
+        $actual = array_keys($proof);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        if ($actual !== $expected || ($proof['format'] ?? null) !== self::VERIFIED_FORMAT
+            || ($proof['profile'] ?? null) !== self::VERIFIED_PROFILE
+            || !is_string($proof['containment_receipt_sha256'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $proof['containment_receipt_sha256']) !== 1
+            || !is_string($proof['materialization_receipt_sha256'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $proof['materialization_receipt_sha256']) !== 1) {
+            throw self::proofRefusal('the rehearsal containment proof is malformed or incomplete');
+        }
+
+        return [
+            'containment' => 'sandboxed',
+            'enforced' => true,
+            'evidence' => $proof,
+            'format' => self::FORMAT,
+            'note' => 'credential isolation and default-denied HTTP, mail, payment, webhook, and queue destinations',
+            'receipt_sha256' => $proof['containment_receipt_sha256'],
+        ];
     }
 
     /**
@@ -180,6 +266,15 @@ final class RehearsalDisclosure {
             $message,
             'this is an orchestrator defect, not a site condition: restore the containment disclosure '
                 . 'in cli/src/Rehearse/RehearsalDisclosure.php before rehearsing again'
+        );
+    }
+
+    private static function proofRefusal(string $message): CommandRefusalException {
+        return new CommandRefusalException(
+            'rehearsal_containment_unproven',
+            $message,
+            'configure a machine-local environment provider that implements environment.containment.verify '
+                . 'and rerun duo rehearse; production-derived bytes are not admitted without its exact receipt'
         );
     }
 }

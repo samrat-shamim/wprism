@@ -1,7 +1,7 @@
 # Maximum number of ignoreErrors entries allowed in phpstan-baseline.neon.
 # Enforced by tests/Tooling/PhpstanBaselineRatchetTest.php. This number may go
 # DOWN freely; raising it must be a deliberate, reviewed line in the same commit
-# that introduces the new errors. Committed at level 2 on 2026-08-19:
-# 108 entries suppressing 257 errors across agent/ (89), cli/ (11),
-# recovery/ (7), scripts/ (1); none under tools/ or tests/.
-108
+# that introduces the new errors. The 2026-08-19 baseline began at 108 entries
+# suppressing 257 errors; this ceiling now records 104 entries / 245 errors
+# after the resolved plan-view and command-local definition debts were removed.
+104

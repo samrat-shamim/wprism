@@ -21,7 +21,7 @@ declare(strict_types=1);
  *
  * THE SINGLE SOURCE IS THREE CLASSES IN ONE SHIPPED FILE
  * -----------------------------------------------------
- *   Duo\Orchestrator\EnvironmentProviderProtocol   the 18 actions, their
+ *   Duo\Orchestrator\EnvironmentProviderProtocol   the closed actions, their
  *       gating capability, their request input and their closed result key
  *       sets with per-field types
  *   Duo\Orchestrator\EnvironmentProviderCapability the 19 capability ids
@@ -68,8 +68,8 @@ function provider_doc_refusals(): array {
             'an argv element is not a non-empty NUL-free string'],
         ["env '<env>': environment_provider executable must be absolute",
             'argv[0] does not begin with `/` — no PATH lookup happens here'],
-        ["env '<env>': environment_provider.timeout_seconds must be 1..60",
-            '`timeout_seconds` is not an integer in 1..60'],
+        ["env '<env>': environment_provider.timeout_seconds must be 1..3600",
+            '`timeout_seconds` is not an integer in 1..3600'],
         ['could not start environment provider', 'argv could not be executed'],
         ['environment provider failed; provider output is redacted', 'the process exited non-zero'],
         ['environment provider timed out; provider output is redacted', 'no complete response within `timeout_seconds`'],
@@ -118,7 +118,7 @@ function provider_doc_refusals(): array {
         ['environment provider <action> did not return an active TTL lease', '`ttl_state` is not `active`'],
         ['environment provider <action> returned wrong disposition',
             '`destroy` did not answer `destroyed`, or `detach` did not answer `detached`'],
-        ["unknown environment provider action '<action>'", 'an action outside the 18 below'],
+        ["unknown environment provider action '<action>'", 'an action outside the closed list below'],
     ];
 }
 
@@ -219,7 +219,8 @@ function provider_doc_build(string $repo): string {
     $out .= "* `command` is a non-empty argv **list** — it is executed with `bypass_shell`, so\n";
     $out .= "  there is no shell, no word splitting and no PATH lookup;\n";
     $out .= "* `command[0]` must be absolute;\n";
-    $out .= "* `timeout_seconds` is an integer in **1..60**, applied per action.\n\n";
+    $out .= '* `timeout_seconds` is an integer in **1..3600**, applied per action. Long operations should still '
+        . "be idempotent by `operation_id`.\n\n";
 
     $out .= "## 2. The wire\n\n";
     $out .= "One request object plus a newline on stdin; one response object plus a newline on\n";
@@ -227,11 +228,12 @@ function provider_doc_build(string $repo): string {
     $out .= "insignificant whitespace, `/` unescaped. The orchestrator re-encodes the response it\n";
     $out .= "parsed and compares bytes, so any other spacing or key order is refused as\n";
     $out .= 'noncanonical evidence. stdout plus stderr may not exceed ' . number_format(1048576) . " bytes, and\n";
-    $out .= "provider output is redacted on every failure — it may carry host or production-data\n";
-    $out .= "diagnostics, so it never reaches an operator's terminal or the journal.\n\n";
+    $out .= "raw provider output is redacted on every failure — it may carry host or production-data\n";
+    $out .= 'diagnostics. A non-zero provider may return the canonical error response below to surface bounded, '
+        . "operator-safe diagnostics without exposing stderr.\n\n";
     $out .= '**Request** — `' . CommandEnvironmentProvider::REQUEST_FORMAT . "`, key set exactly:\n\n";
     $out .= "| field | value |\n|---|---|\n";
-    $out .= "| `action` | one of the 18 names in §5 |\n";
+    $out .= '| `action` | one of the ' . count(EnvironmentProviderProtocol::actions()) . " names in §5 |\n";
     $out .= "| `environment` | the registry name of the environment being acted on |\n";
     $out .= '| `format` | `' . CommandEnvironmentProvider::REQUEST_FORMAT . "` |\n";
     $out .= "| `input` | the per-action object in §5 — the empty JSON list `[]` for `capabilities` |\n";
@@ -244,7 +246,11 @@ function provider_doc_build(string $repo): string {
     $out .= "| `operation_id` | echoed verbatim |\n";
     $out .= "| `provider` | exactly `{id, protocol}`; `id` matches `[A-Za-z0-9._:@+-]{1,128}`, `protocol` is the integer `1` |\n";
     $out .= "| `result` | the per-action **closed** object in §5 |\n";
-    $out .= "| `status` | `ok` — a provider reports failure by exiting non-zero, never by a status value |\n\n";
+    $out .= "| `status` | `ok` on exit 0; `error` on a non-zero structured failure |\n\n";
+    $out .= 'On a non-zero exit, stdout may carry the same request-bound envelope with `status: "error"` and '
+        . '`result` exactly `{code,message,remediation}`. `code` is 3..64 lowercase identifier characters; '
+        . 'message and remediation are non-empty, control-free strings up to 1024 bytes. Only those fields are '
+        . "shown. Any malformed/noncanonical failure response falls back to the fully redacted failure.\n\n";
     $out .= "`provider` must not change for the life of an `operation_id`: a same-named\n";
     $out .= "environment whose provider identity moved is not a continuation of the journaled\n";
     $out .= "operation. `result` key sets are **closed** — a missing field and an extra field are\n";

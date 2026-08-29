@@ -252,6 +252,10 @@ final class DriverCapabilityReport {
                 DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
                 DriverCapability::CODE_TRANSFER, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
+            'unadopt' => [
+                DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
+                DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
+            ],
             'onboard' => [
                 DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
                 DriverCapability::CODE_TRANSFER, DriverCapability::RAW_CONTROL,

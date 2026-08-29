@@ -67,7 +67,8 @@ final class CapturePublicationWorkflow {
         ?callable $onInitialPayloadReady = null,
         ?array $scopeRequest = null,
         ?string $hostEnvironment = null,
-        ?AdapterLibrary $adapterLibrary = null
+        ?AdapterLibrary $adapterLibrary = null,
+        ?string $expectedRepositoryBranch = null
     ): array {
         Canary::suppress_cron_spawn();
         // Policy's v1 single-site boundary must run before any destination
@@ -76,6 +77,9 @@ final class CapturePublicationWorkflow {
         // before eventually discovering it cannot be certified.
         $intoRepo = ($outDir === null);
         $repoPath = rtrim($repo, '/');
+        if ($expectedRepositoryBranch !== null) {
+            self::assertRepositoryBranch($repoPath, $expectedRepositoryBranch);
+        }
         $stateDir = $intoRepo ? $repoPath . '/state' : rtrim($outDir, '/');
         if ($scopeRequest !== null && !$intoRepo) {
             throw new \RuntimeException(
@@ -126,6 +130,12 @@ final class CapturePublicationWorkflow {
         $publicationPhase = ['initial_baseline' => $initialBaseline];
         $initialPublicationCleanup = $initialBaseline ? 'pending' : 'not-applicable';
         try {
+            if ($expectedRepositoryBranch !== null) {
+                // Repeat under the publication lock: a branch switch between
+                // host selection and target lock acquisition is a no-write
+                // refusal, never a capture into the newly selected branch.
+                self::assertRepositoryBranch($repoPath, $expectedRepositoryBranch);
+            }
             // Scoped recovery first reconciles any prior durable publication,
             // then binds the new immutable evidence before this run's first
             // DDL/DML. Unlike full capture it cannot initialize/repair the
@@ -988,6 +998,38 @@ final class CapturePublicationWorkflow {
             $summary['scope'] = $build['_scope'];
         }
         return $summary;
+    }
+
+    private static function assertRepositoryBranch(string $repo, string $expected): void {
+        $result = self::runProcess(['git', '-C', $repo, 'symbolic-ref', '--quiet', '--short', 'HEAD']);
+        $actual = $result['exit'] === 0 ? trim($result['stdout']) : '';
+        if ($actual === '' || !hash_equals($expected, $actual)) {
+            throw new \RuntimeException(
+                'duo: capture target branch does not match the orchestrator branch binding; '
+                . 'switch the target repository to the intended named branch and retry'
+            );
+        }
+    }
+
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    private static function runProcess(array $args): array {
+        if (!function_exists('proc_open')) {
+            return ['exit' => 127, 'stdout' => '', 'stderr' => ''];
+        }
+        $pipes = [];
+        $process = @proc_open($args, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) {
+            return ['exit' => 127, 'stdout' => '', 'stderr' => ''];
+        }
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return [
+            'exit' => proc_close($process),
+            'stdout' => is_string($stdout) ? $stdout : '',
+            'stderr' => is_string($stderr) ? $stderr : '',
+        ];
     }
 
     /** Fence every capture mutation against other live target writers. */

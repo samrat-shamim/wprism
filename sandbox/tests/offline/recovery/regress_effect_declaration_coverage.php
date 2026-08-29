@@ -26,7 +26,7 @@
  *  2. Under-declaration is NAMED, with its table and item, against observed
  *     journal rows.
  *  3. Over-declaration is NAMED as `unexercised` — and `unexercised` is
- *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 102
+ *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 107
  *     unexercised declarations, zero findings, and a document that returns.
  *  4. A MISSING journal is a TYPED REFUSAL. The failure this closes is a report
  *     that reads an absent table as zero rows and publishes a perfect clean
@@ -41,7 +41,7 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only, so of the
- * 384 effect rows the shipped library projects, 102 carry a `database_checkpoint`
+ * 389 effect rows the shipped library projects, 107 carry a `database_checkpoint`
  * selector and 282 select external hooks, cache namespaces and provider
  * resources that no journal row can confirm or refute. Eight of the seventeen
  * adapters declare no journal-observable effect at all. That is reported as
@@ -192,8 +192,8 @@ $baseline = EffectDeclarationCoverage::from_facts($policy, ['rows' => $fixture])
 
 duo_check_same(EffectDeclarationCoverage::FORMAT, $baseline['format'], 'the report names its versioned format');
 duo_check_same(17, $baseline['totals']['adapters'], 'every pinned adapter gets a row, scorable or not');
-duo_check_same(384, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
-duo_check_same(102, $baseline['totals']['observable_effects'], '102 of the 384 declared effects carry a database_checkpoint selector');
+duo_check_same(389, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
+duo_check_same(107, $baseline['totals']['observable_effects'], '107 of the 389 declared effects carry a database_checkpoint selector');
 duo_check_same(9, $baseline['totals']['scorable_adapters'], 'only 9 of 17 adapters declare a journal-observable effect at all');
 
 // THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 2178 scored
@@ -236,9 +236,9 @@ duo_check_same(2, $polylang['observable_effects'], 'two Polylang effects are dat
 duo_check_same(2, $polylang['exercised_effects'], 'the derived fixture exercises both Polylang database effects');
 
 $woo = edc_adapter($baseline, 'woocommerce');
-duo_check_same(271, $woo['declared_effects'], 'woocommerce declares 271 of the 384 effect rows');
-duo_check_same(77, $woo['observable_effects'], '77 of them are journal-observable');
-duo_check_same(77, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
+duo_check_same(276, $woo['declared_effects'], 'woocommerce declares 276 of the 389 effect rows');
+duo_check_same(82, $woo['observable_effects'], '82 of them are journal-observable');
+duo_check_same(82, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
 duo_check_same([], $woo['unexercised_effects'], 'nothing is left unexercised when every declared surface is written');
 
 echo "\n== an under-declared write is NAMED against observed journal rows ==\n";
@@ -297,7 +297,7 @@ echo "\n== an over-declared effect is NAMED as unexercised, and that is not an e
 // unexercised; nothing is a finding. Treating this as a defect would punish
 // exactly the over-declaration this report exists to reward.
 $empty = EffectDeclarationCoverage::from_facts($policy, ['rows' => []]);
-duo_check_same(102, $empty['totals']['unexercised'], 'all 102 journal-observable declarations report unexercised against an empty journal');
+duo_check_same(107, $empty['totals']['unexercised'], 'all 107 journal-observable declarations report unexercised against an empty journal');
 duo_check_same(0, $empty['totals']['outside_declaration'], 'unexercised is NOT an error: an empty journal produces zero findings');
 duo_check_same(false, $empty['blocking'], 'the document still says it blocks nothing');
 duo_check_same(null, $empty['baseline']['outside_declaration_rate'], 'a rate over zero scored surfaces is null, never a fabricated 0');
@@ -306,7 +306,7 @@ duo_check(
     in_array('woocommerce-product-meta-lookup', $wooEmpty['unexercised_effects'], true),
     'the unexercised declaration is named by its exact effect id, not merely counted'
 );
-duo_check_same(77, count($wooEmpty['unexercised_effects']), 'every one of woocommerce\'s 77 observable declarations is named');
+duo_check_same(82, count($wooEmpty['unexercised_effects']), 'every one of woocommerce\'s 82 observable declarations is named');
 duo_check_same([], $wooEmpty['outside_declaration'], 'an adapter whose action never fired is not a finding');
 
 // One declaration exercised, the rest not — the mixed case a real observation
@@ -316,7 +316,7 @@ $partial = EffectDeclarationCoverage::from_facts($policy, [
 ]);
 $wooPartial = edc_adapter($partial, 'woocommerce');
 duo_check_same(2, $wooPartial['exercised_effects'], 'both declarations naming wc_product_meta_lookup are exercised by one observed write');
-duo_check_same(75, count($wooPartial['unexercised_effects']), 'the other 75 stay named as unexercised');
+duo_check_same(80, count($wooPartial['unexercised_effects']), 'the other 80 stay named as unexercised');
 duo_check_same(2, $wooPartial['declared_writes'], 'the observed write counts as declared, not as a finding');
 duo_check_same(0, $wooPartial['classified_writes'], 'a surface inside a declared effect selector is scored declared, not merely classified');
 

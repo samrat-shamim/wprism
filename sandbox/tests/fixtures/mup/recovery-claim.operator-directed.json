@@ -1,7 +1,7 @@
 {
-    "claim_digest": "sha256:ec73f4575e66713575d35b59371bc1a51cbcae862f310535d752c8e43e191c73",
+    "claim_digest": "sha256:62c373c0343be231d14c3a5e1f22a363dbe299793846209dc57e8538b4cb281f",
     "covered_resources": [
-        "database checkpoint /siterepo/.duo/checkpoints/promote-1.sql"
+        "encrypted database checkpoint /siterepo/.duo/checkpoints/promote-1.sql.enc"
     ],
     "does_not_restore": [
         "emails already sent",

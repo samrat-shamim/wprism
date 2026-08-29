@@ -9,7 +9,7 @@
 #     The `rebuilders` refusal (the regression: that exact manifest shape
 #     loaded and was executed verbatim before this change), the closed
 #     actions/providers grammar, effects_inventory()'s rebuild sources, the
-#     REAL shipped manifests and the five REAL provider files they carry, and
+#     REAL shipped manifests and the manifest-owned provider files they carry, and
 #     the digest that binds manifest-shipped provider bytes to their adapter.
 #
 #   regress_provider_contract.php  RUNTIME. Stubs the four WordPress lifecycle

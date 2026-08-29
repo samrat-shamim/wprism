@@ -26,8 +26,14 @@ final class EnvironmentCommand {
     /**
      * @param list<string> $args
      * @param callable(EnvironmentDriver,array<string,mixed>):array<string,mixed>|int $promote
+     * @param ?callable(array<string,mixed>):void $receiptObserver
      */
-    public static function run(array $args, ?string $envsFileOverride, callable $promote): int {
+    public static function run(
+        array $args,
+        ?string $envsFileOverride,
+        callable $promote,
+        ?callable $receiptObserver = null
+    ): int {
         if (count($args) < 2) {
             fwrite(STDERR, "duo: env requires materialize|reap|provider-check and a target <env>\n");
             return 1;
@@ -95,11 +101,15 @@ final class EnvironmentCommand {
                 $journal,
                 [
                     'branch' => $options['branch'],
+                    'containment_required' => $options['containment_required'],
                     'create' => $options['create'],
                     'ttl_seconds' => $options['ttl_seconds'],
                 ],
                 $promote
             );
+            if ($receiptObserver !== null) {
+                $receiptObserver($receipt);
+            }
             self::renderReceipt($receipt, $options['json'], 'materialize');
             return 0;
         } catch (\Throwable $e) {

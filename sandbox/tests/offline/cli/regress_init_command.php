@@ -105,6 +105,12 @@ $proposal = [
             'spec_version' => 2,
         ],
         'git' => ['mode' => 'initialize-on-confirm', 'version' => 'git version 2.51.0'],
+        'git_lfs' => [
+            'required' => false,
+            'version' => 'unavailable',
+            'config_identity' => 'initialize-on-confirm',
+        ],
+        'gitattributes_identity' => 'absent',
         'gitignore_identity' => 'absent',
         'ledger' => ['rows' => 0, 'tables' => 0],
         'media' => ['strategy' => 'local', 'attachments' => 0, 'unavailable' => 0],

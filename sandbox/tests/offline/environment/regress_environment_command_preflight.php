@@ -35,9 +35,11 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 // transport says whether the host can reach the repository at all, and
 // `repo_path` is the local one for a local environment. 29. The guided
 // `onboard` composition is environment-bound too and deliberately sits beside
-// the primitive `adopt` it begins with. 30.
+// the primitive `adopt` it begins with. 30. The ownership-aware `unadopt`
+// inverse sits immediately beside `adopt`; it takes the same trusted target
+// and requires explicit control-plane authority. 31.
 $expected = [
-    'doctor', 'driver-capabilities', 'adopt', 'onboard', 'init', 'status', 'capabilities',
+    'doctor', 'driver-capabilities', 'adopt', 'unadopt', 'onboard', 'init', 'status', 'capabilities',
     'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
     'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
     'assess', 'contract',
@@ -45,7 +47,7 @@ $expected = [
     'code-classify',
     'code-resolve',
 ];
-$check(count($expected) === 30, 'the environment-bound verb ratchet is 30 verbs after guided onboarding');
+$check(count($expected) === 31, 'the environment-bound verb ratchet is 31 verbs after supported offboarding');
 $check(EnvironmentCommandPreflight::environmentVerbs() === $expected, 'environment command vocabulary remains ordered and closed');
 $check(EnvironmentCommandPreflight::requiresEnvironment('capture'), 'capture is environment-bound');
 $check(EnvironmentCommandPreflight::requiresEnvironment('lint'), 'lint is environment-bound');

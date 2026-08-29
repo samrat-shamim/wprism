@@ -281,7 +281,7 @@ foreach ((array) $firstReport['rows'] as $row) {
     $outcomes[(string) $row['adapter']] = (string) $row['certification'];
 }
 duo_check_same(
-    ['acme-alpha' => 'certified', 'acme-beta' => 'certified'],
+    ['acme-alpha' => 'experimental', 'acme-beta' => 'experimental'],
     $outcomes,
     '...and each row carries the claim the LIVE verifier returned for the bytes just written, not the '
         . 'producer\'s own word for them'

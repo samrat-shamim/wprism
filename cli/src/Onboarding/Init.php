@@ -125,6 +125,30 @@ final class Init {
         return $result;
     }
 
+    /** @return array<string,mixed> */
+    public static function archiveInterrupted(EnvironmentDriver $transport, string $archive): array {
+        $result = self::request($transport, [
+            'duo', 'init', '--repo=' . $transport->repoPath(),
+            '--archive-interrupted-to=' . $archive, '--format=json',
+        ], 'interrupted archive');
+        $keys = array_keys($result);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['archive', 'attempt_sha256', 'format', 'receipt_sha256', 'repository', 'resumed']
+            || ($result['format'] ?? null) !== 'duo-init-interrupted-archive/v1'
+            || ($result['archive'] ?? null) !== $archive
+            || ($result['repository'] ?? null) !== $transport->repoPath()
+            || !is_bool($result['resumed'] ?? null)) {
+            throw new \RuntimeException('duo init interrupted archive returned an unbound receipt');
+        }
+        foreach (['attempt_sha256', 'receipt_sha256'] as $field) {
+            if (!is_string($result[$field] ?? null) || preg_match('/^[a-f0-9]{64}$/D', $result[$field]) !== 1) {
+                throw new \RuntimeException("duo init interrupted archive returned a malformed $field");
+            }
+        }
+
+        return $result;
+    }
+
     /**
      * Canonical JSON, base64-encoded — the same wire shape `--scope-request-b64`
      * uses, so the classification survives every transport's argv quoting
@@ -163,6 +187,8 @@ final class Init {
         }
         $lines[] = '  state: ' . ($state['repository'] ?? '?') . ' (site.duo.json + canonical capture baseline)';
         $lines[] = '  Git: ' . ($state['git']['mode'] ?? 'unknown') . ' (' . ($state['git']['version'] ?? 'unknown') . ')';
+        $lines[] = '  Git LFS: ' . (($state['git_lfs']['required'] ?? false) ? 'required' : 'prepared')
+            . ' for media/** (' . ($state['git_lfs']['version'] ?? 'unknown') . ')';
         $adapterNames = array_map(static fn(array $row): string => (string) ($row['name'] ?? '?'), $state['adapters'] ?? []);
         $lines[] = '  adapters: ' . ($adapterNames ? implode(', ', $adapterNames) : '(none)');
         $lines[] = '  media: ' . ($media['strategy'] ?? 'unknown') . ' (' . (int) ($media['attachments'] ?? 0)
@@ -293,12 +319,13 @@ final class Init {
             // adds only the first-party half, and an operator reading the old
             // line would reasonably believe the clone in step 5 is complete.
             // It is not -- it needs `duo code-resolve` before it can compile.
-            ? "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\""
+            ? "  1. git -C $gitRepo add .gitattributes .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\""
                 . ' # the locked components are ignored by design; code/duo-code.lock.json declares them'
-            : "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"";
+            : "  1. git -C $gitRepo add .gitattributes .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"";
         $steps = [
             'Managed state scope is clean. Coverage outside the selected adapters remains advisory, not a whole-site guarantee.',
             "The Git worktree is ready at target path $repo.",
+            'The repository routes media/** through Git LFS; install Git LFS in every developer clone before checkout or pull.',
             'Publish it, then make an ordinary developer checkout. Confirm the target worktree is on the intended named branch (not detached), and replace the quoted YOUR_* values before running these commands:',
             $addStep,
             "  2. git -C $gitRepo remote add origin 'YOUR_GIT_URL' # skip if origin already exists",
@@ -415,6 +442,7 @@ final class Init {
         $database = $environment['database'] ?? null;
         $media = $state['media'] ?? null;
         $git = $state['git'] ?? null;
+        $gitLfs = $state['git_lfs'] ?? null;
         $ledger = $state['ledger'] ?? null;
         $config = $state['config'] ?? null;
         $components = $code['components'] ?? null;
@@ -493,6 +521,18 @@ final class Init {
             ),
             'state.git.version' => static fn(): bool => is_string($git['version'] ?? null)
                 && trim((string) $git['version']) !== '',
+            'state.git_lfs' => static fn(): bool => is_array($gitLfs),
+            'state.git_lfs.required' => static fn(): bool => is_bool($gitLfs['required'] ?? null)
+                && $gitLfs['required'] === (($media['attachments'] ?? 0) > 0),
+            'state.git_lfs.version' => static fn(): bool => is_string($gitLfs['version'] ?? null)
+                && trim((string) $gitLfs['version']) !== '',
+            'state.git_lfs.config_identity' => static fn(): bool => is_string($gitLfs['config_identity'] ?? null)
+                && (($gitLfs['config_identity'] ?? null) === 'initialize-on-confirm'
+                    || preg_match('/^sha256:[a-f0-9]{64}$/', (string) $gitLfs['config_identity']) === 1),
+            'state.gitattributes_identity' => static fn(): bool => is_string(
+                $state['gitattributes_identity'] ?? null
+            ) && (($state['gitattributes_identity'] ?? null) === 'absent'
+                || preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['gitattributes_identity']) === 1),
             'state.gitignore_identity' => static fn(): bool => is_string($state['gitignore_identity'] ?? null)
                 && (($state['gitignore_identity'] ?? null) === 'absent'
                     || preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['gitignore_identity']) === 1),

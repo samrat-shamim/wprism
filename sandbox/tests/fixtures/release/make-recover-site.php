@@ -26,7 +26,7 @@ declare(strict_types=1);
  *                     .duo/control/recovery-runtime/rollback-control.php
  *                       — a stub that prints whatever canonical status
  *                         document `$DUO_RECOVER_STATUS` names
- *                     .duo/checkpoints/promote-<owner>.sql
+ *                     .duo/checkpoints/promote-<owner>.sql.enc
  *                       — the operator-directed checkpoint; a suite deletes
  *                         it to exercise the absent-checkpoint refusal
  *                     .duo/artifacts/promote-<owner>.json
@@ -34,10 +34,10 @@ declare(strict_types=1);
  *                         whose top-level artifact_hash is the lease identity
  *                         a retained checkpoint is restored under; a suite
  *                         deletes it to exercise the no-identity refusal
- *                     .duo/checkpoints/promote-<code-owner>.sql (+ artifact)
+ *                     .duo/checkpoints/promote-<code-owner>.sql.enc (+ artifact)
  *                       — a second retained checkpoint whose frozen plan
  *                         entered a code lifecycle phase, for code-first
- *                     .duo/checkpoints/deploy-<deploy-owner>.sql (+ artifact)
+ *                     .duo/checkpoints/deploy-<deploy-owner>.sql.enc (+ artifact)
  *                       — the checkpoint a standalone `duo deploy` retains
  *                         under its own lease. Same kind, same four ordered
  *                         steps; only the file-name prefix differs, which is
@@ -217,7 +217,7 @@ foreach (['.duo/control/recovery-runtime', '.duo/checkpoints', '.duo/artifacts']
     }
 }
 file_put_contents(
-    "$dir/target/.duo/checkpoints/promote-" . RECOVER_OWNER . '.sql',
+    "$dir/target/.duo/checkpoints/promote-" . RECOVER_OWNER . '.sql.enc',
     "-- fixture checkpoint\n"
 );
 // The compiled artifact promote retained beside the checkpoint, in the
@@ -233,20 +233,20 @@ file_put_contents(
 // `artifacts/<basename>.json` with no second mechanism. Dated between the two
 // promote checkpoints so the merged listing order is deterministic.
 file_put_contents(
-    "$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql',
+    "$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql.enc',
     "-- fixture checkpoint (deploy)\n"
 );
-touch("$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql', 1_750_000_000);
+touch("$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql.enc', 1_750_000_000);
 file_put_contents(
     "$dir/target/.duo/artifacts/" . RECOVER_DEPLOY_OWNER . '.json',
     \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
 );
 // The code-phase release's pair, dated earlier so the listing order is fixed.
 file_put_contents(
-    "$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql',
+    "$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql.enc',
     "-- fixture checkpoint (code phase)\n"
 );
-touch("$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql', 1_700_000_000);
+touch("$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql.enc', 1_700_000_000);
 file_put_contents(
     "$dir/target/.duo/artifacts/promote-" . RECOVER_CODE_OWNER . '.json',
     \Duo\Canon::encode(['artifact_hash' => RECOVER_CODE_ARTIFACT, 'format' => 'duo-compiled/fixture'])
@@ -353,6 +353,7 @@ case " $* " in
     exit "${DUO_ABORT_EXIT:-0}"
     ;;
   *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
+  *" duo checkpoint-open "*) printf '%s\n' '-- authenticated fixture checkpoint'; exit 0 ;;
   *" db import "*) exit "${DUO_IMPORT_EXIT:-0}" ;;
   *" core is-installed "*) exit 0 ;;
   *is_multisite*)

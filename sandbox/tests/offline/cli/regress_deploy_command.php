@@ -24,6 +24,7 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public int $stageExit = 0;
     public int $exportExit = 0;
     public bool $dispositionBlocked = false;
+    public bool $codeChangeRequired = true;
 
     public function name(): string { return 'deploy-fixture'; }
     public function driverId(): string { return 'deploy-fixture'; }
@@ -68,7 +69,8 @@ final class DeployCommandDriver implements EnvironmentDriver {
                 return ['exit' => $this->preflightExit, 'stdout' => 'runtime refusal', 'stderr' => ''];
             }
             return ['exit' => 0, 'stdout' => json_encode([
-                'format' => 'duo-code-runtime/v1', 'enabled' => true, 'compatible' => true,
+                'format' => 'duo-code-runtime/v1', 'enabled' => true,
+                'change_required' => $this->codeChangeRequired, 'compatible' => true,
                 'code_revision' => $revision,
                 'target' => ['php' => '8.3', 'wordpress' => '6.8', 'source' => 'target-control-plane'],
                 'requirements' => [], 'diagnostics' => [],
@@ -76,6 +78,12 @@ final class DeployCommandDriver implements EnvironmentDriver {
         }
         if ($command === 'promotion-begin') return ['exit' => 0, 'stdout' => 'begun', 'stderr' => ''];
         fail_deploy_command("unexpected capture command $command");
+    }
+    public function captureWpPipeline(array $producer, array $consumer): array {
+        $this->calls[] = $producer;
+        $this->calls[] = $consumer;
+        $this->events[] = 'capture:db-export';
+        return ['exit' => $this->exportExit, 'stdout' => '', 'stderr' => ''];
     }
     public function streamWp(array $wpArgs): int {
         $this->calls[] = $wpArgs;
@@ -156,13 +164,19 @@ assert_deploy_command(
     $happy->events === [
         'raw:mkdir', 'capture:compile', 'capture:code-preflight', 'capture:promotion-begin',
         'capture:db-export',
-        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate', 'stream:code-finalize',
+        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate',
+        'stream:lifecycle-settle', 'stream:code-finalize',
     ],
     'direct handler preserves compile/preflight/begin/checkpoint/stage/lifecycle/finalize order'
 );
 assert_deploy_command(
-    $happy->calls[3] === ['db', 'export', '/fixture/repo/.duo/checkpoints/deploy-deploy-command-test.sql', '--porcelain'],
-    'the checkpoint is the sibling of the deploy-<runId>.json artifact, exported with promote\'s flags'
+    $happy->calls[3] === ['db', 'export', '-']
+        && in_array(
+            '--output=/fixture/repo/.duo/checkpoints/deploy-deploy-command-test.sql.enc',
+            $happy->calls[4],
+            true
+        ),
+    'the checkpoint streams into authenticated ciphertext without a plaintext file'
 );
 assert_deploy_command(
     $happyResult['callbacks'] === ['scope', 'fence:deploy-fixture', 'run-id'],
@@ -171,9 +185,9 @@ assert_deploy_command(
 $owner = option_deploy_command($happy->calls[2], '--promotion-owner=');
 $hash = option_deploy_command($happy->calls[2], '--artifact-hash=');
 assert_deploy_command($owner === 'deploy-command-test' && $hash === str_repeat('a', 64), 'begin receives the generated owner and compiled hash');
-// From the code-stage call on: the export at index 3 carries no lease flags
-// because `wp db export` has none to carry.
-foreach (array_slice($happy->calls, 4) as $call) {
+// From the code-stage call on: neither side of the encrypted export pipeline
+// carries lease flags because the lease belongs to the surrounding phase.
+foreach (array_slice($happy->calls, 5) as $call) {
     assert_deploy_command(
         option_deploy_command($call, '--promotion-owner=') === $owner
             && option_deploy_command($call, '--artifact-hash=') === $hash,
@@ -181,10 +195,10 @@ foreach (array_slice($happy->calls, 4) as $call) {
     );
 }
 assert_deploy_command(
-    in_array('--force-code-mismatch', $happy->calls[5], true)
-        && in_array('--force-code-drift', $happy->calls[5], true)
-        && in_array('--force-code-mismatch', $happy->calls[6], true)
-        && in_array('--force-code-drift', $happy->calls[6], true),
+    in_array('--force-code-mismatch', $happy->calls[6], true)
+        && in_array('--force-code-drift', $happy->calls[6], true)
+        && in_array('--force-code-mismatch', $happy->calls[7], true)
+        && in_array('--force-code-drift', $happy->calls[7], true),
     'only lifecycle phases receive the public force flags'
 );
 
@@ -196,7 +210,8 @@ assert_deploy_command($optOutResult['exit'] === 0, '--no-checkpoint deploy comma
 assert_deploy_command(
     $optOut->events === [
         'raw:mkdir', 'capture:compile', 'capture:code-preflight', 'capture:promotion-begin',
-        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate', 'stream:code-finalize',
+        'stream:code-stage', 'stream:deploy:retire', 'stream:deploy:activate',
+        'stream:lifecycle-settle', 'stream:code-finalize',
     ],
     '--no-checkpoint reproduces the pre-change event list verbatim'
 );
@@ -255,6 +270,22 @@ assert_deploy_command($preflightResult['exit'] === 17, 'runtime preflight exit p
 assert_deploy_command($preflight->events === ['raw:mkdir', 'capture:compile', 'capture:code-preflight'], 'runtime preflight failure stops before promotion-begin');
 assert_deploy_command($preflightResult['callbacks'] === ['scope', 'fence:deploy-fixture', 'run-id'], 'preflight failure performs no lease cleanup fiction');
 
+// Target preflight proves the compiled descriptor and payload already match.
+// A code-only deploy then has no release work: it must not take a lease,
+// checkpoint, stage, or invoke extension lifecycle hooks.
+$unchanged = new DeployCommandDriver();
+$unchanged->codeChangeRequired = false;
+$unchangedResult = run_deploy_command($unchanged, []);
+assert_deploy_command($unchangedResult['exit'] === 0, 'unchanged-code deploy succeeds as a verified no-op');
+assert_deploy_command(
+    $unchanged->events === ['raw:mkdir', 'capture:compile', 'capture:code-preflight'],
+    'unchanged target code stops before promotion-begin/checkpoint and every lifecycle hook'
+);
+assert_deploy_command(
+    count(array_filter($unchanged->events, static fn(string $event): bool => str_contains($event, 'deploy:'))) === 0,
+    'unchanged-code deploy invokes neither retirement nor activation'
+);
+
 // A post-begin stage failure uses the injected shared exact-abort primitive and
 // cannot continue into lifecycle/finalize phases.
 $stage = new DeployCommandDriver();
@@ -272,7 +303,7 @@ assert_deploy_command(
     $stageResult['callbacks'] === [
         'scope', 'fence:deploy-fixture', 'run-id',
         'abort:deploy-command-test:' . str_repeat('a', 64),
-        'recovery:/fixture/repo/.duo/checkpoints/deploy-deploy-command-test.sql:code',
+        'recovery:/fixture/repo/.duo/checkpoints/deploy-deploy-command-test.sql.enc:code',
     ],
     'stage failure delegates exact cleanup to the shared promotion primitive, then guides recovery of its checkpoint'
 );

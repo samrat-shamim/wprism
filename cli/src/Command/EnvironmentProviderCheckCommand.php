@@ -48,7 +48,7 @@ require_once __DIR__ . '/../Transport/SshTransport.php';
  *    call, ONE `inspect`, then set arithmetic. It contacts no source and
  *    prepares no snapshot.
  *  - `--cycle --from=<src> --confirm-disposable`: the full synthetic
- *    materialize/reap cycle across all 18 actions, with the snapshot ABORTED
+ *    materialize/reap cycle across every non-rehearsal action, with the snapshot ABORTED
  *    rather than retained and the target destroyed/detached in a finally.
  *    `--confirm-disposable` is mandatory because `snapshot-prepare` freezes
  *    the named source; the harness never infers disposability from a name, a
@@ -378,7 +378,7 @@ final class EnvironmentProviderCheckCommand {
                 $prefix . 'environment_provider configuration',
                 $e->getMessage(),
                 'environment_provider is privileged host configuration: put {"command": ["/absolute/path", ...],'
-                . ' "timeout_seconds": 1..60} under this environment in .duo-envs.json, never in site.duo.json.'
+                . ' "timeout_seconds": 1..3600} under this environment in .duo-envs.json, never in site.duo.json.'
             );
             return null;
         }
@@ -425,6 +425,13 @@ final class EnvironmentProviderCheckCommand {
         $profiles = [];
         foreach (EnvironmentProviderProtocol::requirementSets() as $set) {
             if ($set['side'] !== $side) {
+                continue;
+            }
+            // Containment is a host-specific rehearsal proof and cannot be
+            // exercised honestly by this synthetic materialize/reap cycle.
+            // The protocol document still publishes that requirement set;
+            // rehearsal itself negotiates and invokes it before restore.
+            if (str_starts_with($set['id'], 'rehearse-target-')) {
                 continue;
             }
             $profiles[$set['id']] = $this->requireSet($report, $set['id'], $set['capabilities'], $set['operation']);

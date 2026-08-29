@@ -233,6 +233,17 @@ $response = [
     'result' => $result,
     'status' => 'ok',
 ];
+if ($mode === 'failure-response') {
+    $response['result'] = [
+        'code' => 'snapshot_quota_exceeded',
+        'message' => 'The hosting account has no free snapshot slot.',
+        'remediation' => 'Remove an obsolete snapshot or increase the provider quota.',
+    ];
+    $response['status'] = 'error';
+    fwrite(STDERR, "SUPER-SECRET-provider-diagnostic\n");
+    echo canon($response) . "\n";
+    exit(7);
+}
 $bytes = canon($response);
 echo $mode === 'noncanonical' ? json_encode(json_decode($bytes, true), JSON_PRETTY_PRINT) . "\n" : $bytes . "\n";
 PHP;
@@ -336,6 +347,18 @@ PHP;
         el_fail('provider failure was accepted');
     } catch (Throwable $e) {
         el_ok(!str_contains($e->getMessage(), 'SUPER-SECRET'), 'provider failure output is redacted');
+    }
+    try {
+        CommandEnvironmentProvider::fromEnvironment('failed-safe', $config('failure-response'))->capabilities($operation);
+        el_fail('structured provider failure was accepted');
+    } catch (Throwable $e) {
+        el_ok(
+            str_contains($e->getMessage(), 'snapshot_quota_exceeded')
+                && str_contains($e->getMessage(), 'no free snapshot slot')
+                && str_contains($e->getMessage(), 'increase the provider quota')
+                && !str_contains($e->getMessage(), 'SUPER-SECRET'),
+            'a canonical request-bound failure exposes bounded operator-safe diagnostics while raw stderr stays redacted'
+        );
     }
     foreach (['credential-url', 'signed-query-url', 'fragment-secret-url'] as $mode) {
         try {

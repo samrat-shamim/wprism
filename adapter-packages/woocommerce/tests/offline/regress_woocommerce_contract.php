@@ -828,8 +828,9 @@ woo_ok($actionSources === [
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
     'native:rewrite.flush',
     'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
+    'provider:woocommerce-lifecycle-migrations/settle_lifecycle_migrations',
 ], 'manifest owns the bounded attribute-transient, shipping/tax cache, fresh-process hierarchy/brand-route, '
-    . 'read-only fulfillment prerequisite, scheduler projections, per-product lookup repairs, product-permalink route, and review-page route');
+    . 'read-only fulfillment prerequisite, scheduler projections, per-product lookup repairs, product-permalink route, review-page route, and lifecycle migration settlement');
 $productActions = array_values(array_filter(
     $actions,
     static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'

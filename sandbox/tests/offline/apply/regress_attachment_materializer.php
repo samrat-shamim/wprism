@@ -1065,18 +1065,18 @@ namespace {
         ];
         $badTree = [$badUuid => ['data' => $badFront, 'type' => 'post']];
         $startsBeforePreflight = Db::$starts;
-        $throws(
-            static fn() => CompiledRepository::create([
-                'media' => [$badBlob => ['base64' => base64_encode($badBytes), 'sha256' => hash('sha256', $badBytes)]],
-                'tree' => $badTree,
-            ]),
-            'unbounded Core image, audio, video, or PDF metadata branch',
-            'deterministic delegated-media refusal occurs before any filesystem transaction can be prepared'
+        $pdfCompiled = CompiledRepository::create([
+            'media' => [$badBlob => ['base64' => base64_encode($badBytes), 'sha256' => hash('sha256', $badBytes)]],
+            'tree' => $badTree,
+        ]);
+        $check(
+            $pdfCompiled->media_content($badBlob) === $badBytes,
+            'PDF originals compile through the closed filesize-only metadata branch'
         );
         $check(
             Db::$starts === $startsBeforePreflight
                 && !file_exists($uploads . '/2026/08/unsupported.pdf'),
-            'delegated-media compile refusal starts no database transaction and changes no upload byte'
+            'PDF compilation starts no database transaction and changes no upload byte'
         );
 
         $renameUuid = '3c4d5e6f-7081-49ab-8cde-f0123456789a';
@@ -1592,10 +1592,11 @@ namespace {
         file_put_contents($pdf, "%PDF-1.4\n%%EOF\n");
         $pdfGenerator = $makeGenerator(static fn(int $id): string => 'application/pdf');
         $GLOBALS['duo_attachment_size_calls'] = 0;
-        $throws(
-            static fn() => $pdfGenerator->preflight('application/pdf', $pdf),
-            'unsupported or MIME/extension-mismatched media class',
-            'PDF/Imagick multi-page decompression is an explicit fail-closed boundary'
+        $pdfGenerator->preflight('application/pdf', $pdf);
+        $pdfMetadata = $pdfGenerator->generate(41, $pdf);
+        $check(
+            $pdfMetadata === ['filesize' => strlen("%PDF-1.4\n%%EOF\n")],
+            'PDF metadata bypasses Imagick cover generation and remains a closed filesize projection'
         );
 
         $bomb = "\x89PNG\r\n\x1A\n"
@@ -1613,17 +1614,17 @@ namespace {
 
         $budget = new \ReflectionMethod(AttachmentFilesystemTransaction::class, 'add_transaction_bytes');
         $total = 0;
-        $arguments = [&$total, 1073741823];
+        $arguments = [&$total, 68719476735];
         $budget->invokeArgs($filesystem, $arguments);
         $arguments = [&$total, 1];
         $budget->invokeArgs($filesystem, $arguments);
-        $check($total === 1073741824, 'transaction-wide budget admits its exact 1 GiB boundary without allocating it');
+        $check($total === 68719476736, 'transaction-wide budget admits its exact 64 GiB boundary without allocating it');
         $throws(
             static function () use ($budget, $filesystem, &$total): void {
                 $arguments = [&$total, 1];
                 $budget->invokeArgs($filesystem, $arguments);
             },
-            '1 GiB aggregate',
+            '64 GiB aggregate',
             'transaction-wide budget refuses the first byte above its exact aggregate authority'
         );
         $many = 0;

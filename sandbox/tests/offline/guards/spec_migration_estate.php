@@ -722,6 +722,11 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
             'capability' => is_array($resolved['capability'] ?? null)
                 ? (string) ($resolved['capability']['status'] ?? '?')
                 : 'none',
+            'capability_sha256' => is_array($resolved['capability'] ?? null)
+                ? hash('sha256', \Duo\Canon::encode($resolved['capability']))
+                : null,
+            'certificate_held' => $sources->is_certified($name) || $sources->is_signed_unexercised($name),
+            'certification' => $sources->certification_word($name),
             'certified' => $sources->is_certified($name),
             'digest' => (string) $resolved['digest'],
             'name' => $name,
@@ -1010,7 +1015,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterCertification.php::verifyCertificate',
         'AdapterCertification::verifyFile(libs/' . $state . ', certified-alpha)',
         $state === 'A'
-            ? 'certified'
+            ? 'signed_unexercised'
             : 'certification was signed under spec version ' . (DUO_SPEC_VERSION - 1)
                 . ', which is not the spec version ' . DUO_SPEC_VERSION,
         static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
@@ -1562,23 +1567,12 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
     $probe(
         'cli/src/Transport/CodeDeploy.php::dispositionBlockers',
         'CodeDeploy::dispositionBlockers(<compiled summary carrying certified-beta\'s site adapter>)',
-        // BOTH BRANCHES, one per state, and the split is the flag day itself.
-        //
-        // § v3.6 made this a single branch for an ORDINARY release: the
-        // certificate survives, so the adapter still carries its signed-but-
-        // unpinned claim and the blocker stays the pin-shape one. WP-4.12
-        // brings the second branch back — but only for the flip, and only
-        // because the flip genuinely withdraws the claim (:3721-3727). At B
-        // `dispositionBlockers()` finds a compiled site adapter with no reviewed
-        // capability bound to it and reports that instead (CodeDeploy.php:208).
-        //
-        // This is a REAL operator-facing consequence, not fixture noise: a code
-        // deploy attempted on a certificate-holding site between the bump and
-        // the recertify of runbook step 5 is BLOCKED, by name, until the
-        // certificate is re-minted. Declaring one branch at both states would
-        // have hidden a blocked deploy behind a green rehearsal.
+        // A signature with no exercised evidence is an experimental approval
+        // at state A, so the deploy gate publishes the reviewed disposition
+        // reason rather than treating approval as production readiness. The
+        // flag-day platform mismatch withdraws even that claim at state B.
         $state === 'A'
-            ? 'the repository pin does not bind both source'
+            ? 'The estate operator reviewed this declarative adapter for the rehearsal fleet.'
             : 'no reviewed capability claim is bound to this compiled adapter',
         static function () use ($estate, $library): string {
             $policy = \Duo\Policy::load(
@@ -1960,6 +1954,7 @@ function rehearsal_remedy(string $estate, string $state): array {
         foreach (\Duo\RepositoryCompiler::resolved_adapters($policy) as $row) {
             if ((string) $row['name'] === 'estate-forms') {
                 $out['digest'] = (string) $row['digest'];
+                $out['capability'] = (string) ($row['capability']['status'] ?? 'none');
             }
         }
     } catch (Throwable $t) {
@@ -1985,9 +1980,13 @@ function rehearsal_remedy(string $estate, string $state): array {
             '--pin',
         ], $library);
         try {
-            $out['re_certified'] = \Duo\Policy::load(
-                $reRemedied, null, false, null, $library
-            )->adapter_sources()->is_certified('estate-forms');
+            $rePolicy = \Duo\Policy::load($reRemedied, null, false, null, $library);
+            $out['re_certified'] = $rePolicy->adapter_sources()->is_certified('estate-forms');
+            foreach (\Duo\RepositoryCompiler::resolved_adapters($rePolicy) as $row) {
+                if ((string) $row['name'] === 'estate-forms') {
+                    $out['re_capability'] = (string) ($row['capability']['status'] ?? 'none');
+                }
+            }
         } catch (Throwable $t) {
             $out['re_certified'] = false;
             $out['re_certify_reason'] = rehearsal_scrub($t->getMessage(), $estate);

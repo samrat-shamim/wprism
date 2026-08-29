@@ -84,11 +84,6 @@ final class RehearseCommand {
             return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
         }
 
-        // Line 1 and line 2, before anything is negotiated or provisioned.
-        foreach (RehearsalDisclosure::lines() as $line) {
-            echo $line . "\n";
-        }
-
         if ($flags['reap']) {
             return EnvironmentCommand::run(
                 array_merge(['reap', $driver->name()], $json ? ['--format=json'] : []),
@@ -97,9 +92,18 @@ final class RehearseCommand {
             );
         }
 
+        // This is a requirement, not an optimistic claim: it is printed
+        // before provider negotiation, and materialization will refuse before
+        // restoring production-derived bytes unless the provider returns the
+        // exact target-bound containment receipt.
+        foreach (RehearsalDisclosure::preflightLines() as $line) {
+            echo $line . "\n";
+        }
+
         try {
             $branch = $flags['branch'] ?? self::currentBranch();
             $arguments = ['materialize', $driver->name(), '--from', (string) $flags['from'], '--branch', $branch];
+            $arguments[] = '--require-containment';
             if ($flags['ttl'] !== null) {
                 $arguments[] = '--ttl=' . $flags['ttl'];
             }
@@ -110,7 +114,15 @@ final class RehearseCommand {
             return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
         }
 
-        $materialized = EnvironmentCommand::run($arguments, $envsFileOverride, $promote);
+        $materializationReceipt = null;
+        $materialized = EnvironmentCommand::run(
+            $arguments,
+            $envsFileOverride,
+            $promote,
+            static function (array $receipt) use (&$materializationReceipt): void {
+                $materializationReceipt = $receipt;
+            }
+        );
         if ($materialized !== 0) {
             // `EnvironmentCommand` has already printed the provider's own
             // refusal, including a missing capability by its id. Re-wording
@@ -119,7 +131,16 @@ final class RehearseCommand {
         }
 
         try {
-            $preview = self::preview($driver, $flags, $branch, $sourceRoot, $clock, $hostCatalog);
+            $containment = RehearsalDisclosure::verifiedProof($materializationReceipt);
+        } catch (CommandRefusalException $refusal) {
+            return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
+        }
+        foreach (RehearsalDisclosure::verifiedLines($containment) as $line) {
+            echo $line . "\n";
+        }
+
+        try {
+            $preview = self::preview($driver, $flags, $branch, $sourceRoot, $clock, $hostCatalog, $containment);
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
         }
@@ -151,7 +172,8 @@ final class RehearseCommand {
         string $branch,
         string $sourceRoot,
         ?callable $clock = null,
-        ?callable $hostCatalog = null
+        ?callable $hostCatalog = null,
+        ?array $containment = null
     ): array {
         $now = ($clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z'))();
         $plan = self::targetPlan($driver);
@@ -171,6 +193,7 @@ final class RehearseCommand {
             'generated_at' => $now,
             'operation' => 'release',
             'source_env' => (string) $flags['from'],
+            'containment_proof' => $containment,
         ]);
     }
 

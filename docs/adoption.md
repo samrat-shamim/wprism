@@ -473,6 +473,33 @@ Any changed runtime checksum is a failed adoption, even when capture exits 0.
 Keep the source repo as the canonical artifact; do not copy its WordPress
 database to prove portability.
 
+## Offboard a site without discarding evidence
+
+Use the supported inverse transaction when a pilot ends or a client leaves:
+
+```sh
+cli/duo unadopt production --archive-to=/srv/client-handoff/duo-control-2026-08-29
+# review the content-addressed plan, then confirm interactively
+```
+
+For already-reviewed automation, add `--yes`. The archive path is mandatory,
+must be an absent normalized absolute path outside both the site repository and
+MU-plugin roots, and its parent must already be an ordinary directory. The
+transaction copies and hash-verifies the installed agent, top-level MU loader,
+and target-local `.duo` recovery/control tree into that archive before moving
+anything out of service. It then proves WordPress still loads and that
+`DUO_AGENT_VERSION` is absent before committing removal. A stale plan or failed
+verification restores all three live surfaces; the complete archive remains as
+operator evidence.
+
+Offboarding never removes `site.duo.json`, `code/`, `media/`, `state/`, Git
+history or attributes, or the MU directory's `duo-control/` durable revocation
+store. The last path can predate the current adoption, so it is preserved in
+place and named in the receipt rather than treated as deletion authority. The
+archive's `receipt.json` binds the exact three removed surfaces and lists every
+path deliberately retained. A site without a recognizable complete installed
+Duo control plane refuses before archive creation.
+
 ## Prove a second environment before promotion
 
 Install matching plugin/theme code on an independent target and run `duo

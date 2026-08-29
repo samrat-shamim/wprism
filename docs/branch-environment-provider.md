@@ -53,7 +53,7 @@ keys for SSH or Docker instead when that is how the environment is reached.
 * `command` is a non-empty argv **list** — it is executed with `bypass_shell`, so
   there is no shell, no word splitting and no PATH lookup;
 * `command[0]` must be absolute;
-* `timeout_seconds` is an integer in **1..60**, applied per action.
+* `timeout_seconds` is an integer in **1..3600**, applied per action. Long operations should still be idempotent by `operation_id`.
 
 ## 2. The wire
 
@@ -62,14 +62,14 @@ stdout; exit 0. Both are **canonical JSON**: object keys sorted bytewise, no
 insignificant whitespace, `/` unescaped. The orchestrator re-encodes the response it
 parsed and compares bytes, so any other spacing or key order is refused as
 noncanonical evidence. stdout plus stderr may not exceed 1,048,576 bytes, and
-provider output is redacted on every failure — it may carry host or production-data
-diagnostics, so it never reaches an operator's terminal or the journal.
+raw provider output is redacted on every failure — it may carry host or production-data
+diagnostics. A non-zero provider may return the canonical error response below to surface bounded, operator-safe diagnostics without exposing stderr.
 
 **Request** — `duo-branch-environment-provider-request/v1`, key set exactly:
 
 | field | value |
 |---|---|
-| `action` | one of the 18 names in §5 |
+| `action` | one of the 19 names in §5 |
 | `environment` | the registry name of the environment being acted on |
 | `format` | `duo-branch-environment-provider-request/v1` |
 | `input` | the per-action object in §5 — the empty JSON list `[]` for `capabilities` |
@@ -85,7 +85,9 @@ diagnostics, so it never reaches an operator's terminal or the journal.
 | `operation_id` | echoed verbatim |
 | `provider` | exactly `{id, protocol}`; `id` matches `[A-Za-z0-9._:@+-]{1,128}`, `protocol` is the integer `1` |
 | `result` | the per-action **closed** object in §5 |
-| `status` | `ok` — a provider reports failure by exiting non-zero, never by a status value |
+| `status` | `ok` on exit 0; `error` on a non-zero structured failure |
+
+On a non-zero exit, stdout may carry the same request-bound envelope with `status: "error"` and `result` exactly `{code,message,remediation}`. `code` is 3..64 lowercase identifier characters; message and remediation are non-empty, control-free strings up to 1024 bytes. Only those fields are shown. Any malformed/noncanonical failure response falls back to the fully redacted failure.
 
 `provider` must not change for the life of an `operation_id`: a same-named
 environment whose provider identity moved is not a continuation of the journaled
@@ -102,9 +104,10 @@ implement: serving `create` with an attach, or `destroy` with a detach, converts
 missing capability into a silent data-loss class. Refuse any action whose id you did
 not advertise, and name that id.
 
-The 19 ids:
+The 20 ids:
 
 * `environment.attach`
+* `environment.containment.verify`
 * `environment.create`
 * `environment.destroy`
 * `environment.detach`
@@ -133,7 +136,9 @@ the text an operator sees after `cannot ` in
 | side | operation | required ids | also required when |
 |---|---|---|---|
 | target | materialize a create branch environment | `environment.create`, `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo env materialize --ttl <seconds>` is given |
+| target | materialize a create branch environment | `environment.containment.verify`, `environment.create`, `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo rehearse --ttl <seconds>` is given |
 | target | materialize a attach branch environment | `environment.attach`, `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo env materialize --ttl <seconds>` is given |
+| target | materialize a attach branch environment | `environment.attach`, `environment.containment.verify`, `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo rehearse --ttl <seconds>` is given |
 | source | materialize a coherent production snapshot | `environment.inspect`, `operation.receipts`, `snapshot.set.abort`, `snapshot.set.create`, `snapshot.set.prepare`, `snapshot.set.read` | — |
 | target | reap a create branch environment | `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `operation.receipts` | `environment.ttl.read` when the materialization journaled a `ttl-set` phase |
 | target | reap a attach branch environment | `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `operation.receipts` | `environment.ttl.read` when the materialization journaled a `ttl-set` phase |
@@ -141,7 +146,7 @@ the text an operator sees after `cannot ` in
 | target | recover a lost target create response | `environment.create`, `operation.receipts` | — |
 | target | recover a lost target attach response | `environment.attach`, `operation.receipts` | — |
 
-## 5. The 18 actions
+## 5. The 19 actions
 
 ### `capabilities`
 
@@ -574,6 +579,46 @@ EnvironmentLifecycle.php:1347. The held -> released acknowledgement is the ONE t
 | `state` | exactly "released" |
 | `url` | a credential-free http(s) base URL under 2048 bytes with no query or fragment |
 
+### `containment-verify`
+
+Gated by `environment.containment.verify`.
+
+Rehearsal-only, before snapshot-restore: establish and read back the complete closed isolation profile for the exact fenced target.
+
+**Request `input`:**
+
+| field | value |
+|---|---|
+| `expected_environment_identity` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `expected_lease_generation` | a JSON integer >= 1 |
+| `expected_lease_id` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `expected_mutation_generation` | a JSON integer >= 1 |
+| `expected_mutation_id` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `expected_mutation_owner` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `expected_mutation_receipt_sha256` | a lowercase 64-character hex SHA-256 |
+| `expected_ownership_receipt_sha256` | a lowercase 64-character hex SHA-256 |
+| `expected_resource_id` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `profile` | exactly "agency-rehearsal-v1" |
+
+**Response `result`** (closed set):
+
+| field | value |
+|---|---|
+| `containment_receipt_sha256` | a lowercase 64-character hex SHA-256 |
+| `credential_isolation` | JSON true |
+| `environment_identity` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `http_egress_default_denied` | JSON true |
+| `lease_generation` | a JSON integer >= 1 |
+| `lease_id` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `mail_default_denied` | JSON true |
+| `ownership_receipt_sha256` | a lowercase 64-character hex SHA-256 |
+| `payment_default_denied` | JSON true |
+| `profile` | exactly "agency-rehearsal-v1" |
+| `queue_default_denied` | JSON true |
+| `resource_id` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `url` | a credential-free http(s) base URL under 2048 bytes with no query or fragment |
+| `webhook_default_denied` | JSON true |
+
 ### `ttl-set`
 
 Gated by `environment.ttl`.
@@ -735,7 +780,7 @@ provider stdout/stderr is never among them.
 | `env '<env>': environment_provider.command must be a non-empty argv array` | `command` is a string, an object, or empty |
 | `env '<env>': environment_provider.command[<i>] is invalid` | an argv element is not a non-empty NUL-free string |
 | `env '<env>': environment_provider executable must be absolute` | argv[0] does not begin with `/` — no PATH lookup happens here |
-| `env '<env>': environment_provider.timeout_seconds must be 1..60` | `timeout_seconds` is not an integer in 1..60 |
+| `env '<env>': environment_provider.timeout_seconds must be 1..3600` | `timeout_seconds` is not an integer in 1..3600 |
 | `could not start environment provider` | argv could not be executed |
 | `environment provider failed; provider output is redacted` | the process exited non-zero |
 | `environment provider timed out; provider output is redacted` | no complete response within `timeout_seconds` |
@@ -770,11 +815,11 @@ provider stdout/stderr is never among them.
 | `environment provider <action> returned an invalid mutation fence state` | `state` does not match the action (`acquire` -> `held`, `release` -> `released`) |
 | `environment provider <action> did not return an active TTL lease` | `ttl_state` is not `active` |
 | `environment provider <action> returned wrong disposition` | `destroy` did not answer `destroyed`, or `detach` did not answer `detached` |
-| `unknown environment provider action '<action>'` | an action outside the 18 below |
+| `unknown environment provider action '<action>'` | an action outside the closed list below |
 
 ## 7. The worked example
 
-`tools/reference-env-provider.php` implements all 18 actions against Duo's own
+`tools/reference-env-provider.php` implements all 19 actions against Duo's own
 sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB). It is **DEV-ONLY** —
 `tools/` never ships, and `cli/src/Onboarding/Adopt.php` tars only `agent`,
 `manifests` and `recovery` — so read it as a demonstration of this document, not as

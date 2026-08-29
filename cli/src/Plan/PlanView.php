@@ -30,7 +30,7 @@ final class PlanViewException extends \RuntimeException {
  * snapshot it already fetched for status.
  */
 final class PlanView {
-    public const FORMAT = 'duo-plan-view/v1';
+    public const FORMAT = 'duo-plan-view/v2';
 
     /** MUP §4.6: the one closed ceiling, shared (DUO-3521). */
     public const MAX_LIMIT = HumanViewLimit::MAX_LIMIT;
@@ -78,7 +78,7 @@ final class PlanView {
      * must canonicalize before forwarding so it can verify the returned view.
      *
      * @param list<string> $args
-     * @return array{category:list<string>,action:list<string>,entity:list<string>,limit:int}|null
+     * @return array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int}|null
      */
     public static function requestFromArgs(array $args): ?array {
         if ($args === []) {
@@ -90,7 +90,7 @@ final class PlanView {
                 throw self::invalidRequest();
             }
             $matched = false;
-            foreach (['category', 'action', 'entity', 'limit'] as $key) {
+            foreach (['category', 'action', 'entity', 'cursor', 'limit'] as $key) {
                 $prefix = '--' . $key . '=';
                 if (str_starts_with($arg, $prefix)) {
                     if (array_key_exists($key, $values)) {
@@ -112,13 +112,15 @@ final class PlanView {
                 ? self::parseCsv($values['action'], self::ACTIONS) : [],
             'entity' => array_key_exists('entity', $values)
                 ? self::parseCsv($values['entity'], self::ENTITIES) : [],
+            'cursor' => array_key_exists('cursor', $values)
+                ? self::parseCursor($values['cursor']) : null,
             'limit' => array_key_exists('limit', $values)
                 ? self::parseLimit($values['limit']) : self::MAX_LIMIT,
         ];
     }
 
     /**
-     * @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request
+     * @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request
      * @return list<string>
      */
     public static function agentArgs(array $request): array {
@@ -128,6 +130,9 @@ final class PlanView {
             if ($request[$key] !== []) {
                 $args[] = '--' . $key . '=' . implode(',', $request[$key]);
             }
+        }
+        if ($request['cursor'] !== null) {
+            $args[] = '--cursor=' . $request['cursor'];
         }
         // Always forward the derived default too: both sides now bind the
         // exact normalized request rather than treating an omitted limit as a
@@ -142,7 +147,7 @@ final class PlanView {
      * callers deliberately do not print these internal labels.
      *
      * @param array<string,mixed> $plan
-     * @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request
+     * @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request
      * @return list<string>
      */
     public static function violations(array $plan, mixed $view, array $request): array {
@@ -157,7 +162,7 @@ final class PlanView {
         $violations = [];
         $expectedTop = [
             'format', 'authoritative', 'redaction', 'order', 'filters',
-            'counts', 'full_plan', 'rows',
+            'counts', 'page', 'full_plan', 'rows',
         ];
         if (array_keys($view) !== $expectedTop) {
             $violations[] = 'view has unexpected or out-of-order top-level keys';
@@ -185,10 +190,17 @@ final class PlanView {
             $violations,
             self::countMapViolations(
                 $view['counts'] ?? null,
-                ['full', 'matching', 'shown', 'omitted', 'forced_safety'],
+                ['full', 'matching', 'offset', 'shown', 'remaining', 'forced_safety'],
                 'view counts'
             )
         );
+
+        $page = $view['page'] ?? null;
+        if (!is_array($page) || array_keys($page) !== ['next_cursor', 'has_more']
+            || (!is_string($page['next_cursor'] ?? null) && ($page['next_cursor'] ?? null) !== null)
+            || !is_bool($page['has_more'] ?? null)) {
+            $violations[] = 'view page evidence is malformed';
+        }
 
         $full = $view['full_plan'] ?? null;
         if (!is_array($full) || array_keys($full) !== [
@@ -210,6 +222,16 @@ final class PlanView {
         $evidence = self::fullEvidence($plan);
         if ($evidence === null) {
             return array_merge($violations, ['full plan cannot be correlated to a view']);
+        }
+        $cursorDigest = self::cursorDigest($plan, $request);
+        $offset = 0;
+        if ($request['cursor'] !== null) {
+            $decodedOffset = self::cursorOffset($request['cursor'], $cursorDigest);
+            if ($decodedOffset === null) {
+                $violations[] = 'requested cursor does not bind this plan and filter set';
+            } else {
+                $offset = $decodedOffset;
+            }
         }
         if (is_array($full)
             && array_keys($full) === ['readiness', 'action_counts', 'safety_counts', 'global_counts']) {
@@ -310,12 +332,20 @@ final class PlanView {
             if (($counts['shown'] ?? null) !== $shown || ($counts['shown'] ?? 0) > $request['limit']) {
                 $violations[] = 'view shown count is invalid';
             }
-            if (!is_int($counts['matching'] ?? null) || !is_int($counts['omitted'] ?? null)
-                || $counts['matching'] < $shown
+            if (($counts['offset'] ?? null) !== $offset
+                || !is_int($counts['matching'] ?? null) || !is_int($counts['remaining'] ?? null)
+                || $counts['matching'] < $offset + $shown
                 || $counts['matching'] > $evidence['full_ordinary']
-                || $counts['omitted'] !== $counts['matching'] - $shown
-                || $shown !== min($counts['matching'], $request['limit'])) {
-                $violations[] = 'view matching/omitted evidence is inconsistent';
+                || $counts['remaining'] !== $counts['matching'] - $offset - $shown
+                || $shown !== min($counts['matching'] - $offset, $request['limit'])) {
+                $violations[] = 'view matching/page evidence is inconsistent';
+            }
+            $expectedNext = ($counts['remaining'] ?? 0) > 0
+                ? self::encodeCursor($cursorDigest, $offset + $shown) : null;
+            if (!is_array($page)
+                || ($page['next_cursor'] ?? null) !== $expectedNext
+                || ($page['has_more'] ?? null) !== ($expectedNext !== null)) {
+                $violations[] = 'view next cursor is inconsistent';
             }
         }
         // Category/entity classification needs compiled tree/tombstone
@@ -325,14 +355,15 @@ final class PlanView {
         // an internally consistent but underinclusive agent page.
         $derivable = self::derivableOrdinaryReferences($plan, $request);
         if ($derivable !== null) {
-            $expectedShown = array_slice($derivable, 0, $request['limit']);
+            $expectedShown = array_slice($derivable, $offset, $request['limit']);
             if ($actualOrdinary !== $expectedShown) {
                 $violations[] = 'view omitted or invented an action-filtered ordinary row';
             }
             if (!is_array($counts)
                 || ($counts['matching'] ?? null) !== count($derivable)
+                || ($counts['offset'] ?? null) !== $offset
                 || ($counts['shown'] ?? null) !== count($expectedShown)
-                || ($counts['omitted'] ?? null) !== count($derivable) - count($expectedShown)) {
+                || ($counts['remaining'] ?? null) !== count($derivable) - $offset - count($expectedShown)) {
                 $violations[] = 'view action-filtered ordinary counts disagree with the full plan';
             }
         }
@@ -387,12 +418,16 @@ final class PlanView {
             '  filters: category=' . self::filterLabel($filters['category'] ?? [])
                 . ' action=' . self::filterLabel($filters['action'] ?? [])
                 . ' entity=' . self::filterLabel($filters['entity'] ?? [])
+                . ' cursor=' . (is_string($filters['cursor'] ?? null) ? 'set' : 'start')
                 . ' limit=' . (int) ($filters['limit'] ?? self::MAX_LIMIT),
             '  ordinary: full=' . (int) ($counts['full'] ?? 0)
                 . ' matching=' . (int) ($counts['matching'] ?? 0)
+                . ' offset=' . (int) ($counts['offset'] ?? 0)
                 . ' shown=' . (int) ($counts['shown'] ?? 0)
-                . ' omitted=' . (int) ($counts['omitted'] ?? 0)
+                . ' remaining=' . (int) ($counts['remaining'] ?? 0)
                 . '; forced_safety=' . (int) ($counts['forced_safety'] ?? 0),
+            '  next cursor: ' . (is_string($view['page']['next_cursor'] ?? null)
+                ? (string) $view['page']['next_cursor'] : 'none'),
             '  full-plan readiness: ' . (string) ($fullPlan['readiness'] ?? 'blocked')
                 . '; global diagnostics remain unfiltered',
         ];
@@ -426,12 +461,19 @@ final class PlanView {
         return (int) $raw;
     }
 
+    private static function parseCursor(mixed $raw): string {
+        if (!is_string($raw) || preg_match('/^[A-Za-z0-9_-]{48}$/D', $raw) !== 1) {
+            throw self::invalidRequest();
+        }
+        return $raw;
+    }
+
     /**
-     * @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request
-     * @return array{category:list<string>,action:list<string>,entity:list<string>,limit:int}
+     * @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request
+     * @return array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int}
      */
     private static function normaliseRequest(array $request): array {
-        if (array_keys($request) !== ['category', 'action', 'entity', 'limit']) {
+        if (array_keys($request) !== ['category', 'action', 'entity', 'cursor', 'limit']) {
             throw self::invalidRequest();
         }
         $out = [];
@@ -442,13 +484,53 @@ final class PlanView {
             }
             $out[$key] = $value;
         }
+        $cursor = $request['cursor'] ?? null;
+        if ($cursor !== null) {
+            $cursor = self::parseCursor($cursor);
+        }
+        $out['cursor'] = $cursor;
         $limit = $request['limit'] ?? null;
         if (!is_int($limit) || $limit < 1 || $limit > self::MAX_LIMIT) {
             throw self::invalidRequest();
         }
         $out['limit'] = $limit;
-        /** @var array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $out */
+        /** @var array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $out */
         return $out;
+    }
+
+    /** @param array<string,mixed> $plan @param array<string,mixed> $request */
+    private static function cursorDigest(array $plan, array $request): string {
+        $parts = ['duo-plan-view-cursor/v1'];
+        foreach (['category', 'action', 'entity'] as $key) {
+            $parts[] = $key . '=' . implode(',', (array) ($request[$key] ?? []));
+        }
+        foreach (self::ACTIONS as $bucket) {
+            $identities = [];
+            foreach ((array) ($plan[$bucket] ?? []) as $row) {
+                if (!is_array($row) || !is_string($row['uuid'] ?? null)) {
+                    return '';
+                }
+                $identities[] = $row['uuid'];
+            }
+            sort($identities, SORT_STRING);
+            foreach ($identities as $uuid) {
+                $parts[] = $bucket . ':' . hash('sha256', $uuid);
+            }
+        }
+        return hash('sha256', implode("\n", $parts), true);
+    }
+
+    private static function cursorOffset(string $cursor, string $digest): ?int {
+        $raw = base64_decode(strtr($cursor, '-_', '+/'), true);
+        if (!is_string($raw) || strlen($raw) !== 36 || !hash_equals($digest, substr($raw, 0, 32))) {
+            return null;
+        }
+        $offset = unpack('Noffset', substr($raw, 32, 4))['offset'] ?? 0;
+        return $offset >= 1 && self::encodeCursor(substr($raw, 0, 32), $offset) === $cursor ? $offset : null;
+    }
+
+    private static function encodeCursor(string $digest, int $offset): string {
+        return rtrim(strtr(base64_encode($digest . pack('N', $offset)), '+/', '-_'), '=');
     }
 
     /** @param mixed $value @param list<string> $vocabulary */
@@ -477,7 +559,7 @@ final class PlanView {
         return $out;
     }
 
-    /** @param array<string,mixed> $row @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request */
+    /** @param array<string,mixed> $row @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request */
     private static function matches(array $row, array $request): bool {
         if ($request['category'] !== []
             && array_intersect($request['category'], (array) ($row['categories'] ?? [])) === []) {
@@ -632,7 +714,7 @@ final class PlanView {
      * provenance and remain agent-owned.
      *
      * @param array<string,mixed> $plan
-     * @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request
+     * @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request
      * @return list<string>|null
      */
     private static function derivableOrdinaryReferences(array $plan, array $request): ?array {
@@ -719,7 +801,7 @@ final class PlanView {
         return new PlanViewException(
             'invalid_arguments',
             'plan view filters are invalid',
-            'use comma-separated closed category, action, or entity identifiers and a canonical limit from 1 through 200'
+            'use closed category/action/entity identifiers, an emitted opaque cursor, and a canonical limit from 1 through 200'
         );
     }
 }

@@ -293,9 +293,9 @@ alone.
 
 Three things about it are easy to get wrong when reading the output:
 
-- **Exit 0 is normal even when every surface is blocked.** Assessment is not a
-  completeness claim. Exit 1 means the assessment itself refused — unreachable
-  target, multisite, an unresolvable environment — and always carries a
+- **Exit 0 means green readiness.** Exit 3 is a complete assessment containing
+  red readiness; exit 1 means the assessment itself refused — unreachable
+  target, multisite, an unresolvable environment — and carries a
   `duo-command-refusal/v1` envelope under `--format=json`.
 - **`containment: unknown — not enforced in this profile` is the honest value,
   not a bug.** MUP ships no egress control, so only apply's hook-free window is

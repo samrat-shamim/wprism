@@ -170,6 +170,32 @@ abstract class Transport implements BoundedControlDriver {
     }
 
     /**
+     * Connect two target WP-CLI processes without materializing the producer's
+     * stdout on either host. Exit status is captured for both sides, because
+     * a consumer that cleanly authenticated EOF must not hide a failed export.
+     *
+     * @return array{exit:int, stdout:string, stderr:string}
+     */
+    public function captureWpPipeline(array $producerArgs, array $consumerArgs): array {
+        $statusPath = tempnam(sys_get_temp_dir(), 'duo-wp-pipeline-');
+        if ($statusPath === false) {
+            return ['exit' => 1, 'stdout' => '', 'stderr' => 'could not create pipeline status boundary'];
+        }
+        @chmod($statusPath, 0600);
+        $status = escapeshellarg($statusPath);
+        $producer = $this->wpCommand($producerArgs);
+        $consumer = $this->wpCommand($consumerArgs);
+        $script = '{ ' . $producer . '; printf %s "$?" > ' . $status . '; } | ' . $consumer
+            . '; c=$?; p=$(cat ' . $status . '); rm -f -- ' . $status
+            . '; if [ "$p" != 0 ]; then exit "$p"; fi; exit "$c"';
+        try {
+            return self::runCapturing($script);
+        } finally {
+            @unlink($statusPath);
+        }
+    }
+
+    /**
      * Stream one large machine-readable WP response into a caller-owned local
      * spool instead of concatenating stdout in PHP. Refresh exports can carry
      * base64 originals, so its envelope authority must apply while pipes are

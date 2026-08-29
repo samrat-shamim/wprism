@@ -70,7 +70,7 @@ final class DeployCommand {
         // this deploy's lease identity with no second mechanism; a
         // `promote-<runId>.sql` here would list with an empty artifact_hash and
         // then refuse `checkpoint_identity_unknown` at --restore time.
-        $checkpoint = "$repo/.duo/checkpoints/deploy-$runId.sql";
+        $checkpoint = "$repo/.duo/checkpoints/deploy-$runId.sql.enc";
         $wantCheckpoint = self::checkpointRequested($extra);
         // One mkdir, two directories when a checkpoint is wanted — the shape
         // promote uses (cli/duo:2190-2192). The message below names a failed
@@ -87,19 +87,22 @@ final class DeployCommand {
             return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
         }
 
-        // DUO-3500: host-side, before compile, and outside every lease. It
-        // prints nothing at all unless this repository declares a code lock,
-        // so an ordinary format-1 deploy emits exactly the phase lines it
-        // always did. When a lock IS declared, resolving here is what makes
-        // the compile below able to hash the declared bytes instead of
-        // refusing `code_component_unresolved`
-        // (agent/src/Code/CodeDescriptorCompiler.php:144-153).
-        $resolveExit = CodeResolveCommand::deployPhase($transport, 'deploy');
-        if ($resolveExit !== null) {
-            return $resolveExit;
+        // A format-2 release resolves and compiles from a disposable,
+        // target-visible repository snapshot. The canonical repository is
+        // therefore byte-identical when compile or any later preflight
+        // refuses; see CodeResolveCommand::releaseCompile().
+        $compiled = CodeResolveCommand::releaseCompile(
+            $transport,
+            'deploy',
+            static function (string $compileRepo) use ($transport, $artifact): array {
+                echo "deploy phase: compile\n";
+                return CodeDeploy::compile($transport, $compileRepo, $artifact);
+            }
+        );
+        if (is_int($compiled)) {
+            return $compiled;
         }
-        echo "deploy phase: compile\n";
-        $compile = CodeDeploy::compile($transport, $repo, $artifact);
+        $compile = $compiled;
         if ($compile['exit'] !== 0) {
             fwrite(STDERR, "duo: deploy: compile failed; no lifecycle or code materialization occurred\n");
             CommandOutput::renderTransportDetail($compile);
@@ -120,9 +123,24 @@ final class DeployCommand {
 
         $artifactHash = (string) $compile['summary']['artifact_hash'];
         $codeEnabled = CodeDeploy::enabled($compile['summary']);
+        $codeChangeRequired = false;
         if ($codeEnabled) {
-            $preflightExit = self::runtimePreflight($transport, 'deploy', $repo, $artifact, $artifactHash, $compile['summary']);
-            if ($preflightExit !== null) return $preflightExit;
+            $preflight = self::runtimePreflight(
+                $transport,
+                'deploy',
+                $repo,
+                $artifact,
+                $artifactHash,
+                $compile['summary']
+            );
+            if (is_int($preflight)) return $preflight;
+            $codeChangeRequired = $preflight;
+        }
+        if (!$codeChangeRequired) {
+            echo $codeEnabled
+                ? "deploy complete: code revision already exact; lifecycle hooks not run\n"
+                : "deploy complete: no code descriptor; lifecycle hooks not run\n";
+            return 0;
         }
         echo "deploy phase: promotion-begin\n";
         $begin = $transport->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
@@ -144,7 +162,7 @@ final class DeployCommand {
             // stale one; taken after code-stage it would already describe
             // mutated code.
             echo "deploy phase: checkpoint\n";
-            $export = $transport->captureWp(['db', 'export', $checkpoint, '--porcelain']);
+            $export = CodeDeploy::encryptedCheckpoint($transport, $repo, $checkpoint);
             if ($export['exit'] !== 0) {
                 fwrite(STDERR, "duo: deploy: database checkpoint failed; code and lifecycle phases were not started\n");
                 CommandOutput::renderTransportDetail($export);
@@ -156,7 +174,7 @@ final class DeployCommand {
             echo "database checkpoint: $checkpoint\n";
         }
 
-        if ($codeEnabled) {
+        if ($codeChangeRequired) {
             echo "deploy phase: code-stage\n";
             $stage = $transport->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
             if ($stage !== 0) {
@@ -170,31 +188,43 @@ final class DeployCommand {
 
         echo "deploy phase: lifecycle-retire\n";
         $retire = $transport->streamWp(CodeDeploy::lifecycleArgs(
-            $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, false, 'retire', $deployExtra
+            $repo, $artifact, $runId, $artifactHash, true, true, false, 'retire', $deployExtra
         ));
         if ($retire !== 0) {
             fwrite(STDERR, "duo: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
             // $codeEnabled, not true: with no code descriptor this phase staged
             // nothing, which is the same boolean promote passes (cli/duo:2430).
             self::cleanupAndGuide(
-                $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, $codeEnabled, $runId, $artifactHash
+                $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
             );
             return $retire;
         }
 
         echo "deploy phase: lifecycle-activate\n";
         $activate = $transport->streamWp(CodeDeploy::lifecycleArgs(
-            $repo, $artifact, $runId, $artifactHash, $codeEnabled, $codeEnabled, false, 'activate', $deployExtra
+            $repo, $artifact, $runId, $artifactHash, true, true, false, 'activate', $deployExtra
         ));
         if ($activate !== 0) {
             fwrite(STDERR, "duo: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
             self::cleanupAndGuide(
-                $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, $codeEnabled, $runId, $artifactHash
+                $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
             );
             return $activate;
         }
 
-        if ($codeEnabled) {
+        echo "deploy phase: lifecycle-settle\n";
+        $settle = $transport->streamWp(CodeDeploy::lifecycleSettleArgs(
+            $repo, $artifact, $artifactHash, $runId
+        ));
+        if ($settle !== 0) {
+            fwrite(STDERR, "duo: deploy: asynchronous lifecycle settlement failed (exit $settle); code-finalize was not run\n");
+            self::cleanupAndGuide(
+                $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
+            );
+            return $settle;
+        }
+
+        if ($codeChangeRequired) {
             echo "deploy phase: code-finalize\n";
             $finalize = $transport->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
             if ($finalize !== 0) {
@@ -206,18 +236,14 @@ final class DeployCommand {
             }
             // The completion line is unchanged; the retained line is a separate
             // fact, in the position and wording promote uses (cli/duo:2465).
-            echo "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize\n";
+            echo "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize\n";
             if ($wantCheckpoint) {
                 echo "database checkpoint retained: $checkpoint\n";
             }
             return 0;
         }
 
-        echo "deploy complete: lifecycle-retire -> lifecycle-activate (no code descriptor)\n";
-        if ($wantCheckpoint) {
-            echo "database checkpoint retained: $checkpoint\n";
-        }
-        return 0;
+        throw new \LogicException('code-changing deploy did not finalize');
     }
 
     /**
@@ -312,7 +338,7 @@ final class DeployCommand {
         string $artifact,
         string $artifactHash,
         array $compiledSummary
-    ): ?int {
+    ): bool|int {
         $codeRevision = $compiledSummary['code']['code_revision'] ?? null;
         if (!is_string($codeRevision) || preg_match('/^[0-9a-f]{64}$/', $codeRevision) !== 1) {
             fwrite(STDERR, "duo: $verb: compiled code descriptor has no valid revision; refusing before promotion-begin\n");
@@ -332,7 +358,7 @@ final class DeployCommand {
             CommandOutput::renderTransportDetail($preflight);
             return 1;
         }
-        return null;
+        return (bool) $preflight['summary']['change_required'];
     }
 
     private static function isOrchestratorInternalFlag(string $arg): bool {

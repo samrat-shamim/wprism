@@ -158,6 +158,7 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
             return $this->ok(json_encode([
                 'format' => 'duo-code-runtime/v1',
                 'enabled' => true,
+                'change_required' => true,
                 'compatible' => true,
                 'code_revision' => hash('sha256', 'code-release'),
                 'target' => [
@@ -185,6 +186,28 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
                 'warnings' => [],
             ], JSON_UNESCAPED_SLASHES) . "\n");
         }
+        return $this->ok();
+    }
+
+    /** @param list<string> $producer @param list<string> $consumer */
+    public function captureWpPipeline(array $producer, array $consumer): array {
+        $this->calls[] = ['kind' => 'wp', 'args' => $producer];
+        $this->calls[] = ['kind' => 'wp', 'args' => $consumer];
+        if (($producer[0] ?? '') !== 'db' || ($producer[1] ?? '') !== 'export' || ($producer[2] ?? '') !== '-'
+            || fmp_wp_verb($consumer) !== 'checkpoint-seal') {
+            return $this->fail('unexpected pipeline fixture');
+        }
+        $output = '';
+        foreach ($consumer as $arg) {
+            if (str_starts_with($arg, '--output=')) {
+                $output = substr($arg, strlen('--output='));
+            }
+        }
+        if ($output === '') {
+            return $this->fail('checkpoint seal omitted output');
+        }
+        $this->files[$output] = $this->emptyExport ? '' : "-- frozen checkpoint\n";
+
         return $this->ok();
     }
 
@@ -231,13 +254,13 @@ $context = [
     'operation_id' => $operation,
     'promotion_owner' => 'duo-env-promotion-' . $operation,
     'artifact_path' => '/target/repo/.duo/artifacts/materialize-' . $operation . '.json',
-    'checkpoint_path' => '/target/repo/.duo/checkpoints/materialize-' . $operation . '.sql',
+    'checkpoint_path' => '/target/repo/.duo/checkpoints/materialize-' . $operation . '.sql.enc',
     'compiled_summary' => $summary,
 ];
 
 // DUO-3525 — the materialize branch of print_promotion_recovery().
 //
-// A frozen materialization's checkpoint is `materialize-<operation_id>.sql`
+// A frozen materialization's checkpoint is `materialize-<operation_id>.sql.enc`
 // (cli/duo:2632), and `RetainedCheckpoints::ID_PREFIXES` is a CLOSED set of
 // `promote-` / `deploy-` (cli/src/Recovery/RetainedCheckpoints.php:88-100)
 // that excludes it on purpose, so `duo recover --restore=<id>` would refuse

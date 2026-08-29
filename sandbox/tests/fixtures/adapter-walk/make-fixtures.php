@@ -915,7 +915,7 @@ $declaredEffects = [[
 ]];
 $operatorClaim = RecoveryClaim::build([
     'additional_does_not_restore' => [],
-    'covered_resources' => ['database checkpoint /siterepo/.duo/checkpoints/promote-1.sql'],
+    'covered_resources' => ['encrypted database checkpoint /siterepo/.duo/checkpoints/promote-1.sql.enc'],
     'declared_external_effects' => $declaredEffects,
     'profile' => RecoveryClaim::OPERATOR_DIRECTED,
 ]);

@@ -949,7 +949,7 @@ final class SurfaceCatalog {
             // the engine can verify.
             'site_certified' => in_array(
                 $certification,
-                ['reviewer_signed', 'signed_unpinned', 'site_signed', 'third_party_signed'],
+                ['reviewer_signed', 'signed_unexercised', 'signed_unpinned', 'site_signed', 'third_party_signed'],
                 true
             ),
             // T6 §3.2: `{source, trust_root, principal, signed_at}` from the

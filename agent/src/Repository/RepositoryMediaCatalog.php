@@ -181,24 +181,41 @@ final class RepositoryMediaCatalog {
         ksort($this->catalog, SORT_STRING);
     }
 
-    /** @return array<string,array{sha256:string,base64:string}> */
+    /** @return array<string,array<string,mixed>> */
     public function referenced_media(): array {
-        $bytes = 0;
+        $inlineBytes = 0;
         foreach ($this->media as $source) {
-            $bytes = MediaPayloadAuthority::addToAggregate($bytes, $source['witness']['size']);
+            if ($source['witness']['size'] <= MediaPayloadAuthority::MAX_INLINE_ARTIFACT_BYTES) {
+                $inlineBytes = MediaPayloadAuthority::addToAggregate(
+                    $inlineBytes,
+                    $source['witness']['size']
+                );
+            }
         }
-        MediaPayloadAuthority::assertArtifactHeadroom($bytes);
+        MediaPayloadAuthority::assertArtifactHeadroom($inlineBytes);
         ksort($this->media, SORT_STRING);
         $out = [];
         foreach ($this->media as $name => $source) {
-            $payload = MediaPayloadAuthority::readFile($source['path'], $source['witness']);
             MediaPayloadAuthority::assertMediaName($name, $source['witness']);
+            if ($source['witness']['size'] > MediaPayloadAuthority::MAX_INLINE_ARTIFACT_BYTES) {
+                $out[$name] = [
+                    'sha256' => $source['witness']['sha256'],
+                    'size' => $source['witness']['size'],
+                    'source' => 'repository',
+                ];
+                continue;
+            }
+            $payload = MediaPayloadAuthority::readFile($source['path'], $source['witness']);
             $out[$name] = [
                 'sha256' => $source['witness']['sha256'],
                 'base64' => base64_encode($payload),
             ];
         }
         return $out;
+    }
+
+    public function directory(): string {
+        return $this->mediaDir;
     }
 
     /** @return array<string,string> */

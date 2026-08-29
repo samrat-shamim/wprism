@@ -28,8 +28,9 @@ namespace Duo;
  * take different safe generic/raster metadata branches.
  */
 final class MediaPayloadAuthority {
-    public const MAX_FILE_BYTES = 268435456;
-    public const MAX_AGGREGATE_BYTES = 1073741824;
+    public const MAX_FILE_BYTES = 8589934592;
+    public const MAX_AGGREGATE_BYTES = 68719476736;
+    public const MAX_INLINE_ARTIFACT_BYTES = 8388608;
     public const MAX_CATALOG_FILES = 16777216;
     // SHA-256 name (64) + dot + extension must fit NAME_MAX=255. This keeps
     // every current-main materializable extension (>16 included) portable.
@@ -85,6 +86,10 @@ final class MediaPayloadAuthority {
         $secondHash = self::streamHash($path, $secondShape);
         if (!hash_equals($firstHash, $secondHash)) {
             throw new \RuntimeException('duo: media source bytes changed between its stability observations');
+        }
+        $extension = self::extensionFor($uploadPath);
+        if (self::kindFor($mime, $extension) !== 'raster') {
+            return ['extension' => $extension, 'sha256' => $secondHash, 'size' => $secondShape['size']];
         }
         self::assertMemoryHeadroom($secondShape['size'], 2, 'media container validation');
         $bytes = self::readOpenedFile($path, $secondShape, $secondHash);
@@ -200,7 +205,7 @@ final class MediaPayloadAuthority {
      * @param array<string,mixed> $media
      * @param array<string,mixed> $tree
      */
-    public static function assertArtifactMedia(array $media, array $tree): void {
+    public static function assertArtifactMedia(array $media, array $tree, ?string $mediaDirectory = null): void {
         $attachments = [];
         foreach ($tree as $entry) {
             $front = is_array($entry) && is_array($entry['data'] ?? null) ? $entry['data'] : null;
@@ -223,24 +228,32 @@ final class MediaPayloadAuthority {
         }
 
         $aggregate = 0;
+        $inline = 0;
         foreach ($media as $name => $row) {
-            if (!is_string($name) || !is_array($row)
-                || count($row) !== 2
-                || !array_key_exists('sha256', $row)
-                || !array_key_exists('base64', $row)
-                || !is_string($row['sha256'] ?? null)
-                || !is_string($row['base64'] ?? null)) {
+            if (!is_string($name) || !is_array($row) || !is_string($row['sha256'] ?? null)) {
                 throw new \RuntimeException('duo: compiled artifact media row is malformed');
             }
             $parsed = self::parseMediaName($name);
             if (!hash_equals($parsed['sha256'], $row['sha256'])) {
                 throw new \RuntimeException('duo: compiled artifact media row disagrees with its content-addressed name');
             }
-            $decodedLength = self::canonicalBase64DecodedLength(
-                $row['base64'],
-                'compiled artifact media payload'
-            );
-            $aggregate = self::addToAggregate($aggregate, $decodedLength);
+            $keys = array_keys($row);
+            sort($keys, SORT_STRING);
+            if ($keys === ['base64', 'sha256'] && is_string($row['base64'])) {
+                $size = self::canonicalBase64DecodedLength($row['base64'], 'compiled artifact media payload');
+                $inline = self::addToAggregate($inline, $size);
+            } elseif ($keys === ['sha256', 'size', 'source']
+                && $row['source'] === 'repository'
+                && is_int($row['size'])) {
+                self::assertFileBytes($row['size']);
+                if ($row['size'] <= self::MAX_INLINE_ARTIFACT_BYTES) {
+                    throw new \RuntimeException('duo: small compiled media must use its canonical inline encoding');
+                }
+                $size = $row['size'];
+            } else {
+                throw new \RuntimeException('duo: compiled artifact media row is malformed');
+            }
+            $aggregate = self::addToAggregate($aggregate, $size);
             if (!isset($attachments[$name])) {
                 throw new \RuntimeException('duo: compiled artifact carries media without an attachment authority');
             }
@@ -250,15 +263,35 @@ final class MediaPayloadAuthority {
                 throw new \RuntimeException('duo: compiled artifact attachment has no media payload');
             }
         }
-        self::assertArtifactHeadroom($aggregate);
+        self::assertArtifactHeadroom($inline);
 
         foreach ($media as $name => $row) {
-            /** @var array{sha256:string,base64:string} $row */
-            $bytes = self::decodeArtifactMedia($name, $row);
             $witness = null;
+            $external = ($row['source'] ?? null) === 'repository';
+            $bytes = $external ? null : self::decodeArtifactMedia($name, $row);
             foreach ($attachments[$name] as $front) {
-                $current = self::observeBytes($bytes, $front['file'], $front['mime']);
+                if ($external) {
+                    if ($mediaDirectory === null) {
+                        $current = [
+                            'extension' => self::extensionFor($front['file']),
+                            'sha256' => $row['sha256'],
+                            'size' => $row['size'],
+                        ];
+                        self::kindFor($front['mime'], $current['extension']);
+                    } else {
+                        $current = self::observeFile(
+                            rtrim($mediaDirectory, '/') . '/' . $name,
+                            $front['file'],
+                            $front['mime']
+                        );
+                    }
+                } else {
+                    $current = self::observeBytes((string) $bytes, $front['file'], $front['mime']);
+                }
                 self::assertMediaName($name, $current);
+                if ($external && $current['size'] !== $row['size']) {
+                    throw new \RuntimeException('duo: compiled external media size does not verify');
+                }
                 if ($witness !== null && $witness !== $current) {
                     throw new \RuntimeException(
                         'duo: compiled artifact media has inconsistent immutable blob witness authority'
@@ -350,6 +383,71 @@ final class MediaPayloadAuthority {
     }
 
     /**
+     * Copy one witnessed source in bounded chunks. The caller owns an
+     * unpublished staging handle and must discard it if this method refuses.
+     *
+     * @param array{extension:string,sha256:string,size:int} $expected
+     * @param resource $output
+     */
+    public static function copyFileToStream(string $path, array $expected, $output): void {
+        self::assertWitness($expected);
+        if (!is_resource($output)) {
+            throw new \InvalidArgumentException('duo: media destination must be a stream');
+        }
+        $path = self::physicalLocalFilePath($path);
+        $shape = self::assertFileShape($path);
+        if ($shape['size'] !== $expected['size']) {
+            throw new \RuntimeException('duo: media source size changed after its bounded observation');
+        }
+        $input = @fopen($path, 'rb');
+        if (!is_resource($input)) {
+            throw new \RuntimeException('duo: media source could not be opened for bounded transfer');
+        }
+        try {
+            self::assertOpenedShape($input, $shape);
+            $hash = hash_init('sha256');
+            $written = 0;
+            while (!feof($input)) {
+                $chunk = fread($input, self::READ_CHUNK_BYTES);
+                if (!is_string($chunk)) {
+                    throw new \RuntimeException('duo: media source read failed during bounded transfer');
+                }
+                if ($chunk === '') {
+                    if (!feof($input)) {
+                        throw new \RuntimeException('duo: media source stalled during bounded transfer');
+                    }
+                    break;
+                }
+                hash_update($hash, $chunk);
+                self::writeStream($output, $chunk);
+                $written += strlen($chunk);
+                if ($written > $expected['size']) {
+                    throw new \RuntimeException('duo: media source grew during bounded transfer');
+                }
+            }
+            if ($written !== $expected['size'] || !hash_equals($expected['sha256'], hash_final($hash))) {
+                throw new \RuntimeException('duo: media payload bytes disagree with their content witness');
+            }
+            self::assertOpenedShape($input, $shape);
+            self::assertNamedShape($path, $shape);
+        } finally {
+            fclose($input);
+        }
+    }
+
+    /** @param resource $output */
+    private static function writeStream($output, string $bytes): void {
+        $offset = 0;
+        while ($offset < strlen($bytes)) {
+            $count = fwrite($output, substr($bytes, $offset));
+            if (!is_int($count) || $count <= 0) {
+                throw new \RuntimeException('duo: media destination write failed');
+            }
+            $offset += $count;
+        }
+    }
+
+    /**
      * @param array{extension:string,sha256:string,size:int} $expected
      */
     public static function assertBytes(string $bytes, array $expected): void {
@@ -428,7 +526,7 @@ final class MediaPayloadAuthority {
     /** Add one unique payload to the shared absolute aggregate frontier. */
     public static function addToAggregate(int $current, int $bytes): int {
         if ($current < 0 || $bytes < 0 || $bytes > self::MAX_AGGREGATE_BYTES - $current) {
-            throw new \RuntimeException('duo: media payloads exceed their 1 GiB aggregate byte authority');
+            throw new \RuntimeException('duo: media payloads exceed their 64 GiB aggregate byte authority');
         }
         return $current + $bytes;
     }
@@ -500,23 +598,20 @@ final class MediaPayloadAuthority {
         if (is_array($extensions) && in_array($routingExtension, $extensions, true)) {
             return 'raster';
         }
+        if (is_array($extensions)) {
+            throw new \RuntimeException(
+                'duo: media payload is MIME/extension-mismatched for the reviewed raster branch'
+            );
+        }
         if ($mime === ''
             || strlen($mime) > 191
             || preg_match('/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/D', $mime) !== 1) {
             throw new \RuntimeException('duo: media payload has a malformed MIME authority');
         }
-        // wp_generate_attachment_metadata() is byte-identical in the pinned
-        // Core zips (6.9.2/7.0.3/7.1, SHA 533da5b0…). These prefixes and PDF
-        // are its only non-raster delegate branches; do not replace that
-        // semantic proof with the narrower, upload-admission MIME roster.
-        if (str_starts_with($mime, 'image/')
-            || str_starts_with($mime, 'audio/')
-            || str_starts_with($mime, 'video/')
-            || $mime === 'application/pdf') {
-            throw new \RuntimeException(
-                'duo: media payload selects an unbounded Core image, audio, video, or PDF metadata branch'
-            );
-        }
+        // Non-raster originals deliberately take Duo's closed filesize-only
+        // metadata branch. Core's PDF cover-image and audio/video metadata
+        // delegates are never called, so SVG/PDF/AV bytes remain portable
+        // without granting an unbounded codec or subprocess authority.
         return 'generic';
     }
 
@@ -579,11 +674,7 @@ final class MediaPayloadAuthority {
     private static function witness(string $bytes, string $uploadPath, string $mime): array {
         $size = strlen($bytes);
         self::assertFileBytes($size);
-        $extension = pathinfo($uploadPath, PATHINFO_EXTENSION);
-        if ($extension === '' || strlen($extension) > self::MAX_MEDIA_EXTENSION_BYTES
-            || preg_match('/^[A-Za-z0-9]+$/D', $extension) !== 1) {
-            throw new \RuntimeException('duo: media payload has no canonical portable extension authority');
-        }
+        $extension = self::extensionFor($uploadPath);
         $kind = self::kindFor($mime, $extension);
         if ($kind === 'raster') {
             if (!self::imageContainerIsExact($mime, $bytes)) {
@@ -598,6 +689,16 @@ final class MediaPayloadAuthority {
             'sha256' => hash('sha256', $bytes),
             'size' => $size,
         ];
+    }
+
+    private static function extensionFor(string $uploadPath): string {
+        $extension = pathinfo($uploadPath, PATHINFO_EXTENSION);
+        if ($extension === '' || strlen($extension) > self::MAX_MEDIA_EXTENSION_BYTES
+            || preg_match('/^[A-Za-z0-9]+$/D', $extension) !== 1) {
+            throw new \RuntimeException('duo: media payload has no canonical portable extension authority');
+        }
+
+        return $extension;
     }
 
     /**
@@ -770,7 +871,7 @@ final class MediaPayloadAuthority {
 
     private static function assertFileBytes(int $bytes): void {
         if ($bytes < 0 || $bytes > self::MAX_FILE_BYTES) {
-            throw new \RuntimeException('duo: media payload exceeds its 256 MiB per-file byte authority');
+            throw new \RuntimeException('duo: media payload exceeds its 8 GiB per-file byte authority');
         }
     }
 

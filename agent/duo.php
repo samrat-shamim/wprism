@@ -111,6 +111,8 @@ require_once __DIR__ . '/src/Apply/UserMetaMaterializer.php';
 require_once __DIR__ . '/src/Apply/ConvergenceVerifier.php';
 require_once __DIR__ . '/src/Apply/Apply.php';
 require_once __DIR__ . '/src/Promotion/Deploy.php';
+require_once __DIR__ . '/src/Adapter/LifecycleSettlement.php';
+require_once __DIR__ . '/src/Recovery/RetainedCheckpointCipher.php';
 require_once __DIR__ . '/src/Repository/Journal.php';
 require_once __DIR__ . '/src/Review/EffectDeclarationCoverage.php';
 require_once __DIR__ . '/src/Review/Pending.php';

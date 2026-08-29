@@ -288,7 +288,8 @@ function preflight_observed(array $before, array $after): array {
         if ($now === null || ($now['digest'] ?? null) !== ($row['digest'] ?? null)) {
             $moved[] = "adapter_digest:$name";
         }
-        if (($row['certified'] ?? false) === true && ($now['certified'] ?? null) === false) {
+        if (($row['certificate_held'] ?? false) === true
+            && ($now['certificate_held'] ?? false) !== true) {
             $moved[] = "certificate:$name";
         }
     }

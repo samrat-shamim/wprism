@@ -904,29 +904,8 @@ final class ApplyPlanner {
         ];
     }
 
-    /**
-     * The operator sentence for tombstones an ordinary apply planned but was
-     * never authorized to execute.
-     *
-     * Only the SCOPED path refuses this state
-     * (ApplyPreparationCoordinator.php:171-179). A full apply keeps
-     * `$executeDeletes` false while `rebuild_work()` above hands back a fully
-     * populated `delete_work`, and AuthoredTransactionExecutor.php:222-253
-     * then skips its entire delete block — so the target still holds every
-     * tombstoned entity, and ApplyLedgerFinalizer.php:94-99 still records
-     * `applied_revision` for the run. Before DUO-3502 the only trace of that
-     * was numeric: `"delete":1` beside `"deleted":0` in the receipt
-     * (ApplyRequestCoordinator.php:1533-1534), which no operator reads as
-     * "none of the planned deletions happened".
-     *
-     * Pure by construction, exactly like `rebuild_work()`: the caller owns the
-     * authorization decision and guards `$deleteWork !== []`; this only
-     * renders the rows it was handed. `path` is the tombstone's repository
-     * path; the `<type> <uuid>` fallback covers rows projected without one.
-     *
-     * @param list<array<string,mixed>> $deleteWork
-     */
-    public static function unauthorized_deletes_warning(array $deleteWork): string {
+    /** @param list<array<string,mixed>> $deleteWork */
+    public static function unauthorized_deletes_refusal(array $deleteWork): string {
         $rows = array_map(
             static function (array $row): string {
                 $path = (string) ($row['path'] ?? '');
@@ -937,8 +916,8 @@ final class ApplyPlanner {
             $deleteWork
         );
         return sprintf(
-            'planned deletions NOT applied (%d) — --with-deletes was not supplied; the target still holds them '
-                . 'and this revision is recorded as applied without them. Rerun with --with-deletes to authorize:'
+            'duo: planned deletions require --with-deletes (%d); no target mutation attempted. '
+                . 'Review and rerun with --with-deletes to authorize:'
                 . "\n  - %s",
             count($deleteWork),
             implode("\n  - ", $rows)
@@ -1518,17 +1497,19 @@ final class ApplyPlanner {
      * option-value reader; the planner owns the missing-value semantics, row
      * shape, declaration order, and required-option warning vocabulary.
      *
-     * Missing deliberately means only an absent row or an empty string on
-     * this environment. The callback is invoked once for every declaration,
-     * including present optional values, and this method never writes through
-     * it or mutates the supplied rules.
+     * Required declarations also need an intended-value binding and must
+     * match it exactly. Optional declarations remain presence-only because
+     * plugin-owned structured values are commonly self-populated. Both
+     * callbacks are invoked once for every declaration, and this method never
+     * writes through them or mutates the supplied rules.
      *
      * @param array<string,array> $envOptions
      * @return array{env_missing:list<array{name:string,required:bool}>,warnings:list<string>}
      */
     public static function env_missing_projection(
         array $envOptions,
-        \Closure $readOption
+        \Closure $readOption,
+        ?\Closure $readExpected = null
     ): array {
         $missing = [];
         $warnings = [];
@@ -1536,14 +1517,22 @@ final class ApplyPlanner {
         foreach ($envOptions as $name => $rule) {
             $name = (string) $name;
             $value = $readOption($name);
-            if ($value !== null && $value !== '') {
+            $required = (bool) ($rule['required'] ?? false);
+            $expected = $readExpected === null ? null : $readExpected($name);
+            $present = $value !== null && $value !== '';
+            $matches = !$required || $readExpected === null
+                ? $present
+                : is_string($expected) && hash_equals($expected, (string) $value);
+            if ($matches) {
                 continue;
             }
-            $required = (bool) ($rule['required'] ?? false);
             $missing[] = ['name' => $name, 'required' => $required];
             if ($required) {
-                $warnings[] = "env_missing: option '$name' is required and not yet provisioned on "
-                    . "this environment — see 'wp duo env-set --name=$name --stdin'";
+                $state = !$present
+                    ? 'not yet provisioned'
+                    : ($expected === null ? 'present but has no intended-value binding' : 'different from its intended value');
+                $warnings[] = "env_missing: option '$name' is required and $state on this environment — see "
+                    . "'wp duo env-set --name=$name --stdin'";
             }
         }
 

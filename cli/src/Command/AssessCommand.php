@@ -74,13 +74,13 @@ use Duo\CommandRefusalException;
  *
  * ## Exit status
  *
- * `0` for a bounded assessment — *including* one where every surface is
- * blocked. "Assessment is not a completeness claim": a site Duo can
- * describe honestly and cannot yet manage is a successful assessment, and
- * making it non-zero would train operators to ignore the exit code. `1`
- * only when the assessment itself refuses.
+ * `0` means the requested operations are ready (or ready with conditions),
+ * `3` is a complete bounded assessment with at least one red readiness row,
+ * and `1` means the assessment itself refused.
  */
 final class AssessCommand {
+    /** A complete report/proposal whose readiness verdict contains blockers. */
+    public const COMPLETE_WITH_GAPS_EXIT = 3;
     /** The operation whose projection the human table's columns show. */
     public const DEFAULT_VIEW_OPERATION = 'release';
 
@@ -128,7 +128,7 @@ final class AssessCommand {
         if ($json) {
             echo AssessReport::encode($result['report']);
 
-            return 0;
+            return self::readinessExit($result['report']);
         }
         $lines = AssessRenderer::render($result['report'], $limit, [
             'proposal_path' => $proposalPath,
@@ -145,7 +145,7 @@ final class AssessCommand {
             echo $line . "\n";
         }
 
-        return 0;
+        return self::readinessExit($result['report']);
     }
 
     /**
@@ -367,8 +367,33 @@ final class AssessCommand {
                 '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
             ],
             'assess_registry_unavailable',
-            'the target could not evaluate its reviewed capability claims for this operation'
+            'the target could not evaluate its reviewed capability claims for this operation',
+            [0, 3]
         );
+    }
+
+    /** A complete red assessment is an answer (3), not an execution refusal (1). */
+    private static function readinessExit(array $report): int {
+        foreach ((array) ($report['surfaces'] ?? []) as $surface) {
+            if (!is_array($surface)) {
+                return 3;
+            }
+            foreach ((array) ($surface['operations'] ?? []) as $projection) {
+                $readiness = is_array($projection) ? (string) ($projection['readiness'] ?? '') : '';
+                if (!in_array($readiness, ['Ready', 'Ready with conditions'], true)) {
+                    return 3;
+                }
+            }
+        }
+        $unknown = is_array($report['unknown'] ?? null) ? $report['unknown'] : [];
+        if (($unknown['pending_count'] ?? 0) !== 0
+            || ($unknown['invisible_names_count'] ?? 0) !== 0
+            || ($unknown['undeclared_tables_count'] ?? 0) !== 0
+            || !AssessReport::dispositionsAgree($report)) {
+            return 3;
+        }
+
+        return 0;
     }
 
     /**
@@ -763,10 +788,11 @@ final class AssessCommand {
         EnvironmentDriver $driver,
         array $args,
         string $fallbackCode,
-        string $fallbackMessage
+        string $fallbackMessage,
+        array $answerExits = [0]
     ): array {
         $result = $driver->captureWp($args);
-        if ($result['exit'] !== 0) {
+        if (!in_array($result['exit'], $answerExits, true)) {
             $refusal = json_decode(trim((string) $result['stdout']), true);
             if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
                 throw new CommandRefusalException(

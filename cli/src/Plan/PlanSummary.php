@@ -71,8 +71,8 @@ require_once __DIR__ . '/PlanContract.php';
  *     plugin, out-of-range version, absent provider, contract or identity
  *     mismatch, unadvertised capability. Row shape {provider,manifest,plugin,
  *     code,expected,found,remediation,message} — no uuid/path, so label()
- *     does not apply. Rendered and counted, but deliberately NOT part of `ok`
- *     below: see that decision matrix's own entry for why.
+ *     does not apply. Rendered, counted, and readiness-blocking: a green
+ *     process result may not coexist with a known provider defect.
  */
 final class PlanSummary {
     private const BUCKETS = [
@@ -431,7 +431,7 @@ final class PlanSummary {
             if ($envMissingRequired) {
                 $lines[] = $environment !== null
                     ? 'required env value(s) missing — run each required item command above before promoting'
-                    : 'required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting';
+                    : 'required env value(s) missing — pipe the value to `wp duo env-set --name=<name> --stdin` before promoting';
             } else {
                 $lines[] = 'only optional env value(s) missing — safe to promote, listed for visibility';
             }
@@ -594,32 +594,10 @@ final class PlanSummary {
         //                     certified cannot make readiness green, even
         //                     though lower-level agent calls stay available
         //                     to exercise experimental/test fixtures.
-        // One bucket is rendered and counted above but deliberately NOT here:
-        //   - provider_problems (DUO-3339): the NARROWED provider diagnosis
-        //                     already exists and is already in `ok` — it just
-        //                     is not this bucket. DUO-3314's
-        //                     Policy::provider_readiness_blockers($selected)
-        //                     negotiates exactly the actions this plan's own
-        //                     work reaches and merges its rows into
-        //                     adapter_dispositions above, which the `ok`
-        //                     expression counts. So a provider this revision
-        //                     genuinely needs and cannot get DOES make status
-        //                     non-zero, through that bucket.
-        //                     provider_problems is the complement: every
-        //                     provider capability the PINNED manifests
-        //                     declare, minus the ones already reported as
-        //                     gating (Providers::problems() drops those, so
-        //                     one fact is never stated twice). What is left is
-        //                     real but not reached by this revision — a
-        //                     pinned adapter whose plugin is absent while
-        //                     nothing in this diff touches its surfaces. `ok`
-        //                     answers "will promoting THIS revision refuse?",
-        //                     and flipping it on a capability this revision
-        //                     never reaches would predict a refusal that is
-        //                     not going to happen. The rows stay loud and
-        //                     counted because the gap is real and an operator
-        //                     has to see it before it becomes the next
-        //                     revision's blocker.
+        // provider_problems is wider than the actions this particular plan
+        // selects, but status is an environment-readiness gate rather than a
+        // prediction of one apply call. A declared capability known broken is
+        // red readiness and therefore participates in `ok` directly.
         // Plain $plan['warnings'] entries are rendered loudly above but
         // never flip this by themselves: every warning either accompanies a
         // state already counted here, or is a deliberate, ratified warn-
@@ -647,6 +625,7 @@ final class PlanSummary {
             && !$envMissingRequired
             && !$missingUser
             && !$adapterDispositions
+            && !$providerProblems
             && !$blocked
             && ($deletionAuthorityOwnedByCaller || $counts['delete'] === 0)
             && $counts['drift'] === 0;

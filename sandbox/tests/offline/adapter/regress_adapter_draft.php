@@ -598,13 +598,12 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
             'version' => '1.0.0', 'capabilities' => ['rebuild_hand'],
         ]],
         'notes' => ['human' => 'retain this exact editorial intent'],
-        'custom_declaration' => ['nested' => ['retain' => true]],
         '_draft' => ['format' => 'duo-adapter-draft/v1', 'proposals' => (object) [], 'unsupported' => [], '_meta' => (object) []],
     ];
     wr("$t/repo/adapters/intent-draft.json", json_encode($prior, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     $out = gen_draft("$t/repo", 'intent-draft');
 
-    foreach (['plugin', 'version_range', 'actions', 'providers', 'notes', 'custom_declaration'] as $key) {
+    foreach (['plugin', 'version_range', 'actions', 'providers', 'notes'] as $key) {
         check(array_key_exists($key, $out) && same_canon($out[$key], $prior[$key]),
             "hand-authored top-level '$key' is preserved as a whole declaration");
     }

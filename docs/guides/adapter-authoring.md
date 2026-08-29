@@ -815,11 +815,10 @@ manifest top-level keys — the set that decides whether an adapter can be
 certified at all — published with the one fact an author most needs about it:
 it refuses at signing (`enforced_by`), for every `spec_version`. Since WP-4.3
 the manifest **loader** refuses an unrecognised top-level key too, by name,
-before any value in it is read — but only for a `spec_version: 3` manifest
-(spec v3's V3-KEYS rule, `spec/repo-format.md` § v3.3); a `spec_version: 2`
-manifest keeps the older, open load-time behaviour byte-for-byte, so an
-invented or transposed section name there still loads `ok` and does nothing —
-`not_enforced_by` names exactly that one case. Check `top_level_keys.all`
+before any value in it is read, for every accepted manifest version
+(spec v3's V3-KEYS rule, `spec/repo-format.md` § v3.3). The recognised v2
+`_draft` sidecar is the sole authoring-only load exception and remains
+unsignable. Check `top_level_keys.all`
 against a new section name regardless of which `spec_version` you are writing:
 it is the fastest offline answer, whichever validator would eventually catch
 the mistake.

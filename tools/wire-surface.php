@@ -577,7 +577,7 @@ function ws_assert_spec_window(): void {
  * Gate 7 (WP-4.3, spec § v3.3): ONE closed top-level key set, not two.
  *
  * § v3.3's load-bearing sentence is "the set has one definition, not two": the
- * validator refuses an unrecognised top-level key at `spec_version: 3` and the
+ * validator refuses an unrecognised top-level key at every accepted version and the
  * signer refuses one it cannot classify at any version, and those two must be
  * refusing over the SAME SET. The failure this gate is written against is not a
  * disagreement anyone would introduce deliberately — it is the copy. A list
@@ -1485,15 +1485,15 @@ function ws_rows(): array {
     // ids through R-20 are spent. Nothing on disk embeds a register id.
     $rows[] = [
         'id' => 'R-21',
-        'title' => 'The top-level manifest key set is closed at `spec_version: 3`, from one definition',
-        'now' => 'A `spec_version: 3` manifest may declare '
+        'title' => 'The top-level manifest key set is closed from `spec_version: 2`, from one definition',
+        'now' => 'Every accepted manifest version may declare '
             . (string) count(AdapterContractGrammar::admitted_top_level_keys([]))
             . ' top-level keys — the signer\'s three-arm partition, '
             . ws_partition_text() . ' — plus whatever keys its own declared, IMPLEMENTED `engine_features` '
             . 'values claim (today ' . ws_feature_key_text()
             . '). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
-            . '`duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the '
-            . 'open behaviour byte for byte, so none of the shipped library changes. Measured here by asking '
+            . '`duo adapter-draft` writes — is a recognised authoring-only exception at v2 and refuses from '
+            . 'v3 with its own remedy, to strip it. Arbitrary keys refuse at both versions. Measured here by asking '
             . 'the shipped validator and the shipped signer for their sets and comparing them in both '
             . 'directions.',
         'permanent' => 'A key REMOVED from the set later refuses every manifest in the field that declared '
@@ -2323,7 +2323,7 @@ function ws_build(string $repo): string {
     $out .= "   shipped reader — envelope signature, fingerprint-bound ids, windows and namespaces all\n";
     $out .= "   checked by the code a site runs (R-08, R-18).\n";
     $out .= "8. **The closed top-level manifest key set has one definition.** The set the shipped\n";
-    $out .= "   validator admits at `spec_version: 3` and the partition the shipped signer\n";
+    $out .= "   validator admits at every accepted `spec_version` and the partition the shipped signer\n";
     $out .= "   classifies against are compared in both directions, and the only excess admitted is what\n";
     $out .= "   an implemented engine feature claims (R-21).\n\n";
     $out .= "9. **Every key that excess admits is signable.** Each top-level key an implemented engine\n";

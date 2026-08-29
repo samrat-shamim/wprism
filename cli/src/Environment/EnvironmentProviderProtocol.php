@@ -28,7 +28,7 @@ namespace Duo\Orchestrator;
  * moving in one place. The FIELD TYPES below are the part that is stated twice
  * (here as a token, in CommandEnvironmentProvider as a private assertion), and
  * `sandbox/tests/offline/environment/regress_env_provider_conformance.php`
- * property 1 is what keeps that honest: for all 18 actions it builds a
+ * property 1 is what keeps that honest: for every action it builds a
  * conformant result, then drops / retypes / extra-keys each declared field in
  * turn and requires the LIVE validator to refuse. A token that stops matching
  * the validator fails offline, not in a customer's production freeze.
@@ -142,7 +142,7 @@ final class EnvironmentProviderProtocol {
     ];
 
     /**
-     * The 18 actions, in the orchestrator's own order.
+     * The 19 actions, in the orchestrator's own order.
      *
      * `assertAction()` (EnvironmentLifecycle.php:536-547) reads this list, so
      * the vocabulary has exactly one definition.
@@ -232,6 +232,19 @@ final class EnvironmentProviderProtocol {
                 ]),
                 'conditional' => ['environment.ttl', 'environment.ttl.read'],
                 'conditional_when' => '`duo env materialize --ttl <seconds>` is given',
+            ];
+            $sets[] = [
+                'id' => 'rehearse-target-' . $mode,
+                'side' => 'target',
+                'operation' => "materialize a $mode branch environment",
+                'capabilities' => self::sorted([
+                    'environment.inspect', 'snapshot.set.restore', 'repository.materialize',
+                    'environment.url.discover', 'environment.url.set', 'environment.containment.verify',
+                    'environment.mutation.acquire', 'environment.mutation.read', 'environment.mutation.release',
+                    'operation.receipts', 'environment.' . $mode, 'environment.' . $reap,
+                ]),
+                'conditional' => ['environment.ttl', 'environment.ttl.read'],
+                'conditional_when' => '`duo rehearse --ttl <seconds>` is given',
             ];
         }
         // EnvironmentLifecycle.php:965-972.
@@ -591,6 +604,22 @@ final class EnvironmentProviderProtocol {
                 'input' => $fenced,
                 'input_conditional' => [],
                 'input_notes' => 'EnvironmentLifecycle.php:1347. The held -> released acknowledgement is the ONE transition allowed to mint a new receipt for the same lineage.',
+            ],
+            'containment-verify' => [
+                'capability' => 'environment.containment.verify',
+                'result' => $identityResult + [
+                    'containment_receipt_sha256' => self::TYPE_SHA256,
+                    'credential_isolation' => self::TYPE_TRUE,
+                    'http_egress_default_denied' => self::TYPE_TRUE,
+                    'mail_default_denied' => self::TYPE_TRUE,
+                    'payment_default_denied' => self::TYPE_TRUE,
+                    'profile' => self::TYPE_ENUM_PREFIX . 'agency-rehearsal-v1',
+                    'queue_default_denied' => self::TYPE_TRUE,
+                    'webhook_default_denied' => self::TYPE_TRUE,
+                ],
+                'input' => $fenced + ['profile' => self::TYPE_ENUM_PREFIX . 'agency-rehearsal-v1'],
+                'input_conditional' => [],
+                'input_notes' => 'Rehearsal-only, before snapshot-restore: establish and read back the complete closed isolation profile for the exact fenced target.',
             ],
             'ttl-set' => [
                 'capability' => 'environment.ttl',

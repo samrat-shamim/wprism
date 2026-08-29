@@ -368,11 +368,10 @@ final class LifecyclePlanner {
      * record_code_versions() below, called at the end of a successful
      * `duo deploy` AND `duo capture` (Capture::run()) — either is a moment
      * Duo legitimately observed the environment's code, so either is a
-     * valid "last known good" checkpoint. No baseline yet for a given
-     * plugin (never deployed/captured since this mechanism shipped, or
-     * newly activated this run) means nothing to compare against — silent,
-     * not a false positive, mirroring task #73's own minted-vs-unminted
-     * distinction for state entities.
+     * valid "last known good" checkpoint. No baseline anywhere is the one
+     * bootstrap case with nothing to compare. Once a baseline exists, an
+     * active plugin absent from it is itself drift evidence: silently minting
+     * it would make the first out-of-band activation or update invisible.
      *
      * Scoped to exactly the entities $desired already names (the same
      * active_plugins/template/stylesheet the target state declares,
@@ -398,7 +397,20 @@ final class LifecyclePlanner {
             foreach ($desiredActive as $plugin) {
                 $plugin = (string) $plugin;
                 if (!array_key_exists($plugin, $recordedPlugins)) {
-                    continue; // never had a baseline for this specific plugin — not drift, just unminted
+                    $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
+                    $rows[] = [
+                        'issue' => 'code_baseline_missing',
+                        'kind' => 'plugin',
+                        'plugin' => $plugin,
+                        'installed_version' => $installed,
+                        'recorded_version' => '',
+                        'message' => "$plugin " . ($installed === '' ? '(unknown version)' : $installed)
+                            . ' is active on this environment but absent from the existing Duo code-version baseline. '
+                            . 'Its activation or first version change therefore cannot be distinguished from an '
+                            . "out-of-band update. Run 'duo deploy' to reconcile and record the installed bytes, or "
+                            . 'remove the undeclared activation before capture/apply.',
+                    ];
+                    continue;
                 }
                 $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
                 $baseline = (string) $recordedPlugins[$plugin];
@@ -519,10 +531,10 @@ final class LifecyclePlanner {
      * byte-identical and hands the rows back for the caller to report. The
      * scope handed to code_drift() is this environment's own live
      * active_plugins/template/stylesheet rather than a repository's desired
-     * set, because capture is answering "what did I just observe here",
-     * and code_drift() already declines to compare a plugin with no
-     * recorded baseline (:383-384) — so this is not a widening of "Duo has
-     * no opinion about a plugin it was never told to manage".
+     * set, because capture is answering "what did I just observe here". Once
+     * any baseline exists, a newly active plugin is returned as
+     * `code_baseline_missing` and this observer leaves the baseline frozen;
+     * only deploy owns the reconciliation-and-acceptance path.
      *
      * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version:string, recorded_version:string}> non-empty means the baseline was NOT moved
      */

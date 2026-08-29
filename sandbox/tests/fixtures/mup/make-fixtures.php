@@ -297,7 +297,7 @@ $declaredEffects = [[
 // `plan_digest`.
 $operatorClaim = RecoveryClaim::build([
     'additional_does_not_restore' => [],
-    'covered_resources' => ['database checkpoint /siterepo/.duo/checkpoints/promote-1.sql'],
+    'covered_resources' => ['encrypted database checkpoint /siterepo/.duo/checkpoints/promote-1.sql.enc'],
     'declared_external_effects' => $declaredEffects,
     'profile' => RecoveryClaim::OPERATOR_DIRECTED,
 ]);
@@ -388,7 +388,7 @@ mup_json("$out/authorization-plan.fail-no-recovery-reason.json", $noReason);
 // ---------------------------------------------------------------- verify
 $journeys = [
     [
-        'affected_surfaces' => ['products'],
+        'affected_surfaces' => ['products', 'store settings'],
         'expect_contains' => 'Duo Ceramic Mug',
         'expect_status' => 200,
         'id' => 'shop-index',

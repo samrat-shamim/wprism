@@ -5,9 +5,7 @@
         "status": "pass",
         "verifier": "plan-reconciliation/v1"
     },
-    "disclosures": [
-        "verification is byte-level only for store settings; declare a journey in the contract to make this a business check"
-    ],
+    "disclosures": [],
     "environment": "mup2",
     "format": "duo-verify-report/v1",
     "journeys": [
@@ -33,8 +31,6 @@
         }
     ],
     "plan_digest": "sha256:001745ed23e639e89dd704d93947c96986ead1c863c126c12342437832c00257",
-    "uncovered_surfaces": [
-        "store settings"
-    ],
+    "uncovered_surfaces": [],
     "verdict": "pass"
 }

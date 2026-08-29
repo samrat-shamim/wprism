@@ -23,7 +23,7 @@
 # authorization plan for that checkpoint.
 #
 # And, round-3 T5: the RETAINED release checkpoints. Every operator-directed
-# promotion keeps `.duo/checkpoints/promote-<owner>.sql` beside its compiled
+# promotion keeps `.duo/checkpoints/promote-<owner>.sql.enc` beside its compiled
 # artifact, on every transport; `duo recover` lists them and restores them
 # through the SAME four ordered steps, on a transport that carries no rollback
 # authority runtime at all — so the operator-directed claim a frozen plan
@@ -31,7 +31,7 @@
 # step 11).
 #
 # A standalone `duo deploy` is the second writer, at
-# `.duo/checkpoints/deploy-<owner>.sql`. The property this suite adds is that
+# `.duo/checkpoints/deploy-<owner>.sql.enc`. The property this suite adds is that
 # the file-name prefix is the ONLY difference that reaches `duo recover`: the
 # row lists under the same kind, --writers-excluded is required for it just the
 # same, the four ordered steps are the same steps under the lease identity read
@@ -413,7 +413,7 @@ echo "ok: duo-recovery-outcome/v1 carries the reason code and remedy on the fail
 
 # ------------------------------------------------------ an absent checkpoint
 say 'an absent checkpoint'
-rm -f "$TMP/f/target/.duo/checkpoints/promote-recover-fixture-owner.sql"
+rm -f "$TMP/f/target/.duo/checkpoints/promote-recover-fixture-owner.sql.enc"
 DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" \
   recover "nockpt" --restore=receipt-recover-fixture --writers-excluded
 STATUS=$?
@@ -429,7 +429,7 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 # ---------------------------------------------- retained release checkpoints
 say 'retained release checkpoints on a transport with no rollback authority'
 # The fixture deleted the receipt checkpoint above; put it back for this part.
-printf -- '-- fixture checkpoint\n' > "$TMP/f/target/.duo/checkpoints/promote-recover-fixture-owner.sql"
+printf -- '-- fixture checkpoint\n' > "$TMP/f/target/.duo/checkpoints/promote-recover-fixture-owner.sql.enc"
 
 recover_plain "plainlist" --list
 STATUS=$?
@@ -444,7 +444,7 @@ grep -Fq 'deploy-recover-fixture-owner  retained  retained-release-checkpoint' "
 grep -Fq 'this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed' "$TMP/plainlist.txt" \
   && pass 'the listing says which source it could not read' \
   || fail 'the listing did not disclose the missing authority source'
-grep -Fq 'retained release checkpoints are the plain database checkpoints promote and deploy kept under .duo/checkpoints' "$TMP/plainlist.txt" \
+grep -Fq 'retained release checkpoints are authenticated encrypted database checkpoints' "$TMP/plainlist.txt" \
   && pass 'the listing says what a retained checkpoint is and how it is restored' \
   || fail 'the listing did not disclose what a retained checkpoint is'
 # DUO-3506: the listing discloses the refusal an older checkpoint can meet at
@@ -494,7 +494,7 @@ grep -Fq -- '--promotion-owner=recover-fixture-owner' "$DUO_WP_CALLS" \
 grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$DUO_WP_CALLS" \
   && pass 'the recovery lease names the artifact hash promote used (from the retained compiled artifact)' \
   || fail 'the recovery lease did not carry the retained artifact hash'
-grep -Fq 'promote-recover-fixture-owner.sql' "$DUO_WP_CALLS" \
+grep -Fq 'promote-recover-fixture-owner.sql.enc' "$DUO_WP_CALLS" \
   && pass 'the import reads exactly the retained checkpoint file' \
   || fail 'the import did not name the retained checkpoint file'
 grep -Fq 'recovery profile: operator-directed' "$TMP/plainrestore.txt" \
@@ -538,7 +538,7 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 [ "$ORDER" = "abort begin import abort " ] \
   && pass 'a deploy checkpoint is restored through exactly abort -> begin -> import -> final abort' \
   || fail "the deploy checkpoint restore ran: $ORDER"
-grep -Fq 'deploy-recover-fixture-owner.sql' "$DUO_WP_CALLS" \
+grep -Fq 'deploy-recover-fixture-owner.sql.enc' "$DUO_WP_CALLS" \
   && pass 'the import reads exactly the file duo deploy wrote' \
   || fail 'the import did not name the deploy checkpoint file'
 grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$DUO_WP_CALLS" \
@@ -564,7 +564,7 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 # unrestorable row — which is why this is checkpoint_unknown and not the
 # checkpoint_unavailable a signed receipt gets above at the same emptiness. A
 # retained checkpoint has no source of truth other than the file.
-mv "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql" "$TMP/deploy-checkpoint.hold"
+mv "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql.enc" "$TMP/deploy-checkpoint.hold"
 recover_plain "plaindeploygone" --restore=deploy-recover-fixture-owner --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'an absent deploy checkpoint refuses (exit 1)' \
@@ -576,7 +576,7 @@ STEPS="$(wp_steps | tr '\n' ' ')"
 [ -z "${STEPS// /}" ] \
   && pass 'an absent deploy checkpoint never reaches step 1' \
   || fail "an absent deploy checkpoint ran steps: $STEPS"
-mv "$TMP/deploy-checkpoint.hold" "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql"
+mv "$TMP/deploy-checkpoint.hold" "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql.enc"
 
 # Code first holds for a retained checkpoint too: the checkpoint file carries
 # no code evidence, so the question is asked of the frozen plan for that

@@ -40,11 +40,12 @@ duo connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<pa
 duo onboard <env> [--git-url=<empty-url>] [init flags...]
 duo onboard <env> --handoff-only --git-url=<url>
 duo adopt  <env>
+duo unadopt <env> --archive-to=<absolute-path> [--yes]
 duo init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
 duo code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
 duo code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
 duo code-import <archive.zip> [--component=<slug>] [--root=plugins|themes] [--cache-dir=<path>] [--format=json]
-duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
+duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--cursor=<token>] [--limit=<1..200>]
 duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
 duo contract <env> show|propose|accept|attest [--format=json]
 duo rehearse <env> --from <production-env> [--branch <ref>] [--create] [--ttl <seconds>] [--limit=<1..200>] [--format=json]
@@ -57,13 +58,13 @@ duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-
 duo verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
 duo capabilities <env> [--format=json]
-duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
+duo capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo lint    <env> [extra wp-cli flags...]
 duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo explain <env> <bucket>:<entity-key> [--format=json] [planning flags...]
 duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
-duo env-set <env> --name=<name> (--value=<value> | --stdin)
+duo env-set <env> --name=<name> --stdin
 duo promote <env> [extra apply flags...]
 duo pending <env>
 duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
@@ -229,8 +230,8 @@ semantics remain the rehearsal implementation's.
   2. WordPress installed (`wp core is-installed`)
   3. the duo agent is present (`wp eval` checks `class_exists('\Duo\Capture')`)
   4. `repo_path` exists and contains `site.duo.json`
-  5. `.duo-env-values.json` (DUO-3232's optional per-environment secrets
-     scratch file — see "Env-bound value provisioning" below) is not
+  5. `.duo-env-values.json` (DUO-3232's target-local intended-value
+     authority — see "Env-bound value provisioning" below) is not
      git-tracked. **Advisory, not blocking, when this environment has no
      `git` binary to check with** — verified live that this project's own
      sandbox images (`wordpress:cli-php8.3`) genuinely don't ship one, so
@@ -347,6 +348,16 @@ semantics remain the rehearsal implementation's.
   paths. Local bootstrap refuses an already-installed Duo control plane;
   installed-target updates use the existing update path. Docker delivery remains unsupported. See the operator procedure and
   safety/update contract in [docs/adoption.md](../docs/adoption.md).
+
+- **`duo unadopt <env> --archive-to=<absolute-path> [--yes]`** — performs the
+  supported client-offboarding transaction. It binds a read-only plan to the
+  exact agent, MU loader, and target-local recovery/control tree, copies and
+  verifies those bytes in the operator-selected archive, stages them out,
+  proves WordPress remains installed with Duo absent, and only then commits.
+  Repository policy, code, media, state, Git data, attributes, and durable
+  revocations remain in place and are named in `receipt.json`. The archive is
+  mandatory and never silently deleted; stale ownership or a failed post-move
+  proof restores the live control plane.
 
 - **`duo init <env> [--yes]`** — asks the reachable target agent for a
   deterministic, read-only proposal covering platform facts, active code,
@@ -508,9 +519,10 @@ semantics remain the rehearsal implementation's.
   completeness, promotion, or convergence; the detailed buckets remain the
   sole authority.
 
-  An explicit `--category=<csv>`, `--action=<csv>`, `--entity=<csv>`, or
+  An explicit `--category=<csv>`, `--action=<csv>`, `--entity=<csv>`, emitted
+  `--cursor=<token>`, or
   canonical `--limit=<1..200>` on `duo status` (or forwarded through
-  `duo plan`) requests the additive `duo-plan-view/v1` display projection.
+  `duo plan`) requests the additive `duo-plan-view/v2` display projection.
   It leaves every detailed plan bucket in the JSON envelope unchanged, carries
   `authoritative: false`, and contains only closed bucket/entity/category
   facets, a safety bit, and an opaque hashed explain selector. It has no raw
@@ -520,7 +532,11 @@ semantics remain the rehearsal implementation's.
   authoritative source order remains untouched. CSV values are exact closed
   tokens (OR within each dimension, AND across dimensions), deduped into
   vocabulary order. An explicit view defaults to and caps ordinary rows at
-  200; safety rows (drift, conflict, collision, delete conflict, and blocked
+  200 and emits an opaque next cursor while matching rows remain. Each cursor
+  binds the complete plan identity and filter set; a changed plan refuses it
+  as `plan_view_cursor_stale`, so a dashboard can enumerate every matching
+  ordinary row exactly once from one stable observation sequence. Safety rows
+  (drift, conflict, collision, delete conflict, and blocked
   deletes) and global diagnostics bypass filters and the cap. A category view
   additionally requires the same-snapshot category summary. Status forwards
   one normalized request in its single full-plan call and fails closed with
@@ -528,7 +544,11 @@ semantics remain the rehearsal implementation's.
   cannot be tied to that complete envelope; it never makes a second plan call
   or guesses a filtered result. No-option JSON and normal behavior remain
   compatible; filtered direct-plan rows and host status plan-row labels
-  normalize C0/DEL controls to one line. V1 plan-view flags and
+  normalize C0/DEL controls to one line. Direct machine consumers that cannot
+  ingest the complete detailed plan add `--view-only --format=json`; this emits
+  only the bounded page envelope, including full-plan readiness/count evidence
+  and all safety rows. `--view-only` without a view argument and JSON format
+  refuses. V2 plan-view flags and
   `--scope-contract` are deliberately mutually exclusive: a scoped plan is a
   different closed projection already bounded to its selected contract, so
   combining them typed-refuses as `plan_view_unavailable` rather than silently
@@ -543,11 +563,10 @@ semantics remain the rehearsal implementation's.
   restoring the exact pre-lifecycle database checkpoint; force flags cannot
   bypass it.
   `duo apply` refuses code_drift unless explicitly passed
-  `--force-code-drift`; ordinary state drift and regen_pending are two
-  different cases apply itself does *not* refuse on (a drifted entity just
-  folds into `update` once the repo side changes too, or stays `drift`
-  otherwise; a regen_pending marker is what makes the *next* apply retry,
-  not something the apply that set it refuses on). Env_missing is a third:
+  `--force-code-drift`; ordinary state drift instead refuses before mutation
+  and requires capture/reconciliation (except for the separately checkpointed
+  scoped-promotion authority). A regen_pending marker makes the *next* apply
+  retry rather than refusing at preparation. Env_missing is a third case:
   apply never refuses on it at all (env values are never captured/applied —
   there is nothing for apply's own preconditions to check), but status still
   reports a required-and-missing entry as not clean because it answers
@@ -590,9 +609,9 @@ semantics remain the rehearsal implementation's.
   so assessing one environment never overwrites another's review in flight. `--operation` narrows the
   projected product operations (`capture`, `merge`, `release`, `verify`,
   `delete`, `recover`; default all six) and `--limit` bounds every human
-  listing. Exit 0 for a bounded assessment **including one where every surface
-  is blocked** — assessment is not a completeness claim — and 1 only when the
-  assessment itself refuses.
+  listing. Exit 0 means every requested projection is Ready/Ready with
+  conditions, 3 is a complete assessment with red readiness, and 1 means the
+  assessment itself refused.
   See [docs/guides/assess.md](../docs/guides/assess.md).
 
 - **`duo contract <env> show|propose|accept|attest [--format=json]`** — the per-site
@@ -648,10 +667,13 @@ semantics remain the rehearsal implementation's.
   deploy-before-apply, the lease, the fence, the checkpoint and the
   verified/scoped rollback selection all remain promote's, byte for byte. It
   loads the accepted application contract (a site without one refuses with the
-  gap action `declare in contract`), reads the target once, treats `--from` as
-  a BINDING ASSERTION resolved locally and compared with the target `HEAD`
-  (mismatch refuses with the next action `reconcile`; nothing is fetched,
-  pushed or checked out), regenerates the per-site projection from current
+  gap action `declare in contract`), then resolves `--from` locally. An
+  executing release fetches the same advertised branch/tag through the
+  target's configured origin, proves its hash equals the local selection, and
+  hook-free fast-forwards only a clean named target; dirty, detached,
+  divergent, unavailable, or identity-skewed delivery refuses before planning.
+  It never pushes or overwrites target work. `--plan-only` stays read-only and
+  reports a mismatch instead. Release then regenerates the per-site projection from current
   facts and refuses BEFORE freezing anything on any surface in scope that is
   `Experimental`, `Not qualified`, `Unsupported` or `Requalification required`,
   on unknown effect recovery semantics, on a code lifecycle window with no
@@ -853,12 +875,18 @@ semantics remain the rehearsal implementation's.
   a refusal — `lint` exits 1 with a findings **array** on a successful scan,
   by design — and a zero exit is never a refusal.
 
-- **`duo capture <env> [--scope-contract=<local-path>] [flags...]`** — retains
+- **`duo capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [flags...]`** — retains
   the same streaming agent command, but the optional contract path is consumed
   by the host and is never forwarded to the target. The host validates the
   canonical `duo-scope-contract/v1` with the engine parser, then sends only its
   normalized selectors and hash through the isolated control plane. The target
-  recompiles and re-resolves the contract before observation. A bounded capture
+  recompiles and re-resolves the contract before observation. Repository-writing
+  capture derives the caller's current named Git branch by default, or consumes
+  explicit `--target-branch`, and the agent checks that exact target branch both
+  before and under its publication lock. Detached callers and mismatched target
+  branches refuse before state publication; capture never switches the target.
+  The legacy `--out` determinism path writes no repository state and therefore
+  carries no branch binding. A bounded capture
   publishes a strict full-tree overlay: selected rows may change, while every
   excluded state/tombstone and unrelated media byte comes from the current
   repository exactly. It performs no identity minting or global stale-map
@@ -964,8 +992,9 @@ semantics remain the rehearsal implementation's.
   `post.body.production_blocks`, `post.body.branch_blocks`, or
   `post.body.compatible_blocks` partition for its category and is applied
   automatically, so two editors working on different blocks of one page get
-  both edits instead of an ours/theirs coin flip, and neither the diff nor the
-  transcript publishes a block's bytes, position, or count. Everything else
+  both edits instead of an ours/theirs coin flip. The persisted diff publishes
+  none of a block's bytes, position, or count; the explicitly privileged local
+  TTY comparison may show the selected block bytes before continuing. Everything else
   about a body is one record choice under its own named reason: a body that is
   not a pure block document is `body_changed`, one whose block sequence
   differs on any side (insert, delete, reorder, retype, reflowed spacing) is
@@ -1004,9 +1033,14 @@ semantics remain the rehearsal implementation's.
   separate `duo-refresh-field-resolution/v1` list of complete opaque
   field-or-record selectors bound to the exact plan, production snapshot, and
   redacted diff. Interactive mode accepts `b`/`branch` (ours) and
-  `p`/`production` (theirs). It requires TTY stdin and stdout; as an explicit
-  local-only reveal it may show one bounded C0/DEL-safe authored title/name or
-  path fallback beside the closed selector. That transient label is never
+  `p`/`production` (theirs). It requires TTY stdin and stdout. For each changed
+  selector, its privileged local-only comparison shows base, branch, and
+  production state, exact path, and every source value through a terminal-safe
+  preview capped at 4 KiB (paths at 512 bytes), retaining the exact byte count
+  and SHA-256 when truncated. It may also show one bounded C0/DEL-safe authored
+  title/name or path fallback. Because these values can contain secrets or
+  personal data, use only a trusted terminal and treat its transcript as
+  sensitive. Comparison bytes and labels remain process-local and are never
   written to JSON, the diff, resolution, run, or receipt. `q` or EOF exits 2
   before a run record, candidate worktree, branch, or ref is created. The
   preview names every automatic branch/production decision (including changed
@@ -1079,7 +1113,7 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   lint warning without knowing the target transport or repository path;
   findings stream live and the agent's exit code is preserved.
 
-- **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`** — guarded
+- **`duo env-set <env> --name=<name> --stdin`** — guarded
   passthrough to `wp duo env-set --repo=<repo_path> --name=<name> …`, same
   live-streaming/exit-code contract as capture/plan/apply above. This is
   the one passthrough verb where that matters for more than consistency:
@@ -1769,20 +1803,19 @@ self-populates the first time its owning plugin runs (a version marker, a
 one-shot install-state flag) and is not worth checklisting — see any
 shipped manifest's own `options` section for real examples of both.
 
-Because env values are never captured, there is no repo-side record of
-what any environment's values *should* be — only whether THIS
-environment currently has *something* non-empty in each declared slot:
+Env values are never captured into branchable state. `env-set` instead records
+the intended value in this target checkout's owner-readable
+`.duo-env-values.json`, so planning can distinguish correct configuration from
+an arbitrary non-empty value:
 
 - **`duo plan` / `duo status`** surface an `env_missing` bucket: every
-  declared `class: "env"` option whose live value is absent or an empty
-  string on this environment, each tagged with its `required` flag. A
+  declared `class: "env"` option whose live value is absent or empty. A
+  required option also appears when it has no target-local intended binding
+  or differs from that binding. Each row carries its `required` flag. A
   *required* miss makes `duo status` exit non-zero ("not safe to
   promote"); an *optional* miss is listed for visibility only. This is a
-  per-environment self-check, not a cross-environment diff — to compare
-  what two environments actually have, run `duo plan <env>
-  --format=json` against both and diff the two `env_missing` lists
-  yourself.
-- **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`**
+  per-environment equality check; raw secret values never enter the plan.
+- **`duo env-set <env> --name=<name> --stdin`**
   provisions one value directly, bypassing capture/apply entirely
   (`Apply::set_env_option()`). It refuses any `--name` the loaded policy
   didn't declare `class: "env"`, refuses an option that declares
@@ -1790,16 +1823,21 @@ environment currently has *something* non-empty in each declared slot:
   Polylang's `polylang` — that a bare string write would corrupt; every
   such option shipped today is `required: false` for exactly this
   reason), and refuses an empty value (which `env_missing` would
-  immediately re-flag as still-missing). Interactive host `--stdin` masks the
+  immediately re-flag as still-missing). It atomically publishes the intended
+  value with mode `0600` before writing WordPress; a stopped or failed write
+  therefore leaves visible drift, never a false-green unbound value.
+  Interactive host `--stdin` masks the
   local terminal for one host-side read, restores it, then starts the target
   with detached piped stdin and sends only that line; direct target use masks at the
   agent, and piped input has no terminal echo. The host restores echo before normal,
   exceptional, HUP, INT, QUIT, TERM, and TSTP exits/suspension, re-masks after
   resume, and refuses interactive use without the required signal support.
-  After handoff, termination waits for the target's real outcome rather than
-  falsely claiming cancellation of an in-flight remote write. That wait is
-  intentionally unbounded because a local timeout cannot prove a remote write
-  stopped; diagnose a stuck target from a separate session. Ctrl-Z suspends
+  After handoff, termination is deferred while the target has a chance to
+  report its real outcome. The host bounds the complete detached handoff and
+  outcome wait at five minutes; expiry returns temporary-failure exit `75`
+  and states that the remote write may still complete. Retry the identical
+  stdin value: publishing intent before the WordPress write makes `env-set`
+  idempotent, and plan stays red until the live value matches. Ctrl-Z suspends
   the local wrapper and foreground child/transport together, but a non-PTY
   Docker/SSH target may continue; `fg` resumes the local outcome wait.
   The pipe handoff itself is nonblocking so local signal handling remains live
@@ -1808,21 +1846,22 @@ environment currently has *something* non-empty in each declared slot:
   (not `--prompt` — see the passthrough section above for why that name
   was unavailable); its own "value for '&lt;name&gt;': " prompt writes to
   STDERR, never STDOUT, so `--stdin --format=json` is still safe to pipe
-  into a JSON parser. `--value` is scriptable but — like any other flag —
-  lands in shell history and process listings, so prefer `--stdin` for
-  anything actually secret when running interactively.
+  into a JSON parser. `--value` is refused because flags land in shell
+  history and process listings; scripts also pipe one newline-terminated
+  value through `--stdin`.
 
-### `.duo-env-values.json` (optional, gitignored, not yet auto-consumed)
+### `.duo-env-values.json` (target-local intended-value authority)
 
-An operator provisioning several `class: "env"` options by hand may want
-somewhere to keep track of what they set, without ever committing it. The
-name `.duo-env-values.json` is reserved for exactly that: a flat
-`{"option_name": "value", ...}` scratch file living next to
+`wp duo env-set` records what each required environment option is intended to
+contain without putting secret bytes in branchable state. It publishes a flat
+`{"option_name": "value", ...}` `.duo-env-values.json` living next to
 `site.duo.json` inside **one environment's own checkout** (not on the
 orchestrator host — contrast `.duo-envs.json` above, which is
 machine-local to wherever you *run* `duo` from and covers every
 environment at once; this file, if it exists, lives on the target itself
-and covers only that one environment). It ships in
+and covers only that one environment). The file is canonical JSON, is written
+atomically with mode `0600`, and must be a regular non-symlink file with no
+group or world access. It ships in
 `sandbox/site-repo.gitignore.template` (every managed site repo's own
 `.gitignore`) and is checked by `duo doctor <env>`'s git-tracked hygiene
 check (a tracked secrets file is a blocking failure, not an advisory
@@ -1834,20 +1873,20 @@ base sandbox images verifiably omit Git, so outside init the check degrades to a
 advisory "could not verify" in that case rather than a false-clean PASS
 — see `cli/src/Onboarding/Doctor.php`.
 
-**Nothing in this codebase reads this file yet.** No `env-set` variant
-loads it, and `agent/src/Kernel/Secrets.php`'s own scanning never inspects it
-either — that class exists to catch a secret-SHAPED value being captured
-under the wrong classification from a *live WordPress environment*, and
-this file is orchestrator/operator-side, never captured, so it was never
-in scope for that scanner to begin with (documented explicitly in
-`agent/src/Kernel/Secrets.php`'s own docblock, not left as an implicit gap). The
-reserved name and gitignore/doctor protection exist now, ahead of any
-consumer, so that protection is already in place the day a batch-loader
-(most naturally `wp duo env-set --from-file=.duo-env-values.json`,
-agent-side, reading the file that's already sitting next to
-`site.duo.json` on the same checkout — never an orchestrator-side loop
-over remote single-sets) is added as a later, separately-scoped
-convenience.
+Plan reads this file and requires exact equality for every `required: true`
+option. A live value that is absent, has no binding, or differs from the
+binding remains in `env_missing`; a wrong, stale, or cross-client credential
+therefore cannot be green merely because it is non-empty. Optional options
+remain presence-only because the shipped `sub_keys` options are plugin-owned,
+self-populated structures that scalar `env-set` deliberately refuses.
+
+`env-set` publishes the intended binding before mutating WordPress. If the
+process stops between those operations or WordPress rejects the write, plan
+shows the mismatch until the operator retries; it never accepts a live value
+whose intent was not recorded. `agent/src/Kernel/Secrets.php` does not scan
+this file: its job is to stop secret-shaped bytes from entering captured
+state, while this file is explicitly outside capture and protected by file
+permissions plus the git-tracked hygiene gate.
 
 ### Scope: options only, v1
 

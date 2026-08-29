@@ -455,7 +455,7 @@ ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5d
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=49bc8eb8253fe2c9a3d9a5299ddce5123afb84689a8f74bf189ada8cdb830a51
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=650dcdade85e221dab5248957b10213c9eb536185a5a6890485ff96f1eb51a16
+RECEIPT_HELPER_GOLDEN_HASH=916f0031edc22a8a90a0e68ce9b436b2a7700b339f48f83abd2820517e7608f9
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
 REPLACEMENT_DEPENDENCY_HELPER_GOLDEN_HASH=1af8e0f446c33e4d53b2f64bfcb1c02aac93d6e955be24f2995a3f1ee21833a0
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
@@ -474,7 +474,7 @@ DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4
 LIVE_CHECKOUT_HELPER_GOLDEN_HASH=14acd3e360a12129a103219551ccd46699d0a485d815c533d1b6bd5fc0006233
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
-PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=9fc8327f20d2796edeee613f0bbdb8db2208802f40b8aacd8aafd36a7710c15b
+PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=1f8f0e0aa48373c9429c2819f6f676cc4da6d0086b6b866f7f05bf0dbca51c7e
 SOURCE_EVENT_BASELINE_HELPER_GOLDEN_HASH=2dae7f427f639ab1bcb9d4e1e12122a2c8fba8499e6fdc81d8d1cf245ea4120c
 RUNTIME_ISOLATION_HELPER_GOLDEN_HASH=b785e1dffaf6ee68c850bc3e78af0573220af20ff3e2255457386f54aa18c5da
 RUNTIME_STATE_EXCLUSION_HELPER_GOLDEN_HASH=49e7fccf04e6e6e5e95d0f9c283a37b6a7c1194b6f515393f8d2cad196f806ea
@@ -946,8 +946,8 @@ block_absent inactive-runtime-compatibility "$INACTIVE_COMPAT_PHASE_BLOCK" 'prom
 ordered_contract failed-v2-checkpoint "$FAILED_V2_PHASE_BLOCK" \
   'V2_FAILED_CHECKPOINT="$(sed -n' \
   'V2_FAILED_RUN_ID="$(basename "$V2_FAILED_CHECKPOINT")"' \
-  'assert_eq "/siterepo/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql"' \
-  'V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql"' \
+  'assert_eq "/siterepo/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"' \
+  'V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"' \
   'V2_FAILED_ARTIFACT_FILE="$OTHER_SITE/.duo/artifacts/promote-$V2_FAILED_RUN_ID.json"' \
   'V2_FAILED_CHECKPOINT_SHA256="$(sha256sum "$V2_FAILED_CHECKPOINT_HOST"' \
   'V2_FAILED_COMPILED_HASH="$(jq -r '\''.artifact_hash'\'' "$V2_FAILED_ARTIFACT_FILE")"' \
@@ -956,13 +956,12 @@ ordered_contract failed-v2-checkpoint "$FAILED_V2_PHASE_BLOCK" \
   'assert_eq "$V2_FAILED_RUN_ID" "$V2_FAILED_OWNER"' \
   'assert_eq "$V2_FAILED_COMPILED_HASH" "$V2_FAILED_ARTIFACT"'
 ordered_contract failed-v2-recovery "$FAILED_V2_RECOVERY_PHASE_BLOCK" \
-  'control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT"' \
-  'control_wp beginArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT"' \
-  'V2_RECOVERY_LOCK="$(ledger_value promotion_lock)"' \
-  '.owner == $owner and .artifact_hash == $artifact and .phase == "checkpoint"' \
   'assert_eq "$V2_FAILED_CHECKPOINT_SHA256" "$(sha256sum "$V2_FAILED_CHECKPOINT_HOST"' \
-  'control_wp recoveryDbImportArgs "$V2_FAILED_CHECKPOINT"' \
-  'control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT"'
+  '--restore="$V2_FAILED_RUN_ID" --writers-excluded --operator-directed' \
+  'assert_phase_order "$V2_RECOVERY_OUT"'
+block_contains failed-v2-recovery "$FAILED_V2_RECOVERY_PHASE_BLOCK" \
+  "'  abort: ok' '  begin: ok' '  import: ok' '  final-abort: ok'" \
+  'failed v2 recovery does not assert the public encrypted restore phase order'
 
 ordered_contract explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
   'cp -a "$SITE/code" "$REPLACEMENT_PRIOR_INPUTS/code"' \
@@ -1066,7 +1065,7 @@ ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"' \
   'cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET"' \
-  'control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql"' \
+  'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1.sql"' \
   'ROLLBACK_SETTING_AFTER_IMPORT=' \
   'printf '\''exact v1 raw setting immediately after checkpoint import:' \
   'ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = '\''active_plugins'\'' LIMIT 1")"' \
@@ -1087,7 +1086,7 @@ block_absent exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
 if grep -Fq 'target_wp db import' "$SCRIPT"; then
   fail 'exact v1 rollback bypasses the isolated control-plane database import'
 fi
-block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql"' \
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1.sql"' \
   'exact v1 rollback does not restore its dump through the fatal-safe control operation'
 ROLLBACK_PRE_STAGE_BLOCK="$(sed -n '/control_wp recoveryDbImportArgs/,/if ! RESTORE_OUT=/p' <<<"$ROLLBACK_PHASE_BLOCK")"
 block_absent exact-v1-pre-stage "$ROLLBACK_PRE_STAGE_BLOCK" 'target_wp ' \

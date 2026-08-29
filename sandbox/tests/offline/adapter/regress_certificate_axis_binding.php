@@ -356,9 +356,9 @@ duo_check_same(
     . 'already-exercised PHP patch leaves the certificate VALID (' . ($released['message'] ?? '') . ')'
 );
 duo_check_same(
-    'certified',
+    'signed_unexercised',
     $released['certification'] ?? null,
-    'and the adapter is still CERTIFIED under the released agent — no withdrawal, no re-signing, no operator '
+    'and the signed approval remains valid under the released agent — no withdrawal, no re-signing, no operator '
     . 'action for a condition the site did not cause'
 );
 duo_check_same(
@@ -724,7 +724,7 @@ $roundTripVerified = AdapterCertification::verifyFile(
     $roundTripCertPath
 );
 $roundTripSummary = AdapterCertification::certificateSummary($roundTripVerified);
-duo_check_same('certified', $roundTripSummary['status'] ?? null, 'the live verifier reports a CERTIFIED claim');
+duo_check_same('experimental', $roundTripSummary['status'] ?? null, 'the live verifier keeps a grammar-only signature experimental');
 duo_check_same('site', $roundTripSummary['trust_root'] ?? null, 'under the operator\'s own trust root');
 duo_check_same(
     $roundTripKeyId,

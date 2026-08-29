@@ -30,12 +30,13 @@ require_once __DIR__ . '/certification_fixture.php';
 if (!class_exists('WP_CLI', false)) {
     final class WP_CLI {
         public static array $lines = [];
+        public static array $halts = [];
 
         public static function add_command($name, $class): void {}
         public static function line($line): void { self::$lines[] = (string) $line; }
         public static function warning($message): void { self::line('WARNING: ' . $message); }
         public static function success($message): void { self::line('SUCCESS: ' . $message); }
-        public static function halt($code): void { throw new RuntimeException('WP_CLI halt ' . $code); }
+        public static function halt($code): void { self::$halts[] = (int) $code; }
         public static function error($message): void { throw new RuntimeException((string) $message); }
     }
 }
@@ -1206,6 +1207,7 @@ try {
         'human status/plan rendering identifies the signed-unpinned provider row, tier, blocker, and remediation'
     );
     WP_CLI::$lines = [];
+    WP_CLI::$halts = [];
     (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'adapter_library' => $integrationLibrary]);
     $providerHuman = implode("\n", WP_CLI::$lines);
     cert_check(
@@ -1213,8 +1215,9 @@ try {
         && str_contains($providerHuman, 'trust_tier: plugin_provider')
         && str_contains($providerHuman, 'certification: signed_unpinned')
         && str_contains($providerHuman, 'blocked: adapter_certification_unpinned')
-        && str_contains($providerHuman, 'remediation:'),
-        'the product human capability renderer exposes signed-unpinned provider readiness and its remediation'
+        && str_contains($providerHuman, 'remediation:')
+        && WP_CLI::$halts === [3],
+        'the product human capability renderer exposes signed-unpinned readiness and exits with the red-answer code'
     );
     WP_CLI::$lines = [];
     (new \Duo\Cli())->capabilities([], [
@@ -2142,6 +2145,8 @@ PHP
         '--name=site-demo',
         '--adapter-library=' . $integrationManifests,
         '--secret-key-file=' . $root . '/remedy-secret.key',
+        '--bundle=' . $bundle,
+        '--evidence-repo=' . $site,
         '--pin',
     ]);
     cert_check(
@@ -3206,10 +3211,9 @@ $orgCertPath = $orgSite . '/adapters/certifications/acme-catalog.json';
 $orgVerified = AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath);
 $orgClaim = $orgVerified['claim'];
 cert_check(
-    ($orgClaim['status'] ?? null) === 'certified'
+    ($orgClaim['status'] ?? null) === 'experimental'
         && ($orgClaim['evidence']['status'] ?? null) === 'current',
-    'a site-rooted certificate produces status certified with evidence current — the two facts duo promote '
-    . 'already gates on, so host promotion needs no second gate'
+    'a site-rooted signature with no exercise proof projects experimental, never a certified claim'
 );
 cert_check(
     $orgClaim['certification'] === [
@@ -3240,11 +3244,11 @@ foreach (AdapterSources::survey_library($orgLibrary, $orgSite)['adapters'] as $o
     }
 }
 cert_check(
-    ($orgSurveyRow['certification'] ?? null) === 'signed_unpinned'
+    ($orgSurveyRow['certification'] ?? null) === AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED
         && ($orgSurveyRow['trust_root'] ?? null) === 'site'
         && ($orgSurveyRow['principal'] ?? null) === 'acme-ops',
-    'a valid site signature without the exact digest pin is still signed_unpinned, but the root and principal '
-    . 'are already named — got ' . var_export($orgSurveyRow['certification'] ?? null, true)
+    'a valid site signature with no exercise proof is signed_unexercised, and still names its root and principal '
+    . '— got ' . var_export($orgSurveyRow['certification'] ?? null, true)
 );
 
 $orgDigest = null;
@@ -3263,24 +3267,23 @@ cert_write_canon($orgSite . '/site.duo.json', [
 $orgPinnedPolicy = Policy::load($orgSite, adapterLibrary: $orgLibrary);
 $orgDiagnostics = $orgPinnedPolicy->adapter_sources()->diagnostics($orgPinnedPolicy->manifests);
 cert_check(
-    ($orgDiagnostics['acme-catalog']['certification'] ?? null) === AdapterSources::CERTIFICATION_SITE_SIGNED
+    ($orgDiagnostics['acme-catalog']['certification'] ?? null) === AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED
         && ($orgDiagnostics['acme-catalog']['trust_root'] ?? null) === 'site'
         && ($orgDiagnostics['acme-catalog']['principal'] ?? null) === 'acme-ops',
-    'the exact pin elevates it to site_signed — a separate word from third_party_signed, because the customer '
-    . 'organization vouching for its own adapter is explicitly not a Duo endorsement'
+    'an exact pin preserves signed_unexercised and cannot elevate approval into certification'
 );
 $orgReport = $orgPinnedPolicy->capability_report(['operation' => 'promote']);
 cert_check(
-    ($orgReport['ready'] ?? null) === true && ($orgReport['blockers'] ?? null) === [],
-    'duo promote\'s existing gate (capability certified + evidence current) admits it with NO host change — got '
+    ($orgReport['ready'] ?? null) === false && ($orgReport['blockers'] ?? null) !== [],
+    'duo promote blocks a site-signed claim that records no exercise — got '
     . Canon::encode(['blockers' => array_column((array) ($orgReport['blockers'] ?? []), 'code'),
         'ready' => $orgReport['ready'] ?? null])
 );
 cert_check(
     CodeDeploy::dispositionBlockers([
         'resolved_adapters' => RepositoryCompiler::resolved_adapters($orgPinnedPolicy),
-    ]) === [],
-    'host promotion accepts the site-rooted current claim'
+    ]) !== [],
+    'host promotion rejects the unexercised site-rooted claim'
 );
 
 // The frozen path, which reopens no mutable site file at all.
@@ -3291,7 +3294,7 @@ $orgFrozen = AdapterCertification::verifyFrozen(
     $orgVerified['envelope']
 );
 cert_check(
-    ($orgFrozen['claim']['status'] ?? null) === 'certified'
+    ($orgFrozen['claim']['status'] ?? null) === 'experimental'
         && ($orgFrozen['claim']['certification']['trust_root'] ?? null) === 'site',
     'frozen verification re-binds a site-rooted certificate to the authority record the SIGNATURE covers, '
     . 'because there is no repository to reopen'
@@ -3348,7 +3351,7 @@ cert_write_canon($orgSite . '/adapters/authorities.json', [
 ]);
 cert_check(
     (AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath)['claim']['status'] ?? null)
-        === 'certified',
+        === 'experimental',
     'restoring the key restores the claim, so the refusal above was the revocation and nothing else'
 );
 
@@ -3536,11 +3539,11 @@ $autoVerified = AdapterCertification::verifyFile(
 );
 $autoClaim = $autoVerified['claim'];
 cert_check(
-    ($autoClaim['status'] ?? null) === 'certified'
+    ($autoClaim['status'] ?? null) === 'experimental'
         && ($autoClaim['certification']['trust_root'] ?? null) === 'site'
         && ($autoClaim['certification']['principal'] ?? null) === 'acme-ops'
         && ($autoClaim['evidence']['exercised'] ?? null) === false,
-    'the produced certificate verifies through the ordinary path and carries the site certification facts'
+    'the produced signature verifies through the ordinary path but remains below the certification boundary'
 );
 
 // The derivation, field by field — this is the part a host producer would

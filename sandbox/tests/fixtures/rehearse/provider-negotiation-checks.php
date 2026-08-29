@@ -86,11 +86,15 @@ $full = rn_config($scratch, $makeConfig, 'full');
 $provider = CommandEnvironmentProvider::fromEnvironment('mup2', rn_environment_config($providerScript, $full['config']));
 $report = $provider->capabilities($operationId);
 
-duo_check_same(
+$referenceCapabilities = array_values(array_diff(
     EnvironmentProviderCapability::all(),
+    [EnvironmentProviderCapability::ENVIRONMENT_CONTAINMENT_VERIFY]
+));
+duo_check_same(
+    $referenceCapabilities,
     $report->toArray()['capabilities'],
-    'the reference provider advertises exactly the protocol\'s capability set, so a rehearsal never '
-        . 'fails negotiation for a capability the pair could actually serve'
+    'the development reference provider advertises every capability it implements and does not claim '
+        . 'the host-specific rehearsal containment authority'
 );
 duo_check_same(
     'duo-reference-env-provider',

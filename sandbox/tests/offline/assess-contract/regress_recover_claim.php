@@ -583,18 +583,18 @@ duo_check(
 );
 
 // ------------------------------------------- retained release checkpoints
-// The second catalog source (round-3 T5): the plain database checkpoints
+// The second catalog source (round-3 T5): authenticated encrypted checkpoints
 // every operator-directed promotion retains under .duo/checkpoints, read by
 // one script and parsed into rows of the SAME key set, on every transport.
 $script = RetainedCheckpoints::script('/srv/site');
 duo_check(str_contains($script, "'/srv/site/.duo'"), 'the listing script is rooted at the repository .duo directory, quoted');
 duo_check(
-    str_contains($script, 'checkpoints/promote-*.sql') && str_contains($script, 'checkpoints/deploy-*.sql'),
-    'the listing script enumerates exactly the promote-*.sql and deploy-*.sql checkpoints'
+    str_contains($script, 'checkpoints/promote-*.sql.enc') && str_contains($script, 'checkpoints/deploy-*.sql.enc'),
+    'the listing script enumerates exactly the promote-*.sql.enc and deploy-*.sql.enc checkpoints'
 );
 duo_check(
-    !preg_match('~checkpoints/\*\.sql~', $script),
-    'the prefix set stays closed: no bare *.sql glob sweeps in materialize-<operation_id>.sql (cli/duo:2126, :2576)'
+    !preg_match('~checkpoints/\*\.sql\.enc~', $script),
+    'the prefix set stays closed: no bare *.sql.enc glob sweeps in materialize-<operation_id>.sql.enc'
 );
 duo_check(str_contains($script, 'artifacts/$b.json'), 'the listing script reads the sibling compiled artifact for the lease identity');
 duo_check(str_contains($script, 'stat -c %Y') && str_contains($script, 'stat -f %m'), 'both stat dialects are tried');
@@ -635,7 +635,7 @@ duo_check_same(null, $retained[0]['event_chain_sha256'], 'a retained checkpoint 
 duo_check_same(true, $retained[0]['terminal'], 'nothing about a retained file is in progress');
 duo_check_same('', $retained[3]['artifact_hash'], 'a checkpoint whose artifact is gone is listed with an empty identity, never dropped');
 duo_check_same(
-    '/srv/site/.duo/checkpoints/' . $newer . '.sql',
+    '/srv/site/.duo/checkpoints/' . $newer . '.sql.enc',
     RetainedCheckpoints::checkpointPath('/srv/site/', $retained[0]),
     'the restore path is the file promote wrote'
 );
@@ -662,7 +662,7 @@ duo_check_same(
     'prefixForRow reads the deploy prefix back off the retained row id'
 );
 duo_check_same(
-    '/srv/site/.duo/checkpoints/' . $deployed . '.sql',
+    '/srv/site/.duo/checkpoints/' . $deployed . '.sql.enc',
     RetainedCheckpoints::checkpointPath('/srv/site/', $deployRow, RetainedCheckpoints::prefixForRow($deployRow)),
     'the restore path is the file deploy wrote'
 );
@@ -701,9 +701,9 @@ duo_check(
     'the merged catalog says what a retained checkpoint is and how it is restored'
 );
 duo_check_same(
-    'retained release checkpoints are the plain database checkpoints promote and deploy kept under '
-        . '.duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, '
-        . 'final abort)',
+    'retained release checkpoints are authenticated encrypted database checkpoints whose key is derived '
+        . 'from target-local WordPress salts and is never stored in the site repository; restoring one drives '
+        . 'the operator-directed path (abort, begin, isolated import, final abort)',
     RetainedCheckpoints::DISCLOSURE_RETAINED,
     'the disclosure names both verbs, so no listed row is mislabelled by the sentence that defines its kind'
 );

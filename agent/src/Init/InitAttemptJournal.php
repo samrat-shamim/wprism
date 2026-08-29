@@ -10,7 +10,10 @@ require_once __DIR__ . '/InitProtocol.php';
 /** Typed view of the existing duo-init-attempt/v1 envelope. */
 final class InitAttemptRecord {
     private const PHASES = [
-        'preparing', 'locked', 'git-planned', 'git-reserved', 'git-ready',
+        'preparing', 'locked', 'git-planned', 'git-reserved',
+        'gitattributes-planned', 'gitattributes-ready',
+        'git-lfs-planned', 'git-lfs-ready',
+        'git-ready',
         'gitignore-planned', 'gitignore-ready', 'code-stage-planned',
         'code-staging', 'code-staged', 'code-root-planned',
         'code-root-reserved', 'code-publish-planned',

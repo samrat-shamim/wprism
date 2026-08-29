@@ -59,11 +59,13 @@ final class Capture {
         bool $forceUnresolvedRefs = false,
         ?array $scopeRequest = null,
         ?string $hostEnvironment = null,
-        ?AdapterLibrary $adapterLibrary = null
+        ?AdapterLibrary $adapterLibrary = null,
+        ?string $expectedRepositoryBranch = null
     ): array {
         return self::run_internal(
             $repo, $outDir, $forceUnresolvedRefs, null, false,
-            null, null, null, null, $scopeRequest, $hostEnvironment, $adapterLibrary
+            null, null, null, null, $scopeRequest, $hostEnvironment, $adapterLibrary,
+            $expectedRepositoryBranch
         );
     }
 
@@ -123,7 +125,8 @@ final class Capture {
         ?callable $onInitialPayloadReady = null,
         ?array $scopeRequest = null,
         ?string $hostEnvironment = null,
-        ?AdapterLibrary $adapterLibrary = null
+        ?AdapterLibrary $adapterLibrary = null,
+        ?string $expectedRepositoryBranch = null
     ): array {
         return CapturePublicationWorkflow::run(
             $repo,
@@ -137,7 +140,8 @@ final class Capture {
             $onInitialPayloadReady,
             $scopeRequest,
             $hostEnvironment,
-            $adapterLibrary
+            $adapterLibrary,
+            $expectedRepositoryBranch
         );
     }
 

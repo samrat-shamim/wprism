@@ -692,39 +692,29 @@ final class AdapterDraft {
     }
 
     /**
-     * The `spec_version` a DRAFT declares: the highest version this engine
-     * accepts that still admits the `_draft` sidecar.
-     *
-     * Two rules meet here and they point opposite ways. § v3.1's acceptance
-     * window admits {N-1, N} and nothing else, so a draft below N-1 is refused
-     * on the window. § v3.3 closes the top-level key set at
-     * `closed_key_set_since()` and refuses `_draft` at or above it, so a draft
-     * at or above that gate is refused on the key. The admissible stamp is the
-     * intersection, and after WP-4.12's flip (N = 3, gate = 3) that
-     * intersection is exactly one value: N-1.
-     *
-     * WHEN THE INTERSECTION IS EMPTY IT REFUSES, and that is deliberate rather
-     * than defensive. At N = 4 the window's floor is 3, which IS the gate, so
-     * no accepted version admits the sidecar and there is no draft this
-     * command could emit that the engine would read. Emitting one anyway — or
-     * quietly dropping the sidecar, which is the whole content of a draft —
-     * would be the silent fallback AGENTS.md rule 9 refuses. The remedy is a
-     * real design decision (move the sidecar out of the manifest document),
-     * and the refusal names it so the next reader is not left to rediscover
-     * the collision from a validator message about a key.
+     * The highest accepted version at which the grammar admits the known
+     * `_draft` authoring sidecar. Probe the product grammar rather than copying
+     * its version gate here; arbitrary unknown keys remain closed at v2.
      */
     private static function draft_spec_version(): int {
         $supported = DUO_SPEC_VERSION;
-        $gate = AdapterContractGrammar::closed_key_set_since();
         foreach ([$supported, $supported - 1] as $candidate) {
-            if ($candidate < $gate) {
+            try {
+                AdapterContractGrammar::validate_adapter_contract([
+                    'name' => 'adapter-draft-version-probe',
+                    'spec_version' => $candidate,
+                    '_draft' => [],
+                ]);
                 return $candidate;
+            } catch (\Throwable) {
+                // Try the other accepted version; the final refusal explains
+                // that neither can carry the authoring sidecar.
             }
         }
         throw new \RuntimeException(
             'adapter-draft: this engine accepts spec_version {' . ($supported - 1) . ', ' . $supported
-            . '} and the top-level key set is CLOSED from spec_version ' . $gate . ' (spec/repo-format.md '
-            . '§ v3.3), so no version it accepts admits the `_draft` authoring sidecar. A draft cannot be '
+            . '} but no version it accepts admits the `_draft` authoring sidecar (spec/repo-format.md '
+            . '§ v3.3). A draft cannot be '
             . 'emitted as a manifest on this engine; the sidecar needs a home outside the manifest document '
             . 'before this command can run again'
         );

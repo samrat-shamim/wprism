@@ -297,7 +297,7 @@ $floorVerified = AdapterCertification::verifyFile(
     $manifest,
     AdapterCertification::certificatePath($floorRepo, $name)
 );
-duo_check_same('certified', $floorVerified['claim']['status'] ?? null, 'and the live verifier accepts it');
+duo_check_same('experimental', $floorVerified['claim']['status'] ?? null, 'and the live verifier keeps it below certification without exercise');
 $floorDisposition = ar_ratified($floorRepo, $name);
 duo_check_same(
     [],
@@ -343,7 +343,7 @@ $authoredVerified = AdapterCertification::verifyFile(
 );
 $disposition = is_array($authoredVerified['disposition'] ?? null) ? $authoredVerified['disposition'] : [];
 $claim = is_array($authoredVerified['claim'] ?? null) ? $authoredVerified['claim'] : [];
-duo_check_same('certified', $claim['status'] ?? null, 'the LIVE verifier accepts the authored certificate');
+duo_check_same('experimental', $claim['status'] ?? null, 'the LIVE verifier accepts the authored signature without elevating it');
 duo_check_same(
     ar_entry()['reason'],
     $disposition['reason'] ?? null,
@@ -391,7 +391,7 @@ duo_check_same(
 duo_check_same(
     'site',
     $claim['certification']['trust_root'] ?? null,
-    'under the site trust root: this is Site-certified, and the profile does not touch that'
+    'under the site trust root, while exercised:false keeps the claim below Site-certified'
 );
 
 // --------------------------- 3. the refusal matrix, driven through the signer

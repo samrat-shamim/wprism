@@ -2069,11 +2069,20 @@ final class AdapterCertification {
 
         $certificateDigest = hash('sha256', $certificateRaw);
         $statementDigest = hash('sha256', Canon::encode($statementTyped));
+        // A signature proves who approved these bytes; it does not prove the
+        // adapter was exercised. Keep legacy grammar-only certificates
+        // verifiable and visible, but project them below the certification
+        // boundary so neither Policy nor a host promotion can confuse an
+        // approval with exercised site evidence.
+        $effectiveDisposition = $disposition;
+        if (!$bundle['exercised']) {
+            $effectiveDisposition['status'] = 'experimental';
+        }
         $derived = self::derivedDisposition(
             $name,
             $adapter,
             $tier,
-            $disposition,
+            $effectiveDisposition,
             $statementAuthority,
             $authorityDigest,
             $bundle,
@@ -2094,7 +2103,7 @@ final class AdapterCertification {
             // at v2 the signed member carries digests rather than a boundary,
             // so the live document is the only record a claim can be projected
             // from at all.
-            'claim' => self::projectClaim($name, $manifest, $disposition, $derived, $platformRecord),
+            'claim' => self::projectClaim($name, $manifest, $effectiveDisposition, $derived, $platformRecord),
             'provenance' => $derived['provenance'],
         ];
     }
@@ -5039,7 +5048,7 @@ final class AdapterCertification {
             ksort($bundleProof, SORT_STRING);
         }
         return [
-            'certification' => 'certified',
+            'certification' => $bundle['exercised'] ? 'certified' : 'signed_unexercised',
             'provenance' => [
                 // Preserve AdapterSources' source/path/canonical-manifest
                 // vocabulary, with proof nested rather than widening the
@@ -5082,7 +5091,7 @@ final class AdapterCertification {
                 ],
             ],
             'reason' => $ratifiedDisposition['reason'],
-            'status' => 'certified',
+            'status' => (string) $ratifiedDisposition['status'],
             'trust_tier' => $tier,
         ];
     }

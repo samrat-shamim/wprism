@@ -663,11 +663,12 @@ duo_check(
 );
 $typoAtLibraryEra = $fixtures['fixture:typo-and-invented-section'];
 $typoAtLibraryEra['spec_version'] = DUO_SPEC_VERSION - 1;
-duo_check_same(
-    null,
-    $validatorVerdict($typoAtLibraryEra),
-    '...while the IDENTICAL bytes at spec_version ' . (DUO_SPEC_VERSION - 1) . ' are still admitted — the era '
-        . 'every shipped manifest declares, which is why the flip moved no manifest byte and no digest'
+duo_check(
+    is_string($validatorVerdict($typoAtLibraryEra))
+        && str_contains((string) $validatorVerdict($typoAtLibraryEra), "'optoins'")
+        && str_contains((string) $validatorVerdict($typoAtLibraryEra), "'totally_made_up_section'"),
+    '...and the IDENTICAL bytes at spec_version ' . (DUO_SPEC_VERSION - 1) . ' are refused too — legacy '
+        . 'manifests keep their bytes and digests, but typos no longer become inert declarations'
 );
 $typoV3 = $fixtures['fixture:typo-and-invented-section'];
 $typoV3['spec_version'] = DUO_SPEC_VERSION + 1;

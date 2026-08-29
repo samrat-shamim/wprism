@@ -203,7 +203,9 @@ final class PinResolver {
             $resolvedFromSite = $pinnedSource === AdapterSources::SITE
                 || ($pinnedSource === null
                     && $policy->adapter_sources()->source($name) === AdapterSources::SITE);
-            if ($resolvedFromSite && !$policy->adapter_sources()->is_certified($name)) {
+            if ($resolvedFromSite
+                && !$policy->adapter_sources()->is_certified($name)
+                && !$policy->adapter_sources()->is_signed_unexercised($name)) {
                 continue;
             }
             throw new \RuntimeException(

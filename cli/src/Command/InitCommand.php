@@ -31,6 +31,7 @@ final class InitCommand {
         $firstPartyValues = [];
         $offline = false;
         $cacheDir = null;
+        $archiveInterruptedTo = null;
         foreach ($extra as $arg) {
             if ($arg === '--yes') {
                 $yes = true;
@@ -56,6 +57,18 @@ final class InitCommand {
                 }
                 continue;
             }
+            if (is_string($arg) && str_starts_with($arg, '--archive-interrupted-to=')) {
+                if ($archiveInterruptedTo !== null) {
+                    fwrite(STDERR, "duo: init accepts --archive-interrupted-to exactly once\n");
+                    return 1;
+                }
+                $archiveInterruptedTo = substr($arg, strlen('--archive-interrupted-to='));
+                if ($archiveInterruptedTo === '' || !str_starts_with($archiveInterruptedTo, '/')) {
+                    fwrite(STDERR, "duo: init --archive-interrupted-to requires an absolute sibling path\n");
+                    return 1;
+                }
+                continue;
+            }
             if (is_string($arg) && str_starts_with($arg, '--code=')) {
                 // Named, because the flag existed (DUO-3499: `--code=split|full`)
                 // and an operator with it in a script deserves the reason
@@ -74,9 +87,41 @@ final class InitCommand {
                 STDERR,
                 'duo: init accepts only --yes, ' . Init::ALLOW_UNMANAGED_PLUGINS . ', '
                     . CodeClassifier::FIRST_PARTY_FLAG . '<root>/<slug>, --offline and --cache-dir=<path>; '
+                    . '--archive-interrupted-to=<absolute-sibling>; '
                     . "unsupported argument '$arg'\n"
             );
             return 1;
+        }
+        if ($archiveInterruptedTo !== null) {
+            if ($allowUnmanagedPlugins || $firstPartyValues !== [] || $offline || $cacheDir !== null) {
+                fwrite(STDERR, "duo: init --archive-interrupted-to is exclusive with discovery and classification flags\n");
+                return 1;
+            }
+            if (!$yes) {
+                fwrite(
+                    STDOUT,
+                    "Archive the complete interrupted repository for '{$transport->name()}' to $archiveInterruptedTo and recreate its configured path? [y/N] "
+                );
+                $answer = $readLine();
+                if (!is_string($answer) || !in_array(strtolower(trim($answer)), ['y', 'yes'], true)) {
+                    echo "Interrupted-init archive cancelled; no path was moved.\n";
+                    return 1;
+                }
+            }
+            try {
+                $receipt = Init::archiveInterrupted($transport, $archiveInterruptedTo);
+            } catch (InitRefusalException $e) {
+                fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+                $renderRefusal($e->refusal);
+                return 1;
+            } catch (\Throwable $e) {
+                fwrite(STDERR, 'duo: init interrupted archive failed: ' . $e->getMessage() . "\n");
+                return 1;
+            }
+            echo 'Archived the complete interrupted repository at ' . $receipt['archive'] . ".\n";
+            echo 'Recreated the configured empty path at ' . $receipt['repository'] . ".\n";
+            echo 'Archive receipt ' . $receipt['receipt_sha256'] . "; rerun duo init for a fresh proposal.\n";
+            return 0;
         }
         try {
             $firstParty = CodeClassifier::parseFirstParty($firstPartyValues);

@@ -199,7 +199,7 @@ final class ActionProviderGrammar {
             // when omitted, exactly as the retired channel did.
             $allowed = $kind === 'native'
                 ? ['action', 'args', 'effects', 'kind', 'triggers']
-                : ['args', 'capability', 'effects', 'kind', 'provider', 'triggers'];
+                : ['args', 'capability', 'effects', 'kind', 'phase', 'provider', 'triggers'];
             $keys = array_keys($action);
             sort($keys, SORT_STRING);
             $unknown = array_diff($keys, $allowed);
@@ -221,6 +221,18 @@ final class ActionProviderGrammar {
                 NativeActions::validate((string) $action['action'], $action['args'], "$where");
             } else {
                 self::validate_provider_action($action, $providers, $where, $name);
+            }
+            if (array_key_exists('phase', $action)) {
+                if ($kind !== 'provider' || ($action['phase'] ?? null) !== 'lifecycle_settle') {
+                    throw new \RuntimeException(
+                        "duo: $where.phase must be lifecycle_settle on a provider action"
+                    );
+                }
+                if (array_key_exists('triggers', $action)) {
+                    throw new \RuntimeException(
+                        "duo: $where lifecycle settlement is selected by a verified code transition, not state triggers"
+                    );
+                }
             }
             if (!array_key_exists('triggers', $action)) {
                 continue;

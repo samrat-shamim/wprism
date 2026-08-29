@@ -11,7 +11,7 @@
  *    round-trip equality is necessary but not sufficient, so a converged site
  *    with a broken shop page must not verdict `pass`, and neither must a
  *    green shop page over a half-applied tree. Every combination is asserted.
- *  - **An undeclared journey is disclosed, not skipped.** A site whose
+ *  - **An undeclared journey fails, and is disclosed.** A site whose
  *    contract declares nothing gets `journeys: 0 declared` plus the §2.4
  *    sentence naming each surface the release touched. Verification that is
  *    byte-level only says so; otherwise a site accumulates releases whose
@@ -118,6 +118,102 @@ duo_check_same([true, true], array_column($pass, 'ok'), 'a matching status and s
 duo_check_same([JourneyOracle::PASS, JourneyOracle::PASS], array_column($pass, 'status'), 'the row status word is pass');
 duo_check_same([200, 200], array_column($pass, 'http_status'), 'the observed HTTP status is reported beside the verdict');
 
+// A transactional journey exercises the business boundary the legacy GET
+// form cannot: ordered mutation, request metadata, an authenticated session,
+// and semantic response fields all have to agree.
+$transaction = [[
+    'affected_surfaces' => ['orders'],
+    'id' => 'authenticated-checkout',
+    'steps' => [
+        [
+            'body' => '{"email":"operator@example.test"}',
+            'expect_headers' => ['X-Flow' => 'authenticated'],
+            'expect_json' => ['/user/id' => 42],
+            'expect_status' => 200,
+            'headers' => ['Content-Type' => 'application/json'],
+            'id' => 'login',
+            'method' => 'POST',
+            'url' => '/api/login',
+        ],
+        [
+            'body' => '{"product":17}',
+            'expect_json' => ['/order/status' => 'created', '/order/total' => 24],
+            'expect_status' => 201,
+            'headers' => ['Content-Type' => 'application/json', 'X-CSRF' => 'reviewed-token'],
+            'id' => 'checkout',
+            'method' => 'POST',
+            'url' => '/api/orders',
+        ],
+    ],
+]];
+$transactionContract = oracle_fixture("$fixtures/contract-declared-unbound.json");
+$transactionContract['declarations']['journeys'] = $transaction;
+ApplicationContract::withDigest($transactionContract);
+duo_check(true, 'the accepted contract grammar carries stateful transactional journeys');
+
+$requests = [];
+$transactionRows = JourneyOracle::run(
+    $transaction,
+    $base,
+    static function (string $url, int $timeout, array $request) use (&$requests, $base): array {
+        $requests[] = ['request' => $request, 'timeout' => $timeout, 'url' => $url];
+        if ($url === "$base/api/login") {
+            return [
+                'body' => '{"user":{"id":42}}',
+                'error' => null,
+                'headers' => ['HTTP/1.1 200 OK', 'Set-Cookie: duo_session=opaque-session; HttpOnly', 'X-Flow: authenticated'],
+                'status' => 200,
+                'truncated' => false,
+            ];
+        }
+
+        return [
+            'body' => '{"order":{"status":"created","total":24}}',
+            'error' => null,
+            'headers' => ['HTTP/1.1 201 Created'],
+            'status' => 201,
+            'truncated' => false,
+        ];
+    }
+);
+duo_check_same(true, $transactionRows[0]['ok'], 'every ordered step and semantic assertion passes the transaction');
+duo_check_same(2, count($transactionRows[0]['steps']), 'the transaction report preserves per-step evidence');
+duo_check_same('POST', $requests[0]['request']['method'], 'the declared HTTP method reaches the probe');
+duo_check_same(
+    '{"email":"operator@example.test"}',
+    $requests[0]['request']['body'],
+    'the declared request body reaches the probe'
+);
+duo_check_same(
+    ['Content-Type' => 'application/json'],
+    $requests[0]['request']['headers'],
+    'the declared request headers reach the probe'
+);
+duo_check_same(
+    ['duo_session' => 'opaque-session'],
+    $requests[1]['request']['cookies'],
+    'a response cookie is carried only in memory to the next ordered step'
+);
+
+$stoppedRequests = [];
+$brokenTransaction = JourneyOracle::run(
+    $transaction,
+    $base,
+    static function (string $url, int $timeout, array $request) use (&$stoppedRequests): array {
+        $stoppedRequests[] = $request;
+
+        return [
+            'body' => '{"user":{"id":99}}',
+            'error' => null,
+            'headers' => ['X-Flow: authenticated'],
+            'status' => 200,
+            'truncated' => false,
+        ];
+    }
+);
+duo_check_same(JourneyOracle::FAIL, $brokenTransaction[0]['status'], 'an exact JSON mismatch fails the transaction');
+duo_check_same(1, count($stoppedRequests), 'a failed step prevents later state-changing requests from running');
+
 $asked = [];
 $statusMismatch = JourneyOracle::run([$journeys[0]], $base, oracle_fetcher([
     "$base/shop/" => ['body' => 'Ceramic Mug', 'error' => null, 'status' => 500, 'truncated' => false],
@@ -205,6 +301,11 @@ $failedConvergence = JourneyOracle::convergence(null);
 duo_check_same(JourneyOracle::PASS, JourneyOracle::verdict($converged, $pass), 'both parts green is a pass');
 duo_check_same(
     JourneyOracle::FAIL,
+    JourneyOracle::verdict($converged, []),
+    'a converged tree with no business journey is not a verified release'
+);
+duo_check_same(
+    JourneyOracle::FAIL,
     JourneyOracle::verdict($failedConvergence, $pass),
     'green journeys over a non-converged tree is not a pass'
 );
@@ -227,7 +328,7 @@ duo_check_same(
 // -------------------------------------------------------- the disclosures
 $scope = ['products', 'pages'];
 $report = JourneyOracle::report($converged, $pass, $journeys, $scope, 'production', 'sha256:' . str_repeat('7', 64));
-duo_check_same(JourneyOracle::PASS, $report['verdict'], 'a fully covered release verdicts pass');
+duo_check_same(JourneyOracle::FAIL, $report['verdict'], 'an uncovered affected surface makes the release verdict fail');
 duo_check_same(['pages'], $report['uncovered_surfaces'], 'a surface with no declared journey is reported as uncovered');
 duo_check_same(
     [JourneyOracle::UNDECLARED_PREFIX . 'pages' . JourneyOracle::UNDECLARED_SUFFIX],
@@ -239,11 +340,14 @@ $bare = JourneyOracle::report($converged, [], [], $scope, 'production', null);
 duo_check_same(JourneyOracle::NO_JOURNEYS, $bare['disclosures'][0], 'a site with no declared journey says so first');
 duo_check_same(3, count($bare['disclosures']), 'and then names every surface the release touched');
 duo_check_same(
-    JourneyOracle::PASS,
+    JourneyOracle::FAIL,
     $bare['verdict'],
-    'no declared journey is not a failure: the contract declared no business check, and the report says so'
+    'no declared journey fails: convergence alone is not a business verification'
 );
 duo_check_same($scope, $bare['uncovered_surfaces'], 'every scope surface is uncovered when nothing is declared');
+
+$covered = JourneyOracle::report($converged, $pass, $journeys, ['products'], 'production', null);
+duo_check_same(JourneyOracle::PASS, $covered['verdict'], 'green journeys covering every affected surface pass');
 
 duo_check_same(
     Canon::encode($report),

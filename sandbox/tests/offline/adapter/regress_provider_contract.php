@@ -1511,10 +1511,8 @@ $check(str_contains($summaryText, 'PROVIDER_PROBLEM (')
     && str_contains($summaryText, '[inactive_plugin]')
     && str_contains($summaryText, '    remediation: '),
     'and renders the provider, its declaring manifest, its owning plugin, the code, and the remediation');
-$check($summary['ok'] === true,
-    'but does NOT by itself flip readiness: the diagnosis covers every DECLARED provider action, which is wider than '
-    . 'the set any one apply negotiates, so "will promoting this revision refuse?" is still answered by the buckets '
-    . 'that predict a refusal');
+$check($summary['ok'] === false,
+    'and flips readiness: a known provider defect cannot share exit 0 with a green environment status');
 $check(\Duo\Orchestrator\PlanSummary::render(['conflict' => [['uuid' => 'x', 'type' => 'post']]])['ok'] === false,
     'while a bucket that DOES predict a refusal still flips it — the exclusion above is about width, not severity');
 
@@ -3269,8 +3267,15 @@ $check(
     'the scoped public receipt helper exposes operation/receipt hashes and never provider before/after values'
 );
 $cliSource = (string) file_get_contents($root . '/agent/src/Command/Cli.php');
+$applyMethodStart = strpos($cliSource, 'public function apply(');
+$applyMethodEnd = $applyMethodStart === false
+    ? false
+    : strpos($cliSource, "\n    public function ", $applyMethodStart + 1);
+$applyMethod = ($applyMethodStart === false || $applyMethodEnd === false)
+    ? ''
+    : substr($cliSource, $applyMethodStart, $applyMethodEnd - $applyMethodStart);
 $check(
-    !str_contains($cliSource, "\$summary['actions']"),
+    $applyMethod !== '' && !str_contains($applyMethod, "\$summary['actions']"),
     "the agent's human apply render never reads the receipt rows at all — its JSON arm publishes the summary whole, "
     . 'and that is the surface the bounds above cover'
 );
@@ -3659,10 +3664,10 @@ echo "\n== outstanding receipts are legible in plan and status (independent revi
 // the same pass that read them. That is the point — and it is also what makes
 // them worth surfacing: a marker can now stand between a failure and its retry,
 // and an operator deciding "is this safe to promote" must be able to see it.
-$drivePlanProjection = static function (\Duo\Policy $projectionPolicy, ?array $negotiated = []): array {
+$drivePlanProjection = static function (\Duo\Policy $projectionPolicy, ?array $negotiated = []) use ($scratchRoot): array {
     $selection = new \Duo\RebuildSelection($projectionPolicy);
     $selection->set_negotiated_providers($negotiated);
-    return (new \Duo\ApplyPlanEnvironment($projectionPolicy, $selection))
+    return (new \Duo\ApplyPlanEnvironment($projectionPolicy, $selection, $scratchRoot))
         ->regeneration_debt_projection();
 };
 $wpdb->kv = $sweepMarkers + [
@@ -3701,9 +3706,11 @@ $envManifest['options'] = [
 $envPolicy = $policyFor($envManifest);
 $wpdb->optionRows = ['m_present' => 'configured', 'z_optional' => ''];
 $wpdb->optionReadNames = [];
+\Duo\EnvironmentValues::set($scratchRoot, 'm_present', 'configured');
 $envFacade = (new \Duo\ApplyPlanEnvironment(
     $envPolicy,
-    new \Duo\RebuildSelection($envPolicy)
+    new \Duo\RebuildSelection($envPolicy),
+    $scratchRoot
 ))->env_missing_projection();
 $check($envFacade === [
     'env_missing' => [

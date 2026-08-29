@@ -380,7 +380,7 @@ $verified = AdapterCertification::verifyFile(
     $certificatePath
 );
 $summary = AdapterCertification::certificateSummary($verified);
-duo_check_same('certified', $summary['status'] ?? null, 'the live verifier reports a CERTIFIED claim');
+duo_check_same('experimental', $summary['status'] ?? null, 'the live verifier keeps an unexercised signature below certification');
 duo_check_same('acme-catalog', $summary['name'] ?? null, 'for this adapter');
 duo_check_same(
     AdapterSources::TIER_DECLARATIVE,
@@ -486,9 +486,9 @@ $foreignVerified = AdapterCertification::verifyFile(
     $environmentCertificatePath
 );
 duo_check_same(
-    'certified',
+    'experimental',
     $foreignVerified['claim']['status'] ?? null,
-    'fixture premise: the different-PHP certificate is a valid current signed certificate'
+    'fixture premise: the different-PHP approval is a valid current signed statement'
 );
 $currentEnvironmentCertificate = AdapterCertification::sign_site(
     Policy::shipped_adapter_library(),
@@ -890,9 +890,9 @@ duo_check_same(
 );
 $overPolicy = Policy::load($overRepo);
 duo_check_same(
-    'site_signed',
+    AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $overPolicy->adapter_sources()->diagnostics($overPolicy->manifests)['woocommerce']['certification'] ?? null,
-    'the certified override reads site_signed'
+    'the unexercised override reads signed_unexercised'
 );
 
 // (3) a second adapter under the SAME key: the record grows (adapter_names,
@@ -916,9 +916,12 @@ duo_check_same(
 $overPolicy = Policy::load($overRepo);
 $overWords = $overPolicy->adapter_sources()->diagnostics($overPolicy->manifests);
 duo_check_same(
-    ['keeper' => 'site_signed', 'woocommerce' => 'site_signed'],
+    [
+        'keeper' => AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
+        'woocommerce' => AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
+    ],
     ['keeper' => $overWords['keeper']['certification'] ?? null, 'woocommerce' => $overWords['woocommerce']['certification'] ?? null],
-    'BOTH certificates verify after the record grew — a growing site trust root does not invalidate earlier certificates'
+    'both signed approvals verify after the record grew without becoming certified claims'
 );
 $overWooCert = $overRepo . '/adapters/certifications/woocommerce.json';
 $verifiedOver = AdapterCertification::verifyFile(

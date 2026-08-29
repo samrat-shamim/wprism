@@ -418,6 +418,13 @@ final class AdapterSources {
     public const CERTIFICATION_SITE_SIGNED = 'site_signed';
 
     /**
+     * A valid site-rooted signature whose bundle explicitly records that no
+     * site was exercised. It is approval evidence, not certification evidence:
+     * no pin elevates this word and every certified-only gate remains closed.
+     */
+    public const CERTIFICATION_SIGNED_UNEXERCISED = 'signed_unexercised';
+
+    /**
      * The REVIEWER-TIER word (spec/repo-format.md § v3.16, WP-5.2; gate G4).
      *
      * It answers a question neither word above can. `site_signed` and
@@ -2955,6 +2962,9 @@ final class AdapterSources {
         if ($certificationUnjudged) {
             return self::CERTIFICATION_UNJUDGED;
         }
+        if ($sources->is_signed_unexercised($name)) {
+            return self::CERTIFICATION_SIGNED_UNEXERCISED;
+        }
         if (!$sources->is_certified($name)) {
             return 'uncertified';
         }
@@ -4229,7 +4239,14 @@ final class AdapterSources {
     }
 
     public function is_certified(string $name): bool {
-        return isset($this->certificates[$name], $this->claims[$name]);
+        return isset($this->certificates[$name], $this->claims[$name])
+            && ($this->claims[$name]['evidence']['exercised'] ?? null) === true;
+    }
+
+    /** A verified signature that deliberately carries no exercise proof. */
+    public function is_signed_unexercised(string $name): bool {
+        return isset($this->certificates[$name], $this->claims[$name])
+            && ($this->claims[$name]['evidence']['exercised'] ?? null) === false;
     }
 
     /**
@@ -4247,6 +4264,9 @@ final class AdapterSources {
     public function certification_word(string $name, ?bool $hasRegistry = null): ?string {
         if ($this->provenance($name) === null) {
             return ($hasRegistry ?? $this->has_reviewed_registry()) ? 'registry' : null;
+        }
+        if ($this->is_signed_unexercised($name)) {
+            return self::CERTIFICATION_SIGNED_UNEXERCISED;
         }
         if (!$this->is_certified($name)) {
             return 'uncertified';
@@ -4360,7 +4380,7 @@ final class AdapterSources {
         $this->explicitPins = [];
         foreach ($pins as $pin) {
             $name = (string) ($pin['name'] ?? '');
-            if ($name !== '' && $this->is_certified($name)
+            if ($name !== '' && ($this->is_certified($name) || $this->is_signed_unexercised($name))
                 && ($pin['source'] ?? null) === self::SITE
                 && is_string($pin['digest'] ?? null)
                 && preg_match('/^[0-9a-f]{64}$/D', (string) $pin['digest']) === 1) {
@@ -4375,7 +4395,7 @@ final class AdapterSources {
      */
     public function claim(string $name): ?array {
         $claim = $this->claims[$name] ?? null;
-        if ($claim === null || !empty($this->explicitPins[$name])) {
+        if ($claim === null || $this->is_signed_unexercised($name) || !empty($this->explicitPins[$name])) {
             return $claim;
         }
         $claim['status'] = 'uncertified';
@@ -4451,7 +4471,7 @@ final class AdapterSources {
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
             $record = $this->provenance($name);
-            $signed = $this->is_certified($name);
+            $signed = $this->is_certified($name) || $this->is_signed_unexercised($name);
             $explicit = !empty($this->explicitPins[$name]);
             $source = $this->source($name);
             $trustRoot = $this->trust_root($name);

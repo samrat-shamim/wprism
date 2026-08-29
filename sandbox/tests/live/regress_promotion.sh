@@ -132,7 +132,7 @@ grep -Fq 'deploy phase: checkpoint' <<<"$DEPLOY" \
 DEPLOY_CKPT="$(printf '%s\n' "$DEPLOY" | sed -n 's/^database checkpoint retained: //p' | head -1)"
 [ -n "$DEPLOY_CKPT" ] || fail "host deploy printed no retained checkpoint path"
 case "$DEPLOY_CKPT" in
-  /siterepo/.duo/checkpoints/deploy-*.sql) : ;;
+  /siterepo/.duo/checkpoints/deploy-*.sql.enc) : ;;
   *) fail "deploy retained its checkpoint at an unexpected path: $DEPLOY_CKPT" ;;
 esac
 [ -s "$SITE2/${DEPLOY_CKPT#/siterepo/}" ] \

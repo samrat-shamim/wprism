@@ -106,7 +106,7 @@
         "WARNING: plan observed a stale identity mapping",
         "ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):",
         "  - outfitters_gateway_key (required)",
-        "required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting",
+        "required env value(s) missing — pipe the value to `wp duo env-set --name=<name> --stdin` before promoting",
         "ADAPTER_DISPOSITIONS (a pinned manifest or target is not certified for promotion):",
         "  - outfitters [unsupported] [source=out_of_tree tier=community certification=registry] [not_certified]: no certification evidence for this revision",
         "    remediation: certify the adapter or unpin it",

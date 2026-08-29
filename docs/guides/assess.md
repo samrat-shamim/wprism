@@ -112,12 +112,10 @@ evidence: 4 certification subject(s) pinned
 proposed contract written: .duo/contract/production/proposed.json (accept with duo contract production accept)
 ```
 
-**Exit 0 is not a green light, and it is not meant to be one.** A bounded
-assessment exits 0 *including* one where every surface is blocked, because
-assessment is not a completeness claim. Exit 1 means the assessment itself
-refused — an unreachable target, an unsupported topology. If you want a
-readiness gate, that is `duo status`, whose exit code answers a different
-question.
+Exit 0 means every requested projection is `Ready` or `Ready with conditions`.
+Exit 3 is still a complete, bounded assessment, but at least one readiness row
+is red. Exit 1 means the assessment itself refused — for example an unreachable
+target or unsupported topology.
 
 ## The six columns
 

@@ -15,6 +15,126 @@ require_once __DIR__ . '/InitRepositoryBoundary.php';
 /** Verification and cleanup of sealed interrupted first-init attempts. */
 final class InitRecovery {
     public const PLAN_FORMAT = InitProtocol::PLAN_FORMAT;
+    public const ARCHIVE_FORMAT = 'duo-init-interrupted-archive/v1';
+
+    /**
+     * Preserve an ambiguous interrupted attempt as one exact sibling tree and
+     * recreate the configured path. No child is interpreted or deleted: the
+     * repository-directory rename is the ownership boundary, and the sealed
+     * attempt must itself prove this is the manual-recovery state.
+     *
+     * @return array<string,mixed>
+     */
+    public static function archive_interrupted_attempt(string $repo, string $archive): array {
+        $repo = InitRepositoryBoundary::normalize($repo);
+        $archive = InitRepositoryBoundary::normalize($archive);
+        if (dirname($repo) !== dirname($archive) || $repo === $archive) {
+            throw new \RuntimeException('duo: interrupted-init archive must be a distinct absolute sibling of the repository');
+        }
+
+        $repoPresent = file_exists($repo) || is_link($repo);
+        $archivePresent = file_exists($archive) || is_link($archive);
+        if (!$repoPresent && $archivePresent) {
+            // Bounded crash recovery for the sole non-atomic step: rename(2)
+            // already preserved the complete root, but directory recreation
+            // did not return. The sealed journal still binds the archived
+            // inode to the original logical path.
+            if (is_link($archive) || !is_dir($archive)) {
+                throw new \RuntimeException('duo: interrupted-init archive continuation is not an ordinary directory');
+            }
+            $attempt = InitAttemptJournal::read($archive);
+            if ($attempt === null
+                || ($attempt['repository'] ?? null) !== $repo
+                || ($attempt['repository_identity'] ?? null) !== self::root_identity($archive)) {
+                throw new \RuntimeException('duo: interrupted-init archive continuation is not bound to the missing repository');
+            }
+            if (!@mkdir($repo, 0700)) {
+                throw new \RuntimeException('duo: interrupted-init archive is preserved but the configured repository path could not be recreated');
+            }
+
+            return self::archive_receipt($repo, $archive, $attempt, true);
+        }
+        if (!$repoPresent) {
+            throw new \RuntimeException('duo: interrupted-init repository and selected archive are both absent');
+        }
+        if ($archivePresent) {
+            throw new \RuntimeException('duo: interrupted-init archive destination already exists');
+        }
+
+        $binding = InitRepositoryBoundary::bind($repo);
+        try {
+            $attempt = InitAttemptJournal::read($repo);
+            if ($attempt === null
+                || ($attempt['repository'] ?? null) !== $repo
+                || ($attempt['repository_identity'] ?? null) !== $binding['identity']) {
+                throw new \RuntimeException('duo: repository has no sealed interrupted-init attempt bound to this exact root');
+            }
+            $reason = self::interrupted_attempt_manual_recovery_reason($repo, $attempt);
+            if ($reason === null) {
+                throw new \RuntimeException(
+                    'duo: interrupted init has exact automatic recovery authority; confirm its recovery proposal instead of archiving it'
+                );
+            }
+            InitRepositoryBoundary::assert_binding($repo, $binding['stat']);
+            if (!@chdir(dirname($repo))) {
+                throw new \RuntimeException('duo: interrupted-init archive could not bind the repository parent');
+            }
+            if (!@rename($repo, $archive)) {
+                throw new \RuntimeException('duo: interrupted-init repository could not be atomically archived');
+            }
+            $mode = ((int) ($binding['stat']['mode'] ?? 0700)) & 0777;
+            if ($mode === 0) {
+                $mode = 0700;
+            }
+            if (!@mkdir($repo, $mode)) {
+                if (!@rename($archive, $repo)) {
+                    throw new \RuntimeException(
+                        'duo: interrupted-init archive is preserved but repository recreation and rollback both failed'
+                    );
+                }
+                throw new \RuntimeException('duo: interrupted-init repository recreation failed; the original root was restored');
+            }
+
+            return self::archive_receipt($repo, $archive, $attempt, false);
+        } finally {
+            $returnTo = (string) ($binding['previous_cwd'] ?? '');
+            if ($returnTo !== '' && is_dir($returnTo)) {
+                @chdir($returnTo);
+            }
+        }
+    }
+
+    /** @param array<string,mixed> $attempt @return array<string,mixed> */
+    private static function archive_receipt(string $repo, string $archive, array $attempt, bool $resumed): array {
+        if (!is_dir($repo) || is_link($repo) || (scandir($repo) ?: []) !== ['.', '..']
+            || !is_dir($archive) || is_link($archive)
+            || ($attempt['repository_identity'] ?? null) !== self::root_identity($archive)) {
+            throw new \RuntimeException('duo: interrupted-init archive transaction did not preserve its exact root boundary');
+        }
+        $receipt = [
+            'archive' => $archive,
+            'attempt_sha256' => hash('sha256', Canon::encode($attempt)),
+            'format' => self::ARCHIVE_FORMAT,
+            'repository' => $repo,
+            'resumed' => $resumed,
+        ];
+        $receipt['receipt_sha256'] = hash('sha256', Canon::encode($receipt));
+
+        return $receipt;
+    }
+
+    private static function root_identity(string $path): string {
+        clearstatcache(true, $path);
+        $stat = @lstat($path);
+        if (!is_array($stat) || (((int) ($stat['mode'] ?? 0)) & 0170000) !== 0040000) {
+            throw new \RuntimeException('duo: interrupted-init archive root is not an ordinary directory');
+        }
+
+        return 'sha256:' . hash('sha256', Canon::encode([
+            'device' => (string) $stat['dev'],
+            'inode' => (string) $stat['ino'],
+        ]));
+    }
 
     /** @param array<string,mixed> $attempt @return array<string,mixed> */
     public static function interrupted_attempt_proposal(
@@ -49,7 +169,7 @@ final class InitRecovery {
                 'extension' => $logicalRepo,
                 'kind' => 'repository',
                 'reason' => $manualReason,
-                'remediation' => 'keep the repository quiesced and preserve the sealed journal, lock, and complete partial root; follow the documented archive-and-recreate manual recovery procedure',
+                'remediation' => 'keep the repository quiesced and run the host command `duo init <env> --archive-interrupted-to=<absolute-sibling> --yes`; it atomically preserves the complete root and recreates the configured path',
             ];
             $proposal['ready'] = false;
         } elseif ($committed) {
@@ -68,7 +188,7 @@ final class InitRecovery {
                 'extension' => $logicalRepo,
                 'kind' => 'repository',
                 'reason' => 'a sealed prior init attempt ended before it returned a completed baseline and requires exact ownership verification',
-                'remediation' => 'confirm this verification plan to roll back only payloads carrying complete deletion authority; partial or ambiguous artifacts are retained for the documented manual recovery procedure',
+                'remediation' => 'confirm this verification plan to roll back only payloads carrying complete deletion authority; if an ambiguous artifact is reported, use the supported whole-root interrupted archive transaction',
             ];
         }
         usort($proposal['advisories'], static function (array $a, array $b): int {
@@ -340,6 +460,10 @@ final class InitRecovery {
         if ($present($gitignore) && (is_link($gitignore) || !is_file($gitignore))) {
             return 'the sealed attempt has a non-regular .gitignore boundary';
         }
+        $gitattributes = rtrim($repo, '/') . '/.gitattributes';
+        if ($present($gitattributes) && (is_link($gitattributes) || !is_file($gitattributes))) {
+            return 'the sealed attempt has a non-regular .gitattributes boundary';
+        }
         $gitDir = rtrim($repo, '/') . '/.git';
         if (($owned['git_created'] ?? false) === true && $present($gitDir)
             && (is_link($gitDir) || !is_dir($gitDir))) {
@@ -603,6 +727,61 @@ final class InitRecovery {
                     rtrim($repo, '/') . '/site.duo.json',
                     ['previous' => $sitePlan['previous'] ?? null, 'published' => $current],
                     'site.duo.json'
+                );
+            }
+        }
+
+        $lfsConfig = rtrim($repo, '/') . '/.git/config';
+        $lfsConfigPublication = $owned['lfs_config_publication'] ?? null;
+        if (($owned['git_created'] ?? false) !== true
+            && is_array($lfsConfigPublication)
+            && !InitOwnedArtifacts::owned_file_already_compensated($lfsConfig, $lfsConfigPublication)) {
+            InitOwnedArtifacts::compensate_owned_file(
+                $lfsConfig,
+                $lfsConfigPublication,
+                'Git local config'
+            );
+        } elseif (!is_array($lfsConfigPublication)
+            && is_array($owned['lfs_config_plan'] ?? null)
+            && (file_exists($lfsConfig) || is_link($lfsConfig))) {
+            $lfsPlan = $owned['lfs_config_plan'];
+            $expected = (string) ($lfsPlan['expected_identity'] ?? '');
+            $current = InitOwnedArtifacts::regular_file_identity($lfsConfig, 'Git local config');
+            if ($expected === 'initialize-on-confirm' || !hash_equals($expected, $current)) {
+                InitOwnedArtifacts::compensate_owned_file(
+                    $lfsConfig,
+                    ['previous' => $lfsPlan['previous'] ?? null, 'published' => $current],
+                    'Git local config'
+                );
+            }
+        }
+
+        $gitattributesPublication = $owned['gitattributes_publication'] ?? null;
+        if (is_array($gitattributesPublication)
+            && !InitOwnedArtifacts::owned_file_already_compensated(
+                rtrim($repo, '/') . '/.gitattributes',
+                $gitattributesPublication
+            )) {
+            InitOwnedArtifacts::compensate_owned_file(
+                rtrim($repo, '/') . '/.gitattributes',
+                $gitattributesPublication,
+                '.gitattributes'
+            );
+        } elseif (!is_array($gitattributesPublication)
+            && is_array($owned['gitattributes_plan'] ?? null)
+            && (file_exists(rtrim($repo, '/') . '/.gitattributes')
+                || is_link(rtrim($repo, '/') . '/.gitattributes'))) {
+            $gitattributesPlan = $owned['gitattributes_plan'];
+            $expected = (string) ($gitattributesPlan['expected_identity'] ?? '');
+            $current = InitOwnedArtifacts::regular_file_identity(
+                rtrim($repo, '/') . '/.gitattributes',
+                '.gitattributes'
+            );
+            if (!hash_equals($expected, $current)) {
+                InitOwnedArtifacts::compensate_owned_file(
+                    rtrim($repo, '/') . '/.gitattributes',
+                    ['previous' => $gitattributesPlan['previous'] ?? null, 'published' => $current],
+                    '.gitattributes'
                 );
             }
         }

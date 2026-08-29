@@ -376,8 +376,9 @@ check(
             'woocommerce-fulfillment-prerequisites',
             'woocommerce-scheduler-settings',
             'woocommerce-product-lookups',
+            'woocommerce-lifecycle-migrations',
         ],
-    'all five of its manifest-shipped providers are listed as executable code — including the lookup repair '
+    'all six of its manifest-shipped providers are listed as executable code — including the lookup repair '
     . 'DUO-3342 moved out of the regenerator channel, which the row below confirms is no longer a regenerator'
 );
 check(

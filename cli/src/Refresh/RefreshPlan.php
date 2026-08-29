@@ -564,7 +564,8 @@ final class RefreshPlan {
 
     /**
      * Local-only TTY context. Unlike the public field diff, this carries
-     * bounded sanitized labels and is intentionally never persisted.
+     * exact private source values for bounded/escaped rendering plus local
+     * labels, and is intentionally never persisted.
      *
      * @return array<string,mixed>
      */

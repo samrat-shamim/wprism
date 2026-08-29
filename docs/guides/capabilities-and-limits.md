@@ -134,8 +134,9 @@ names—and all other summary data is bounded counts, states, phases, and kinds.
 No-flag `wp duo plan` and `duo status` retain their existing full-plan JSON
 and normal behavior. Filtered direct-plan row labels and host status plan-row
 labels safely normalize C0/DEL controls. An explicit `--category=<csv>`, `--action=<csv>`,
-`--entity=<csv>`, or canonical `--limit=<1..200>` requests the bounded
-`duo-plan-view/v1` display projection from the same complete plan snapshot.
+`--entity=<csv>`, an emitted `--cursor=<token>`, or canonical
+`--limit=<1..200>` requests the bounded `duo-plan-view/v2` display projection
+from the same complete plan snapshot.
 The detailed buckets remain present and authoritative; the projection declares
 `authoritative: false` and is never consumed by apply, promotion, or
 convergence.
@@ -145,14 +146,17 @@ buckets; entities are `post`, `attachment`, `term`, `menu`, `sidebar`,
 `options`, `user_meta`, and `typed_table`. Values are exact comma-separated
 closed tokens, canonicalized/deduped in vocabulary order. Values within one
 dimension are ORed, supplied dimensions are ANDed. A view defaults to and
-hard-caps ordinary rows at 200; v1 has no cursor, so full unfiltered JSON is
-the complete escape hatch. Rows are value-free refs only (bucket, hash
+hard-caps each page at 200 ordinary rows. `page.next_cursor` is an opaque token
+binding the complete plan identities, filters, and next matching offset;
+following emitted cursors enumerates the complete matching set. A changed plan
+or filter set typed-refuses an old token as `plan_view_cursor_stale` rather
+than skipping or duplicating rows. Rows are value-free refs only (bucket, hash
 selector, closed entity/category facets, safety bit); the selector uniquely
 resolves a UUID inside the complete bucket without exposing a source position.
 They are sorted by fixed action rank then bytewise UUID. The view never copies paths, titles, values,
 secrets, PII, target ids, or plugin-specific engine facts into JSON.
 
-The view reports full/matching/shown/omitted/forced-safety evidence and full
+The view reports full/matching/offset/shown/remaining/forced-safety evidence and full
 readiness/global counters. Drift, conflict, collision, delete-conflict, and
 blocked-delete rows bypass every filter and cap; global diagnostics, including
 `regen_context`, remain full-plan facts. Category requests require the
@@ -162,10 +166,18 @@ not. `duo status` forwards one normalized request and typed-refuses
 does not bind that full JSON plan. Its filtered human output itemizes only
 matching ordinary rows while retaining existing complete safety/global blocks;
 newly itemized path/title labels are one-line C0/DEL-safe. Text/path/title/
-value searching, raw-value views, cursors, and interactive plan-view or
+value searching, raw-value views, and interactive plan-view or
 raw-value diffs remain out of scope. The separate host refresh workflow may
 offer only its bounded value-free/redacted field resolver; it is not a plan-view
 or literal-value interaction surface.
+
+For a dashboard that must not receive the unbounded detailed buckets, direct
+`wp duo plan ... --view-only --format=json` emits only this bounded page
+envelope. It still carries full-plan readiness/count evidence and repeats every
+safety row, but no ordinary row outside the selected page. `--view-only`
+requires both JSON format and a view argument; host `duo status` deliberately
+keeps its full same-snapshot response so it can independently validate the
+agent projection.
 
 ### `env` values in practice
 
@@ -174,11 +186,13 @@ it fails to load. `true` means a human must provision this on every fresh
 environment; `false` means the owning plugin self-populates it and it is not
 worth checklisting.
 
-Because env values are never captured, there is no repo-side record of what any
-environment's value *should* be — only whether this environment currently has
-something non-empty in each declared slot. `duo plan` and `duo status` surface
-that as the `env_missing` bucket, and `duo env-set` is the only sanctioned way
-to write one:
+Env values are never captured into branchable state. Instead, `duo env-set`
+publishes each intended value to the owner-readable target-local
+`.duo-env-values.json` before writing WordPress. `duo plan` and `duo status`
+require every `required: true` live option to match that binding exactly;
+absent, unbound, stale, and cross-client values all remain in `env_missing`.
+Optional self-populated options remain presence-only. `duo env-set` is the
+sanctioned way to establish or replace a binding:
 
 ```sh
 duo env-set production --name=woocommerce_stripe_key --stdin
@@ -194,21 +208,27 @@ The host restores
 echo on normal, exceptional, HUP, INT, QUIT, TERM, and TSTP exits/suspension,
 re-masks after resume, and refuses interactive use when PHP signal support
 cannot guarantee that restoration. After the complete value is handed off,
-termination signals are deferred until the target returns so Duo reports the
-real mutation outcome rather than a false cancellation. The post-handoff wait
-has no local timeout because timeout cannot prove a remote write stopped;
-diagnose a stuck target from another session. Ctrl-Z suspends the wrapper and
+termination signals are deferred while the target can report its real
+mutation outcome. The complete detached handoff and outcome wait is bounded at
+five minutes; expiry returns temporary-failure exit `75` and explicitly says
+the remote write may still complete. Retry the identical stdin value:
+target-local intent is published before WordPress is changed, so the operation
+is idempotent and plan stays red until the live value matches. Ctrl-Z suspends the wrapper and
 foreground child/transport together, but a non-PTY Docker/SSH target may
 continue remotely; `fg` resumes the local outcome wait. Nonblocking pipe
 handoff keeps local signal handling responsive while a slow target applies
 backpressure.
 SSH explicitly uses
 `-T`, overriding any `RequestTTY=force` user configuration. The value is never
-logged or placed in argv, whereas `--value` lands in shell history and process
-listings like any other flag. `env-set` refuses any name the loaded
+logged or placed in argv; the former `--value` form is refused because shell
+history and process listings expose command arguments. `env-set` refuses any name the loaded
 policy did not declare `class: "env"`, refuses an option declaring `sub_keys`
 (a structured plugin-managed blob a bare string write would corrupt), and
-refuses an empty value.
+refuses an empty value. The intended-value file must be a regular non-symlink
+file readable only by its owner (mode `0600`); Duo refuses an insecure file.
+If WordPress rejects the subsequent write, the newly published intent remains
+and the plan stays red until the live value is repaired, so a partial operation
+cannot create a false-green unbound value.
 
 Scope note: `class: "env"`, `env_missing`, and `env-set` operate on **options
 only** today — never post or term meta, and never a `sub_keys` carve-out's
@@ -426,8 +446,11 @@ buried here.
   consequence in the same breath: a rehearsal in this profile cannot authorize
   an `Experimental` or `Uncertified` capability, because the spec permits that
   only once containment is proven. Point a preview at test credentials.
-- **The lifecycle window has to be declared before it can be released
-  through.** `retire` and `activate` run on every promotion, code or not, and
+- **A selected lifecycle window has to be declared before it can be released
+  through.** The target's read-only code preflight verifies its completed
+  descriptor and payload. `retire` and `activate` run only when that evidence
+  says the compiled code revision differs; content-only promotions proceed
+  directly to hook-free apply. When a code transition does select the window,
   hooks fire there. Unknown containment must never reach a live system, so
   `duo release` refuses until the application contract carries a reviewed
   `external_effects[]` entry naming that window `live` with an explicit
@@ -495,7 +518,7 @@ from the same list:
 | `conflict` | Repo and environment both changed the same entity. Plan JSON and human output identify the last-synced base, repository intent, and target intent without exposing raw values. | The recommended choice is to capture/reconcile both intents in the repository and re-plan. `duo apply --force-theirs` selects the explicitly destructive alternative and reports every override; when that intent includes declared option deletion, the view also requires `--with-deletes`. Supplying deletion authority alone does not select the conflict override. |
 | `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. The view includes the tombstone's expected-base and receipt evidence. | Capture/reconcile first, or knowingly use `duo apply --with-deletes --force-theirs`; both flags are mandatory. Once `--force-theirs` selects the override, a missing companion flag refuses before mutation and reports required versus supplied flags without calling the override authorized. `--with-deletes` alone retains the ordinary conflict refusal. |
 | `collision` | An unmanaged environment entity already holds this slug. | `duo apply --adopt-by-slug=<kinds>`, or rename. Inspect every collision first. |
-| pending `delete` (unauthorized) | The repository authored a deletion this environment still holds. An ordinary `duo apply`/`duo promote` performs no deletion at all without `--with-deletes`: it warns that it skipped every planned one, applies the rest, and records the revision as applied. The tombstone stays pending until somebody authorizes it. | `duo promote <env> --with-deletes` (or `wp duo apply --with-deletes`) once the deletions in the plan are the deletions you intend. |
+| pending `delete` (unauthorized) | The repository authored a deletion this environment still holds. An ordinary `duo apply`/`duo promote` without `--with-deletes` refuses before any authored mutation; it cannot apply the rest or record the revision while tombstones remain pending. | Review the rows, then use `duo promote <env> --with-deletes` (or `wp duo apply --with-deletes`) once they are the deletions you intend. |
 | blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `duo apply --with-deletes --force-delete-referenced`. Forced execution stays loud. |
 | `missing_user` | An authored user-meta sidecar names an exact login that does not exist here. Apply refuses before mutation. | Create or reconcile the user outside Duo, or declare `missing_user: "warn"` on every authored key in that sidecar to warn-and-skip it. |
 | `code_mismatch` | Installed code disagrees with what state declares active. | Install/vendor the code, deploy first, or `--force-code-mismatch`. |
@@ -505,7 +528,7 @@ from the same list:
 | `incomplete_lifecycle` | A hook window failed after its durable pre-hook boundary, so a hook may already have committed state. | Restore the exact pre-lifecycle database checkpoint. **Non-forceable.** |
 | `regen_pending` | A derived table with a hard per-entity availability dependency failed post-apply verification. | Nothing: the *next* `duo apply` retries it and either clears it or fails loudly. |
 | `env_missing` (required) | A manifest-declared `class: "env"` option is unset here. | `duo env-set <env> --name=<name> --stdin`. |
-| ordinary `drift` | The environment changed outside Duo. | `duo capture` first — this plan's comparison is already stale. Apply does not refuse *before* mutating on drift: it writes the rest of the plan, deliberately leaves the drifted entities alone, and then fails the post-apply convergence gate, which proves the whole compiled tree. That refusal names the preserved entities and this remedy, and it retains the `incomplete_apply` marker. |
+| ordinary `drift` | The environment changed outside Duo, so the repository comparison is stale. | `duo capture` first, reconcile the captured intent, then apply a fresh plan. Ordinary apply/promote refuses during preparation before any authored mutation; the separately checkpointed scoped-promotion profile is the only reviewed path allowed to replace selected drift. |
 | `adapter_dispositions` | A pinned manifest is experimental, excluded, uncovered by any reviewed entry, installed out-of-tree and uncertified, signed but not exactly pinned, or outside its reviewed plugin version window. Each row carries the capability report's own code and remediation. | Pin a certified manifest and an in-range plugin version, sign and pin the site adapter (`duo adapter certify … --pin`), or accept the boundary and do not promote. |
 
 If an apply fails after you explicitly authorized a conflict override, its
@@ -513,14 +536,11 @@ JSON refusal includes `forced_overrides`: hash-only, versioned evidence of the
 choice that was authorized. It does not claim that the mutation committed;
 inspect the private failure and apply recovery state before retrying.
 
-Two of those rows are the ones that surprise people. `regen_pending` and
-ordinary `drift` are cases `duo apply` does **not** refuse on — but `duo status`
-still reports them as not clean, because it is a readiness probe rather than a
-prediction of apply's preconditions. Read "does not refuse on" precisely: it is
-a statement about apply's *pre-mutation* gates, not a promise that the run
-succeeds. Applying over ordinary drift writes everything else, preserves the
-drifted entities, and then fails the post-apply convergence gate — which is the
-readiness probe being right, one step later and after a mutation. An *optional*
+`regen_pending` is the row that can remain while the next apply proceeds: the
+retry owns its recovery semantics. Ordinary `drift` is different and now
+refuses before mutation because the plan is predictably stale. `duo status`
+reports both as not clean, but apply permits only the explicit regen retry (and
+the separately checkpointed scoped-promotion drift authority). An *optional*
 (`required: false`)
 `env_missing` entry is the mirror image: it is listed for visibility and never
 flips the exit code by itself, because it is plugin-internal bookkeeping the
@@ -658,10 +678,10 @@ For the live half — is the plugin installed, active, and in range? does the
 provider answer? — `duo plan <env>` and `duo status <env>` now carry
 `provider_problems` rows, one per declared provider capability this environment
 cannot supply, each naming the declaring manifest, the owning plugin, and a
-remediation. They are reported and counted but do not by themselves flip
-`duo status`'s exit code: the diagnosis covers every *declared* provider
-action, which is wider than the set any one apply negotiates, and apply's own
-refusal stays where it belongs — immediately before the first mutation.
+remediation. They are reported, counted, and make `duo status` non-zero. A
+provider problem may be wider than the actions selected by one plan, but it is
+still red environment readiness and cannot share exit 0 with a green status
+gate.
 
 Plan-time diagnosis constructs the same provider objects apply does — a
 manifest-sourced provider's file is required and its class constructed, and
@@ -827,12 +847,15 @@ rather than working around it.
   branch-only, production-only, and compatible rows remain in the ordinary
   private plan/counts because they need no field choice. `duo rebase
   --interactive` or a canonical local `--field-resolution` consumes the
-  matching value-free resolution. It never serializes literals, paths, stable
-  IDs, bodies, metadata, options, user records, or per-value hashes; it reports
-  only closed B/P/W presence/equality relations. `--interactive` is the narrow
-  TTY-only local reveal exception: a bounded C0/DEL-safe authored title/name or
-  path fallback may be shown beside its selector in memory only, never in a
-  machine artifact. The field-eligible engine
+  matching value-free resolution. The persisted diff and resolution never
+  serialize literals, paths, stable IDs, bodies, metadata, options, user
+  records, or per-value hashes; they report only closed B/P/W
+  presence/equality relations. `--interactive` is the narrow privileged
+  TTY-only exception: for every changed selector it shows exact B/W/P paths
+  and bounded terminal-safe value previews, with exact byte counts and SHA-256
+  hashes, plus a bounded C0/DEL-safe authored title/name or path fallback.
+  Those potentially sensitive bytes remain in memory and the terminal only,
+  never a machine artifact, journal, or receipt. The field-eligible engine
   surface is ordinary post scalar groups, term name/description/parent, and
   (DUO-3494) whole top-level blocks of a post body; attachment/media, menus,
   sidebars, options, user-meta, typed tables,

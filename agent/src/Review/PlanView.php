@@ -15,7 +15,7 @@ require_once __DIR__ . '/PlanExplanation.php';
  * changes a bucket, a row order, or Apply::run().
  */
 final class PlanView {
-    public const FORMAT = 'duo-plan-view/v1';
+    public const FORMAT = 'duo-plan-view/v2';
     public const MAX_LIMIT = 200;
 
     private const REDACTION = 'values_omitted';
@@ -38,16 +38,16 @@ final class PlanView {
     ];
 
     /**
-     * Parse the only four view flags accepted by direct `wp duo plan`.
+     * Parse the five view flags accepted by direct `wp duo plan`.
      * WP-CLI passes values as an associative map, so duplicate complete flags
      * have already been normalized by its dispatcher; token duplicates are
      * intentionally harmless and canonicalized into closed-vocabulary order.
      *
-     * @return array{category:list<string>,action:list<string>,entity:list<string>,limit:int}|null
+     * @return array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int}|null
      */
     public static function requestFromAssoc(array $assoc): ?array {
         $hasView = false;
-        foreach (['category', 'action', 'entity', 'limit'] as $key) {
+        foreach (['category', 'action', 'entity', 'cursor', 'limit'] as $key) {
             $hasView = $hasView || array_key_exists($key, $assoc);
         }
         if (!$hasView) {
@@ -61,6 +61,8 @@ final class PlanView {
                 ? self::parseCsv($assoc['action'], PlanCategorySummary::actionBuckets()) : [],
             'entity' => array_key_exists('entity', $assoc)
                 ? self::parseCsv($assoc['entity'], PlanCategorySummary::entityKinds()) : [],
+            'cursor' => array_key_exists('cursor', $assoc)
+                ? self::parseCursor($assoc['cursor']) : null,
             'limit' => array_key_exists('limit', $assoc)
                 ? self::parseLimit($assoc['limit']) : self::MAX_LIMIT,
         ];
@@ -74,7 +76,7 @@ final class PlanView {
      * @param array<string,mixed> $plan
      * @param array<string,array<string,mixed>> $tree
      * @param array<string,array<string,mixed>> $deletions
-     * @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request
+     * @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request
      * @return array<string,mixed>
      */
     public static function build(array $plan, array $tree, array $deletions, array $request): array {
@@ -149,7 +151,12 @@ final class PlanView {
             $rank = $actionRank[$a['bucket']] <=> $actionRank[$b['bucket']];
             return $rank !== 0 ? $rank : strcmp($a['_uuid'], $b['_uuid']);
         });
-        $shownOrdinary = array_slice($ordinary, 0, $request['limit']);
+        $cursorDigest = self::cursorDigest($plan, $request);
+        $offset = self::cursorOffset($request['cursor'], $cursorDigest, $matching);
+        $shownOrdinary = array_slice($ordinary, $offset, $request['limit']);
+        $nextOffset = $offset + count($shownOrdinary);
+        $remaining = $matching - $nextOffset;
+        $nextCursor = $remaining > 0 ? self::encodeCursor($cursorDigest, $nextOffset) : null;
         $rows = array_merge($shownOrdinary, $forcedSafety);
         usort($rows, static function (array $a, array $b) use ($actionRank): int {
             $rank = $actionRank[$a['bucket']] <=> $actionRank[$b['bucket']];
@@ -175,9 +182,14 @@ final class PlanView {
             'counts' => [
                 'full' => $fullOrdinary,
                 'matching' => $matching,
+                'offset' => $offset,
                 'shown' => count($shownOrdinary),
-                'omitted' => $matching - count($shownOrdinary),
+                'remaining' => $remaining,
                 'forced_safety' => count($forcedSafety),
+            ],
+            'page' => [
+                'next_cursor' => $nextCursor,
+                'has_more' => $nextCursor !== null,
             ],
             'full_plan' => [
                 'readiness' => $ready ? 'ready' : 'blocked',
@@ -207,12 +219,16 @@ final class PlanView {
             '  filters: category=' . self::filterLabel($filters['category'] ?? [])
                 . ' action=' . self::filterLabel($filters['action'] ?? [])
                 . ' entity=' . self::filterLabel($filters['entity'] ?? [])
+                . ' cursor=' . (is_string($filters['cursor'] ?? null) ? 'set' : 'start')
                 . ' limit=' . (int) ($filters['limit'] ?? self::MAX_LIMIT),
             '  ordinary: full=' . (int) ($counts['full'] ?? 0)
                 . ' matching=' . (int) ($counts['matching'] ?? 0)
+                . ' offset=' . (int) ($counts['offset'] ?? 0)
                 . ' shown=' . (int) ($counts['shown'] ?? 0)
-                . ' omitted=' . (int) ($counts['omitted'] ?? 0)
+                . ' remaining=' . (int) ($counts['remaining'] ?? 0)
                 . '; forced_safety=' . (int) ($counts['forced_safety'] ?? 0),
+            '  next cursor: ' . (is_string($view['page']['next_cursor'] ?? null)
+                ? (string) $view['page']['next_cursor'] : 'none'),
             '  full-plan readiness: ' . (string) ($fullPlan['readiness'] ?? 'blocked')
                 . '; global diagnostics remain unfiltered',
         ];
@@ -224,7 +240,13 @@ final class PlanView {
      * @return list<array{bucket:string,row:array<string,mixed>,safety:bool}>
      */
     public static function referencedRows(array $plan, array $view): array {
-        $out = [];
+        $out = [
+            'category' => [],
+            'action' => [],
+            'entity' => [],
+            'cursor' => null,
+            'limit' => 1,
+        ];
         foreach ((array) ($view['rows'] ?? []) as $reference) {
             if (!is_array($reference)) {
                 continue;
@@ -280,12 +302,19 @@ final class PlanView {
         return (int) $raw;
     }
 
+    private static function parseCursor(mixed $raw): string {
+        if (!is_string($raw) || preg_match('/^[A-Za-z0-9_-]{48}$/D', $raw) !== 1) {
+            throw self::invalidRequest();
+        }
+        return $raw;
+    }
+
     /**
-     * @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request
-     * @return array{category:list<string>,action:list<string>,entity:list<string>,limit:int}
+     * @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request
+     * @return array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int}
      */
     private static function normaliseRequest(array $request): array {
-        if (array_keys($request) !== ['category', 'action', 'entity', 'limit']) {
+        if (array_keys($request) !== ['category', 'action', 'entity', 'cursor', 'limit']) {
             throw self::unavailable();
         }
         $out = [];
@@ -312,15 +341,66 @@ final class PlanView {
                 throw self::unavailable();
             }
         }
+        $cursor = $request['cursor'] ?? null;
+        if ($cursor !== null) {
+            $cursor = self::parseCursor($cursor);
+        }
+        $out['cursor'] = $cursor;
         $limit = $request['limit'] ?? null;
         if (!is_int($limit) || $limit < 1 || $limit > self::MAX_LIMIT) {
             throw self::unavailable();
         }
         $out['limit'] = $limit;
-        /** @var array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $out */
         return $out;
     }
 
+    /** @param array<string,mixed> $plan @param array<string,mixed> $request */
+    private static function cursorDigest(array $plan, array $request): string {
+        $parts = ['duo-plan-view-cursor/v1'];
+        foreach (['category', 'action', 'entity'] as $key) {
+            $parts[] = $key . '=' . implode(',', (array) ($request[$key] ?? []));
+        }
+        foreach (PlanCategorySummary::actionBuckets() as $bucket) {
+            $identities = [];
+            foreach ((array) ($plan[$bucket] ?? []) as $row) {
+                if (!is_array($row) || !is_string($row['uuid'] ?? null)) {
+                    throw self::unavailable();
+                }
+                $identities[] = $row['uuid'];
+            }
+            sort($identities, SORT_STRING);
+            foreach ($identities as $uuid) {
+                $parts[] = $bucket . ':' . hash('sha256', $uuid);
+            }
+        }
+        return hash('sha256', implode("\n", $parts), true);
+    }
+
+    private static function cursorOffset(?string $cursor, string $digest, int $matching): int {
+        if ($cursor === null) {
+            return 0;
+        }
+        $raw = self::decodeCursor($cursor);
+        $offset = unpack('Noffset', substr($raw, 32, 4))['offset'] ?? 0;
+        if (!hash_equals($digest, substr($raw, 0, 32)) || $offset < 1 || $offset >= $matching) {
+            throw self::staleCursor();
+        }
+        return $offset;
+    }
+
+    private static function encodeCursor(string $digest, int $offset): string {
+        return rtrim(strtr(base64_encode($digest . pack('N', $offset)), '+/', '-_'), '=');
+    }
+
+    private static function decodeCursor(string $cursor): string {
+        $raw = base64_decode(strtr($cursor, '-_', '+/'), true);
+        if (!is_string($raw) || strlen($raw) !== 36 || self::encodeCursor(substr($raw, 0, 32), unpack('Noffset', substr($raw, 32, 4))['offset'] ?? 0) !== $cursor) {
+            throw self::invalidRequest();
+        }
+        return $raw;
+    }
+
+    /** @param array<string,bool> $selected @param list<string> $vocabulary @return list<string> */
     /** @param array<string,bool> $selected @param list<string> $vocabulary @return list<string> */
     private static function canonical(array $selected, array $vocabulary): array {
         $out = [];
@@ -332,7 +412,7 @@ final class PlanView {
         return $out;
     }
 
-    /** @param array<string,mixed> $entry @param array{category:list<string>,action:list<string>,entity:list<string>,limit:int} $request */
+    /** @param array<string,mixed> $entry @param array{category:list<string>,action:list<string>,entity:list<string>,cursor:?string,limit:int} $request */
     private static function matches(array $entry, array $request): bool {
         if ($request['category'] !== []
             && array_intersect($request['category'], (array) $entry['categories']) === []) {
@@ -468,9 +548,19 @@ final class PlanView {
         return new CommandRefusalException(
             'invalid_arguments',
             'plan view filters are invalid',
-            'use comma-separated closed category, action, or entity identifiers and a canonical limit from 1 through 200',
+            'use closed category/action/entity identifiers, an emitted opaque cursor, and a canonical limit from 1 through 200',
             [],
             'duo: invalid plan view filter'
+        );
+    }
+
+    private static function staleCursor(): CommandRefusalException {
+        return new CommandRefusalException(
+            'plan_view_cursor_stale',
+            'the plan changed after this view cursor was issued',
+            'restart at the first page without --cursor, then continue only with cursors emitted by that plan',
+            [],
+            'duo: plan view cursor is stale'
         );
     }
 

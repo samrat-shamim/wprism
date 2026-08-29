@@ -67,7 +67,7 @@ fi
 say 'the default bound'
 run "$TMP/default.txt" assess fixture
 STATUS=$?
-[ "$STATUS" = 0 ] && pass 'the bounded human view exits 0' || fail "human assess exited $STATUS"
+[ "$STATUS" = 3 ] && pass 'the bounded human view preserves the complete-with-gaps exit' || fail "human assess exited $STATUS"
 SHOWN=$(surface_rows "$TMP/default.txt")
 [ "$SHOWN" = 50 ] && pass 'the surface table shows exactly 50 rows by default' \
   || fail "the surface table showed $SHOWN rows, expected the 50-row default"
@@ -98,7 +98,7 @@ UNKNOWN_SAMPLE=$(grep -cE '^ +- ' "$TMP/default.txt" || true)
 say 'the --limit grammar'
 run "$TMP/limit5.txt" assess fixture --limit=5
 STATUS=$?
-[ "$STATUS" = 0 ] && pass '--limit=5 is accepted' || fail "--limit=5 exited $STATUS"
+[ "$STATUS" = 3 ] && pass '--limit=5 is accepted without hiding the complete-with-gaps exit' || fail "--limit=5 exited $STATUS"
 SHOWN=$(surface_rows "$TMP/limit5.txt")
 [ "$SHOWN" = 5 ] && pass '--limit=5 shows exactly 5 surface rows' \
   || fail "--limit=5 showed $SHOWN rows"

@@ -184,22 +184,25 @@ namespace Duo {
     duo_check_same([], LifecyclePlanner::observe_code_versions($policy), 'restoring the recorded version clears the finding');
     duo_check_same($themeBaseline, (string) $recorded(), 'and the next capture records the restored state');
 
-    // === 7. A plugin with no recorded baseline is still not drift. ===
-    // observe_code_versions() scopes code_drift() to the live active set, so
-    // this pins that the widened scope did not turn "never minted" into a
-    // refusal to ever write again.
+    // === 7. A plugin missing from an existing baseline blocks capture's
+    // observer from silently minting the first out-of-band activation. ===
     WpStore::reset()->seedOptions([
         'active_plugins' => ['hello/hello.php', 'newly/activated.php'],
         'stylesheet' => 'child',
         'template' => 'parent',
     ]);
     $GLOBALS['duo_capture_baseline_plugins']['newly/activated.php'] = ['Version' => '9.9'];
-    duo_check_same([], LifecyclePlanner::observe_code_versions($policy), 'a plugin activated since the last baseline is unminted, not drifted');
+    $missingBaseline = LifecyclePlanner::observe_code_versions($policy);
+    duo_check_same(1, count($missingBaseline), 'a plugin activated since the last baseline is one visible finding');
+    duo_check_same('code_baseline_missing', $missingBaseline[0]['issue'] ?? null, 'the finding distinguishes absence from a version mismatch');
+    duo_check_same('newly/activated.php', $missingBaseline[0]['plugin'] ?? null, 'the missing baseline names the newly active plugin');
     duo_check_same(
-        '9.9',
+        null,
         json_decode((string) $recorded(), true)['plugins']['newly/activated.php'] ?? null,
-        'and it gets its baseline on this capture'
+        'capture leaves the baseline frozen instead of accepting the unreviewed activation'
     );
+    LifecyclePlanner::record_code_versions($policy);
+    duo_check_same('9.9', json_decode((string) $recorded(), true)['plugins']['newly/activated.php'] ?? null, 'deploy\'s explicit writer can accept the activation');
 
     // === 8. The capture call site takes the observing writer, not the
     // unconditional one, and reports every row it gets back. ===

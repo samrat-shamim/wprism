@@ -13,7 +13,7 @@
  * customer to send a field the orchestrator will refuse — and the only place
  * that refusal surfaces is `duo env materialize`, whose second provider action
  * FREEZES production (EnvironmentLifecycle.php:1013-1021). So property 1 below
- * is the load-bearing one: for all 18 actions it drops, retypes and extra-keys
+ * is the load-bearing one: for every action it drops, retypes and extra-keys
  * every declared field and requires the LIVE validator to refuse each time.
  *
  * No docker, no pair, no WordPress: every provider here is a PHP script this
@@ -115,9 +115,9 @@ try {
     duo_check_same([
         'capabilities', 'inspect', 'attach', 'create', 'snapshot-prepare', 'snapshot-create', 'snapshot-abort',
         'snapshot-read', 'snapshot-restore', 'repository-materialize', 'url-set',
-        'mutation-acquire', 'mutation-read', 'mutation-release', 'ttl-set', 'ttl-read',
+        'mutation-acquire', 'mutation-read', 'mutation-release', 'containment-verify', 'ttl-set', 'ttl-read',
         'destroy', 'detach',
-    ], $actions, 'the protocol table declares exactly the 18 orchestrator actions');
+    ], $actions, 'the protocol table declares exactly the 19 orchestrator actions');
 
     $vocabulary = EnvironmentProviderCapability::all();
     $gated = [];
@@ -140,7 +140,7 @@ try {
     }
 
     /* ---------------------------------------------------------------- *
-     * Property 1 — table <-> live validator agreement, all 18 actions.
+     * Property 1 — table <-> live validator agreement, all 19 actions.
      *
      * The provider below echoes whatever result the spec file names, so the
      * suite can post an arbitrary response INTO the real client and let
@@ -275,11 +275,11 @@ PHP);
         ],
         [
             ['_machine_local' => true, 'environment_provider' => ['command' => ['/bin/true'], 'timeout_seconds' => 0]],
-            "env 'branch': environment_provider.timeout_seconds must be 1..60",
+            "env 'branch': environment_provider.timeout_seconds must be 1..3600",
         ],
         [
-            ['_machine_local' => true, 'environment_provider' => ['command' => ['/bin/true'], 'timeout_seconds' => 61]],
-            "env 'branch': environment_provider.timeout_seconds must be 1..60",
+            ['_machine_local' => true, 'environment_provider' => ['command' => ['/bin/true'], 'timeout_seconds' => 3601]],
+            "env 'branch': environment_provider.timeout_seconds must be 1..3600",
         ],
         [
             ['_machine_local' => true, 'environment_provider' => ['command' => ['/bin/true'], 'timeout_seconds' => 5, 'shell' => true]],
@@ -465,7 +465,7 @@ PHP);
     );
 
     /* ---------------------------------------------------------------- *
-     * Property 4b — the full synthetic cycle: all 18 actions, both
+     * Property 4b — the provider-check cycle: all non-rehearsal actions, both
      * ownership modes, snapshot aborted and target reaped in a finally.
      * ---------------------------------------------------------------- */
     $cycleScript = $work . '/cycle-provider.php';
@@ -603,7 +603,8 @@ PHP);
         );
     }
 
-    // Every action the two cycles between them must have exercised.
+    // Provider-check deliberately cannot claim the host-specific containment
+    // profile; the real rehearsal materializer exercises that final action.
     $writeEnvs([PHP_BINARY, $cycleScript, '-']);
     $attachCycle = $runHarness('branch', ['cycle' => true, 'confirm' => true, 'from' => 'prod']);
     $createCycle = $runHarness('branch', ['cycle' => true, 'confirm' => true, 'from' => 'prod', 'create' => true]);
@@ -613,9 +614,9 @@ PHP);
     }
     $exercised['capabilities'] = true; // negotiated on both sides, reported as its own check
     duo_check_same(
-        [],
+        ['containment-verify'],
         array_values(array_diff($actions, array_keys($exercised))),
-        'the two cycles between them drive every one of the 18 actions'
+        'the two provider-check cycles drive every action except the rehearsal-only containment proof'
     );
 
     // One field deliberately wrong per run: the orchestrator refuses, and the
