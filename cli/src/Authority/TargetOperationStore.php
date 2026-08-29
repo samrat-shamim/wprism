@@ -69,10 +69,12 @@ if ($bytes === false) {
         if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
         fwrite(STDERR, "identity-write\n"); exit(25);
     }
-    $rootHandle = @fopen($root, 'rb');
-    if (!is_resource($rootHandle) || !@fsync($rootHandle) || !@fclose($rootHandle)) {
-        if (is_resource($rootHandle)) @fclose($rootHandle);
-        fwrite(STDERR, "identity-sync\n"); exit(25);
+    foreach ([$root, dirname($root)] as $syncDirectory) {
+        $sync = @fopen($syncDirectory, 'rb');
+        if (!is_resource($sync) || !@fsync($sync) || !@fclose($sync)) {
+            if (is_resource($sync)) @fclose($sync);
+            fwrite(STDERR, "identity-sync\n"); exit(25);
+        }
     }
     $bytes = $id . "\n";
 }
