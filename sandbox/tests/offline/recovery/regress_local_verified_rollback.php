@@ -741,6 +741,98 @@ try {
             'post-reverify target drift leaves one-time authority unconsumed'
         );
 
+        // A repository writer that cooperates with WPrism cannot enter while
+        // target preconditions are being checked. The fake Git wrapper proves
+        // that lock is held, then deliberately ignores it and commits after
+        // the first HEAD read: the final read must still refuse before tuple
+        // election or any rollback event.
+        $realGit = trim((string) shell_exec('command -v git'));
+        $gitDirectory = trim((string) shell_exec(
+            escapeshellarg($realGit) . ' -C ' . escapeshellarg($repo)
+                . ' rev-parse --absolute-git-dir'
+        ));
+        $repositoryLockPath = $gitDirectory . '/wprism-control/repository.lock';
+        $repositoryRaceMarker = $tmp . '/repository-race-triggered';
+        $repositoryRaceEvidence = $tmp . '/repository-race-evidence';
+        $repositoryRaceHead = $tmp . '/repository-race-head';
+        $fakeGit = $fakeBin . '/git';
+        $fakeGitBytes = "#!/bin/sh\n"
+            . 'REAL_GIT=' . escapeshellarg($realGit) . "\n"
+            . 'PHP_BIN=' . escapeshellarg(PHP_BINARY) . "\n"
+            . 'RACE_REPO=' . escapeshellarg($repo) . "\n"
+            . 'REPOSITORY_LOCK=' . escapeshellarg($repositoryLockPath) . "\n"
+            . 'RACE_MARKER=' . escapeshellarg($repositoryRaceMarker) . "\n"
+            . 'RACE_EVIDENCE=' . escapeshellarg($repositoryRaceEvidence) . "\n"
+            . 'RACE_HEAD=' . escapeshellarg($repositoryRaceHead) . "\n"
+            . <<<'SH'
+if [ "$#" -eq 4 ] && [ "$1" = '-C' ] && [ "$2" = "$RACE_REPO" ] \
+    && [ "$3" = 'rev-parse' ] && [ "$4" = 'HEAD' ] && [ ! -e "$RACE_MARKER" ] \
+    && [ -f "$REPOSITORY_LOCK" ]; then
+  if ! "$PHP_BIN" -r '$h=@fopen($argv[1],"rb");exit(is_resource($h)&&flock($h,LOCK_EX|LOCK_NB)?0:1);' "$REPOSITORY_LOCK"; then
+    old_head=$("$REAL_GIT" "$@") || exit $?
+    printf '%s\n' "$old_head"
+    printf 'repository-lock-held\n' > "$RACE_EVIDENCE"
+    : > "$RACE_MARKER"
+    printf 'post-head repository drift\n' > "$RACE_REPO/repository-race.txt"
+    "$REAL_GIT" -C "$RACE_REPO" add -- repository-race.txt || exit $?
+    "$REAL_GIT" -C "$RACE_REPO" -c user.name='Recovery Race' \
+      -c user.email='recovery-race@example.invalid' commit -qm 'repository race' || exit $?
+    "$REAL_GIT" -C "$RACE_REPO" rev-parse HEAD > "$RACE_HEAD" || exit $?
+    exit 0
+  fi
+fi
+exec "$REAL_GIT" "$@"
+SH;
+        lvr_write($fakeGit, $fakeGitBytes, 0700);
+        $beforeRepositoryRace = RollbackAuthority::status($transport);
+        try {
+            ob_start();
+            $repositoryRaceExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                static fn (): string => $authorizedAt
+            );
+            $repositoryRaceBytes = (string) ob_get_clean();
+            $repositoryRace = json_decode($repositoryRaceBytes, true);
+            $afterRepositoryRace = RollbackAuthority::status($transport);
+            $racedHead = trim((string) @file_get_contents($repositoryRaceHead));
+        } finally {
+            @unlink($fakeGit);
+            exec(
+                escapeshellarg($realGit) . ' -C ' . escapeshellarg($repo)
+                    . ' reset --hard ' . escapeshellarg((string) $recoveryPlan['target_head']),
+                $repositoryResetOutput,
+                $repositoryResetExit
+            );
+        }
+        wprism_check_same('repository-lock-held', trim((string) @file_get_contents($repositoryRaceEvidence)), 'target CAS holds the shared Git repository lock before reading HEAD');
+        wprism_check(
+            $racedHead !== '' && !hash_equals((string) $recoveryPlan['target_head'], $racedHead),
+            'the deterministic writer commits after the old single-read seam'
+        );
+        wprism_check_same(1, $repositoryRaceExit, 'a Git commit between target HEAD reads refuses recovery');
+        wprism_check_same(
+            'authorized_operation_precondition_changed',
+            is_array($repositoryRace) ? ($repositoryRace['reason_code'] ?? null) : null,
+            'the final target HEAD read reports a typed precondition refusal'
+        );
+        wprism_check_same(
+            $beforeRepositoryRace['sequence'],
+            $afterRepositoryRace['sequence'],
+            'repository drift appends no rollback event'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $authorizationDigest),
+            'repository drift leaves one-time authority unconsumed'
+        );
+        wprism_check_same(0, $repositoryResetExit, 'the repository race fixture restores the frozen target HEAD');
+
         ob_start();
         $executeExit = RecoverCommand::run(
             $transport,

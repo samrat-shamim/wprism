@@ -32,7 +32,10 @@ Only explicit compare-and-swap sync creates the canonical target policy;
 prepare and status read it without creating a byte. Consumption holds that
 policy shared-locked, verifies the exact canonical envelope, subject, grants,
 signature and target-clock lifetime against it, then takes sorted optional
-target precondition locks and the operation lock. A policy sync therefore
+target precondition locks and the operation lock. A recovery precondition also
+holds the target-private Git repository lock through both HEAD reads and
+election; only this mutation boundary may establish its empty lock file. A
+policy sync therefore
 linearizes before consumption or after it, never through a controller-only
 trust window.
 A target-wide lock first elects the exact authorization for the closed

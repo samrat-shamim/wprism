@@ -99,8 +99,9 @@ The execute/status path has one fixed order:
    operation evidence is not an exact resumable prefix, including recovery
    evidence that appears before its signed rollback state. Finally re-read the
    current actor trust policy and repeat signature/subject/grant/expiry
-   verification as the last controller-side step. The target then holds
-   rollback-control's `target.lock`, rechecks the frozen Git head, target
+   verification as the last controller-side step. The target then holds the
+   target-private Git repository lock and rollback-control's `target.lock`,
+   rechecks the frozen Git head before and after the other frozen facts, target
    record, complete ordered signed-event hash chain, signed receipt, encrypted checkpoint bytes, actor trust bytes and
    claimant expiry, and publishes the tuple election plus consumption in that
    same locked command. A changed precondition refuses while the envelope is

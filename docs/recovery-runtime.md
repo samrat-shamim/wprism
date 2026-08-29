@@ -72,9 +72,10 @@ execute/status boundary in this order:
    executable or provider refuses without consuming actor authority. After the
    final plan reverify, re-read the current actor trust file and repeat the
    signature/subject/grant/expiry check as the last controller-side step.
-   `TargetOperationStore::consume()` then acquires rollback-control's
-   `target.lock` and the operation-election lock, rechecks target identity and
-   clocks plus the frozen Git head, target record, ordered signed-event hash
+   `TargetOperationStore::consume()` then acquires the target-private Git
+   repository lock, rollback-control's `target.lock` and the operation-election
+   lock, rechecks target identity and clocks plus the frozen Git head twice,
+   target record, ordered signed-event hash
    chain, receipt envelope, encrypted checkpoint and actor-trust bytes, and only then durably elects the tuple and
    publishes consumption. A changed precondition leaves authority unconsumed.
    An election that crashes before consumption is deliberately ambiguous and
@@ -103,8 +104,9 @@ absent completion is itself a reconciliation refusal. The legacy one-call
 restore remains a separate compatibility path and does not consume this actor
 authority format.
 
-The compare-and-consume proof is exact for supported WPrism writers:
-rollback-control mutations serialize on `target.lock`, target recovery
+The compare-and-consume proof is exact for supported WPrism writers: Git
+mutations serialize on the target-private `repository.lock`, rollback-control
+mutations serialize on `target.lock`, target recovery
 configuration and installed keys remain immutable for a nonterminal operation,
 and the held external exclusion covers managed application/code/provider
 writers. An administrator that edits target bytes directly, replaces an

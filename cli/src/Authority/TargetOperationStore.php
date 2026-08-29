@@ -95,7 +95,7 @@ PHP;
             $code = str_contains($detail, 'policy-conflict') ? 'target_authority_policy_conflict' : (str_contains($detail, 'target-mismatch') ? 'authorization_target_mismatch' : 'target_authority_policy_sync_uncertain');
             throw self::refuse($code, $code === 'target_authority_policy_conflict' ? 'the target authority policy changed from the explicitly expected identity' : ($code === 'authorization_target_mismatch' ? 'the target identity changed during authority-policy sync' : 'the target cannot prove whether the authority policy was durably synchronized'), $code === 'target_authority_policy_conflict' ? 'read target authority-policy status, review the current policy and retry with its exact digest' : 'do not authorize mutation; inspect and reconcile target authority-control evidence');
         }
-        return Canon::normalize(['format'=>self::AUTHORITY_POLICY_SYNC_FORMAT,'policy_digest'=>$digest,'previous_policy_digest'=>$match[2]==='absent'?null:$match[2],'replayed'=>$match[1]==='replay','target_id'=>$targetId]);
+        return Canon::normalize(['format' => self::AUTHORITY_POLICY_SYNC_FORMAT,'policy_digest' => $digest,'previous_policy_digest' => $match[2] === 'absent' ? null : $match[2],'replayed' => $match[1] === 'replay','target_id' => $targetId]);
     }
 
     /**
@@ -435,6 +435,61 @@ if (!is_array($record) || ($record['status'] ?? null) !== 'trusted' || !hash_equ
 $issued = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $statement['issued_at'], new DateTimeZone('UTC')); $signedExpiry = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $statement['expires_at'], new DateTimeZone('UTC'));
 if (!$issued instanceof DateTimeImmutable || !$signedExpiry instanceof DateTimeImmutable || !hash_equals($expires, $statement['expires_at']) || $issued->getTimestamp() > time() + $policy['max_clock_skew_seconds'] || $signedExpiry->getTimestamp() <= time() || $signedExpiry->getTimestamp() <= $issued->getTimestamp() || ($signedExpiry->getTimestamp() - $issued->getTimestamp()) > $policy['max_ttl_seconds']) { fwrite(STDERR, "expired\n"); exit(22); }
 $locks = [];
+if (is_array($precondition)) {
+    // Recovery's Git fact is serialized by the same target-private lock as
+    // release materialization/promotion. Creating the empty lock is permitted
+    // only here, at the mutation boundary; prepare and status remain read-only.
+    $repositoryLockPath = $root . '/repository.lock';
+    $repositoryBefore = @lstat($repositoryLockPath);
+    if (is_array($repositoryBefore)
+        && (($repositoryBefore['mode'] ?? 0) & 0170000) !== 0100000) {
+        fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
+    }
+    $repositoryLock = false;
+    if (!is_array($repositoryBefore)) {
+        $previousUmask = umask(0077);
+        $repositoryLock = @fopen($repositoryLockPath, 'x+b');
+        umask($previousUmask);
+        if (is_resource($repositoryLock)) {
+            $repositoryCreated = @fstat($repositoryLock);
+            $repositoryOnPath = @lstat($repositoryLockPath);
+            if (!is_array($repositoryCreated) || !is_array($repositoryOnPath)
+                || (($repositoryCreated['mode'] ?? 0) & 0170000) !== 0100000
+                || ($repositoryCreated['dev'] ?? null) !== ($repositoryOnPath['dev'] ?? null)
+                || ($repositoryCreated['ino'] ?? null) !== ($repositoryOnPath['ino'] ?? null)
+                || !@fflush($repositoryLock)
+                || !function_exists('fsync')
+                || !@fsync($repositoryLock)) {
+                if (is_resource($repositoryLock)) @fclose($repositoryLock);
+                fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
+            }
+            $rootSync = @fopen($root, 'rb');
+            if (!is_resource($rootSync) || !@fsync($rootSync) || !@fclose($rootSync)) {
+                if (is_resource($rootSync)) @fclose($rootSync);
+                @fclose($repositoryLock);
+                fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
+            }
+        }
+    }
+    if (!is_resource($repositoryLock)) {
+        $repositoryOpened = $openRegular($repositoryLockPath, 'r+b', $root);
+        $repositoryLock = is_array($repositoryOpened) ? $repositoryOpened[0] : false;
+    }
+    if (!is_resource($repositoryLock) || !@flock($repositoryLock, LOCK_EX)) {
+        if (is_resource($repositoryLock)) @fclose($repositoryLock);
+        fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
+    }
+    $repositoryLocked = @fstat($repositoryLock);
+    $repositoryOnPath = @lstat($repositoryLockPath);
+    if (!is_array($repositoryLocked) || !is_array($repositoryOnPath)
+        || (($repositoryOnPath['mode'] ?? 0) & 0170000) !== 0100000
+        || ($repositoryLocked['dev'] ?? null) !== ($repositoryOnPath['dev'] ?? null)
+        || ($repositoryLocked['ino'] ?? null) !== ($repositoryOnPath['ino'] ?? null)) {
+        @fclose($repositoryLock);
+        fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
+    }
+    $locks[] = $repositoryLock;
+}
 foreach ($lockPaths as $relative) {
     if (!$safeRelative($relative)) { fwrite(STDERR, "precondition-lock\n"); exit(30); }
     $path = rtrim($repo, '/') . '/' . $relative;
@@ -592,22 +647,25 @@ if (is_array($precondition)) {
         fwrite(STDERR, "precondition-expired\n"); exit(38);
     }
     $head = (string) ($precondition['repository_head'] ?? '');
-    $pipes = [];
-    $process = @proc_open(
-        ['git', '-C', $repo, 'rev-parse', 'HEAD'],
-        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-        $pipes,
-        null,
-        null,
-        ['bypass_shell' => true]
-    );
-    if (!is_resource($process)) { fwrite(STDERR, "precondition-head\n"); exit(39); }
-    @fclose($pipes[0]);
-    $actualHead = trim((string) stream_get_contents($pipes[1]));
-    stream_get_contents($pipes[2]);
-    @fclose($pipes[1]); @fclose($pipes[2]);
-    $headExit = proc_close($process);
-    if ($headExit !== 0 || !hash_equals($head, $actualHead)) {
+    $readHead = static function () use ($repo): ?string {
+        $pipes = [];
+        $process = @proc_open(
+            ['git', '-C', $repo, 'rev-parse', 'HEAD'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            null,
+            ['bypass_shell' => true]
+        );
+        if (!is_resource($process)) return null;
+        @fclose($pipes[0]);
+        $actual = trim((string) stream_get_contents($pipes[1]));
+        stream_get_contents($pipes[2]);
+        @fclose($pipes[1]); @fclose($pipes[2]);
+        return proc_close($process) === 0 ? $actual : null;
+    };
+    $actualHead = $readHead();
+    if (!is_string($actualHead) || !hash_equals($head, $actualHead)) {
         fwrite(STDERR, "precondition-head\n"); exit(39);
     }
     foreach ($precondition['files'] as $file) {
@@ -654,6 +712,13 @@ if (is_array($precondition)) {
         if (!hash_equals($set['sha256'], $actual)) {
             fwrite(STDERR, "precondition-file-set\n"); exit(41);
         }
+    }
+    // A non-cooperating Git writer injected after the first read is still
+    // caught before election. Supported WPrism writers cannot reach this gap:
+    // they serialize on repository.lock, which remains held through publish.
+    $finalHead = $readHead();
+    if (!is_string($finalHead) || !hash_equals($head, $finalHead)) {
+        fwrite(STDERR, "precondition-head\n"); exit(39);
     }
 }
 if (!is_dir($authorizations) && !@mkdir($authorizations, 0700, true) && !is_dir($authorizations)) {

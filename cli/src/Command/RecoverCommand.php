@@ -553,10 +553,11 @@ final class RecoverCommand {
 
     /**
      * Freeze the target-owned facts whose final read must linearize with the
-     * one-time operation election. Rollback-control writers serialize on
-     * target.lock, so the target command can hold that lock while it rechecks
-     * these bytes, target HEAD and both target/actor clocks, then publishes the
-     * tuple election. A changed byte therefore leaves authority unconsumed.
+     * one-time operation election. Git writers serialize on the target-private
+     * repository lock and rollback-control writers serialize on target.lock,
+     * so the target command can hold both while it rechecks these bytes, target
+     * HEAD and both target/actor clocks, then publishes the tuple election. A
+     * changed byte therefore leaves authority unconsumed.
      *
      * @param array<string,mixed> $plan
      * @return array{files:list<array{bytes:?int,path:string,sha256:string}>,format:string,locks:list<string>,not_after:string,ordered_file_hashes:list<array{path:string,sha256:string}>,repository_head:string}
