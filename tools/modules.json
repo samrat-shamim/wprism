@@ -1322,6 +1322,26 @@
           "PlanView.php"
         ]
       },
+      "Authority": {
+        "layer": "policy",
+        "purpose": "External human/policy execution authority shared by release and recovery: a separate actor-bound Ed25519 trust root, exact expiring operation envelopes, stable target identity, and target-private one-time consumption/completion evidence.",
+        "status": "populated",
+        "entry_points": [
+          "OperationAuthorization",
+          "TargetOperationStore"
+        ],
+        "depends_on": [
+          "Authority",
+          "Transport",
+          "agent:Kernel"
+        ],
+        "exceptions": [],
+        "file_count": 2,
+        "files": [
+          "OperationAuthorization.php",
+          "TargetOperationStore.php"
+        ]
+      },
       "Refresh": {
         "layer": "repository",
         "purpose": "The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state.",

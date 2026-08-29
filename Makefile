@@ -1981,6 +1981,10 @@ regress-contract-multi-env:
 regress-authorization-plan:
 	php sandbox/tests/offline/assess-contract/regress_authorization_plan.php
 
+# actor-bound Ed25519 authority: exact subject/target/operation/expiry binding, target-private one-time consumption, and byte-identical same-operation replay
+regress-operation-authorization:
+	php sandbox/tests/offline/assess-contract/regress_operation_authorization.php
+
 # the §1.6 consequence as a gate: an undeclared live lifecycle window refuses with "declare in contract"; a declared entry yields the declared_live_effect authority row; Experimental / Not qualified / Unsupported / Requalification required in scope refuse pre-freeze with a gap action, never a release next action
 regress-release-containment-gate:
 	php sandbox/tests/offline/assess-contract/regress_release_containment_gate.php

@@ -1,0 +1,206 @@
+<?php
+/** Actor-bound, expiring, one-time release/recovery authorization. */
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../../../cli/src/Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../../../../cli/src/Authority/OperationAuthorization.php';
+require_once __DIR__ . '/../../../../cli/src/Authority/TargetOperationStore.php';
+
+use WPrism\Canon;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\OperationAuthorization;
+use WPrism\Orchestrator\TargetOperationStore;
+
+/** Minimal local target: product code still crosses captureRaw(). */
+final class AuthorizationStoreDriver implements EnvironmentDriver {
+    public function __construct(private string $repo) {}
+    public function name(): string { return 'production'; }
+    public function driverId(): string { return 'authorization-store-test'; }
+    public function repoPath(): string { return $this->repo; }
+    public function describe(): string { return 'authorization store fixture'; }
+    public function captureRaw(string $script): array { return authorization_run(['/bin/sh', '-c', $script]); }
+    public function captureWp(array $wpArgs): array { throw new LogicException('WP must not be contacted'); }
+    public function streamWp(array $wpArgs): int { throw new LogicException('WP must not be contacted'); }
+    public function wpInstruction(array $wpArgs): string { return 'wp'; }
+    public function capabilityReport(string $operation): DriverCapabilityReport {
+        throw new LogicException('capability negotiation is outside this target store fixture');
+    }
+}
+
+/** @param list<string> $argv @return array{exit:int,stdout:string,stderr:string} */
+function authorization_run(array $argv): array {
+    $pipes = [];
+    $process = proc_open($argv, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('could not start authorization fixture process');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    return ['exit' => proc_close($process), 'stdout' => (string) $stdout, 'stderr' => (string) $stderr];
+}
+
+function authorization_remove(string $path): void {
+    if (is_link($path) || is_file($path)) {
+        @unlink($path);
+        return;
+    }
+    if (!is_dir($path)) return;
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($iterator as $item) {
+        $item->isDir() && !$item->isLink() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+    }
+    @rmdir($path);
+}
+
+$scratch = __DIR__ . '/../../../tmp/operation-authorization-' . getmypid() . '-' . bin2hex(random_bytes(4));
+mkdir($scratch, 0777, true);
+register_shutdown_function(static fn () => authorization_remove($scratch));
+wprism_check_same(0, authorization_run(['git', 'init', '-q', $scratch])['exit'], 'the target fixture is a Git checkout');
+
+$keypair = sodium_crypto_sign_keypair();
+$secret = sodium_crypto_sign_secretkey($keypair);
+$public = sodium_crypto_sign_publickey($keypair);
+$trust = [
+    'format' => OperationAuthorization::TRUST_FORMAT,
+    'keys' => [
+        'orbit-agency-1' => [
+            'actor' => 'orbit:user:agency-owner',
+            'algorithm' => 'ed25519',
+            'grants' => ['business_owner', 'operator_confirmation'],
+            'operations' => ['recovery', 'release'],
+            'public_key' => base64_encode($public),
+            'status' => 'trusted',
+        ],
+    ],
+    'max_clock_skew_seconds' => 30,
+    'max_ttl_seconds' => 3600,
+];
+$authorityDirectory = $scratch . '/.wprism/authority';
+mkdir($authorityDirectory, 0777, true);
+file_put_contents($authorityDirectory . '/authorities.json', Canon::encode($trust));
+$loadedTrust = OperationAuthorization::trust($scratch);
+wprism_check_same($trust, $loadedTrust, 'the site operation authority policy is canonical and closed');
+
+$driver = new AuthorizationStoreDriver($scratch);
+$targetId = TargetOperationStore::ensureIdentity($driver);
+wprism_check_same($targetId, TargetOperationStore::ensureIdentity($driver), 'target identity establishment is idempotent');
+wprism_check_same($targetId, TargetOperationStore::readIdentity($driver), 'read-only prepare can re-read the stable target identity');
+$status = authorization_run(['git', '-C', $scratch, 'status', '--porcelain=v1', '--untracked-files=no']);
+wprism_check_same('', trim($status['stdout']), 'target identity lives in private Git control storage, not the worktree');
+
+$subject = [
+    'authority_policy_digest' => OperationAuthorization::trustDigest($trust),
+    'operation' => 'release',
+    'operation_id' => 'release:0123456789abcdef',
+    'presentation_digest' => 'sha256:' . str_repeat('2', 64),
+    'required_grants' => ['business_owner', 'operator_confirmation'],
+    'subject_digest' => 'sha256:' . str_repeat('1', 64),
+    'target_id' => $targetId,
+];
+$statement = [
+    'actor' => 'orbit:user:agency-owner',
+    'expires_at' => '2030-01-01T01:00:00Z',
+    'issued_at' => '2030-01-01T00:00:00Z',
+    'key_id' => 'orbit-agency-1',
+    'nonce' => 'nonce-0123456789abcdef',
+    'operation' => 'release',
+    'operation_id' => $subject['operation_id'],
+    'presentation_digest' => $subject['presentation_digest'],
+    'subject_digest' => $subject['subject_digest'],
+    'target_id' => $targetId,
+];
+$envelope = OperationAuthorization::sign($statement, $secret);
+$verified = OperationAuthorization::verify($envelope, $subject, $trust, '2030-01-01T00:30:00Z');
+wprism_check_same('orbit:user:agency-owner', $verified['actor'], 'the verified authority is bound to its enrolled actor');
+wprism_check_same(
+    OperationAuthorization::envelopeDigest($envelope),
+    $verified['authorization_digest'],
+    'the complete signed envelope has one content identity'
+);
+
+$wrongSubject = $subject;
+$wrongSubject['subject_digest'] = 'sha256:' . str_repeat('3', 64);
+wprism_check_refuses(
+    static fn () => OperationAuthorization::verify($envelope, $wrongSubject, $trust, '2030-01-01T00:30:00Z'),
+    'authorization_subject_mismatch',
+    'a signed release cannot be replayed over another immutable subject'
+);
+$wrongTarget = $subject;
+$wrongTarget['target_id'] = 'wprism-target:' . str_repeat('4', 64);
+wprism_check_refuses(
+    static fn () => OperationAuthorization::verify($envelope, $wrongTarget, $trust, '2030-01-01T00:30:00Z'),
+    'authorization_subject_mismatch',
+    'a signed release cannot be replayed onto another target'
+);
+wprism_check_refuses(
+    static fn () => OperationAuthorization::verify($envelope, $subject, $trust, '2030-01-01T01:00:00Z'),
+    'authorization_expired',
+    'expiry is rechecked at the exact mutation boundary and equality is expired'
+);
+$badSignature = $envelope;
+$decodedSignature = base64_decode($badSignature['signature'], true);
+$decodedSignature[0] = chr(ord($decodedSignature[0]) ^ 1);
+$badSignature['signature'] = base64_encode($decodedSignature);
+wprism_check_refuses(
+    static fn () => OperationAuthorization::verify($badSignature, $subject, $trust, '2030-01-01T00:30:00Z'),
+    'authorization_signature_invalid',
+    'a one-byte signature change is never authority'
+);
+$missingGrantTrust = $trust;
+$missingGrantTrust['keys']['orbit-agency-1']['grants'] = ['operator_confirmation'];
+$missingGrantSubject = $subject;
+$missingGrantSubject['authority_policy_digest'] = OperationAuthorization::trustDigest($missingGrantTrust);
+wprism_check_refuses(
+    static fn () => OperationAuthorization::verify(
+        $envelope,
+        $missingGrantSubject,
+        $missingGrantTrust,
+        '2030-01-01T00:30:00Z'
+    ),
+    'authorization_grant_missing',
+    'an authenticated actor still needs every plan-required grant'
+);
+
+$first = TargetOperationStore::consume($driver, $verified);
+wprism_check_same(false, $first['replayed'], 'the first valid envelope is durably consumed before mutation');
+$replay = TargetOperationStore::consume($driver, $verified);
+wprism_check_same(true, $replay['replayed'], 'the exact same-operation replay returns the existing consumption');
+wprism_check_same(
+    $first['consumption'],
+    $replay['consumption'],
+    'same-operation replay is byte-stable rather than a second authority'
+);
+
+$outcome = ['format' => 'fixture-release-outcome/v1', 'status' => 'released'];
+$completed = TargetOperationStore::complete($driver, $first['consumption'], $outcome);
+wprism_check_same(false, $completed['replayed'], 'the first terminal outcome is published once');
+$completedReplay = TargetOperationStore::complete($driver, $first['consumption'], $outcome);
+wprism_check_same(true, $completedReplay['replayed'], 'terminal same-operation replay returns the exact prior outcome');
+$stored = TargetOperationStore::status($driver, $verified['authorization_digest']);
+wprism_check_same($first['consumption'], $stored['consumption'] ?? null, 'status returns the durable consumption evidence');
+wprism_check_same($completed['completion'], $stored['completion'] ?? null, 'status returns the durable terminal outcome evidence');
+
+$differentOutcome = ['format' => 'fixture-release-outcome/v1', 'status' => 'failed'];
+wprism_check_refuses(
+    static fn () => TargetOperationStore::complete($driver, $first['consumption'], $differentOutcome),
+    'authorized_operation_outcome_conflict',
+    'one authorization cannot publish two terminal outcomes'
+);
+
+$compactPath = $scratch . '/compact-authorization.json';
+file_put_contents($compactPath, json_encode($envelope, JSON_UNESCAPED_SLASHES));
+wprism_check_refuses(
+    static fn () => OperationAuthorization::readEnvelope($compactPath),
+    'operation_authorization_noncanonical',
+    'exact presented bytes are canonical rather than a loosely equivalent JSON object'
+);
+
+wprism_check_summary('regress_operation_authorization');
