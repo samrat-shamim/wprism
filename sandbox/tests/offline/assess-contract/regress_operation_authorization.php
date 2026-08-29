@@ -188,6 +188,16 @@ $stored = TargetOperationStore::status($driver, $verified['authorization_digest'
 wprism_check_same($first['consumption'], $stored['consumption'] ?? null, 'status returns the durable consumption evidence');
 wprism_check_same($completed['completion'], $stored['completion'] ?? null, 'status returns the durable terminal outcome evidence');
 
+$forgedConsumption = $first['consumption'];
+$forgedConsumption['operation_id'] = 'release:fedcba9876543210';
+unset($forgedConsumption['consumption_digest']);
+$forgedConsumption['consumption_digest'] = 'sha256:' . hash('sha256', Canon::encode($forgedConsumption));
+wprism_check_refuses(
+    static fn () => TargetOperationStore::complete($driver, $forgedConsumption, $outcome),
+    'authorization_consumption_conflict',
+    'completion rechecks the exact target-side consumption rather than trusting caller-supplied record bytes'
+);
+
 $differentOutcome = ['format' => 'fixture-release-outcome/v1', 'status' => 'failed'];
 wprism_check_refuses(
     static fn () => TargetOperationStore::complete($driver, $first['consumption'], $differentOutcome),

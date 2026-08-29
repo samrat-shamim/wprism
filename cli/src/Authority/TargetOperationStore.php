@@ -143,17 +143,32 @@ $expiry = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $expires, new D
 if (!$expiry instanceof DateTimeImmutable || $expiry->format('Y-m-d\TH:i:s\Z') !== $expires) {
     fwrite(STDERR, "expiry-shape\n"); exit(21);
 }
-if ($expiry->getTimestamp() <= time()) { fwrite(STDERR, "expired\n"); exit(22); }
 $authorizations = $root . '/authorizations';
 if ((file_exists($authorizations) || is_link($authorizations))
     && (!is_dir($authorizations) || is_link($authorizations))) {
     fwrite(STDERR, "store-type\n"); exit(23);
 }
+$directory = $authorizations . '/' . $hex;
+$replay = static function (string $directory, string $expected): never {
+    if (!is_dir($directory) || is_link($directory)) { fwrite(STDERR, "record-type\n"); exit(26); }
+    $path = $directory . '/consumption.json';
+    if (is_link($path) || !is_file($path)) { fwrite(STDERR, "record-uncertain\n"); exit(27); }
+    $actual = @file_get_contents($path);
+    if (!is_string($actual)) { fwrite(STDERR, "record-unreadable\n"); exit(28); }
+    if (!hash_equals($expected, $actual)) { fwrite(STDERR, "record-conflict\n"); exit(29); }
+    echo "replay\n"; exit(0);
+};
+if (file_exists($directory) || is_link($directory)) {
+    $replay($directory, $expected);
+}
+if ($expiry->getTimestamp() <= time()) { fwrite(STDERR, "expired\n"); exit(22); }
 if (!is_dir($authorizations) && !@mkdir($authorizations, 0700, true) && !is_dir($authorizations)) {
     fwrite(STDERR, "store-create\n"); exit(24);
 }
 @chmod($authorizations, 0700);
-$directory = $authorizations . '/' . $hex;
+// The expiry check immediately before winner election is the target clock's
+// mutation boundary. An existing exact record remains readable after expiry.
+if ($expiry->getTimestamp() <= time()) { fwrite(STDERR, "expired\n"); exit(22); }
 if (@mkdir($directory, 0700)) {
     @chmod($directory, 0700);
     $temporary = @tempnam($directory, '.consumption-');
@@ -166,13 +181,7 @@ if (@mkdir($directory, 0700)) {
     }
     echo "first\n"; exit(0);
 }
-if (!is_dir($directory) || is_link($directory)) { fwrite(STDERR, "record-type\n"); exit(26); }
-$path = $directory . '/consumption.json';
-if (is_link($path) || !is_file($path)) { fwrite(STDERR, "record-uncertain\n"); exit(27); }
-$actual = @file_get_contents($path);
-if (!is_string($actual)) { fwrite(STDERR, "record-unreadable\n"); exit(28); }
-if (!hash_equals($expected, $actual)) { fwrite(STDERR, "record-conflict\n"); exit(29); }
-echo "replay\n";
+$replay($directory, $expected);
 PHP;
         $result = $driver->captureRaw(self::php($script, [$root, $hex, base64_encode($bytes), $authorization['expires_at']]));
         $status = trim((string) ($result['stdout'] ?? ''));
@@ -224,43 +233,66 @@ PHP;
         $completion['completion_digest'] = self::documentDigest($completion, 'completion_digest');
         $completion = Canon::normalize($completion);
         $bytes = Canon::encode($completion);
+        $consumptionBytes = Canon::encode($consumption);
         $root = self::controlRoot($driver);
         $hex = substr((string) $consumption['authorization_digest'], 7);
         $script = <<<'PHP'
 $directory = ($argv[1] ?? '') . '/authorizations/' . ($argv[2] ?? '');
 $expected = base64_decode($argv[3] ?? '', true);
-if (!is_dir($directory) || is_link($directory) || !is_string($expected) || $expected === '') {
+$expectedConsumption = base64_decode($argv[4] ?? '', true);
+if (!is_dir($directory) || is_link($directory) || !is_string($expected) || $expected === ''
+    || !is_string($expectedConsumption) || $expectedConsumption === '') {
     fwrite(STDERR, "consumption-missing\n"); exit(20);
 }
 $consumption = $directory . '/consumption.json';
 if (is_link($consumption) || !is_file($consumption)) { fwrite(STDERR, "consumption-uncertain\n"); exit(21); }
-$path = $directory . '/outcome.json';
+$actualConsumption = @file_get_contents($consumption);
+if (!is_string($actualConsumption)) { fwrite(STDERR, "consumption-read\n"); exit(22); }
+if (!hash_equals($expectedConsumption, $actualConsumption)) {
+    fwrite(STDERR, "consumption-conflict\n"); exit(23);
+}
+$publication = $directory . '/completion';
+$path = $publication . '/outcome.json';
+if (@mkdir($publication, 0700)) {
+    @chmod($publication, 0700);
+    $temporary = @tempnam($publication, '.outcome-');
+    if (!is_string($temporary)
+        || @file_put_contents($temporary, $expected, LOCK_EX) === false
+        || !@chmod($temporary, 0600)
+        || !@rename($temporary, $path)) {
+        if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
+        fwrite(STDERR, "outcome-uncertain\n"); exit(27);
+    }
+    echo "first\n"; exit(0);
+}
+if (!is_dir($publication) || is_link($publication)) { fwrite(STDERR, "outcome-type\n"); exit(24); }
 if (file_exists($path) || is_link($path)) {
-    if (is_link($path) || !is_file($path)) { fwrite(STDERR, "outcome-type\n"); exit(22); }
+    if (is_link($path) || !is_file($path)) { fwrite(STDERR, "outcome-type\n"); exit(24); }
     $actual = @file_get_contents($path);
-    if (!is_string($actual)) { fwrite(STDERR, "outcome-read\n"); exit(23); }
-    if (!hash_equals($expected, $actual)) { fwrite(STDERR, "outcome-conflict\n"); exit(24); }
+    if (!is_string($actual)) { fwrite(STDERR, "outcome-read\n"); exit(25); }
+    if (!hash_equals($expected, $actual)) { fwrite(STDERR, "outcome-conflict\n"); exit(26); }
     echo "replay\n"; exit(0);
 }
-$temporary = @tempnam($directory, '.outcome-');
-if (!is_string($temporary)
-    || @file_put_contents($temporary, $expected, LOCK_EX) === false
-    || !@chmod($temporary, 0600)
-    || !@rename($temporary, $path)) {
-    if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
-    fwrite(STDERR, "outcome-uncertain\n"); exit(25);
-}
-echo "first\n";
+fwrite(STDERR, "outcome-uncertain\n"); exit(27);
 PHP;
-        $result = $driver->captureRaw(self::php($script, [$root, $hex, base64_encode($bytes)]));
+        $result = $driver->captureRaw(self::php(
+            $script,
+            [$root, $hex, base64_encode($bytes), base64_encode($consumptionBytes)]
+        ));
         $status = trim((string) ($result['stdout'] ?? ''));
         if (($result['exit'] ?? 1) !== 0 || !in_array($status, ['first', 'replay'], true)) {
-            $conflict = str_contains((string) ($result['stderr'] ?? ''), 'conflict');
+            $detail = (string) ($result['stderr'] ?? '');
+            $consumptionConflict = str_contains($detail, 'consumption-conflict');
+            $outcomeConflict = str_contains($detail, 'outcome-conflict');
             throw self::refuse(
-                $conflict ? 'authorized_operation_outcome_conflict' : 'authorized_operation_outcome_uncertain',
-                $conflict
-                    ? 'the target already holds a different terminal outcome for this authorized operation'
-                    : 'the target cannot prove whether the terminal authorized-operation outcome was published',
+                $consumptionConflict
+                    ? 'authorization_consumption_conflict'
+                    : ($outcomeConflict ? 'authorized_operation_outcome_conflict' : 'authorized_operation_outcome_uncertain'),
+                $consumptionConflict
+                    ? 'the supplied consumption does not match the target\'s durable authorization record'
+                    : ($outcomeConflict
+                        ? 'the target already holds a different terminal outcome for this authorized operation'
+                        : 'the target cannot prove whether the terminal authorized-operation outcome was published'),
                 'do not start another mutation; reconcile the exact operation from target control evidence'
             );
         }
@@ -285,12 +317,14 @@ $consumption = $directory . '/consumption.json';
 if (is_link($consumption) || !is_file($consumption)) { fwrite(STDERR, "record-uncertain\n"); exit(21); }
 $consumptionBytes = @file_get_contents($consumption);
 if (!is_string($consumptionBytes)) { fwrite(STDERR, "record-read\n"); exit(22); }
-$outcome = $directory . '/outcome.json';
+$publication = $directory . '/completion';
 $outcomeBytes = null;
-if (file_exists($outcome) || is_link($outcome)) {
-    if (is_link($outcome) || !is_file($outcome)) { fwrite(STDERR, "outcome-type\n"); exit(23); }
+if (file_exists($publication) || is_link($publication)) {
+    if (!is_dir($publication) || is_link($publication)) { fwrite(STDERR, "outcome-type\n"); exit(23); }
+    $outcome = $publication . '/outcome.json';
+    if (is_link($outcome) || !is_file($outcome)) { fwrite(STDERR, "outcome-uncertain\n"); exit(24); }
     $outcomeBytes = @file_get_contents($outcome);
-    if (!is_string($outcomeBytes)) { fwrite(STDERR, "outcome-read\n"); exit(24); }
+    if (!is_string($outcomeBytes)) { fwrite(STDERR, "outcome-read\n"); exit(25); }
 }
 echo base64_encode($consumptionBytes) . "\n";
 echo $outcomeBytes === null ? "-\n" : base64_encode($outcomeBytes) . "\n";
