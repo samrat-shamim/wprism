@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # First-sync lifecycle ambiguity grind. A real activation hook commits an
 # authored option and then throws before WordPress records plugin membership.
-# Duo must preserve the pre-hook boundary even though no three-way base exists,
+# WPrism must preserve the pre-hook boundary even though no three-way base exists,
 # block a new artifact/owner, and converge only after exact checkpoint + code
 # restoration under external exclusion.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 REPO_ROOT="$(cd .. && pwd)"
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 CODE_DEPLOY="$REPO_ROOT/cli/src/Transport/CodeDeploy.php"
-FIXTURE="$REPO_ROOT/sandbox/fixtures/duo-first-sync-hook"
+FIXTURE="$REPO_ROOT/sandbox/fixtures/wprism-first-sync-hook"
 PAIR="firstsync${BASHPID}${RANDOM}"
 PORT1=8894
 PORT2=8895
 SITE="siterepo/${PAIR}1"
 OTHER_SITE="siterepo/${PAIR}2"
-ENVS_FILE="$(mktemp "${TMPDIR:-/tmp}/duo-first-sync-envs.XXXXXX")"
+ENVS_FILE="$(mktemp "${TMPDIR:-/tmp}/wprism-first-sync-envs.XXXXXX")"
 PAIR_UP=0
 
-PLUGIN_SLUG="duo-first-sync-hook"
+PLUGIN_SLUG="wprism-first-sync-hook"
 PLUGIN_BASENAME="$PLUGIN_SLUG/$PLUGIN_SLUG.php"
-THEME_SLUG="duo-first-sync-theme"
+THEME_SLUG="wprism-first-sync-theme"
 CONTENT="/var/www/html/wp-content"
 PLUGIN_TARGET="$CONTENT/plugins/$PLUGIN_SLUG"
 THEME_TARGET="$CONTENT/themes/$THEME_SLUG"
@@ -42,16 +42,16 @@ cleanup() {
       printf 'FAIL: first-sync pair destroy failed for %s\n' "$PAIR" >&2
       status=1
     fi
-    if ! pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)" \
-      || ! pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)" \
-      || ! pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"; then
+    if ! pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)" \
+      || ! pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)" \
+      || ! pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"; then
       printf 'FAIL: first-sync cleanup could not verify Docker resource removal for %s\n' "$PAIR" >&2
       status=1
     elif [ -n "$pair_containers$pair_volumes$pair_networks" ]; then
-      printf 'FAIL: first-sync cleanup left Docker resources for project duo-%s behind\n' "$PAIR" >&2
+      printf 'FAIL: first-sync cleanup left Docker resources for project wprism-%s behind\n' "$PAIR" >&2
       status=1
     fi
-    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw \
+    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw \
       -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
       printf 'FAIL: first-sync cleanup could not verify database removal for %s\n' "$PAIR" >&2
       status=1
@@ -93,23 +93,23 @@ assert_absent() {
 }
 canonicalize_json() {
   local path="$1" tmp="${1}.canon.${BASHPID}"
-  DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
+  WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
 $path = $argv[1];
 $raw = file_get_contents($path);
 if ($raw === false) { throw new RuntimeException("cannot read " . $path); }
-echo Duo\Canon::encode(Duo\Canon::decode($raw));
+echo WPrism\Canon::encode(WPrism\Canon::decode($raw));
 ' "$path" > "$tmp"
   mv "$tmp" "$path"
 }
 artifact_files() {
-  if [ -d "$SITE/.duo/artifacts" ]; then
-    find "$SITE/.duo/artifacts" -type f -name 'promote-*.json' -print | sort
+  if [ -d "$SITE/.wprism/artifacts" ]; then
+    find "$SITE/.wprism/artifacts" -type f -name 'promote-*.json' -print | sort
   fi
 }
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
 target_wp() {
   "${COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' _ "$@"
 }
@@ -118,14 +118,14 @@ root_wp() {
 }
 target_php() { "${COMPOSE[@]}" run --rm -T cli1 php -r "$1"; }
 db_scalar() {
-  docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}1" -e "$1" \
+  docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}1" -e "$1" \
     | tr -d '\r'
 }
-ledger_value() { db_scalar "SELECT v FROM wp_duo_kv WHERE k = '$1'"; }
-ledger_count() { db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = '$1'"; }
-state_base_count() { db_scalar "SELECT COUNT(*) FROM wp_duo_state WHERE uuid = 'options/core'"; }
-promote() { php "$DUO" --envs-file="$ENVS_FILE" promote target "$@"; }
-status() { php "$DUO" --envs-file="$ENVS_FILE" status target; }
+ledger_value() { db_scalar "SELECT v FROM wp_wprism_kv WHERE k = '$1'"; }
+ledger_count() { db_scalar "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = '$1'"; }
+state_base_count() { db_scalar "SELECT COUNT(*) FROM wp_wprism_state WHERE uuid = 'options/core'"; }
+promote() { php "$WPRISM" --envs-file="$ENVS_FILE" promote target "$@"; }
+status() { php "$WPRISM" --envs-file="$ENVS_FILE" status target; }
 target_path_state() {
   target_php "echo file_exists('$1') || is_link('$1') ? 'present' : 'absent';"
 }
@@ -137,9 +137,9 @@ control_wp() {
   local method="$1"
   shift
   local encoded
-  encoded="$(DUO_CODE_DEPLOY="$CODE_DEPLOY" php -r '
-require getenv("DUO_CODE_DEPLOY");
-$class = Duo\Orchestrator\CodeDeploy::class;
+  encoded="$(WPRISM_CODE_DEPLOY="$CODE_DEPLOY" php -r '
+require getenv("WPRISM_CODE_DEPLOY");
+$class = WPrism\Orchestrator\CodeDeploy::class;
 $method = $argv[1];
 $args = $class::$method(...array_slice($argv, 2));
 echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
@@ -152,7 +152,7 @@ echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 require docker
 require jq
 require php
-[ -f "$DUO" ] || fail "host CLI missing: $DUO"
+[ -f "$WPRISM" ] || fail "host CLI missing: $WPRISM"
 [ -f "$FIXTURE/broken/wp-content/plugins/$PLUGIN_SLUG/$PLUGIN_SLUG.php" ] || fail "broken hook fixture missing"
 [ -f "$FIXTURE/fixed/wp-content/plugins/$PLUGIN_SLUG/$PLUGIN_SLUG.php" ] || fail "fixed hook fixture missing"
 [ -f "$FIXTURE/theme/wp-content/themes/$THEME_SLUG/style.css" ] || fail "theme fixture missing"
@@ -179,11 +179,11 @@ cp "$FIXTURE/theme/wp-content/themes/$THEME_SLUG/style.css" \
   "$SITE/code/wp-content/themes/$THEME_SLUG/style.css"
 cp "$FIXTURE/theme/wp-content/themes/$THEME_SLUG/index.php" \
   "$SITE/code/wp-content/themes/$THEME_SLUG/index.php"
-cat > "$SITE/site.duo.json" <<'EOF'
+cat > "$SITE/site.wprism.json" <<'EOF'
 {
   "manifests": ["core"],
   "policy": {
-    "options": {"duo_first_sync_hook_trace": {"class": "runtime"}},
+    "options": {"wprism_first_sync_hook_trace": {"class": "runtime"}},
     "post_meta": {},
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"],
@@ -193,15 +193,15 @@ cat > "$SITE/site.duo.json" <<'EOF'
 }
 EOF
 target_wp option update blogname canonical-first-sync >/dev/null
-target_wp duo capture --repo=/siterepo --out=/siterepo/.seed-state >/dev/null
+target_wp wprism capture --repo=/siterepo --out=/siterepo/.seed-state >/dev/null
 mv "$SITE/.seed-state" "$SITE/state"
 assert_eq 0 "$(state_base_count)" "first-sync options/core base before promotion"
 assert_eq 0 "$(ledger_count applied_revision)" "first-sync applied revision before promotion"
 
-jq '.code = {format: 1, layout: "wp-content", source: "code/wp-content"}' "$SITE/site.duo.json" \
-  > "$SITE/site.duo.next.json"
-mv "$SITE/site.duo.next.json" "$SITE/site.duo.json"
-canonicalize_json "$SITE/site.duo.json"
+jq '.code = {format: 1, layout: "wp-content", source: "code/wp-content"}' "$SITE/site.wprism.json" \
+  > "$SITE/site.wprism.next.json"
+mv "$SITE/site.wprism.next.json" "$SITE/site.wprism.json"
+canonicalize_json "$SITE/site.wprism.json"
 jq --arg plugin "$PLUGIN_BASENAME" --arg theme "$THEME_SLUG" '
   .records.active_plugins.value = [$plugin]
   | .records.template.value = $theme
@@ -256,7 +256,7 @@ assert_phase_order "$BROKEN_OUT" \
   "promote phase: code-stage" \
   "promote phase: lifecycle-retire" \
   "promote phase: lifecycle-activate"
-grep -Fq 'duo first-sync intentional activation failure' <<<"$BROKEN_OUT" \
+grep -Fq 'wprism first-sync intentional activation failure' <<<"$BROKEN_OUT" \
   || fail "broken activation hook did not run"
 assert_absent "$BROKEN_OUT" "promote phase: code-finalize" "broken first sync"
 assert_absent "$BROKEN_OUT" "promote phase: apply" "broken first sync"
@@ -266,7 +266,7 @@ CHECKPOINT="$(sed -n 's/^database checkpoint: //p' <<<"$BROKEN_OUT" | head -1)"
 [ -n "$CHECKPOINT" ] || fail "failed first sync did not report its checkpoint"
 [ -f "$SITE/${CHECKPOINT#/siterepo/}" ] || fail "reported first-sync checkpoint is not target-visible"
 assert_eq hook-mutated-first-sync "$(target_wp option get blogname)" "authored hook write after exception"
-assert_eq '["broken-hook-wrote"]' "$(target_wp option get duo_first_sync_hook_trace --format=json | jq -c .)" \
+assert_eq '["broken-hook-wrote"]' "$(target_wp option get wprism_first_sync_hook_trace --format=json | jq -c .)" \
   "runtime hook trace after exception"
 if target_wp plugin is-active "$PLUGIN_BASENAME" >/dev/null 2>&1; then
   fail "WordPress persisted active membership despite the throwing activation hook"
@@ -302,13 +302,13 @@ grep -Fq 'INCOMPLETE_LIFECYCLE' <<<"$AMBIGUOUS_STATUS" \
 grep -Fq 'exact pre-lifecycle database checkpoint' <<<"$AMBIGUOUS_STATUS" \
   || fail "status did not direct exact lifecycle recovery"
 BROKEN_TARGET_HASH="$(target_php "echo hash_file('sha256', '$PLUGIN_TARGET/$PLUGIN_SLUG.php');")"
-pass "WordPress committed the hook mutation, but Duo retained the pre-hook receipt without inventing a first-sync base"
+pass "WordPress committed the hook mutation, but WPrism retained the pre-hook receipt without inventing a first-sync base"
 
 say "a reviewed source fix cannot overwrite the unresolved original owner/artifact session"
 cp "$FIXTURE/fixed/wp-content/plugins/$PLUGIN_SLUG/$PLUGIN_SLUG.php" \
   "$SITE/code/wp-content/plugins/$PLUGIN_SLUG/$PLUGIN_SLUG.php"
 ARTIFACTS_BEFORE_RETRY="$(artifact_files)"
-CHECKPOINT_COUNT="$(find "$SITE/.duo/checkpoints" -type f | wc -l | tr -d ' ')"
+CHECKPOINT_COUNT="$(find "$SITE/.wprism/checkpoints" -type f | wc -l | tr -d ' ')"
 if RETRY_OUT="$(promote 2>&1)"; then
   echo "$RETRY_OUT" >&2
   fail "new promotion session crossed the unresolved lifecycle attempt"
@@ -333,7 +333,7 @@ RETRY_ARTIFACT_HASH="$(jq -r '.artifact_hash' "${RETRY_ARTIFACTS[0]}")"
   || fail "blocked reviewed retry artifact has no valid outer hash"
 [ "$RETRY_ARTIFACT_HASH" != "$ORIGINAL_ARTIFACT" ] \
   || fail "reviewed source fix did not produce a distinct outer artifact"
-assert_eq "$CHECKPOINT_COUNT" "$(find "$SITE/.duo/checkpoints" -type f | wc -l | tr -d ' ')" \
+assert_eq "$CHECKPOINT_COUNT" "$(find "$SITE/.wprism/checkpoints" -type f | wc -l | tr -d ' ')" \
   "checkpoint count after blocked retry"
 assert_eq "$ORIGINAL_SESSION" "$(ledger_value promotion_session)" "original recovery session after blocked retry"
 assert_eq "$BROKEN_TARGET_HASH" \
@@ -360,7 +360,7 @@ control_wp recoveryDbImportArgs "$CHECKPOINT" >/dev/null
 control_wp abortArgs "$ORIGINAL_OWNER" "$ORIGINAL_ARTIFACT" >/dev/null
 
 assert_eq canonical-first-sync "$(target_wp option get blogname)" "authored option after checkpoint restore"
-assert_eq '' "$(target_wp option get duo_first_sync_hook_trace 2>/dev/null || true)" \
+assert_eq '' "$(target_wp option get wprism_first_sync_hook_trace 2>/dev/null || true)" \
   "runtime hook trace after checkpoint restore"
 assert_eq 0 "$(state_base_count)" "first-sync base after checkpoint restore"
 assert_eq 0 "$(ledger_count code_stage_revision)" "staged receipt after checkpoint restore"
@@ -386,7 +386,7 @@ assert_phase_order "$FIXED_OUT" \
   "promote phase: code-finalize" \
   "promote phase: apply"
 assert_eq canonical-first-sync "$(target_wp option get blogname)" "canonical blogname after fixed first sync"
-assert_eq '["fixed-hook-completed"]' "$(target_wp option get duo_first_sync_hook_trace --format=json | jq -c .)" \
+assert_eq '["fixed-hook-completed"]' "$(target_wp option get wprism_first_sync_hook_trace --format=json | jq -c .)" \
   "fixed activation trace"
 target_wp plugin is-active "$PLUGIN_SLUG" >/dev/null || fail "fixed plugin is not active"
 assert_eq "$THEME_SLUG" "$(target_wp option get template)" "fixed standalone template"

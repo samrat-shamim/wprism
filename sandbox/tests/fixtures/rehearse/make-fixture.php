@@ -1,8 +1,8 @@
 <?php
 /**
- * Build the offline rehearsal fixture: one complete `wp duo plan
- * --format=json` envelope with a valid `duo-plan-category-summary/v1`
- * projection, and one set of `duo-assess-report/v1` surface rows.
+ * Build the offline rehearsal fixture: one complete `wp wprism plan
+ * --format=json` envelope with a valid `wprism-plan-category-summary/v1`
+ * projection, and one set of `wprism-assess-report/v1` surface rows.
  *
  * Written as a generator rather than two committed JSON blobs for one
  * reason: the surface rows carry `ProjectionVocabulary`'s annotation
@@ -19,7 +19,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/cli/src/Contract/ProjectionVocabulary.php';
 
-use Duo\Orchestrator\ProjectionVocabulary;
+use WPrism\Orchestrator\ProjectionVocabulary;
 
 $out = $argv[1] ?? '';
 if ($out === '') {
@@ -67,7 +67,7 @@ $deleteActions = ['delete' => 1, 'delete_conflict' => 0, 'deleted' => 0];
 // typed_table are not. Code and lifecycle are non-empty (one plugin whose
 // lifecycle disagrees) and environment_state carries one missing env value.
 $categorySummary = [
-    'format' => 'duo-plan-category-summary/v1',
+    'format' => 'wprism-plan-category-summary/v1',
     'redaction' => 'values_omitted',
     'facets' => 'overlapping',
     'vocabulary' => ['generated_effects' => ['public_label' => 'generated', 'wire_class' => 'derived']],

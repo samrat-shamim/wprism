@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for CompiledArtifactReader (DUO-3348 slice 35).
+ * Offline regression for CompiledArtifactReader (issue #3348 slice 35).
  *
  * Persisted artifacts are validated against a complete active Policy before
  * they can prime repository-derived interpreter facts. The reader is a
@@ -9,7 +9,7 @@
  */
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Canon {
         public static function encode(mixed $value): string {
             return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
@@ -83,16 +83,16 @@ namespace Duo {
 }
 
 namespace {
-    use Duo\ArtifactPolicyIdentity;
-    use Duo\Canon;
-    use Duo\CompiledArtifactReader;
-    use Duo\CompiledRepository;
-    use Duo\Policy;
-    use Duo\CommandRefusalException;
-    use Duo\RepositoryCompilationException;
+    use WPrism\ArtifactPolicyIdentity;
+    use WPrism\Canon;
+    use WPrism\CompiledArtifactReader;
+    use WPrism\CompiledRepository;
+    use WPrism\Policy;
+    use WPrism\CommandRefusalException;
+    use WPrism\RepositoryCompilationException;
 
-    if (!defined('DUO_TEST_MODE')) {
-        define('DUO_TEST_MODE', true);
+    if (!defined('WPRISM_TEST_MODE')) {
+        define('WPRISM_TEST_MODE', true);
     }
     $reader = __DIR__ . '/../../../../agent/src/Repository/CompiledArtifactReader.php';
     require_once $reader;
@@ -109,22 +109,22 @@ namespace {
         class_exists(CompiledArtifactReader::class, false)
             && class_exists(CompiledRepository::class, false)
             && class_exists(ArtifactPolicyIdentity::class, false)
-            && !class_exists(\Duo\RepositoryCompiler::class, false),
+            && !class_exists(\WPrism\RepositoryCompiler::class, false),
         'CompiledArtifactReader directly loads the persisted-artifact collaborators without the repository-tree compiler'
     );
 
     $normalLoader = <<<'PHP'
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 function is_multisite(): bool { return false; }
 require_once %s;
 $classes = [
-    Duo\Canon::class,
-    Duo\Policy::class,
-    Duo\ArtifactPolicyIdentity::class,
-    Duo\CompiledRepository::class,
-    Duo\CompiledArtifactReader::class,
-    Duo\AdapterSources::class,
-    Duo\ManifestDispositions::class,
+    WPrism\Canon::class,
+    WPrism\Policy::class,
+    WPrism\ArtifactPolicyIdentity::class,
+    WPrism\CompiledRepository::class,
+    WPrism\CompiledArtifactReader::class,
+    WPrism\AdapterSources::class,
+    WPrism\ManifestDispositions::class,
 ];
 foreach ($classes as $class) {
     if (!class_exists($class, false)) {
@@ -132,7 +132,7 @@ foreach ($classes as $class) {
         exit(1);
     }
 }
-if (class_exists(Duo\RepositoryCompiler::class, false)) {
+if (class_exists(WPrism\RepositoryCompiler::class, false)) {
     fwrite(STDERR, "reader loaded RepositoryCompiler\n");
     exit(1);
 }
@@ -147,7 +147,7 @@ PHP;
         'a normal fresh reader load closes the complete Canon/Policy identity stack without loading RepositoryCompiler'
     );
 
-    $tmp = sys_get_temp_dir() . '/duo-compiled-artifact-reader-' . bin2hex(random_bytes(6));
+    $tmp = sys_get_temp_dir() . '/wprism-compiled-artifact-reader-' . bin2hex(random_bytes(6));
     if (!mkdir($tmp, 0777, true) && !is_dir($tmp)) {
         throw new RuntimeException("could not create $tmp");
     }
@@ -224,7 +224,7 @@ PHP;
 
     $mutatingPath = "$tmp/mutating.json";
     $writeArtifact($mutatingPath, $payload(new Policy()));
-    $GLOBALS['duo_compiled_artifact_observation_interleave'] = static function (string $path): void {
+    $GLOBALS['wprism_compiled_artifact_observation_interleave'] = static function (string $path): void {
         $bytes = file_get_contents($path);
         if (!is_string($bytes) || $bytes === '') {
             throw new RuntimeException('test could not rewrite the observed artifact');
@@ -234,7 +234,7 @@ PHP;
     };
     $mutatingPolicy = new Policy();
     $mutatingCode = $diagnostic(static fn() => CompiledArtifactReader::read_artifact($mutatingPath, $mutatingPolicy));
-    unset($GLOBALS['duo_compiled_artifact_observation_interleave']);
+    unset($GLOBALS['wprism_compiled_artifact_observation_interleave']);
     $check(
         $mutatingCode === 'compiled_artifact_invalid' && $mutatingPolicy->primeCalls === 0,
         'an equal-length artifact rewrite between observations is refused before Canon can decode it'
@@ -242,7 +242,7 @@ PHP;
 
     $oversizedPath = "$tmp/oversized.json";
     $oversized = fopen($oversizedPath, 'wb');
-    if (!is_resource($oversized) || !ftruncate($oversized, \Duo\MediaPayloadAuthority::MAX_ARTIFACT_DOCUMENT_BYTES + 1)) {
+    if (!is_resource($oversized) || !ftruncate($oversized, \WPrism\MediaPayloadAuthority::MAX_ARTIFACT_DOCUMENT_BYTES + 1)) {
         throw new RuntimeException('could not create sparse oversized artifact fixture');
     }
     fclose($oversized);
@@ -258,7 +258,7 @@ PHP;
     file_put_contents($densePath, $denseDocument);
     unset($denseDocument);
     $denseChild = <<<'PHP'
-namespace Duo {
+namespace WPrism {
     final class Canon {
         public static int $decodeCalls = 0;
         public static function encode(mixed $value): string { return json_encode($value, JSON_THROW_ON_ERROR); }
@@ -270,10 +270,10 @@ namespace Duo {
 namespace {
     require $argv[1];
     try {
-        Duo\CompiledArtifactReader::read_artifact($argv[2], new Duo\Policy());
+        WPrism\CompiledArtifactReader::read_artifact($argv[2], new WPrism\Policy());
         exit(2);
-    } catch (Duo\CommandRefusalException $error) {
-        echo $error->reasonCode . ':' . Duo\Canon::$decodeCalls;
+    } catch (WPrism\CommandRefusalException $error) {
+        echo $error->reasonCode . ':' . WPrism\Canon::$decodeCalls;
     }
 }
 PHP;
@@ -294,7 +294,7 @@ PHP;
 require $argv[1];
 $raw = file_get_contents($argv[2]);
 try {
-    Duo\MediaPayloadAuthority::assertRefreshEnvelope($raw);
+    WPrism\MediaPayloadAuthority::assertRefreshEnvelope($raw);
     exit(2);
 } catch (RuntimeException $error) {
     echo $error->getMessage();
@@ -331,7 +331,7 @@ PHP;
     $writeArtifact($largePath, $largePayload);
     unset($largeTree, $largePayload);
     $largeChild = <<<'PHP'
-namespace Duo {
+namespace WPrism {
     final class Canon {
         public static function encode(mixed $value): string { return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES); }
         public static function decode(string $bytes): array { return json_decode($bytes, true, 512, JSON_THROW_ON_ERROR); }
@@ -351,7 +351,7 @@ namespace Duo {
 namespace {
     require $argv[1];
     try {
-        Duo\CompiledArtifactReader::read_artifact($argv[2], new Duo\Policy());
+        WPrism\CompiledArtifactReader::read_artifact($argv[2], new WPrism\Policy());
         echo 'ok';
     } catch (Throwable $error) {
         fwrite(STDERR, $error->getMessage());
@@ -463,7 +463,7 @@ PHP;
     );
 
     eval(<<<'PHP'
-namespace Duo;
+namespace WPrism;
 final class CodeStateContract {
     public static bool $fail = true;
     public static int $calls = 0;
@@ -482,12 +482,12 @@ PHP);
         'a throwing code/state bridge is normalized to the stable mismatch diagnostic before interpreter priming'
     );
 
-    \Duo\CodeStateContract::$fail = false;
+    \WPrism\CodeStateContract::$fail = false;
     $codeSuccessPolicy = new Policy(['enabled' => true]);
     $codeSuccess = CompiledArtifactReader::read_artifact($codePath, $codeSuccessPolicy);
     $check(
         $codeSuccess->code_descriptor() === ['code_revision' => 'test']
-            && \Duo\CodeStateContract::$calls === 2
+            && \WPrism\CodeStateContract::$calls === 2
             && $codeSuccessPolicy->primeCalls === 1,
         'a code-bearing artifact primes interpreters only after the optional bridge accepts its descriptor'
     );

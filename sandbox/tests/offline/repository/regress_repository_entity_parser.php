@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline direct regression for RepositoryEntityParser (DUO-3348 slice 34).
+ * Offline direct regression for RepositoryEntityParser (issue #3348 slice 34).
  *
  * The parser owns one canonical state file's route, decode, schema boundary,
  * and typed IR. RepositoryCompiler deliberately retains traversal, identity
@@ -8,7 +8,7 @@
  */
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Canon {
         /** @return array<string,mixed> */
         public static function decode(string $content): array {
@@ -72,10 +72,10 @@ namespace Duo {
 namespace {
     require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryEntityParser.php';
 
-    use Duo\Policy;
-    use Duo\RepositoryEntityParser;
-    use Duo\RepositoryMediaCatalog;
-    use Duo\UserMetaState;
+    use WPrism\Policy;
+    use WPrism\RepositoryEntityParser;
+    use WPrism\RepositoryMediaCatalog;
+    use WPrism\UserMetaState;
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -86,7 +86,7 @@ namespace {
     };
     $path = realpath(__DIR__ . '/../../../../agent/src/Repository/RepositoryEntityParser.php');
     $process = proc_open(
-        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Canon::class, false) && class_exists(\\Duo\\Policy::class, false) && class_exists(\\Duo\\RepositorySchemaValidator::class, false) && class_exists(\\Duo\\RepositoryMediaCatalog::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', (string) $path],
+        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\Canon::class, false) && class_exists(\\WPrism\\Policy::class, false) && class_exists(\\WPrism\\RepositorySchemaValidator::class, false) && class_exists(\\WPrism\\RepositoryMediaCatalog::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', (string) $path],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
@@ -100,9 +100,9 @@ namespace {
         $exit = 1;
     }
     $check($exit === 0 && $out === "loaded\n" && $err === '', 'normal direct loading closes parser collaborators without loading RepositoryCompiler');
-    $check(!class_exists(\Duo\RepositoryCompiler::class, false), 'preloaded Canon and Policy test doubles preserve the target-free parser boundary');
+    $check(!class_exists(\WPrism\RepositoryCompiler::class, false), 'preloaded Canon and Policy test doubles preserve the target-free parser boundary');
 
-    $temporary = sys_get_temp_dir() . '/duo-repository-entity-parser-' . bin2hex(random_bytes(6));
+    $temporary = sys_get_temp_dir() . '/wprism-repository-entity-parser-' . bin2hex(random_bytes(6));
     if (!mkdir($temporary, 0777, true) && !is_dir($temporary)) {
         throw new \RuntimeException("could not create $temporary");
     }
@@ -158,16 +158,16 @@ namespace {
     $check($entry !== null && $entry['type'] === 'user-meta' && $entry['data'] === $userMeta && $diagnostics === [], 'login-keyed user-meta JSON validates its canonical hashed filename');
 
     $parser = $newParser();
-    $table = ['uuid' => $uuid, 'table' => 'duo_rows', 'columns' => [], 'meta' => []];
-    $entry = $parser->parse("tables/duo_rows/$uuid--one.json", $document($table));
-    $check($entry !== null && $entry['type'] === 'duo_rows' && $entry['data'] === $table && $diagnostics === [], 'table JSON retains its declared table type in typed IR');
+    $table = ['uuid' => $uuid, 'table' => 'wprism_rows', 'columns' => [], 'meta' => []];
+    $entry = $parser->parse("tables/wprism_rows/$uuid--one.json", $document($table));
+    $check($entry !== null && $entry['type'] === 'wprism_rows' && $entry['data'] === $table && $diagnostics === [], 'table JSON retains its declared table type in typed IR');
 
     $policy->authored = ['required_option' => []];
     $parser = $newParser();
-    $entry = $parser->parse('options/core.json', $document(['format' => 'duo-options/v1', 'records' => []]));
+    $entry = $parser->parse('options/core.json', $document(['format' => 'wprism-options/v1', 'records' => []]));
     $check($entry !== null && $codes() === ['schema_content_mismatch'] && $diagnostics[0]['locator'] === 'records.required_option', 'strict action compilation retains the required option-record diagnostic');
     $parser = $newParser(true);
-    $entry = $parser->parse('options/core.json', $document(['format' => 'duo-options/v1', 'records' => []]));
+    $entry = $parser->parse('options/core.json', $document(['format' => 'wprism-options/v1', 'records' => []]));
     $check($entry !== null && $entry['type'] === 'options' && $diagnostics === [], 'historical comparison parsing suppresses only the required option-record gate');
     $policy->authored = [];
 

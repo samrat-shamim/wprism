@@ -58,7 +58,7 @@ update_post_meta($main->id(), '_constant_contact', ['list' => 'target-environmen
 update_post_meta($main->id(), '_sendinblue', ['list' => 'target-environment-list']);
 
 $option = (array) get_option('wpcf7', []);
-$option['duo_target_only'] = 'target-option-preserved';
+$option['wprism_target_only'] = 'target-option-preserved';
 $option['turnstile'] = ['target-site-key' => 'target-secret-key'];
 update_option('wpcf7', $option);
 
@@ -105,8 +105,8 @@ TARGET_BEFORE=$(wp_conf2 eval '
 ')
 REV=$(git -C "${CONF_REPO2:-siterepo/conf2}" rev-parse HEAD)
 COLLISION_RC=0
-COLLISION_OUT=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1) || COLLISION_RC=$?
-require_duo_answered "CF7 foreign hash-prefix collision apply" human "$COLLISION_OUT"
+COLLISION_OUT=$(wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1) || COLLISION_RC=$?
+require_wprism_answered "CF7 foreign hash-prefix collision apply" human "$COLLISION_OUT"
 [ "$COLLISION_RC" -ne 0 ] \
   && grep -q "prefix '$(printf '%s' "$SOURCE_HASH" | cut -c1-7)' is already owned by another wpcf7_contact_form row ($TARGET_DEFAULT)" <<<"$COLLISION_OUT" \
   || fail "CF7 foreign hash-prefix collision did not refuse exactly: $COLLISION_OUT"
@@ -120,7 +120,7 @@ TARGET_AFTER=$(wp_conf2 eval '
 ')
 [ "$TARGET_AFTER" = "$TARGET_BEFORE" ] \
   || fail "CF7 preflight collision partially mutated target state ($TARGET_BEFORE -> $TARGET_AFTER)"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = clear ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = clear ] \
   || fail "CF7 pre-mutation hash collision retained apply recovery authority"
 wp_conf2 post meta update "$TARGET_DEFAULT" _hash "$TARGET_DEFAULT_HASH" >/dev/null
 pass "foreign target hash-prefix ownership refuses before mutation and leaves no recovery marker"

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure manifest-declared taxonomy-pattern normalization and matching.
@@ -69,7 +69,7 @@ final class TaxonomyPatternResolver {
                         ? 'ambiguous object_keyspace declarations'
                         : 'ambiguous taxonomy_patterns contracts';
                     throw new \RuntimeException(
-                        "duo: taxonomy '$tax' matches $ambiguity: "
+                        "wprism: taxonomy '$tax' matches $ambiguity: "
                         . "{$effective['source']} and {$pattern['source']} disagree on $field; "
                         . 'pin order may not choose runtime relationship behavior'
                     );
@@ -85,7 +85,7 @@ final class TaxonomyPatternResolver {
      * a statement about the plugin's own `register_taxonomy()` call, exactly
      * as a `taxonomy_patterns` entry states them for a dynamic name.
      *
-     * Why it exists: `wp duo refresh-export` runs under the isolated control
+     * Why it exists: `wp wprism refresh-export` runs under the isolated control
      * bootstrap (no plugins), where `get_taxonomy('product_cat')` is false
      * and `ScopeDiscovery::taxonomyOwnership()` has no other way to learn
      * which object keyspace a policy-scoped exact taxonomy's relationships
@@ -127,7 +127,7 @@ final class TaxonomyPatternResolver {
             foreach (['object_type', 'update_count_callback', 'hierarchical'] as $field) {
                 if ($effective[$field] !== $candidate[$field]) {
                     throw new \RuntimeException(
-                        "duo: taxonomy '$tax' has ambiguous registration declarations: "
+                        "wprism: taxonomy '$tax' has ambiguous registration declarations: "
                         . "{$effective['source']} and {$candidate['source']} disagree on $field; "
                         . 'pin order may not choose runtime relationship behavior'
                     );

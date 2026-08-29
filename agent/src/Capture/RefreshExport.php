@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Db.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
@@ -9,7 +9,7 @@ require_once __DIR__ . '/../Policy/ScopeClosure.php';
 /**
  * Strict production observation boundary for host-side refresh/rebase work.
  *
- * Ordinary `wp duo capture` is deliberately a publication transaction: it
+ * Ordinary `wp wprism capture` is deliberately a publication transaction: it
  * may mint identities, repair old ledger widths, prune dead maps, and write
  * a new repository state tree. None of those powers belong to a request
  * whose only job is to report what production already says. This class keeps
@@ -28,10 +28,10 @@ require_once __DIR__ . '/../Policy/ScopeClosure.php';
  * publication.
  */
 final class RefreshExport {
-    public const FORMAT = 'duo-refresh-production/v1';
+    public const FORMAT = 'wprism-refresh-production/v1';
 
     /**
-     * @return array<string,mixed> canonical `duo-refresh-production/v1` payload
+     * @return array<string,mixed> canonical `wprism-refresh-production/v1` payload
      */
     public static function run(
         string $repo,
@@ -149,21 +149,21 @@ final class RefreshExport {
                     if (isset($sourceTombstones[$identity])) {
                         if (isset($live[$identity]) || !isset($deleted[$identity])) {
                             throw new \RuntimeException(
-                                "duo: scoped refresh export observed resurrection of selected tombstone '$identity'"
+                                "wprism: scoped refresh export observed resurrection of selected tombstone '$identity'"
                             );
                         }
                         continue;
                     }
                     if (!isset($live[$identity]) && !isset($deleted[$identity])) {
                         throw new \RuntimeException(
-                            "duo: scoped refresh export lost selected identity '$identity' without bounded deletion evidence"
+                            "wprism: scoped refresh export lost selected identity '$identity' without bounded deletion evidence"
                         );
                     }
                     if (isset($deleted[$identity])) {
                         foreach ((array) $scopeContract['live']['inbound'] as $inbound) {
                             if ((string) ($inbound['target'] ?? '') === $identity) {
                                 throw new \RuntimeException(
-                                    "duo: scoped refresh deletion '$identity' would strand an excluded inbound reference"
+                                    "wprism: scoped refresh deletion '$identity' would strand an excluded inbound reference"
                                 );
                             }
                         }
@@ -184,12 +184,12 @@ final class RefreshExport {
     private static function assert_quiescent(): void {
         if (Ledger::kv_get('apply_in_progress') !== null) {
             throw new \RuntimeException(
-                'duo: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production'
+                'wprism: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production'
             );
         }
         if (Ledger::kv_get('promotion_lock') !== null) {
             throw new \RuntimeException(
-                'duo: refresh export refused — a promotion lease is present; wait for or recover that promotion before observing production'
+                'wprism: refresh export refused — a promotion lease is present; wait for or recover that promotion before observing production'
             );
         }
     }
@@ -228,14 +228,14 @@ final class RefreshExport {
             return $live;
         }
         if (!is_array($optionCarrier)) {
-            throw new \RuntimeException('duo: scoped refresh export lost the selected options document');
+            throw new \RuntimeException('wprism: scoped refresh export lost the selected options document');
         }
         $records = OptionState::records(Canon::decode((string) ($optionCarrier['content'] ?? '')));
         $selectedRecords = [];
         foreach ($selectedOptionNames as $name) {
             if (!array_key_exists($name, $records)) {
                 throw new \RuntimeException(
-                    "duo: scoped refresh export lost selected option '$name' without bounded option evidence"
+                    "wprism: scoped refresh export lost selected option '$name' without bounded option evidence"
                 );
             }
             $selectedRecords[$name] = $records[$name];
@@ -264,7 +264,7 @@ final class RefreshExport {
         ] as $key) {
             if (Ledger::kv_get($key) !== null) {
                 throw new \RuntimeException(
-                    "duo: refresh export refused — temporary code-stage metadata '$key' remains; finalize or recover code before observing production"
+                    "wprism: refresh export refused — temporary code-stage metadata '$key' remains; finalize or recover code before observing production"
                 );
             }
         }
@@ -275,33 +275,33 @@ final class RefreshExport {
         if ($expected === null) {
             if ($revision !== null || $raw !== null) {
                 throw new \RuntimeException(
-                    'duo: refresh export refused — completed code receipt exists but the requested repository has no code descriptor'
+                    'wprism: refresh export refused — completed code receipt exists but the requested repository has no code descriptor'
                 );
             }
             return null;
         }
         if ($revision === null || $raw === null || $revision === '' || $raw === '') {
             throw new \RuntimeException(
-                'duo: refresh export refused — repository requires code materialization but production has no complete code descriptor/revision receipt'
+                'wprism: refresh export refused — repository requires code materialization but production has no complete code descriptor/revision receipt'
             );
         }
         if (!preg_match('/^[a-f0-9]{64}$/', $revision)) {
-            throw new \RuntimeException('duo: refresh export refused — completed code_revision is malformed');
+            throw new \RuntimeException('wprism: refresh export refused — completed code_revision is malformed');
         }
         try {
             $descriptor = Canon::decode($raw);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: refresh export refused — completed code descriptor is not canonical JSON', 0, $t);
+            throw new \RuntimeException('wprism: refresh export refused — completed code descriptor is not canonical JSON', 0, $t);
         }
         if (!is_array($descriptor) || Canon::encode($descriptor) !== $raw) {
-            throw new \RuntimeException('duo: refresh export refused — completed code descriptor is not canonical JSON');
+            throw new \RuntimeException('wprism: refresh export refused — completed code descriptor is not canonical JSON');
         }
         Code::assert_descriptor($descriptor);
         if (!hash_equals($revision, (string) ($descriptor['code_revision'] ?? ''))
             || !hash_equals($revision, (string) ($expected['code_revision'] ?? ''))
             || Canon::encode($descriptor) !== Canon::encode($expected)) {
             throw new \RuntimeException(
-                'duo: refresh export refused — completed code descriptor/revision does not match the requested repository artifact'
+                'wprism: refresh export refused — completed code descriptor/revision does not match the requested repository artifact'
             );
         }
         return ['revision' => $revision, 'descriptor' => $descriptor];
@@ -321,7 +321,7 @@ final class RefreshExport {
         foreach ((array) ($candidate['media'] ?? []) as $name => $source) {
             $witness = is_array($source) ? ($source['witness'] ?? null) : null;
             if (!is_array($witness) || !is_int($witness['size'] ?? null)) {
-                throw new \RuntimeException('duo: refresh export refused — capture produced an unbounded media source');
+                throw new \RuntimeException('wprism: refresh export refused — capture produced an unbounded media source');
             }
             $mediaBytes = MediaPayloadAuthority::addToAggregate($mediaBytes, $witness['size']);
         }
@@ -329,12 +329,12 @@ final class RefreshExport {
         foreach ((array) ($candidate['media'] ?? []) as $name => $source) {
             $name = (string) $name;
             if (!is_array($source)) {
-                throw new \RuntimeException('duo: refresh export refused — capture produced an invalid media identity');
+                throw new \RuntimeException('wprism: refresh export refused — capture produced an invalid media identity');
             }
             try {
                 $bytes = MediaPayloadAuthority::sourceBytes($name, $source);
             } catch (\Throwable $failure) {
-                throw new \RuntimeException("duo: refresh export refused — media '$name' does not match its bounded capture witness", 0, $failure);
+                throw new \RuntimeException("wprism: refresh export refused — media '$name' does not match its bounded capture witness", 0, $failure);
             }
             $media[$name] = ['sha256' => hash('sha256', $bytes), 'base64' => base64_encode($bytes)];
         }
@@ -363,7 +363,7 @@ final class RefreshExport {
         ];
         if ($scopeContract !== null) {
             $payload['scope'] = [
-                'format' => 'duo-refresh-scope/v1',
+                'format' => 'wprism-refresh-scope/v1',
                 'scope_hash' => (string) $scopeContract['scope_hash'],
                 'source' => $scopeContract['source'],
                 'selectors' => $scopeContract['selectors'],
@@ -389,10 +389,10 @@ final class RefreshExport {
         $keys = array_keys($request);
         sort($keys, SORT_STRING);
         if ($keys !== ['format', 'scope_hash', 'selectors']
-            || ($request['format'] ?? null) !== 'duo-scope-request/v1'
+            || ($request['format'] ?? null) !== 'wprism-scope-request/v1'
             || !is_array($request['selectors'] ?? null)
             || !array_is_list($request['selectors'])) {
-            throw new \RuntimeException('duo: scoped refresh request has an unexpected schema');
+            throw new \RuntimeException('wprism: scoped refresh request has an unexpected schema');
         }
         $contract = ScopedStateOverlay::resolve_request(
             $compiled,
@@ -413,7 +413,7 @@ final class RefreshExport {
             $content = $entity['content'] ?? null;
             if ($identity === '' || $type === '' || !self::safe_relative($path) || !is_string($content)
                 || isset($out[$identity])) {
-                throw new \RuntimeException('duo: refresh export refused — capture produced an invalid or duplicate semantic record');
+                throw new \RuntimeException('wprism: refresh export refused — capture produced an invalid or duplicate semantic record');
             }
             $out[$identity] = [
                 'identity' => $identity,
@@ -444,11 +444,11 @@ final class RefreshExport {
 
     private static function repository_root(string $repo): string {
         if ($repo === '' || str_contains($repo, "\0")) {
-            throw new \RuntimeException('duo: refresh export requires a non-empty safe --repo path');
+            throw new \RuntimeException('wprism: refresh export requires a non-empty safe --repo path');
         }
         $root = realpath($repo);
-        if ($root === false || !is_dir($root) || !is_file($root . '/site.duo.json')) {
-            throw new \RuntimeException('duo: refresh export --repo must resolve to a site repository containing site.duo.json');
+        if ($root === false || !is_dir($root) || !is_file($root . '/site.wprism.json')) {
+            throw new \RuntimeException('wprism: refresh export --repo must resolve to a site repository containing site.wprism.json');
         }
         return rtrim($root, '/');
     }
@@ -472,7 +472,7 @@ final class RefreshExport {
                         Db::forget_transaction_tracking();
                     }
                 } catch (\Throwable $_rollback) {
-                    // Preserve the original refusal; no Duo DML can have
+                    // Preserve the original refusal; no WPrism DML can have
                     // occurred in a server-enforced READ ONLY transaction.
                     Db::forget_transaction_tracking();
                 }

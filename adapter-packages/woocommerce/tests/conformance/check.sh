@@ -295,7 +295,7 @@ echo wp_json_encode([
     'options' => [
         'brand_description' => (string) get_option('wc_brands_show_description', ''),
         'brand_permalink' => (string) get_option('woocommerce_brand_permalink', ''),
-        'neighbor' => get_option('duo_target_environment_neighbor', null),
+        'neighbor' => get_option('wprism_target_environment_neighbor', null),
         'paypal' => get_option('woocommerce_paypal_settings', null),
         'precision' => (string) get_option('woocommerce_price_num_decimals', ''),
         'store_notice' => (string) get_option('woocommerce_demo_store_notice', ''),
@@ -324,11 +324,11 @@ echo wp_json_encode([
     'runtime' => [
         'hpos' => get_option('woocommerce_custom_orders_table_enabled') === 'yes',
         'source_orders' => count($sourceOrders),
-        'source_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='duo_woo_source_runtime_probe'"),
-        'source_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='duo-source-runtime-session'"),
+        'source_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='wprism_woo_source_runtime_probe'"),
+        'source_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='wprism-source-runtime-session'"),
         'target_orders' => count($targetOrders),
-        'target_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='duo_woo_target_runtime_probe'"),
-        'target_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='duo-target-runtime-session'"),
+        'target_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='wprism_woo_target_runtime_probe'"),
+        'target_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='wprism-target-runtime-session'"),
         'thumbnail_hash' => (string) get_option('woocommerce_maybe_regenerate_images_hash', ''),
     ],
     'review_order' => [
@@ -468,7 +468,7 @@ $temporary_ids = [];
 $temporary_files = [];
 $create_image = static function (int $width, int $height, string $label) use (&$temporary_ids, &$temporary_files): int {
     $uploads = wp_upload_dir();
-    $name = "duo-woo-lazy-" . $label . "-" . wp_generate_uuid4() . ".png";
+    $name = "wprism-woo-lazy-" . $label . "-" . wp_generate_uuid4() . ".png";
     $file = trailingslashit($uploads["path"]) . $name;
     wp_mkdir_p(dirname($file));
     if (file_exists($file) || is_link($file)) {
@@ -492,7 +492,7 @@ $create_image = static function (int $width, int $height, string $label) use (&$
     }
     $id = wp_insert_attachment([
         "post_mime_type" => "image/png",
-        "post_title" => "Duo Woo lazy image " . $label,
+        "post_title" => "WPrism Woo lazy image " . $label,
         "post_status" => "inherit",
     ], $file);
     if (is_wp_error($id)) {
@@ -916,7 +916,7 @@ case "$REVIEW_URL" in
   "http://localhost:${CONF2_PORT}/review-order-source/"*"/?key="*) ;;
   *) fail "WooCommerce native Review Order URL did not use the migrated target route" ;;
 esac
-REVIEW_BODY=$(mktemp "${TMPDIR:-/tmp}/duo-woocommerce-review.XXXXXX")
+REVIEW_BODY=$(mktemp "${TMPDIR:-/tmp}/wprism-woocommerce-review.XXXXXX")
 if ! REVIEW_STATUS=$(curl -sS -o "$REVIEW_BODY" -w '%{http_code}' "$REVIEW_URL"); then
   rm -f "$REVIEW_BODY"
   fail "WooCommerce Review Order frontend request failed"
@@ -931,10 +931,10 @@ pass "native Review Order URL resolves the migrated page and fresh rewrite rule 
 RUNTIME_OUT=$($COMPOSE run --rm -T cli2 wp eval '
 global $wpdb;
 $source_review = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->comments} WHERE comment_author_email=\"source-review@example.test\"");
-$source_session = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-source-runtime-session\"");
-$target_session = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\"");
-$source_queue = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_source_runtime_probe\"");
-$target_queue = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\"");
+$source_session = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"wprism-source-runtime-session\"");
+$target_session = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"wprism-target-runtime-session\"");
+$source_queue = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"wprism_woo_source_runtime_probe\"");
+$target_queue = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"wprism_woo_target_runtime_probe\"");
 echo "review=$source_review|source_session=$source_session|target_session=$target_session|source_queue=$source_queue|target_queue=$target_queue";
 ' 2>&1 | tail -1)
 require_observed_nonempty "conf2 WooCommerce runtime-surfaces observation" "$RUNTIME_OUT"
@@ -1006,7 +1006,7 @@ $blocked_without_target_stock = !$empty_stock_cart->add_to_cart($simple, 1);
 // Woo product setters. Those setters also advance the observable (but
 // manifest-declared derived) product/variation modified timestamps. Raw
 // capture keeps those values honestly even though Canon::post_hash_basis()
-// excludes them from branch-state comparison (DUO-3302); this projection
+// excludes them from branch-state comparison (issue #3302); this projection
 // check is about target-local stock, so do not introduce unrelated observed
 // timestamp churn here. Keep the derived lookup in sync just as a stock write
 // does, while leaving the post rows untouched.
@@ -1286,12 +1286,12 @@ if jq -e 'type == "object"' <<<"$PROVIDER_RECEIPT" >/dev/null 2>&1; then
 fi
 pass 'all selected digest-bound WooCommerce cache, hierarchy, and product providers return verified receipts'
 
-ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce zero-change plan' json "$ZERO_PLAN"
+ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce zero-change plan' json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null \
   || fail "WooCommerce retry retained work: $ZERO_PLAN"
-ZERO_APPLY=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce zero-change apply' json "$ZERO_APPLY"
+ZERO_APPLY=$($COMPOSE run --rm -T cli2 wp wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "WooCommerce no-op apply was not clean and idempotent: $ZERO_APPLY"
 pass 'WooCommerce zero-change plan/apply is mutation-free and does not rerun either provider'
@@ -1302,9 +1302,9 @@ if [ "${WOOCOMMERCE_BOUNDARY_ONLY:-0}" = 1 ]; then
 fi
 
 commit_woocommerce_source() { # <message>
-  wp_conf1 duo capture --repo=/siterepo >/dev/null
+  wp_conf1 wprism capture --repo=/siterepo >/dev/null
   git -C "$CONF_REPO1" add -A
-  git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm "$1"
+  git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "$1"
   git -C "$CONF_REPO1" push -q origin main
   git -C "$CONF_REPO2" pull -q origin main
 }
@@ -1326,11 +1326,11 @@ observe_woocommerce_adoption() {
         "description"=>$coupon->get_description("edit"),"type"=>$coupon->get_discount_type("edit"),
       ],
       "runtime"=>[
-        "neighbor"=>get_option("duo_target_environment_neighbor"),
+        "neighbor"=>get_option("wprism_target_environment_neighbor"),
         "paypal"=>get_option("woocommerce_paypal_settings"),
         "orders"=>count(wc_get_orders(["billing_email"=>"target-runtime@example.test","limit"=>-1,"return"=>"ids"])),
-        "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\""),
-        "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\""),
+        "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"wprism-target-runtime-session\""),
+        "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"wprism_woo_target_runtime_probe\""),
       ],
     ],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
   '
@@ -1352,10 +1352,10 @@ woocommerce_target_guard() {
         "description"=>$coupon->get_description("edit"),"type"=>$coupon->get_discount_type("edit"),
       ] : null,
       "paypal"=>get_option("woocommerce_paypal_settings"),
-      "neighbor"=>get_option("duo_target_environment_neighbor"),
+      "neighbor"=>get_option("wprism_target_environment_neighbor"),
       "orders"=>count(wc_get_orders(["billing_email"=>"target-runtime@example.test","limit"=>-1,"return"=>"ids"])),
-      "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\""),
-      "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\""),
+      "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"wprism-target-runtime-session\""),
+      "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"wprism_woo_target_runtime_probe\""),
     ];
     echo hash("sha256",wp_json_encode($guard,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
   '
@@ -1384,7 +1384,7 @@ woocommerce_storage_hash() {
       "\"woocommerce_thumbnail_cropping_custom_height\",\"woocommerce_thumbnail_cropping_custom_width\"," .
       "\"woocommerce_thumbnail_image_width\",\"woocommerce_maybe_regenerate_images_hash\"," .
       "\"woocommerce_review_order_flush_rewrite_pending\",\"woocommerce_review_order_page_id\"," .
-      "\"duo_target_environment_neighbor\") ORDER BY option_name",
+      "\"wprism_target_environment_neighbor\") ORDER BY option_name",
       ARRAY_A
     );
     foreach ([
@@ -1462,11 +1462,11 @@ woocommerce_provider_state() {
       "brand_rules"=>$brand_rules,
       "hpos"=>get_option("woocommerce_custom_orders_table_enabled")==="yes",
       "runtime"=>[
-        "neighbor"=>get_option("duo_target_environment_neighbor"),
+        "neighbor"=>get_option("wprism_target_environment_neighbor"),
         "paypal"=>get_option("woocommerce_paypal_settings"),
         "orders"=>count(wc_get_orders(["billing_email"=>"target-runtime@example.test","limit"=>-1,"return"=>"ids"])),
-        "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\""),
-        "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\""),
+        "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"wprism-target-runtime-session\""),
+        "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"wprism_woo_target_runtime_probe\""),
       ],
     ],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
   '
@@ -1478,7 +1478,7 @@ woocommerce_provider_state() {
 SOURCE_ADOPT=$(wp_conf1 eval '
   $product=new WC_Product_Simple();
   $product->set_name("Repository adopted product 東京 🚀");
-  $product->set_slug("duo-woo-adopt-product");
+  $product->set_slug("wprism-woo-adopt-product");
   $product->set_status("publish");
   $product->set_sku("CONF-ADOPT-PRODUCT");
   $product->set_regular_price("44.444444");
@@ -1496,7 +1496,7 @@ SOURCE_ADOPT=$(wp_conf1 eval '
 TARGET_ADOPT=$(wp_conf2 eval '
   $product=new WC_Product_Simple();
   $product->set_name("Hostile target adopted product");
-  $product->set_slug("duo-woo-adopt-product");
+  $product->set_slug("wprism-woo-adopt-product");
   $product->set_status("publish");
   $product->set_sku("TARGET-HOSTILE-ADOPT");
   $product->set_regular_price("999.999999");
@@ -1514,8 +1514,8 @@ TARGET_ADOPT=$(wp_conf2 eval '
 require_observed_nonempty 'WooCommerce source adoption identities' "$SOURCE_ADOPT"
 require_observed_nonempty 'WooCommerce target adoption identities' "$TARGET_ADOPT"
 commit_woocommerce_source 'conformance: WooCommerce same-slug adoption fixtures'
-ADOPTED=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce same-slug product/coupon adoption' json "$ADOPTED"
+ADOPTED=$(wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce same-slug product/coupon adoption' json "$ADOPTED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.adopt >= 2' <<<"$ADOPTED" >/dev/null \
   || fail "WooCommerce same-slug product/coupon adoption did not converge: $ADOPTED"
 ADOPTED_NATIVE=$(observe_woocommerce_adoption)
@@ -1552,8 +1552,8 @@ wp_conf1 eval '
   clean_post_cache($id);
 ' >/dev/null
 MALFORMED_RC=0
-MALFORMED_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
-require_duo_answered 'WooCommerce malformed product-attribute capture' human "$MALFORMED_OUT"
+MALFORMED_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
+require_wprism_answered 'WooCommerce malformed product-attribute capture' human "$MALFORMED_OUT"
 [ "$MALFORMED_RC" -ne 0 ] && grep -Eqi 'product_attributes|structured|object|adapter schema' <<<"$MALFORMED_OUT" \
   || fail "WooCommerce malformed product attributes did not refuse: $MALFORMED_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
@@ -1577,8 +1577,8 @@ wp_conf1 eval '
   ]);
 ' >/dev/null
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
-require_duo_answered 'WooCommerce populated COD boundary capture' human "$SECRET_OUT"
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || SECRET_RC=$?
+require_wprism_answered 'WooCommerce populated COD boundary capture' human "$SECRET_OUT"
 [ "$SECRET_RC" -ne 0 ] && grep -Fq 'woocommerce_cod_settings' <<<"$SECRET_OUT" \
   && grep -Fq 'undeclared sibling key(s)' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
@@ -1600,8 +1600,8 @@ wp_conf1 eval '
   clean_post_cache($id);
 ' >/dev/null
 DELETE_RC=0
-DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || DELETE_RC=$?
-require_duo_answered 'WooCommerce unsupported product deletion capture' human "$DELETE_OUT"
+DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || DELETE_RC=$?
+require_wprism_answered 'WooCommerce unsupported product deletion capture' human "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && grep -Eqi 'delet|unsupported|policy scope' <<<"$DELETE_OUT" \
   || fail "WooCommerce unsupported product deletion did not refuse: $DELETE_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
@@ -1611,7 +1611,7 @@ wp_conf1 eval "
   if (false === \$wpdb->insert(\$wpdb->posts,\$row)) throw new RuntimeException(\$wpdb->last_error);
   clean_post_cache((int)\$row['ID']);
 " >/dev/null
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
   || fail 'WooCommerce source did not restore byte-identically after malformed/undeclared-COD/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
@@ -1630,19 +1630,19 @@ wp_conf2 eval '
   $product->set_regular_price("77.654321"); $product->save();
 ' >/dev/null
 CONFLICT_BEFORE=$(woocommerce_target_guard)
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce competing product-price plan' json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce competing product-price plan' json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "WooCommerce competing price did not produce a conflict: $CONFLICT_PLAN"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered 'WooCommerce unforced competing product apply' human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered 'WooCommerce unforced competing product apply' human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflict' <<<"$CONFLICT_OUT" \
   || fail "WooCommerce unforced competing product apply did not refuse: $CONFLICT_OUT"
 [ "$(woocommerce_target_guard)" = "$CONFLICT_BEFORE" ] \
   || fail 'WooCommerce unforced conflict partially mutated target state'
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce forced competing product apply' json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce forced competing product apply' json "$FORCED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict > 0' <<<"$FORCED" >/dev/null \
   || fail "WooCommerce forced repository intent did not converge: $FORCED"
 CONVERGED=$(observe_woocommerce_adoption)
@@ -1666,7 +1666,7 @@ commit_woocommerce_source 'conformance: WooCommerce lookup-schema recovery inten
 wp_conf2 eval '
   global $wpdb;
   $wpdb->last_error = "";
-  $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN min_price TO duo_fault_min_price");
+  $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN min_price TO wprism_fault_min_price");
 ' >/dev/null 2>&1 || true
 # MariaDB can commit this DDL while its WP-CLI container returns nonzero during
 # shutdown. A fresh exact schema read is the authority: it detects both a DDL
@@ -1676,20 +1676,20 @@ wp_conf2 eval '
   $wpdb->last_error = "";
   $columns = $wpdb->get_col("SHOW COLUMNS FROM {$wpdb->prefix}wc_product_meta_lookup", 0);
   if ($wpdb->last_error !== "" || !is_array($columns)
-      || !in_array("duo_fault_min_price", $columns, true) || in_array("min_price", $columns, true)) {
+      || !in_array("wprism_fault_min_price", $columns, true) || in_array("min_price", $columns, true)) {
     throw new RuntimeException("WooCommerce lookup-schema fault injection did not land exactly");
   }
 ' >/dev/null
-SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty 'WooCommerce applied revision before lookup-schema fault' "$SCHEMA_REV_BEFORE"
 SCHEMA_RC=0
-SCHEMA_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
-require_duo_answered 'WooCommerce lookup-schema provider failure' human "$SCHEMA_OUT"
+SCHEMA_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
+require_wprism_answered 'WooCommerce lookup-schema provider failure' human "$SCHEMA_OUT"
 [ "$SCHEMA_RC" -ne 0 ] && grep -Eq "provider 'woocommerce-product-lookups' capability 'rebuild_product_lookups' failed" <<<"$SCHEMA_OUT" \
   || fail "WooCommerce lookup-schema fault did not refuse through the provider: $SCHEMA_OUT"
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_REV_BEFORE" ] \
+[ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_REV_BEFORE" ] \
   || fail 'WooCommerce provider failure advanced applied_revision before verified effects'
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail 'WooCommerce provider failure did not retain retry authority'
 FAILED_AUTHORED=$(observe_woocommerce_adoption)
 jq -e '
@@ -1701,19 +1701,19 @@ jq -e '
 wp_conf2 eval '
   global $wpdb;
   $wpdb->last_error = "";
-  $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN duo_fault_min_price TO min_price");
+  $wpdb->query("ALTER TABLE {$wpdb->prefix}wc_product_meta_lookup RENAME COLUMN wprism_fault_min_price TO min_price");
 ' >/dev/null 2>&1 || true
 wp_conf2 eval '
   global $wpdb;
   $wpdb->last_error = "";
   $columns = $wpdb->get_col("SHOW COLUMNS FROM {$wpdb->prefix}wc_product_meta_lookup", 0);
   if ($wpdb->last_error !== "" || !is_array($columns)
-      || !in_array("min_price", $columns, true) || in_array("duo_fault_min_price", $columns, true)) {
+      || !in_array("min_price", $columns, true) || in_array("wprism_fault_min_price", $columns, true)) {
     throw new RuntimeException("WooCommerce lookup-schema repair did not land exactly");
   }
 ' >/dev/null
-capture_duo_json_success RETRY 'WooCommerce retry after lookup-schema repair' \
-  wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json
+capture_wprism_json_success RETRY 'WooCommerce retry after lookup-schema repair' \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
   any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true)
@@ -1737,8 +1737,8 @@ wp_conf1 eval '
   delete_post_meta($id,"_purchase_note");
 ' >/dev/null
 commit_woocommerce_source 'conformance: WooCommerce authored field absence'
-FIELD_REMOVED=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce authored field-absence apply' json "$FIELD_REMOVED"
+FIELD_REMOVED=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce authored field-absence apply' json "$FIELD_REMOVED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update > 0 and .plan.delete == 0 and .plan.deleted == 0' <<<"$FIELD_REMOVED" >/dev/null \
   || fail "WooCommerce authored field absence did not converge as an update: $FIELD_REMOVED"
 [ "$(wp_conf2 eval '$p=wc_get_product(wc_get_product_id_by_sku("CONF-PRECISION-UTF8")); echo $p->get_purchase_note("edit");')" = '' ] \
@@ -1765,37 +1765,37 @@ CONCURRENT_LOSER="$CONF_REPO2/.tmp-woocommerce-provider-loser.log"
 CONCURRENT_BEFORE=$(woocommerce_provider_guard)
 woo_apply_test() {
   $COMPOSE run --rm -T \
-    -e DUO_TEST_MODE=1 -e DUO_TEST_PROMOTION_PAUSE_MS=30000 \
+    -e WPRISM_TEST_MODE=1 -e WPRISM_TEST_PROMOTION_PAUSE_MS=30000 \
     cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"
 }
 set +e
-woo_apply_test duo apply --repo=/siterepo --default-author=admin --format=json >"$CONCURRENT_HOLDER" 2>&1 & HOLDER_PID=$!
+woo_apply_test wprism apply --repo=/siterepo --default-author=admin --format=json >"$CONCURRENT_HOLDER" 2>&1 & HOLDER_PID=$!
 set -e
 PAUSE_READY=0
 for _ in $(seq 1 120); do
-  if $COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | grep -q '^precondition-recheck$'; then
+  if $COMPOSE run --rm -T cli2 wp eval 'echo (\WPrism\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | grep -q '^precondition-recheck$'; then
     PAUSE_READY=1; CONCURRENT_PAUSE_OBSERVED_AT=$(date +%s); break
   fi
   sleep 0.1
 done
 [ "$PAUSE_READY" -eq 1 ] || fail "WooCommerce promotion holder did not reach deterministic pause: $(cat "$CONCURRENT_HOLDER")"
-[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
+[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\WPrism\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
   || fail 'WooCommerce promotion holder left the deterministic pause before the contender started'
 CONCURRENT_LOSER_RC=0
-wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json >"$CONCURRENT_LOSER" 2>&1 || CONCURRENT_LOSER_RC=$?
-[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json >"$CONCURRENT_LOSER" 2>&1 || CONCURRENT_LOSER_RC=$?
+[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\WPrism\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
   || fail 'WooCommerce promotion holder left the deterministic pause before the contender refusal was observed'
 CONCURRENT_LOSER_JSON=$(awk 'NF { line=$0 } END { print line }' "$CONCURRENT_LOSER")
-require_duo_answered 'WooCommerce deterministic provider race loser' json "$CONCURRENT_LOSER_JSON"
+require_wprism_answered 'WooCommerce deterministic provider race loser' json "$CONCURRENT_LOSER_JSON"
 [ "$CONCURRENT_LOSER_RC" -ne 0 ] || fail "WooCommerce race loser unexpectedly succeeded: $CONCURRENT_LOSER_JSON"
 jq -e '
-  .format == "duo-command-refusal/v1" and .ok == false and
+  .format == "wprism-command-refusal/v1" and .ok == false and
   .error == "process_fence_held" and .reason_code == "process_fence_held" and
   .message == "another live process on this target holds the promotion fence; concurrent target mutation was refused"
 ' <<<"$CONCURRENT_LOSER_JSON" >/dev/null \
   || fail "WooCommerce race loser did not return the typed process_fence_held refusal: $CONCURRENT_LOSER_JSON"
 CONCURRENT_AFTER_LOSER=$(woocommerce_provider_guard)
-[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\Duo\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
+[ "$($COMPOSE run --rm -T cli2 wp eval 'echo (\WPrism\PromotionLock::current()["phase"] ?? "");' 2>/dev/null | tail -1)" = precondition-recheck ] \
   || fail 'WooCommerce promotion holder left the deterministic pause during the loser mutation guard'
 [ "$(($(date +%s) - CONCURRENT_PAUSE_OBSERVED_AT))" -lt 25 ] \
   || fail 'WooCommerce contender evidence exceeded the bounded promotion-pause window'
@@ -1806,7 +1806,7 @@ wait "$HOLDER_PID"; CONCURRENT_HOLDER_RC=$?
 set -e
 [ "$CONCURRENT_HOLDER_RC" -eq 0 ] || fail "WooCommerce race winner failed: $(cat "$CONCURRENT_HOLDER")"
 CONCURRENT_WINNER_JSON=$(awk 'NF { line=$0 } END { print line }' "$CONCURRENT_HOLDER")
-require_duo_answered 'WooCommerce deterministic provider race winner' json "$CONCURRENT_WINNER_JSON"
+require_wprism_answered 'WooCommerce deterministic provider race winner' json "$CONCURRENT_WINNER_JSON"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true) and
@@ -1828,16 +1828,16 @@ jq -e '
   .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
 ' <<<"$CONCURRENT_STATE" >/dev/null \
   || fail "WooCommerce race winner did not verify native lookup/hierarchy/rewrite/runtime state: $CONCURRENT_STATE"
-[ "$(wp_conf2 eval 'echo null === \Duo\PromotionLock::current() ? "clear" : "held";')" = clear ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\PromotionLock::current() ? "clear" : "held";')" = clear ] \
   || fail 'WooCommerce race winner left a stale promotion-lock marker'
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "held";')" = clear ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "held";')" = clear ] \
   || fail 'WooCommerce race winner left a stale apply-in-progress marker'
-CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce plan after competing applies' json "$CONCURRENT_PLAN"
+CONCURRENT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce plan after competing applies' json "$CONCURRENT_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "WooCommerce competing applies left retained work: $CONCURRENT_PLAN"
-CONCURRENT_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce provider race zero-action retry' json "$CONCURRENT_RETRY"
+CONCURRENT_RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce provider race zero-action retry' json "$CONCURRENT_RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied == 0 and (.actions | length) == 0' <<<"$CONCURRENT_RETRY" >/dev/null \
   || fail "WooCommerce provider race retry was not a zero-action no-op: $CONCURRENT_RETRY"
 rm -f "$CONCURRENT_HOLDER" "$CONCURRENT_LOSER"
@@ -1849,9 +1849,9 @@ pass 'deterministic WooCommerce provider race refuses the loser at process_fence
 # then the digest-bound cached artifact must recover the retained state.
 wp_conf2 plugin deactivate woocommerce >/dev/null
 wp_conf2 plugin is-active woocommerce >/dev/null 2>&1 && fail 'WooCommerce deactivation premise did not land'
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
-wp_conf2 plugin is-active woocommerce >/dev/null || fail 'Duo deploy did not reactivate exact WooCommerce code'
+REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
+wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WPrism deploy did not reactivate exact WooCommerce code'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
 LIFECYCLE_BEFORE=$(woocommerce_storage_hash)
 wp_conf2 plugin deactivate woocommerce >/dev/null
@@ -1860,8 +1860,8 @@ wp_conf2 plugin is-installed woocommerce >/dev/null 2>&1 && fail 'WooCommerce un
 [ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
   || fail 'WooCommerce default uninstall changed retained catalog/configuration storage'
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing WooCommerce code did not refuse at compatibility: $MISSING_OUT"
 WOO_SHA=da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21
@@ -1871,8 +1871,8 @@ WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.1 ] \
   || fail 'WooCommerce exact reinstall reported the wrong version'
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
 wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact reinstall was not active after deploy'
 normalize_woocommerce_harness_placeholder_mode wp_conf2
 RECOVERED=$(observe_woocommerce_adoption)
@@ -1885,15 +1885,15 @@ jq -e --argjson ids "$TARGET_ADOPT" '
 ' <<<"$RECOVERED" >/dev/null || fail "WooCommerce retained native state did not recover after reinstall: $RECOVERED"
 EXTRA_ACTIVE=$(wp_conf2 plugin list --status=active --field=name | grep -v '^woocommerce$' || true)
 [ -z "$EXTRA_ACTIVE" ] || fail "WooCommerce scope fixture unexpectedly activated optional extensions: $EXTRA_ACTIVE"
-FINAL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce final apply after exact reinstall' json "$FINAL_APPLY"
+FINAL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce final apply after exact reinstall' json "$FINAL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$FINAL_APPLY" >/dev/null \
   || fail "WooCommerce exact reinstall did not remain clean: $FINAL_APPLY"
-FINAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'WooCommerce final recovery plan' json "$FINAL_PLAN"
+FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'WooCommerce final recovery plan' json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "WooCommerce recovery was not idempotent: $FINAL_PLAN"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-final >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-final >/dev/null
 FINAL_DIFF_RC=0
 FINAL_DIFF=$(diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-woocommerce-final" 2>&1) || FINAL_DIFF_RC=$?
 [ "$FINAL_DIFF_RC" -le 1 ] || fail "WooCommerce final recapture comparison errored: $FINAL_DIFF"

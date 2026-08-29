@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/CaptureIdentity.php';
@@ -283,12 +283,12 @@ final class CaptureCandidateBuilder {
                 if (!isset($media[$mediaName])) {
                     $witness = $mediaSource['witness'] ?? null;
                     if (!is_array($witness) || !is_int($witness['size'] ?? null)) {
-                        throw new \RuntimeException('duo: captured media source lacks its bounded byte witness');
+                        throw new \RuntimeException('wprism: captured media source lacks its bounded byte witness');
                     }
                     $mediaBytes = MediaPayloadAuthority::addToAggregate($mediaBytes, $witness['size']);
                     $media[$mediaName] = $mediaSource;
                 } elseif ($media[$mediaName]['witness'] !== $mediaSource['witness']) {
-                    throw new \RuntimeException('duo: one media content address has inconsistent capture witnesses');
+                    throw new \RuntimeException('wprism: one media content address has inconsistent capture witnesses');
                 }
             }
             $entities[] = $postBuild['entity'];
@@ -361,13 +361,13 @@ final class CaptureCandidateBuilder {
         $selected = null;
         if ($selectedIdentities !== null) {
             if (!array_is_list($selectedIdentities)) {
-                throw new \RuntimeException('duo: scoped widget discovery received a malformed selected identity roster');
+                throw new \RuntimeException('wprism: scoped widget discovery received a malformed selected identity roster');
             }
             $selected = [];
             foreach ($selectedIdentities as $position => $identity) {
                 if (!is_string($identity) || $identity === '' || isset($selected[$identity])) {
                     throw new \RuntimeException(
-                        "duo: scoped widget discovery received a malformed selected identity at position $position"
+                        "wprism: scoped widget discovery received a malformed selected identity at position $position"
                     );
                 }
                 $selected[$identity] = true;

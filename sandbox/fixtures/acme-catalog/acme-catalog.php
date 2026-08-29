@@ -3,17 +3,17 @@
  * Plugin Name: Acme Catalog
  * Description: Round-3 T6 adapter-walk fixture — the in-house plugin scenario
  *   S3 exists for: a custom plugin nobody published, carrying its own
- *   `duo-adapter.json` (docs/guides/adapter-authoring.md, "Adapters a plugin
+ *   `wprism-adapter.json` (docs/guides/adapter-authoring.md, "Adapters a plugin
  *   bundles"). Its four surfaces are one of each kind the walk has to see the
  *   projection separate: an authored CPT, an authored taxonomy, an authored
  *   option and a runtime option, plus one custom table nothing declares.
  * Version: 1.0.0
  *
- * Why this fixture is not `duo-agency-cpt` reused: that plugin's adapter is
- * SHIPPED (manifests/duo-agency-cpt.json), which is the one source S3 must not
+ * Why this fixture is not `wprism-agency-cpt` reused: that plugin's adapter is
+ * SHIPPED (manifests/wprism-agency-cpt.json), which is the one source S3 must not
  * have. The whole scenario is "the operator wrote the adapter and no reviewed
  * library knows this plugin exists", so the fixture has to be a name the
- * shipped library has never heard of. It is also deliberately not `duo-`
+ * shipped library has never heard of. It is also deliberately not `wprism-`
  * prefixed: that prefix means `synthetic-fixture` to the capability generator
  * (adapter-authoring.md, "Directory conventions"), and S3's subject is a
  * customer's real plugin, not a test double.
@@ -24,7 +24,7 @@
  *                            surface the walk creates a row on, releases, and
  *                            asserts arrived on the target.
  *   taxonomy  acme_kind      authored. A second authored surface at a
- *                            different grain, so `duo init` has to widen
+ *                            different grain, so `wprism init` has to widen
  *                            policy.taxonomies as well as policy.post_types
  *                            from the bundled manifest's declarations.
  *   option    acme_catalog_settings  authored. One operator-edited setting.
@@ -39,7 +39,7 @@
  *                            reached here through a plugin the walk owns.
  *
  * The runtime counter is bumped on every front-end request rather than on a
- * hook Duo's apply window fires, so it cannot be confused with an apply-time
+ * hook WPrism's apply window fires, so it cannot be confused with an apply-time
  * write: apply runs hook-free, and this option only ever moves under real HTTP.
  */
 
@@ -50,7 +50,7 @@ if (!defined('ABSPATH')) {
 define('ACME_CATALOG_VERSION', '1.0.0');
 
 /**
- * The index table's unprefixed logical name. Duo's coverage reports the
+ * The index table's unprefixed logical name. WPrism's coverage reports the
  * logical name (the live name minus $wpdb->prefix), so the fixture and the
  * walk's assertions agree on one spelling.
  */
@@ -135,7 +135,7 @@ add_action('template_redirect', function () {
  * as a side effect of authoring, exactly as a real plugin's index would, so
  * "the checkpoint restored it" is a claim about real rows.
  *
- * Duo's own apply writes post rows with direct SQL and fires no hooks, so this
+ * WPrism's own apply writes post rows with direct SQL and fires no hooks, so this
  * never runs during a release — which is the point: the target's index rows
  * are target-local state whose only restore path is the database checkpoint.
  */

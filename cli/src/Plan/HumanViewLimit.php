@@ -1,23 +1,23 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
- * The ONE bound every human view in `duo` obeys, and the one sentence it
+ * The ONE bound every human view in `wprism` obeys, and the one sentence it
  * prints when it cuts (round-3 MUP §4.6).
  *
  * ## Why one class, and why here
  *
- * Before DUO-3521 the same `1..200` grammar and the same
+ * Before issue #3521 the same `1..200` grammar and the same
  * `50` / `200` pair were written out four times — `PlanView::MAX_LIMIT`
  * (Plan/PlanView.php:33), `AssessRenderer` (Assess/AssessRenderer.php:45-48),
  * `AuthorizationPlanRenderer` (Release/AuthorizationPlanRenderer.php:51-54)
  * and `RehearsalPlanPreview` (Rehearse/RehearsalPlanPreview.php:106-109) —
  * each citing the others in a comment as the authority. Four copies of a
  * ceiling is four chances for an operator to learn two rules, and the verbs
- * that had NO bound at all (`duo pending`, `duo classify`'s skipped lists,
- * `duo contract show`'s effect list) had nowhere to inherit one from.
+ * that had NO bound at all (`wprism pending`, `wprism classify`'s skipped lists,
+ * `wprism contract show`'s effect list) had nowhere to inherit one from.
  *
  * It lives in `cli:Plan` and not in `cli:Command` because of the module
  * ladder (tools/modules.json rule 3): `cli:Plan` is `kernel`, the lowest

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/CommandRefusal.php';
 
@@ -13,7 +13,7 @@ require_once __DIR__ . '/CommandRefusal.php';
  * build a Policy — but `journal-reset` (Cli.php: `Ledger::ensure()` and then
  * the provenance journal's own truncation), the four promotion-lease verbs
  * (`Ledger::ensure()` then `PromotionLock::*`), and `classify --set` never do,
- * so on a network they created a per-blog `wp_N_duo_*` table set and took
+ * so on a network they created a per-blog `wp_N_wprism_*` table set and took
  * leases with no gate at any layer. A Kernel file with one dependency
  * (Kernel/CommandRefusal.php) is the cheapest home that every one of those
  * doors can reach without loading the policy machinery.
@@ -57,10 +57,10 @@ final class SiteTopology {
             // passes `$operatorMessage ?? $publicMessage` to
             // parent::__construct, so getMessage() -- and therefore
             // `WP_CLI::error($t->getMessage())` -- stays byte-identical to the
-            // sentence Policy.php has printed since DUO-3223 (rule 8; the live
+            // sentence Policy.php has printed since issue #3223 (rule 8; the live
             // greps at sandbox/tests/live/regress_multisite_refusal.sh:63,65
             // read exactly these bytes).
-            'duo: multisite is unsupported by the certified v1 contract; this command is single-site only and refuses before loading policy or mutating state'
+            'wprism: multisite is unsupported by the certified v1 contract; this command is single-site only and refuses before loading policy or mutating state'
         );
     }
 }

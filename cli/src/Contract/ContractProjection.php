@@ -1,22 +1,22 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/ApplicationContract.php';
 require_once __DIR__ . '/ProjectionVocabulary.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
  * `projection.json` — part 5 of the application contract, generated
  * (round-3 MUP §3.3, product spec "The application contract → 5. Generated
  * projection").
  *
- * This is the one document that answers "what can Duo do on THIS site right
+ * This is the one document that answers "what can WPrism do on THIS site right
  * now", and MUP §3.4 pins the property that makes it trustworthy: *a
  * declaration never grants authority; readiness is always recomputed from
  * the registry plus a live probe, never read from `contract.json`*. That
@@ -66,7 +66,7 @@ use Duo\CommandRefusalException;
  * ProjectionVocabulary's §1.3 table and nothing here mints a status word.
  */
 final class ContractProjection {
-    public const FORMAT = 'duo-site-capability-projection/v1';
+    public const FORMAT = 'wprism-site-capability-projection/v1';
 
     /**
      * The blocker this class SYNTHESIZES for pin drift.
@@ -97,7 +97,7 @@ final class ContractProjection {
     /**
      * Generate the projection document.
      *
-     * @param array<string,mixed> $contract a validated `duo-application-contract/v2`
+     * @param array<string,mixed> $contract a validated `wprism-application-contract/v2`
      * @param array<string,mixed> $facts registry + probe facts:
      *        {
      *          'operations': list<operation>,       // the operations this projection covers
@@ -118,7 +118,7 @@ final class ContractProjection {
      *        surface that omits it refuses rather than silently degrading to
      *        the blunt path (AGENTS rule 9).
      * @param array<string,string> $targetProbe e.g. {"wordpress":"7.0.3","php":"8.3.33"}
-     * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document, or []
+     * @param array<string,mixed> $inventory a `wprism-assess-inventory/v1` document, or []
      *        when unavailable; its `policy.surface_groups` supply the
      *        surfaces the contract does not declare, so an undeclared group
      *        appears in the projection as the gap it is rather than being
@@ -173,7 +173,7 @@ final class ContractProjection {
         ];
     }
 
-    /** Canonical bytes, exactly as they land in `.duo/contract/projection.json`. */
+    /** Canonical bytes, exactly as they land in `.wprism/contract/projection.json`. */
     public static function encode(array $document): string {
         return Canon::encode($document);
     }
@@ -199,7 +199,7 @@ final class ContractProjection {
      * The rule, fail-closed by construction:
      *
      * - no observed pins supplied → `whole-contract` iff the registry moved.
-     *   This is the pre-DUO exact-invalidation behaviour, kept byte-identical
+     *   This is the pre-WPRISM exact-invalidation behaviour, kept byte-identical
      *   for callers that cannot observe pins.
      * - pins supplied and some adapter's digest moved (or the pinned set and
      *   the observed set disagree at all) → `exact`, scoped to those adapters.
@@ -497,7 +497,7 @@ final class ContractProjection {
      * "leave it local" widens nothing, claims nothing, and is the literal
      * remediation every unclassified row prints ("declare it out of scope in
      * the contract"). Before T6 the walk accepted exactly that decision for
-     * WPForms' tables and `duo release` then refused
+     * WPForms' tables and `wprism release` then refused
      * `release_surface_not_releasable` on `table:wpforms_analytics_forms`,
      * because the projection re-read the site facts and forgot the review.
      * The overlay is narrow on purpose: only runtime/preserve local, only an
@@ -667,7 +667,7 @@ final class ContractProjection {
         return new CommandRefusalException(
             $code,
             $message,
-            'regenerate the projection with duo assess, or re-accept a fresh proposal'
+            'regenerate the projection with wprism assess, or re-accept a fresh proposal'
         );
     }
 }

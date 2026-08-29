@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/EnvironmentDriver.php';
 
@@ -57,13 +57,13 @@ interface RecoveryTransport extends EnvironmentDriver {
      * `RollbackAuthority::status()`, which costs a target round trip. It is
      * the cheap, local predicate that decides whether the round trip happens,
      * and it exists so that widening the protocol beyond SSH cannot change
-     * one byte of `duo status`, `duo doctor` or `duo promote` output for an
+     * one byte of `wprism status`, `wprism doctor` or `wprism promote` output for an
      * environment that never opted in (AGENTS.md rule 8).
      *
      * SSH answers true unconditionally: adoption provisions the runtime on
-     * every SSH target (cli/src/Onboarding/Adopt.php), and `duo status` has
-     * reported its authority line since DUO-3293 whether or not the
-     * controller holds a signing key. A transport admitted later answers on
+     * every SSH target (cli/src/Onboarding/Adopt.php), and `wprism status`
+     * reports its authority line whether or not the controller holds a signing
+     * key. A transport admitted later answers on
      * its own opt-in configuration.
      */
     public function carriesRollbackAuthority(): bool;
@@ -108,8 +108,8 @@ interface RecoveryTransport extends EnvironmentDriver {
      * label distinguishes the two handoff shapes the authority sends —
      * `input` for `execute --input=` and `request` for the signed
      * receipt/event requests — and it is part of the wire: an offline fixture
-     * pins `/tmp/duo-rollback-request-*.json` by name
-     * (sandbox/tests/fixtures/duo3344-scoped-promote-unit.php:364).
+     * pins `/tmp/wprism-rollback-request-*.json` by name
+     * (sandbox/tests/fixtures/scoped-promote-unit.php:364).
      */
     public function allocateControlInput(string $label): string;
 

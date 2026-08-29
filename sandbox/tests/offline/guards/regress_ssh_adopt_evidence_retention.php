@@ -70,19 +70,19 @@ $check(
 // is asserted, not merely unmentioned: a harness that still pushed a
 // capabilities/ directory onto the target would be replacing the very library
 // the gate reads, which is exactly the bypass this check has always existed to
-// forbid. What remains is a read-only premise check on the library `duo adopt`
+// forbid. What remains is a read-only premise check on the library `wprism adopt`
 // itself installed.
 $scopedSay = 'say "the adopted target carries the reviewed embedded adapter library it will be gated on"';
 $scopedAt = strpos($harness, $scopedSay);
 $promoteLegAt = strpos($harness, 'say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"');
 $check(
     is_int($scopedAt) && is_int($promoteLegAt) && $scopedAt < $promoteLegAt
-        && str_contains($harness, '($p["format"]??null)!=="duo-platform-boundary/v1"')
+        && str_contains($harness, '($p["format"]??null)!=="wprism-platform-boundary/v1"')
         && str_contains($harness, 'count($v["evidence"]["tests"]??[])<1')
         && !str_contains($harness, 'HERMETIC_')
         && !str_contains($harness, 'certification_fixture.php')
         && !str_contains($harness, 'capability-registry.php')
-        && !str_contains(substr($harness, $scopedAt), 'DUO_MANIFESTS_DIR='),
+        && !str_contains(substr($harness, $scopedAt), 'WPRISM_MANIFESTS_DIR='),
     'scoped SSH promotion verifies the reviewed library the target was ADOPTED with, and stages, imports, or '
     . 'redirects nothing to get there'
 );
@@ -145,12 +145,12 @@ $check(
     'the diagnostic directory receives no key, config, credential, or unrelated evidence file'
 );
 
-$failureScopeMint = '"$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-failure-scope.json"';
-$refreshStart = strpos($harness, 'if ssh_fixture \'cd /var/www/html && wp duo refresh-export --repo=/home/duo/site --scope-contract=/home/duo/site/.duo3344-scope-chain.json --format=json\'');
-$priorFailure = "ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-failure --autoload=no >/dev/null'";
-$faultArm = "ssh_fixture 'touch /home/duo/recovery-fixture/duo3344-scoped-fault-active'";
-$planStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/duo3344-failure-scope.json"');
-$promoteStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json"');
+$failureScopeMint = '"$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-failure-scope.json"';
+$refreshStart = strpos($harness, 'if ssh_fixture \'cd /var/www/html && wp wprism refresh-export --repo=/home/wprism/site --scope-contract=/home/wprism/site/.scoped-apply-scope-chain.json --format=json\'');
+$priorFailure = "ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option prior-failure --autoload=no >/dev/null'";
+$faultArm = "ssh_fixture 'touch /home/wprism/recovery-fixture/scoped-apply-fault-active'";
+$planStart = strpos($harness, 'if "$WPRISM" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/scoped-apply-failure-scope.json"');
+$promoteStart = strpos($harness, 'if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-failure-scope.json"');
 $scopeMintAt = strpos($harness, $failureScopeMint);
 $priorFailureAt = strpos($harness, $priorFailure);
 $faultArmAt = strpos($harness, $faultArm);
@@ -165,24 +165,24 @@ $refreshEnd = $priorFailureAt;
 if (is_int($refreshStart) && is_int($refreshEnd) && $refreshStart < $refreshEnd) {
     $refreshCapture = substr($harness, $refreshStart, $refreshEnd - $refreshStart);
     $scopeHashDerivation = <<<'SH'
-FAILURE_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/duo3344-failure-scope.json")"
+FAILURE_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/scoped-apply-failure-scope.json")"
 SH;
     $sourceIdentityProjection = <<<'SH'
 jq -r '[(.live.roots // [])[], (.live.closure // [])[] | .entity] + [(.tombstones // [])[] | .uuid] | sort[]' \
-  "$TMP/duo3344-failure-scope.json" >"$TMP/duo3344-failure-scope-identities"
+  "$TMP/scoped-apply-failure-scope.json" >"$TMP/scoped-apply-failure-scope-identities"
 SH;
     $targetIdentityProjection = <<<'SH'
-jq -r '(.scope.selected_identities // [])[]' "$SCOPED_REFRESH_STDOUT" | LC_ALL=C sort >"$TMP/duo3344-refresh-identities"
+jq -r '(.scope.selected_identities // [])[]' "$SCOPED_REFRESH_STDOUT" | LC_ALL=C sort >"$TMP/scoped-apply-refresh-identities"
 SH;
-    $identityEqualityGate = 'diff -u "$TMP/duo3344-failure-scope-identities" "$TMP/duo3344-refresh-identities" >/dev/null';
+    $identityEqualityGate = 'diff -u "$TMP/scoped-apply-failure-scope-identities" "$TMP/scoped-apply-refresh-identities" >/dev/null';
     $check(
-        str_contains($refreshCapture, 'wp duo refresh-export --repo=/home/duo/site --scope-contract=/home/duo/site/.duo3344-scope-chain.json --format=json')
+        str_contains($refreshCapture, 'wp wprism refresh-export --repo=/home/wprism/site --scope-contract=/home/wprism/site/.scoped-apply-scope-chain.json --format=json')
             && str_contains($refreshCapture, '$SCOPED_REFRESH_STDOUT')
             && str_contains($refreshCapture, '$SCOPED_REFRESH_STDERR')
             && str_contains($refreshCapture, '$SCOPED_REFRESH_EXIT')
             && str_contains($refreshCapture, '.scope.scope_hash == $h')
-            && str_contains($refreshCapture, 'duo3344-failure-scope-identities')
-            && str_contains($refreshCapture, 'duo3344-refresh-identities')
+            && str_contains($refreshCapture, 'scoped-apply-failure-scope-identities')
+            && str_contains($refreshCapture, 'scoped-apply-refresh-identities')
             && str_contains($harness, $scopeHashDerivation)
             && str_contains($harness, $sourceIdentityProjection)
             && str_contains($refreshCapture, $targetIdentityProjection)
@@ -194,7 +194,7 @@ if (!is_int($planStart) || !is_int($promoteStart) || $planStart >= $promoteStart
     exit(1);
 }
 $planCapture = substr($harness, $planStart, $promoteStart - $planStart);
-$planRedirect = '"$DUO" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/duo3344-failure-scope.json" --format=json >"$SCOPED_PLAN_STDOUT" 2>"$SCOPED_PLAN_STDERR"';
+$planRedirect = '"$WPRISM" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/scoped-apply-failure-scope.json" --format=json >"$SCOPED_PLAN_STDOUT" 2>"$SCOPED_PLAN_STDERR"';
 $planExit = 'printf \'%s\\n\' "$SCOPED_PLAN_CODE" >"$SCOPED_PLAN_EXIT"';
 $check(
     str_contains($planCapture, $planRedirect)
@@ -206,8 +206,8 @@ $check(
     'the retained pre-promote plan uses only the public read-only scoped plan command and records its streams/exit'
 );
 
-$faultStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json"');
-$faultEnd = strpos($harness, "ssh_fixture 'rm -f /home/duo/recovery-fixture/duo3344-scoped-fault-active", is_int($faultStart) ? $faultStart : 0);
+$faultStart = strpos($harness, 'if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-failure-scope.json"');
+$faultEnd = strpos($harness, "ssh_fixture 'rm -f /home/wprism/recovery-fixture/scoped-apply-fault-active", is_int($faultStart) ? $faultStart : 0);
 $check(
     is_int($faultStart) && is_int($faultEnd) && $faultStart < $faultEnd,
     'the controlled scoped-promote fault has a bounded capture/status segment'
@@ -216,10 +216,10 @@ if (!is_int($faultStart) || !is_int($faultEnd) || $faultStart >= $faultEnd) {
     exit(1);
 }
 $faultCapture = substr($harness, $faultStart, $faultEnd - $faultStart);
-$promoteRedirect = '"$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json" >"$SCOPED_PROMOTE_STDOUT" 2>"$SCOPED_PROMOTE_STDERR"';
+$promoteRedirect = '"$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-failure-scope.json" >"$SCOPED_PROMOTE_STDOUT" 2>"$SCOPED_PROMOTE_STDERR"';
 $promoteExit = 'printf \'%s\\n\' "$FAILURE_CODE" >"$SCOPED_PROMOTE_EXIT"';
 $statusCapture = <<<'SH'
-ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php authority-status --root=/home/duo/site/.duo/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"
+ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"
 SH;
 $statusExit = 'printf \'%s\\n\' "$AUTHORITY_STATUS_CODE" >"$AUTHORITY_STATUS_EXIT"';
 $promoteAt = strpos($faultCapture, $promoteRedirect);
@@ -229,7 +229,7 @@ $statusExitAt = strpos($faultCapture, $statusExit);
 $check(
     is_int($promoteAt) && is_int($promoteExitAt) && is_int($statusAt) && is_int($statusExitAt)
         && $promoteAt < $promoteExitAt && $promoteExitAt < $statusAt && $statusAt < $statusExitAt
-        && !str_contains($faultCapture, 'rollback-control.php status --root=/home/duo/site/.duo/control'),
+        && !str_contains($faultCapture, 'rollback-control.php status --root=/home/wprism/site/.wprism/control'),
     'controlled promote streams and immediate raw authority-status streams/exits are captured in order without decorated recovery probes'
 );
 $check(
@@ -249,15 +249,15 @@ $rawStatusStart = strpos($harness, '[ "$AUTHORITY_STATUS_CODE" -eq 0 ]', $faultE
 $rawStatusEnd = strpos($harness, 'FAIL_EVIDENCE=', is_int($rawStatusStart) ? $rawStatusStart : 0);
 $check(
     is_int($rawStatusStart) && is_int($rawStatusEnd) && $rawStatusStart < $rawStatusEnd
-        && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.receipt_format == "duo-scoped-promotion-receipt/v1"')
+        && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.receipt_format == "wprism-scoped-promotion-receipt/v1"')
         && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.state == "rolled_back" and .terminal == true')
         && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.scope_hash == $h')
         && !str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), 'exclusion_state')
-        && str_contains($harness, "jq -e '.state == \"released\"' <<<\"$(ssh_fixture 'cat /home/duo/recovery-fixture/provider-state.json')\""),
+        && str_contains($harness, "jq -e '.state == \"released\"' <<<\"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')\""),
     'raw authority-status proves the signed terminal receipt while the existing provider-state assertion independently proves exclusion release'
 );
 
-$successPromoteStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-success-scope.json"');
+$successPromoteStart = strpos($harness, 'if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-success-scope.json"');
 $successStatusStart = strpos($harness, 'SUCCESS_STATUS=', is_int($successPromoteStart) ? $successPromoteStart : 0);
 $check(
     is_int($successPromoteStart) && is_int($successStatusStart) && $successPromoteStart < $successStatusStart,
@@ -267,7 +267,7 @@ if (!is_int($successPromoteStart) || !is_int($successStatusStart) || $successPro
     exit(1);
 }
 $successCapture = substr($harness, $successPromoteStart, $successStatusStart - $successPromoteStart);
-$successPromoteRedirect = '"$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-success-scope.json" --format=json >"$SCOPED_SUCCESS_PROMOTE_STDOUT" 2>"$SCOPED_SUCCESS_PROMOTE_STDERR"';
+$successPromoteRedirect = '"$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-success-scope.json" --format=json >"$SCOPED_SUCCESS_PROMOTE_STDOUT" 2>"$SCOPED_SUCCESS_PROMOTE_STDERR"';
 $successPromoteExit = 'printf \'%s\n\' "$SUCCESS_CODE" >"$SCOPED_SUCCESS_PROMOTE_EXIT"';
 $successReceiptInput = '\' "$SCOPED_SUCCESS_PROMOTE_STDOUT" >/dev/null';
 $check(
@@ -276,7 +276,7 @@ $check(
         && str_contains($successCapture, '[ "$SUCCESS_CODE" -eq 0 ]')
         && str_contains($successCapture, $successReceiptInput)
         && !str_contains($successCapture, 'SUCCESS_JSON=')
-        && !str_contains($successCapture, '$TMP/duo3344-success.err'),
+        && !str_contains($successCapture, '$TMP/scoped-apply-success.err'),
     'the committed scoped-promote retry retains private stdout, stderr, and exit before parsing its receipt directly from stdout'
 );
 foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_REFRESH_STDOUT', 'SCOPED_REFRESH_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
@@ -287,8 +287,8 @@ foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_REFRESH_STDOUT', '
 }
 $check(
     !str_contains($harness, 'cat "$TMP/driver-adopt.err"')
-        && !str_contains($harness, 'cat "$TMP/duo3344-success.err"')
-        && !str_contains($harness, '$TMP/duo3344-success.err')
+        && !str_contains($harness, 'cat "$TMP/scoped-apply-success.err"')
+        && !str_contains($harness, '$TMP/scoped-apply-success.err')
         && !str_contains($harness, 'SUCCESS_JSON='),
     'other local command diagnostics are likewise not catted into terminal/CI output or retained in secret scratch'
 );

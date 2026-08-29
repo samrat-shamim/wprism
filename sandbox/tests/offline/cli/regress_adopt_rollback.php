@@ -7,24 +7,24 @@ declare(strict_types=1);
  * The deterministic transport drives the complete product transaction through
  * archive creation, upload, and remote swap, then throws during the first
  * post-swap verification while the exact rollback command also fails. Before
- * DUO-3309, Adopt's finally block discarded that rollback result and surfaced
+ * issue #3309, Adopt's finally block discarded that rollback result and surfaced
  * only the verification exception.
  */
 
 // WP-4.12: the fixture transport below reports the agent version the remote
 // says it is running, and `Adopt::install()` compares it against the version
-// in THIS checkout. A literal there is a copy of `agent/duo.php`'s define, so
+// in THIS checkout. A literal there is a copy of `agent/wprism.php`'s define, so
 // it reads as an adoption failure the day the define moves rather than as a
 // stale fixture. Derived from the source of record instead.
 require dirname(__DIR__, 2) . '/lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php';
 require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
 require dirname(__DIR__, 4) . '/cli/src/Onboarding/Adopt.php';
 
-use Duo\Orchestrator\AdoptionTransport;
-use Duo\Orchestrator\Adopt;
+use WPrism\Orchestrator\AdoptionTransport;
+use WPrism\Orchestrator\Adopt;
 
 final class AdoptDoubleFailureTransport implements AdoptionTransport {
     /** @var list<string> */
@@ -46,13 +46,13 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
 
     public function captureRaw(string $script): array {
         $this->rawScripts[] = $script;
-        if ($script === 'echo duo-reachable') {
-            return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
+        if ($script === 'echo wprism-reachable') {
+            return ['exit' => 0, 'stdout' => "wprism-reachable\n", 'stderr' => ''];
         }
-        if (str_contains($script, 'duo-install-complete')) {
-            return ['exit' => 0, 'stdout' => "duo-repo-retained\nduo-install-complete\n", 'stderr' => ''];
+        if (str_contains($script, 'wprism-install-complete')) {
+            return ['exit' => 0, 'stdout' => "wprism-repo-retained\nwprism-install-complete\n", 'stderr' => ''];
         }
-        if (str_contains($script, 'txn=') && str_contains($script, '.duo-adopt-txn-')) {
+        if (str_contains($script, 'txn=') && str_contains($script, '.wprism-adopt-txn-')) {
             return ['exit' => 23, 'stdout' => '', 'stderr' => 'restore mv failed'];
         }
         if (str_starts_with($script, 'rm -f ')) {
@@ -71,8 +71,8 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
         }
         // Call 3 is the PRE-swap topology probe. Answered single-site so this
         // fixture still reaches the post-swap failure it exists to exercise.
-        if ($this->wpCalls === 3 && str_contains((string) ($wpArgs[1] ?? ''), 'duo-single-site')) {
-            return ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''];
+        if ($this->wpCalls === 3 && str_contains((string) ($wpArgs[1] ?? ''), 'wprism-single-site')) {
+            return ['exit' => 0, 'stdout' => "wprism-single-site\n", 'stderr' => ''];
         }
         if ($this->wpCalls === 4) {
             throw new \RuntimeException('post-swap verification exploded');
@@ -82,7 +82,7 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
 
     public function uploadFile(string $localPath, string $remotePath): array {
         $this->uploads++;
-        if (!is_file($localPath) || !str_starts_with($remotePath, '/tmp/duo-adopt-')) {
+        if (!is_file($localPath) || !str_starts_with($remotePath, '/tmp/wprism-adopt-')) {
             return ['exit' => 93, 'stdout' => '', 'stderr' => 'invalid upload fixture arguments'];
         }
         return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
@@ -111,25 +111,25 @@ final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
         return match ($this->wpCalls) {
             1 => ['exit' => 0, 'stdout' => '', 'stderr' => ''],
             2 => ['exit' => 0, 'stdout' => "/fixture/mu-plugins\n", 'stderr' => ''],
-            3 => ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''],
-            4 => ['exit' => 0, 'stdout' => DUO_AGENT_VERSION . "\n", 'stderr' => ''],
-            5 => ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''],
+            3 => ['exit' => 0, 'stdout' => "wprism-single-site\n", 'stderr' => ''],
+            4 => ['exit' => 0, 'stdout' => WPRISM_AGENT_VERSION . "\n", 'stderr' => ''],
+            5 => ['exit' => 0, 'stdout' => "wprism-policy-ok\n", 'stderr' => ''],
             default => ['exit' => 94, 'stdout' => '', 'stderr' => 'unexpected wp fixture call'],
         };
     }
     public function captureRaw(string $script): array {
         $this->rawScripts[] = $script;
-        if ($script === 'echo duo-reachable') {
-            return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
+        if ($script === 'echo wprism-reachable') {
+            return ['exit' => 0, 'stdout' => "wprism-reachable\n", 'stderr' => ''];
         }
-        if (str_contains($script, 'duo-install-complete')) {
-            return ['exit' => 0, 'stdout' => "duo-repo-retained\nduo-install-complete\n", 'stderr' => ''];
+        if (str_contains($script, 'wprism-install-complete')) {
+            return ['exit' => 0, 'stdout' => "wprism-repo-retained\nwprism-install-complete\n", 'stderr' => ''];
         }
         if (str_contains($script, 'rollback-control.php') && str_contains($script, ' status --root=')) {
             return ['exit' => 0, 'stdout' => "{}\n", 'stderr' => ''];
         }
-        if (str_contains($script, 'duo-adopt-commit-barrier')) {
-            return ['exit' => 0, 'stdout' => "duo-adopt-commit-barrier\n", 'stderr' => ''];
+        if (str_contains($script, 'wprism-adopt-commit-barrier')) {
+            return ['exit' => 0, 'stdout' => "wprism-adopt-commit-barrier\n", 'stderr' => ''];
         }
         if (str_contains($script, 'committed install retained partial backup cleanup evidence')) {
             return ['exit' => 73, 'stdout' => '', 'stderr' => 'fixture backup became undeletable'];
@@ -175,8 +175,8 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
         $this->muDir = $root . '/mu';
         $this->repo = $root . '/repo';
         $this->wp = $root . '/wordpress';
-        $source = file_get_contents($sourceRoot . '/agent/duo.php');
-        if (!is_string($source) || preg_match("/define\\(\\s*'DUO_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $source, $m) !== 1) {
+        $source = file_get_contents($sourceRoot . '/agent/wprism.php');
+        if (!is_string($source) || preg_match("/define\\(\\s*'WPRISM_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $source, $m) !== 1) {
             throw new \RuntimeException('could not read fixture agent version');
         }
         $this->version = $m[1];
@@ -186,16 +186,15 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
                 throw new \RuntimeException('could not create adoption filesystem fixture');
             }
         }
-        foreach ([$this->muDir . '/duo', $this->muDir . '/manifests', $this->repo . '/.duo'] as $path) {
+        foreach ([$this->muDir . '/wprism', $this->repo . '/.wprism'] as $path) {
             if (!mkdir($path, 0700, true) && !is_dir($path)) {
                 throw new \RuntimeException('could not create prior adoption surface');
             }
         }
-        file_put_contents($this->muDir . '/duo/legacy-agent.txt', "legacy-agent\n");
-        file_put_contents($this->muDir . '/duo-loader.php', "<?php // legacy loader\n");
-        file_put_contents($this->muDir . '/manifests/legacy.json', "{}\n");
-        file_put_contents($this->repo . '/.duo/legacy-state.txt', "legacy-state\n");
-        file_put_contents($this->repo . '/site.duo.json', "{}\n");
+        file_put_contents($this->muDir . '/wprism/legacy-agent.txt', "legacy-agent\n");
+        file_put_contents($this->muDir . '/wprism-loader.php', "<?php // legacy loader\n");
+        file_put_contents($this->repo . '/.wprism/legacy-state.txt', "legacy-state\n");
+        file_put_contents($this->repo . '/site.wprism.json', "{}\n");
         $this->writePopulationRebindCpShim($root . '/bin/cp');
         $this->writeCopyUnlinkMvShim($root . '/bin/mv');
     }
@@ -228,17 +227,17 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
             $environment = [];
         }
         $environment['PATH'] = $this->root . '/bin:' . ($environment['PATH'] ?? '/usr/bin:/bin');
-        $environment['DUO_ADOPT_FORCE_COPY_MOVE'] = $this->forceCopyUnlink ? '1' : '0';
-        $environment['DUO_ADOPT_FORCE_COPY_MOVE_ROOT'] = $this->root;
-        $environment['DUO_ADOPT_REBIND_LOADER_AFTER_POPULATION'] = $this->rebindLoaderAfterPopulation ? '1' : '0';
-        $environment['DUO_ADOPT_REBIND_LOCK_AFTER_CHILD_PUBLISH'] = $this->rebindLockAfterChildPublish ? '1' : '0';
-        $environment['DUO_ADOPT_REBIND_TXN_AFTER_CHILD_PUBLISH'] = $this->rebindTxnAfterChildPublish ? '1' : '0';
-        $environment['DUO_ADOPT_REBIND_ROOT'] = $this->root;
+        $environment['WPRISM_ADOPT_FORCE_COPY_MOVE'] = $this->forceCopyUnlink ? '1' : '0';
+        $environment['WPRISM_ADOPT_FORCE_COPY_MOVE_ROOT'] = $this->root;
+        $environment['WPRISM_ADOPT_REBIND_LOADER_AFTER_POPULATION'] = $this->rebindLoaderAfterPopulation ? '1' : '0';
+        $environment['WPRISM_ADOPT_REBIND_LOCK_AFTER_CHILD_PUBLISH'] = $this->rebindLockAfterChildPublish ? '1' : '0';
+        $environment['WPRISM_ADOPT_REBIND_TXN_AFTER_CHILD_PUBLISH'] = $this->rebindTxnAfterChildPublish ? '1' : '0';
+        $environment['WPRISM_ADOPT_REBIND_ROOT'] = $this->root;
         if ($this->interruptPhase === null) {
-            unset($environment['DUO_TEST_MODE'], $environment['DUO_TEST_ADOPT_FAIL_PHASE']);
+            unset($environment['WPRISM_TEST_MODE'], $environment['WPRISM_TEST_ADOPT_FAIL_PHASE']);
         } else {
-            $environment['DUO_TEST_MODE'] = '1';
-            $environment['DUO_TEST_ADOPT_FAIL_PHASE'] = $this->interruptPhase;
+            $environment['WPRISM_TEST_MODE'] = '1';
+            $environment['WPRISM_TEST_ADOPT_FAIL_PHASE'] = $this->interruptPhase;
         }
 
         $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
@@ -266,16 +265,16 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
         // The pre-swap topology probe. Plain `wp eval` in BOTH branches, never
         // CodeDeploy::controlArgs(): that bootstrap requires the installed
         // agent, which does not exist yet at this point.
-        if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'duo-single-site')) {
-            return ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''];
+        if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'wprism-single-site')) {
+            return ['exit' => 0, 'stdout' => "wprism-single-site\n", 'stderr' => ''];
         }
-        if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'DUO_AGENT_VERSION')) {
+        if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'WPRISM_AGENT_VERSION')) {
             return ['exit' => 0, 'stdout' => $this->version . "\n", 'stderr' => ''];
         }
         if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'Policy::load')) {
             return $this->failPolicy
-                ? ['exit' => 72, 'stdout' => '', 'stderr' => 'duo: invalid JSON: Syntax error']
-                : ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''];
+                ? ['exit' => 72, 'stdout' => '', 'stderr' => 'wprism: invalid JSON: Syntax error']
+                : ['exit' => 0, 'stdout' => "wprism-policy-ok\n", 'stderr' => ''];
         }
         return ['exit' => 96, 'stdout' => '', 'stderr' => 'unexpected isolated wp fixture command'];
     }
@@ -287,7 +286,7 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
             return ['exit' => 98, 'stdout' => '', 'stderr' => 'could not inspect isolated adoption archive'];
         }
         $this->uploadedMembers = array_values(array_filter($members, 'is_string'));
-        if (!is_file($localPath) || !str_starts_with($remotePath, '/tmp/duo-adopt-') || !copy($localPath, $remotePath)) {
+        if (!is_file($localPath) || !str_starts_with($remotePath, '/tmp/wprism-adopt-') || !copy($localPath, $remotePath)) {
             return ['exit' => 97, 'stdout' => '', 'stderr' => 'could not stage isolated adoption archive'];
         }
         $this->uploadedArchives[] = $remotePath;
@@ -297,10 +296,10 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
     private function writePopulationRebindCpShim(string $path): void {
         $script = <<<'SH'
 #!/bin/sh
-if [ "${DUO_ADOPT_REBIND_LOADER_AFTER_POPULATION:-}" = 1 ] && [ "$#" -eq 2 ]; then
-    fixture_root=${DUO_ADOPT_REBIND_ROOT:?}
+if [ "${WPRISM_ADOPT_REBIND_LOADER_AFTER_POPULATION:-}" = 1 ] && [ "$#" -eq 2 ]; then
+    fixture_root=${WPRISM_ADOPT_REBIND_ROOT:?}
     case "$2" in
-        "$fixture_root/mu/.duo-loader-new-"*)
+        "$fixture_root/mu/.wprism-loader-new-"*)
             /bin/cp "$@" || exit $?
             rebound="${2}.rebound-$$"
             [ ! -e "$rebound" ] && [ ! -L "$rebound" ] || exit 96
@@ -322,20 +321,20 @@ SH;
         $script = <<<'SH'
 #!/bin/sh
 if [ "$#" -eq 2 ]; then
-    fixture_root=${DUO_ADOPT_REBIND_ROOT:-}
+    fixture_root=${WPRISM_ADOPT_REBIND_ROOT:-}
     rebind_parent=""
     rebind_marker=""
-    if [ "${DUO_ADOPT_REBIND_LOCK_AFTER_CHILD_PUBLISH:-}" = 1 ]; then
+    if [ "${WPRISM_ADOPT_REBIND_LOCK_AFTER_CHILD_PUBLISH:-}" = 1 ]; then
         case "$2" in
-            "$fixture_root/mu/.duo-adopt-lock/"*)
-                rebind_parent="$fixture_root/mu/.duo-adopt-lock"
+            "$fixture_root/mu/.wprism-adopt-lock/"*)
+                rebind_parent="$fixture_root/mu/.wprism-adopt-lock"
                 rebind_marker="$fixture_root/lock-container-rebound"
                 ;;
         esac
     fi
-    if [ -z "$rebind_parent" ] && [ "${DUO_ADOPT_REBIND_TXN_AFTER_CHILD_PUBLISH:-}" = 1 ]; then
+    if [ -z "$rebind_parent" ] && [ "${WPRISM_ADOPT_REBIND_TXN_AFTER_CHILD_PUBLISH:-}" = 1 ]; then
         case "$2" in
-            "$fixture_root/mu/.duo-adopt-txn-"*/*)
+            "$fixture_root/mu/.wprism-adopt-txn-"*/*)
                 rebind_parent=${2%/*}
                 rebind_marker="$fixture_root/txn-container-rebound"
                 ;;
@@ -354,12 +353,12 @@ if [ "$#" -eq 2 ]; then
         exit 0
     fi
 fi
-if [ "${DUO_ADOPT_FORCE_COPY_MOVE:-}" = 1 ] && [ "$#" -eq 2 ]; then
-    fixture_root=${DUO_ADOPT_FORCE_COPY_MOVE_ROOT:?}
+if [ "${WPRISM_ADOPT_FORCE_COPY_MOVE:-}" = 1 ] && [ "$#" -eq 2 ]; then
+    fixture_root=${WPRISM_ADOPT_FORCE_COPY_MOVE_ROOT:?}
     case "$1" in
-        "$fixture_root/mu/duo"|"$fixture_root/mu/duo-loader.php"|"$fixture_root/mu/manifests"|"$fixture_root/repo/.duo"|\
-        "$fixture_root/mu/.duo-new-"*|"$fixture_root/mu/.duo-loader-new-"*|"$fixture_root/mu/.duo-manifests-new-"*|"$fixture_root/repo/.duo-new-"*|\
-        "$fixture_root/mu/.duo-old-"*|"$fixture_root/mu/.duo-loader-old-"*|"$fixture_root/mu/.duo-manifests-old-"*|"$fixture_root/repo/.duo-old-"*)
+        "$fixture_root/mu/wprism"|"$fixture_root/mu/wprism-loader.php"|"$fixture_root/repo/.wprism"|\
+        "$fixture_root/mu/.wprism-new-"*|"$fixture_root/mu/.wprism-loader-new-"*|"$fixture_root/repo/.wprism-new-"*|\
+        "$fixture_root/mu/.wprism-old-"*|"$fixture_root/mu/.wprism-loader-old-"*|"$fixture_root/repo/.wprism-old-"*)
             if [ -d "$1" ]; then
                 mkdir "$2" && cp -pR "$1/." "$2/" && rm -rf "$1"
             else
@@ -378,7 +377,7 @@ SH;
 }
 
 function adopt_remove_fixture(string $root): void {
-    $prefix = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-';
+    $prefix = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-';
     if (!str_starts_with($root, $prefix) || !is_dir($root)) {
         throw new \RuntimeException('refusing to remove an unexpected adoption fixture');
     }
@@ -445,7 +444,7 @@ $recoveryConfig = [
     'adapters' => [],
     'checkpoint_provider' => [PHP_BINARY, '/fixture/checkpoint-provider.php'],
     'exclusion_provider' => [PHP_BINARY, '/fixture/exclusion-provider.php'],
-    'format' => 'duo-recovery-config/v1',
+    'format' => 'wprism-recovery-config/v1',
     'timeout_seconds' => 5,
 ];
 $authorityInstall = (string) $installScript->invoke(
@@ -463,7 +462,7 @@ $controlConfigOffset = strpos($authorityInstall, 'scoped-promotion-control.json'
 $agentSwapOffset = strpos($authorityInstall, 'move_owned "$agent_new" "$agent" "$txn/agent_new.id" "$txn/agent_live_post.id"');
 adopt_check(
     is_int($controlConfigOffset) && is_int($agentSwapOffset) && $controlConfigOffset < $agentSwapOffset
-        && str_contains($authorityInstall, '"control_root":"/fixture/repo/.duo/control"')
+        && str_contains($authorityInstall, '"control_root":"/fixture/repo/.wprism/control"')
         && str_contains($authorityInstall, 'source artifact contains target-local scoped promotion configuration')
         && str_contains($authorityInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"')
         && str_contains($authorityInstall, '"$txn/rollback_ready"')
@@ -482,7 +481,7 @@ $ordinaryInstall = (string) $installScript->invoke(
     null
 );
 adopt_check(
-    !str_contains($ordinaryInstall, 'duo-scoped-promotion-control/v1')
+    !str_contains($ordinaryInstall, 'wprism-scoped-promotion-control/v1')
         && !str_contains($ordinaryInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"'),
     'adoption without a verified recovery configuration exposes no scoped-promotion trust root'
 );
@@ -510,25 +509,23 @@ adopt_assert_ordered(
     $ordinaryInstall,
     [
         'record_identity "$loader_new" "$txn/loader_new_construction.id"',
-        'cp "$stage/agent/duo-loader.php" "$loader_new"',
+        'cp "$stage/agent/wprism-loader.php" "$loader_new"',
         'record_identity "$loader_new" "$txn/loader_new.id"',
     ],
     'the loader publish proof follows its content population'
 );
 adopt_check(
-    str_contains($ordinaryInstall, 'move_owned "$manifest" "$manifest_old"')
-        && str_contains($ordinaryInstall, 'complete_retirement "$txn/manifest_move_intent"')
-        && !str_contains($ordinaryInstall, 'manifest_new')
+    !str_contains($ordinaryInstall, 'manifest_new')
         && !str_contains($ordinaryInstall, '$stage/manifests/.'),
-    'the flat manifest tree is a journaled retirement surface, never a new publish source'
+    'adoption publishes only the staged embedded adapter-library and control authority surfaces'
 );
 adopt_assert_ordered(
     $authorityInstall,
     [
-        'record_identity "$duo_new" "$txn/duo_new_construction.id"',
+        'record_identity "$wprism_new" "$txn/wprism_new_construction.id"',
         'cp -R "$stage/recovery" "$runtime_new"',
         'recovery-probe --root="$control_new"',
-        'record_identity "$duo_new" "$txn/duo_new.id"',
+        'record_identity "$wprism_new" "$txn/wprism_new.id"',
     ],
     'the authority publish proof follows state copy, runtime initialization, and recovery configuration'
 );
@@ -567,9 +564,9 @@ adopt_check(
 adopt_check($transport->uploads === 1, 'the regression reaches the product archive-upload boundary');
 adopt_check(
     count(array_filter($transport->rawScripts, static fn(string $script): bool =>
-        !str_contains($script, 'duo-install-complete')
+        !str_contains($script, 'wprism-install-complete')
             && str_contains($script, 'txn=')
-            && str_contains($script, '.duo-adopt-txn-'))) === 1,
+            && str_contains($script, '.wprism-adopt-txn-'))) === 1,
     'the exception path attempts the exact adoption rollback once'
 );
 adopt_check(
@@ -594,7 +591,7 @@ $barrierIndex = null;
 $cleanupIndex = null;
 $cleanupScript = null;
 foreach ($cleanupTransport->rawScripts as $index => $script) {
-    if (str_contains($script, 'duo-adopt-commit-barrier')) {
+    if (str_contains($script, 'wprism-adopt-commit-barrier')) {
         $barrierIndex = $index;
     }
     if (str_contains($script, 'committed install retained partial backup cleanup evidence')) {
@@ -608,11 +605,11 @@ adopt_check(
 );
 adopt_check(
     is_string($cleanupScript)
-        && strpos($cleanupScript, 'assert_journal_ready || { echo \'duo adopt: committed cleanup journal is incomplete\'')
-            < strpos($cleanupScript, 'assert_revocation_retirement_safe || { echo \'duo adopt: committed install retained')
-        && strpos($cleanupScript, 'assert_revocation_retirement_safe || { echo \'duo adopt: committed install retained')
-            < strpos($cleanupScript, 'rm -rf \'/fixture/mu-plugins/.duo-manifests-old-'),
-    'committed cleanup preflights every root and the durable revocation bridge before deleting the legacy library'
+        && strpos($cleanupScript, 'assert_journal_ready || { echo \'wprism adopt: committed cleanup journal is incomplete\'')
+            < strpos($cleanupScript, 'if [ -e "$txn/had_wprism"')
+        && strpos($cleanupScript, 'if [ -e "$txn/had_wprism"')
+            < strpos($cleanupScript, 'rm -rf \'/fixture/repo/.wprism-old-'),
+    'committed cleanup preflights the journal before deleting canonical staged backups'
 );
 
 $rollbackScript = (string) (new ReflectionMethod(Adopt::class, 'rollbackScript'))->invoke(
@@ -621,27 +618,27 @@ $rollbackScript = (string) (new ReflectionMethod(Adopt::class, 'rollbackScript')
     '/fixture/repo',
     '0123456789abcdef01234567'
 );
-$rollbackPreflight = strpos($rollbackScript, 'assert_journal_ready || { echo \'duo adopt: transaction journal is incomplete before rollback');
+$rollbackPreflight = strpos($rollbackScript, 'assert_journal_ready || { echo \'wprism adopt: transaction journal is incomplete before rollback');
 $firstRollbackDelete = strpos($rollbackScript, 'remove_owned ');
 adopt_check(
     is_int($rollbackPreflight) && is_int($firstRollbackDelete) && $rollbackPreflight < $firstRollbackDelete
         && str_contains($rollbackScript, 'transaction has crossed the commit barrier; retained evidence for operator recovery')
-        && str_contains($rollbackScript, 'duo_live_post.id')
-        && str_contains($rollbackScript, 'duo_old_post.id'),
+        && str_contains($rollbackScript, 'wprism_live_post.id')
+        && str_contains($rollbackScript, 'wprism_old_post.id'),
     'rollback preflights the complete post-move journal before its first deletion and refuses a crossed commit barrier'
 );
 adopt_assert_ordered(
     $rollbackScript,
     [
-        'restore_owned \'/fixture/mu-plugins/.duo-manifests-old-',
-        'remove_owned \'/fixture/mu-plugins/duo-loader.php\'',
-        'remove_owned \'/fixture/mu-plugins/duo\'',
+        'restore_owned \'/fixture/repo/.wprism-old-',
+        'remove_owned \'/fixture/mu-plugins/wprism-loader.php\'',
+        'remove_owned \'/fixture/mu-plugins/wprism\'',
     ],
     'rollback restores the legacy library before it can restore the old loader and agent'
 );
 
 $sourceRoot = dirname(__DIR__, 4);
-$filesystemFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+$filesystemFixture = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-' . bin2hex(random_bytes(8));
 register_shutdown_function(static function () use ($filesystemFixture): void {
     if (is_dir($filesystemFixture)) {
         adopt_remove_fixture($filesystemFixture);
@@ -652,7 +649,7 @@ $filesystemTransport = new AdoptFilesystemTransactionTransport($filesystemFixtur
 $firstInstall = Adopt::install($filesystemTransport, $sourceRoot);
 adopt_check($firstInstall['exit'] === 0, 'the real generated filesystem transaction installs an initial update');
 adopt_check(
-    is_file($filesystemTransport->muDir() . '/duo/adapter-library/platform/core/manifest.json')
+    is_file($filesystemTransport->muDir() . '/wprism/adapter-library/platform/core/manifest.json')
         && !file_exists($filesystemTransport->muDir() . '/manifests')
         && !is_link($filesystemTransport->muDir() . '/manifests'),
     'a committed update embeds the library in the agent and retires the flat library'
@@ -673,58 +670,15 @@ $secondInstall = Adopt::install($filesystemTransport, $sourceRoot);
 adopt_check($secondInstall['exit'] === 0, 'the real generated filesystem transaction supports an idempotent update');
 adopt_check(!file_exists($filesystemTransport->muDir() . '/manifests'), 'an embedded-library update does not recreate flat manifests');
 
-$revocationFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
-register_shutdown_function(static function () use ($revocationFixture): void {
-    if (is_dir($revocationFixture)) {
-        adopt_remove_fixture($revocationFixture);
-    }
-});
-$revocationTransport = new AdoptFilesystemTransactionTransport($revocationFixture, $sourceRoot);
-$revocationMu = $revocationTransport->muDir();
-mkdir($revocationMu . '/manifests/capabilities', 0700, true);
-$revocationBytes = "{\"format\":\"fixture-revocations\"}\n";
-file_put_contents($revocationMu . '/manifests/capabilities/adapter-revocations.json', $revocationBytes);
-$beforeRevocationRefusal = adopt_tree_hash($revocationFixture);
-$missingDurable = Adopt::install($revocationTransport, $sourceRoot);
-adopt_check(
-    $missingDurable['exit'] !== 0
-        && $missingDurable['phase'] === 'remote install'
-        && str_contains($missingDurable['stderr'], 'legacy adapter revocations require a byte-identical durable duo-control copy'),
-    'cutover refuses a legacy revocation before the durable control copy exists'
-);
-adopt_check(
-    adopt_tree_hash($revocationFixture) === $beforeRevocationRefusal,
-    'the missing durable-revocation refusal changes no target bytes'
-);
-mkdir($revocationMu . '/duo-control', 0700);
-file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', "mismatch\n");
-$mismatchedDurable = Adopt::install($revocationTransport, $sourceRoot);
-adopt_check(
-    $mismatchedDurable['exit'] !== 0
-        && str_contains($mismatchedDurable['stderr'], 'legacy adapter revocations require a byte-identical durable duo-control copy'),
-    'cutover refuses a durable revocation whose bytes disagree with the legacy channel'
-);
-file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', $revocationBytes);
-$migratedRevocation = Adopt::install($revocationTransport, $sourceRoot);
-adopt_check(
-    $migratedRevocation['exit'] === 0
-        && !file_exists($revocationMu . '/manifests')
-        && file_get_contents($revocationMu . '/duo-control/adapter-revocations.json') === $revocationBytes,
-    'a byte-identical durable revocation survives the committed flat-library retirement'
-);
-
 $mu = $filesystemTransport->muDir();
 $repo = $filesystemTransport->repoPath();
-file_put_contents($mu . '/duo/rollback-sentinel.txt', "prior-agent\n");
-file_put_contents($mu . '/duo-loader.php', "<?php // prior loader\n");
-mkdir($mu . '/manifests', 0700);
-file_put_contents($mu . '/manifests/rollback-sentinel.json', "{\"prior\":true}\n");
-file_put_contents($repo . '/.duo/rollback-sentinel.txt', "prior-duo-state\n");
+file_put_contents($mu . '/wprism/rollback-sentinel.txt', "prior-agent\n");
+file_put_contents($mu . '/wprism-loader.php', "<?php // prior loader\n");
+file_put_contents($repo . '/.wprism/rollback-sentinel.txt', "prior-wprism-state\n");
 $priorRoots = [
-    'agent' => file_get_contents($mu . '/duo/rollback-sentinel.txt'),
-    'loader' => file_get_contents($mu . '/duo-loader.php'),
-    'manifest' => file_get_contents($mu . '/manifests/rollback-sentinel.json'),
-    'duo_state' => file_get_contents($repo . '/.duo/rollback-sentinel.txt'),
+    'agent' => file_get_contents($mu . '/wprism/rollback-sentinel.txt'),
+    'loader' => file_get_contents($mu . '/wprism-loader.php'),
+    'wprism_state' => file_get_contents($repo . '/.wprism/rollback-sentinel.txt'),
 ];
 
 $filesystemTransport->forceCopyUnlink = true;
@@ -739,18 +693,17 @@ adopt_check(
     'post-move proofs rebind every copied root so rollback remains confirmed'
 );
 adopt_check(
-    file_get_contents($mu . '/duo/rollback-sentinel.txt') === $priorRoots['agent']
-        && file_get_contents($mu . '/duo-loader.php') === $priorRoots['loader']
-        && file_get_contents($mu . '/manifests/rollback-sentinel.json') === $priorRoots['manifest']
-        && file_get_contents($repo . '/.duo/rollback-sentinel.txt') === $priorRoots['duo_state'],
-    'copy-unlink policy rollback restores all four exact prior roots'
+    file_get_contents($mu . '/wprism/rollback-sentinel.txt') === $priorRoots['agent']
+        && file_get_contents($mu . '/wprism-loader.php') === $priorRoots['loader']
+        && file_get_contents($repo . '/.wprism/rollback-sentinel.txt') === $priorRoots['wprism_state'],
+    'copy-unlink policy rollback restores all three exact prior roots'
 );
 adopt_check(
-    !is_dir($mu . '/.duo-adopt-lock') && (glob($mu . '/.duo-adopt-txn-*') ?: []) === [],
+    !is_dir($mu . '/.wprism-adopt-lock') && (glob($mu . '/.wprism-adopt-txn-*') ?: []) === [],
     'a confirmed copy-unlink rollback removes only its completed transaction evidence'
 );
 
-$populationFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+$populationFixture = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-' . bin2hex(random_bytes(8));
 register_shutdown_function(static function () use ($populationFixture): void {
     if (is_dir($populationFixture)) {
         adopt_remove_fixture($populationFixture);
@@ -762,10 +715,9 @@ $populationTransport->failPolicy = true;
 $populationMu = $populationTransport->muDir();
 $populationRepo = $populationTransport->repoPath();
 $populationPriorRoots = [
-    'agent' => file_get_contents($populationMu . '/duo/legacy-agent.txt'),
-    'loader' => file_get_contents($populationMu . '/duo-loader.php'),
-    'manifest' => file_get_contents($populationMu . '/manifests/legacy.json'),
-    'duo_state' => file_get_contents($populationRepo . '/.duo/legacy-state.txt'),
+    'agent' => file_get_contents($populationMu . '/wprism/legacy-agent.txt'),
+    'loader' => file_get_contents($populationMu . '/wprism-loader.php'),
+    'wprism_state' => file_get_contents($populationRepo . '/.wprism/legacy-state.txt'),
 ];
 $populationResult = Adopt::install($populationTransport, $sourceRoot);
 adopt_check(
@@ -783,15 +735,14 @@ adopt_check(
     'the final loader source proof permits a confirmed rollback after a populated-loader inode rebind'
 );
 adopt_check(
-    file_get_contents($populationMu . '/duo/legacy-agent.txt') === $populationPriorRoots['agent']
-        && file_get_contents($populationMu . '/duo-loader.php') === $populationPriorRoots['loader']
-        && file_get_contents($populationMu . '/manifests/legacy.json') === $populationPriorRoots['manifest']
-        && file_get_contents($populationRepo . '/.duo/legacy-state.txt') === $populationPriorRoots['duo_state'],
-    'the populated-loader rebind rollback restores all four exact prior roots'
+    file_get_contents($populationMu . '/wprism/legacy-agent.txt') === $populationPriorRoots['agent']
+        && file_get_contents($populationMu . '/wprism-loader.php') === $populationPriorRoots['loader']
+        && file_get_contents($populationRepo . '/.wprism/legacy-state.txt') === $populationPriorRoots['wprism_state'],
+    'the populated-loader rebind rollback restores all three exact prior roots'
 );
 adopt_check(
-    !is_dir($populationMu . '/.duo-adopt-lock')
-        && (glob($populationMu . '/.duo-adopt-txn-*') ?: []) === [],
+    !is_dir($populationMu . '/.wprism-adopt-lock')
+        && (glob($populationMu . '/.wprism-adopt-txn-*') ?: []) === [],
     'the populated-loader rebind does not retain a completed rollback journal'
 );
 
@@ -804,17 +755,17 @@ adopt_check(
         && str_contains($interruptedInstall['stderr'], 'incomplete surface-move journal retained for operator recovery'),
     'an interruption after the move but before its post-proof retains the transaction for recovery'
 );
-$interruptedTransactions = glob($mu . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+$interruptedTransactions = glob($mu . '/.wprism-adopt-txn-*', GLOB_ONLYDIR) ?: [];
 adopt_check(count($interruptedTransactions) === 1, 'the interrupted transaction journal remains present');
 $interruptedTxn = $interruptedTransactions[0];
-$interruptedToken = substr(basename($interruptedTxn), strlen('.duo-adopt-txn-'));
+$interruptedToken = substr(basename($interruptedTxn), strlen('.wprism-adopt-txn-'));
 adopt_check(
-    is_dir($mu . '/.duo-adopt-lock')
+    is_dir($mu . '/.wprism-adopt-lock')
         && is_file($interruptedTxn . '/agent_move_intent')
         && is_file($interruptedTxn . '/agent_old_post.id')
         && !file_exists($interruptedTxn . '/agent_live_post.id')
-        && is_dir($mu . '/.duo-old-' . $interruptedToken)
-        && file_get_contents($mu . '/.duo-old-' . $interruptedToken . '/rollback-sentinel.txt') === $priorRoots['agent'],
+        && is_dir($mu . '/.wprism-old-' . $interruptedToken)
+        && file_get_contents($mu . '/.wprism-old-' . $interruptedToken . '/rollback-sentinel.txt') === $priorRoots['agent'],
     'the interrupted before-postproof state retains old backup, intent, lock, and immutable evidence without deletion'
 );
 
@@ -826,12 +777,12 @@ adopt_check(
     'the next adoption refuses an incomplete journal instead of guessing a rollback'
 );
 adopt_check(
-    is_dir($mu . '/.duo-adopt-lock') && is_dir($interruptedTxn)
-        && is_dir($mu . '/.duo-old-' . $interruptedToken),
+    is_dir($mu . '/.wprism-adopt-lock') && is_dir($interruptedTxn)
+        && is_dir($mu . '/.wprism-old-' . $interruptedToken),
     'the refusal leaves the interrupted evidence untouched'
 );
 
-$commitFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+$commitFixture = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-' . bin2hex(random_bytes(8));
 register_shutdown_function(static function () use ($commitFixture): void {
     if (is_dir($commitFixture)) {
         adopt_remove_fixture($commitFixture);
@@ -844,11 +795,11 @@ adopt_check(
     $commitResult['exit'] === 0 && str_contains($commitResult['stderr'], 'retained adoption cleanup evidence for operator recovery'),
     'a response-loss fixture retains a committed transaction after the remote commit barrier'
 );
-$commitTransactions = glob($commitTransport->muDir() . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+$commitTransactions = glob($commitTransport->muDir() . '/.wprism-adopt-txn-*', GLOB_ONLYDIR) ?: [];
 adopt_check(count($commitTransactions) === 1 && is_file($commitTransactions[0] . '/commit_started'), 'the retained transaction records its commit barrier');
 $commitTxn = $commitTransactions[0];
-$commitToken = substr(basename($commitTxn), strlen('.duo-adopt-txn-'));
-$commitAgent = $commitTransport->muDir() . '/duo/duo.php';
+$commitToken = substr(basename($commitTxn), strlen('.wprism-adopt-txn-'));
+$commitAgent = $commitTransport->muDir() . '/wprism/wprism.php';
 $committedAgentSource = file_get_contents($commitAgent);
 $commitRollback = (string) (new ReflectionMethod(Adopt::class, 'rollbackScript'))->invoke(
     null,
@@ -861,11 +812,11 @@ adopt_check(
     $commitRollbackResult['exit'] !== 0
         && str_contains($commitRollbackResult['stderr'], 'transaction has crossed the commit barrier')
         && file_get_contents($commitAgent) === $committedAgentSource
-        && is_dir($commitTransport->muDir() . '/.duo-old-' . $commitToken),
+        && is_dir($commitTransport->muDir() . '/.wprism-old-' . $commitToken),
     'response loss after commit refuses rollback without mutating live roots or backups'
 );
 
-$lockContainerFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+$lockContainerFixture = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-' . bin2hex(random_bytes(8));
 register_shutdown_function(static function () use ($lockContainerFixture): void {
     if (is_dir($lockContainerFixture)) {
         adopt_remove_fixture($lockContainerFixture);
@@ -875,7 +826,7 @@ $lockContainerTransport = new AdoptFilesystemTransactionTransport($lockContainer
 $lockContainerTransport->rebindLockAfterChildPublish = true;
 $lockContainerResult = Adopt::install($lockContainerTransport, $sourceRoot);
 $lockContainerMu = $lockContainerTransport->muDir();
-$lockContainerTxns = glob($lockContainerMu . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+$lockContainerTxns = glob($lockContainerMu . '/.wprism-adopt-txn-*', GLOB_ONLYDIR) ?: [];
 adopt_check(
     is_file($lockContainerFixture . '/lock-container-rebound'),
     'the fixture rebinds the lock container after an immutable child proof is published'
@@ -884,18 +835,18 @@ adopt_check(
     $lockContainerResult['exit'] !== 0
         && $lockContainerResult['phase'] === 'install commit'
         && str_contains($lockContainerResult['stderr'], 'transaction identity changed before commit')
-        && str_contains($lockContainerResult['stderr'], 'adoption rollback could not be confirmed: duo adopt: transaction lock identity changed before rollback'),
+        && str_contains($lockContainerResult['stderr'], 'adoption rollback could not be confirmed: wprism adopt: transaction lock identity changed before rollback'),
     'a rebinding lock container fails both commit and rollback rather than weakening its ownership fence'
 );
 adopt_check(
-    is_dir($lockContainerMu . '/.duo-adopt-lock')
+    is_dir($lockContainerMu . '/.wprism-adopt-lock')
         && count($lockContainerTxns) === 1
-        && is_file($lockContainerMu . '/duo/duo.php')
-        && count(glob($lockContainerMu . '/.duo-old-*', GLOB_ONLYDIR) ?: []) === 1,
+        && is_file($lockContainerMu . '/wprism/wprism.php')
+        && count(glob($lockContainerMu . '/.wprism-old-*', GLOB_ONLYDIR) ?: []) === 1,
     'a rebinding lock container retains live roots, backups, lock, and journal for operator recovery'
 );
 
-$txnContainerFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+$txnContainerFixture = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-' . bin2hex(random_bytes(8));
 register_shutdown_function(static function () use ($txnContainerFixture): void {
     if (is_dir($txnContainerFixture)) {
         adopt_remove_fixture($txnContainerFixture);
@@ -905,7 +856,7 @@ $txnContainerTransport = new AdoptFilesystemTransactionTransport($txnContainerFi
 $txnContainerTransport->rebindTxnAfterChildPublish = true;
 $txnContainerResult = Adopt::install($txnContainerTransport, $sourceRoot);
 $txnContainerMu = $txnContainerTransport->muDir();
-$txnContainerTxns = glob($txnContainerMu . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+$txnContainerTxns = glob($txnContainerMu . '/.wprism-adopt-txn-*', GLOB_ONLYDIR) ?: [];
 adopt_check(
     is_file($txnContainerFixture . '/txn-container-rebound'),
     'the fixture rebinds the transaction container after a journal child proof is published'
@@ -914,14 +865,14 @@ adopt_check(
     $txnContainerResult['exit'] !== 0
         && $txnContainerResult['phase'] === 'install commit'
         && str_contains($txnContainerResult['stderr'], 'transaction identity changed before commit')
-        && str_contains($txnContainerResult['stderr'], 'adoption rollback could not be confirmed: duo adopt: transaction journal identity changed before rollback'),
+        && str_contains($txnContainerResult['stderr'], 'adoption rollback could not be confirmed: wprism adopt: transaction journal identity changed before rollback'),
     'a rebinding transaction container fails both commit and rollback rather than weakening its journal fence'
 );
 adopt_check(
-    is_dir($txnContainerMu . '/.duo-adopt-lock')
+    is_dir($txnContainerMu . '/.wprism-adopt-lock')
         && count($txnContainerTxns) === 1
-        && is_file($txnContainerMu . '/duo/duo.php')
-        && count(glob($txnContainerMu . '/.duo-old-*', GLOB_ONLYDIR) ?: []) === 1,
+        && is_file($txnContainerMu . '/wprism/wprism.php')
+        && count(glob($txnContainerMu . '/.wprism-old-*', GLOB_ONLYDIR) ?: []) === 1,
     'a rebinding transaction container retains live roots, backups, lock, and journal for operator recovery'
 );
 

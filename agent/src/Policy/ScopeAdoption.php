@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * What an adapter's declarations mean for a site's authored scope, and what
@@ -31,9 +31,9 @@ namespace Duo;
  * outranks every manifest ("Site policy always wins", docs/guides/
  * adapter-authoring.md §Precedence; `Policy::post_type_rule_details()`:1841
  * returns the site rule before it ever looks at a manifest). Two different
- * acts write byte-identical `{"class":"runtime"}` there — `duo classify
+ * acts write byte-identical `{"class":"runtime"}` there — `wprism classify
  * --set=scope:<kind>:<name>=runtime` through `Policy::set_rule()`
- * (Policy.php:2801) and `duo init --allow-unmanaged-plugins` recording an
+ * (Policy.php:2801) and `wprism init --allow-unmanaged-plugins` recording an
  * unmanaged plugin's rowful type (`InitPlanner::unmanaged_scope()`:640) — and
  * the grammar admits no third key that could tell them apart
  * (Policy.php:2794: "scope rules accept class only"). So provenance is NOT
@@ -52,7 +52,7 @@ final class ScopeAdoption {
     /** Already authored, by a site rule or by the site's flat opt-in list. */
     public const SETTLED = 'settled';
 
-    /** site.duo.json's flat per-kind opt-in list. */
+    /** site.wprism.json's flat per-kind opt-in list. */
     private const FLAT = ['post_type' => 'post_types', 'taxonomy' => 'taxonomies'];
 
     /**
@@ -91,7 +91,7 @@ final class ScopeAdoption {
      * print the same bytes.
      *
      * @param array<string,mixed> $manifest the adapter being adopted
-     * @param array<string,mixed> $site     decoded site.duo.json
+     * @param array<string,mixed> $site     decoded site.wprism.json
      * @return list<array{kind:string,name:string,state:string,class:?string,pointer:string,spec:string}>
      */
     public static function plan(array $manifest, array $site): array {
@@ -133,7 +133,7 @@ final class ScopeAdoption {
         return "policy.scope.$kind.$name";
     }
 
-    /** The `wp duo classify --set` spec that makes this surface authored. */
+    /** The `wp wprism classify --set` spec that makes this surface authored. */
     public static function classify_spec(string $kind, string $name): string {
         return "scope:$kind:$name=authored";
     }
@@ -143,7 +143,7 @@ final class ScopeAdoption {
      *
      * It names the entry that is blocking and the one command that changes
      * it, because the coordinates alone (`classification=runtime
-     * declared_by=site.duo.json`) named neither — DUO-3495's walkthrough
+     * declared_by=site.wprism.json`) named neither — issue #3495's walkthrough
      * needed two more hand-edits to find out which.
      *
      * Value-free by construction: a repository path never enters it, so the
@@ -152,9 +152,9 @@ final class ScopeAdoption {
      * when one field is sensitive) and reaches a `--format=json` caller.
      */
     public static function scope_class_remedy(string $kind, string $name, string $class, ?string $source): string {
-        $set = "wp duo classify --repo=<repo> --set='" . self::classify_spec($kind, $name) . "'";
-        if ($source === 'site.duo.json') {
-            return 'site.duo.json ' . self::pointer($kind, $name) . " records class $class, which outranks every "
+        $set = "wp wprism classify --repo=<repo> --set='" . self::classify_spec($kind, $name) . "'";
+        if ($source === 'site.wprism.json') {
+            return 'site.wprism.json ' . self::pointer($kind, $name) . " records class $class, which outranks every "
                 . "manifest; run $set to manage this $kind here, or delete that entry to fall back to the "
                 . 'adapter declaration';
         }

@@ -201,7 +201,7 @@ function ecommerce_extension_child_expect_throw(callable $callback, string $labe
 
 function ecommerce_extension_child_reset(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
     global $fakeOptions, $fakeOptionWriteFailures, $fakeActivation;
-    $fakeOptions = ['duo_commerce_extension_gateway_secret' => 'unit-test-secret'];
+    $fakeOptions = ['wprism_commerce_extension_gateway_secret' => 'unit-test-secret'];
     $fakeOptionWriteFailures = [];
     $GLOBALS['fakeOptionReadFailures'] = [];
     $wpdb->shape = null;
@@ -215,39 +215,39 @@ function ecommerce_extension_child_reset(EcommerceExtensionMigrationFakeWpdb $wp
 function ecommerce_extension_child_set_v1(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
     global $fakeOptions;
     $wpdb->shape = $wpdb->v1Shape;
-    $fakeOptions['duo_commerce_extension_settings'] = 'retail';
-    $fakeOptions['duo_commerce_extension_schema'] = 1;
+    $fakeOptions['wprism_commerce_extension_settings'] = 'retail';
+    $fakeOptions['wprism_commerce_extension_schema'] = 1;
 }
 
 function ecommerce_extension_child_set_v2(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
     global $fakeOptions;
     $wpdb->shape = $wpdb->v2Shape;
-    $fakeOptions['duo_commerce_extension_settings'] = [
+    $fakeOptions['wprism_commerce_extension_settings'] = [
         'schema' => 2,
         'channel' => 'retail',
         'catalog_mode' => 'managed',
     ];
-    $fakeOptions['duo_commerce_extension_schema'] = 2;
+    $fakeOptions['wprism_commerce_extension_schema'] = 2;
 }
 
 function ecommerce_extension_child_set_no_state(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
     global $fakeOptions;
     $wpdb->shape = null;
-    unset($fakeOptions['duo_commerce_extension_settings'], $fakeOptions['duo_commerce_extension_schema']);
+    unset($fakeOptions['wprism_commerce_extension_settings'], $fakeOptions['wprism_commerce_extension_schema']);
 }
 
 function ecommerce_extension_child_assert_v1(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
     global $fakeOptions;
     ecommerce_extension_child_check(
-        duo_commerce_extension_table_shape(false) === duo_commerce_extension_expected_table_shape(false),
+        wprism_commerce_extension_table_shape(false) === wprism_commerce_extension_expected_table_shape(false),
         'expected exact normalized v1 table shape'
     );
     ecommerce_extension_child_check(
-        ($fakeOptions['duo_commerce_extension_settings'] ?? null) === 'retail',
+        ($fakeOptions['wprism_commerce_extension_settings'] ?? null) === 'retail',
         'expected scalar v1 settings'
     );
     ecommerce_extension_child_check(
-        ($fakeOptions['duo_commerce_extension_schema'] ?? null) === 1,
+        ($fakeOptions['wprism_commerce_extension_schema'] ?? null) === 1,
         'expected schema 1'
     );
 }
@@ -255,16 +255,16 @@ function ecommerce_extension_child_assert_v1(EcommerceExtensionMigrationFakeWpdb
 function ecommerce_extension_child_assert_v2(EcommerceExtensionMigrationFakeWpdb $wpdb): void {
     global $fakeOptions;
     ecommerce_extension_child_check(
-        duo_commerce_extension_table_shape(true) === duo_commerce_extension_expected_table_shape(true),
+        wprism_commerce_extension_table_shape(true) === wprism_commerce_extension_expected_table_shape(true),
         'expected exact normalized v2 table shape'
     );
     ecommerce_extension_child_check(
-        ($fakeOptions['duo_commerce_extension_settings'] ?? null)
+        ($fakeOptions['wprism_commerce_extension_settings'] ?? null)
             === ['schema' => 2, 'channel' => 'retail', 'catalog_mode' => 'managed'],
         'expected exact v2 settings'
     );
     ecommerce_extension_child_check(
-        ($fakeOptions['duo_commerce_extension_schema'] ?? null) === 2,
+        ($fakeOptions['wprism_commerce_extension_schema'] ?? null) === 2,
         'expected schema 2'
     );
 }
@@ -283,41 +283,41 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_set_no_state($wpdb);
             $wpdb->failCreate = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_install_v1(),
+                static fn(): mixed => wprism_commerce_extension_install_v1(),
                 'v1 CREATE fault'
             );
             ecommerce_extension_child_check($wpdb->shape === null, 'v1 CREATE failure changed table state');
-            ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_schema', $fakeOptions), 'v1 advertised schema after CREATE failure');
-            ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_settings', $fakeOptions), 'v1 wrote settings after CREATE failure');
-            duo_commerce_extension_install_v1();
+            ecommerce_extension_child_check(!array_key_exists('wprism_commerce_extension_schema', $fakeOptions), 'v1 advertised schema after CREATE failure');
+            ecommerce_extension_child_check(!array_key_exists('wprism_commerce_extension_settings', $fakeOptions), 'v1 wrote settings after CREATE failure');
+            wprism_commerce_extension_install_v1();
             ecommerce_extension_child_assert_v1($wpdb);
             return;
 
         case 'v1-settings':
             ecommerce_extension_child_set_no_state($wpdb);
-            $fakeOptionWriteFailures['duo_commerce_extension_settings'] = 1;
+            $fakeOptionWriteFailures['wprism_commerce_extension_settings'] = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_install_v1(),
+                static fn(): mixed => wprism_commerce_extension_install_v1(),
                 'v1 settings fault'
             );
             ecommerce_extension_child_check($wpdb->shape === $wpdb->v1Shape, 'v1 settings failure lost table');
-            ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_settings', $fakeOptions), 'v1 settings fault wrote settings');
-            ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_schema', $fakeOptions), 'v1 advertised schema after settings failure');
-            duo_commerce_extension_install_v1();
+            ecommerce_extension_child_check(!array_key_exists('wprism_commerce_extension_settings', $fakeOptions), 'v1 settings fault wrote settings');
+            ecommerce_extension_child_check(!array_key_exists('wprism_commerce_extension_schema', $fakeOptions), 'v1 advertised schema after settings failure');
+            wprism_commerce_extension_install_v1();
             ecommerce_extension_child_assert_v1($wpdb);
             return;
 
         case 'v1-schema':
             ecommerce_extension_child_set_no_state($wpdb);
-            $fakeOptionWriteFailures['duo_commerce_extension_schema'] = 1;
+            $fakeOptionWriteFailures['wprism_commerce_extension_schema'] = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_install_v1(),
+                static fn(): mixed => wprism_commerce_extension_install_v1(),
                 'v1 schema fault'
             );
             ecommerce_extension_child_check($wpdb->shape === $wpdb->v1Shape, 'v1 schema failure lost table');
-            ecommerce_extension_child_check(($fakeOptions['duo_commerce_extension_settings'] ?? null) === 'retail', 'v1 schema failure lost verified settings');
-            ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_schema', $fakeOptions), 'v1 advertised schema after schema failure');
-            duo_commerce_extension_install_v1();
+            ecommerce_extension_child_check(($fakeOptions['wprism_commerce_extension_settings'] ?? null) === 'retail', 'v1 schema failure lost verified settings');
+            ecommerce_extension_child_check(!array_key_exists('wprism_commerce_extension_schema', $fakeOptions), 'v1 advertised schema after schema failure');
+            wprism_commerce_extension_install_v1();
             ecommerce_extension_child_assert_v1($wpdb);
             return;
 
@@ -334,7 +334,7 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
                 'v1 activation against v2 table shape'
             );
             ecommerce_extension_child_check(
-                $error->getMessage() === 'Duo Commerce Extension runtime table shape does not match the expected v1 contract',
+                $error->getMessage() === 'WPrism Commerce Extension runtime table shape does not match the expected v1 contract',
                 'v1 activation against v2 table shape changed its fail-closed diagnostic'
             );
             ecommerce_extension_child_check($wpdb->shape === $shapeBefore, 'v1 activation against v2 shape mutated the runtime table');
@@ -349,19 +349,19 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
 
         case 'v1-idempotent-activation':
             ecommerce_extension_child_set_v1($wpdb);
-            $fakeOptions['duo_commerce_extension_schema'] = '1';
+            $fakeOptions['wprism_commerce_extension_schema'] = '1';
             ecommerce_extension_child_check(is_callable($fakeActivation), 'v1 fixture did not register activation callback');
             $fakeActivation();
             ecommerce_extension_child_check(
-                $fakeOptions['duo_commerce_extension_schema'] === '1',
+                $fakeOptions['wprism_commerce_extension_schema'] === '1',
                 'v1 idempotent activation did not preserve the stored WordPress scalar spelling'
             );
             ecommerce_extension_child_check(
-                ($fakeOptions['duo_commerce_extension_settings'] ?? null) === 'retail',
+                ($fakeOptions['wprism_commerce_extension_settings'] ?? null) === 'retail',
                 'v1 idempotent activation changed the authored setting'
             );
             ecommerce_extension_child_check(
-                ($fakeOptions['duo_commerce_extension_activations'] ?? null) === 1,
+                ($fakeOptions['wprism_commerce_extension_activations'] ?? null) === 1,
                 'v1 idempotent activation did not record its lifecycle event'
             );
             return;
@@ -370,11 +370,11 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_set_v1($wpdb);
             $wpdb->failProbe = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_migrate_v1_to_v2(),
+                static fn(): mixed => wprism_commerce_extension_migrate_v1_to_v2(),
                 'v2 schema probe fault'
             );
             ecommerce_extension_child_assert_v1($wpdb);
-            duo_commerce_extension_migrate_v1_to_v2();
+            wprism_commerce_extension_migrate_v1_to_v2();
             ecommerce_extension_child_assert_v2($wpdb);
             return;
 
@@ -382,20 +382,20 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_set_v1($wpdb);
             $wpdb->shape[0]['column_type'] = 'bigint(20) unsigned';
             ecommerce_extension_child_check(
-                duo_commerce_extension_table_shape(false) === duo_commerce_extension_expected_table_shape(false),
+                wprism_commerce_extension_table_shape(false) === wprism_commerce_extension_expected_table_shape(false),
                 'MariaDB integer display width was treated as a schema mismatch'
             );
             $mariaShape = $wpdb->shape;
             $wpdb->shape = $wpdb->v2Shape;
             ecommerce_extension_child_check(
-                duo_commerce_extension_table_shape(true) === duo_commerce_extension_expected_table_shape(true),
+                wprism_commerce_extension_table_shape(true) === wprism_commerce_extension_expected_table_shape(true),
                 'MariaDB quoted empty-string default was treated as a schema mismatch'
             );
             $mysqlV2Shape = $wpdb->v2Shape;
             $mysqlV2Shape[2]['default'] = '';
             $wpdb->shape = $mysqlV2Shape;
             ecommerce_extension_child_check(
-                duo_commerce_extension_table_shape(true) === duo_commerce_extension_expected_table_shape(true),
+                wprism_commerce_extension_table_shape(true) === wprism_commerce_extension_expected_table_shape(true),
                 'MySQL decoded empty-string default was treated as a schema mismatch'
             );
             $wrongShapes = [];
@@ -414,7 +414,7 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             foreach ($wrongShapes as $label => $wrongShape) {
                 $wpdb->shape = $wrongShape;
                 ecommerce_extension_child_expect_throw(
-                    static fn(): mixed => duo_commerce_extension_assert_table_shape(false),
+                    static fn(): mixed => wprism_commerce_extension_assert_table_shape(false),
                     $label . ' shape fault'
                 );
             }
@@ -422,11 +422,11 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             $wrongContext[2]['default'] = "'unexpected'";
             $wpdb->shape = $wrongContext;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_assert_table_shape(true),
+                static fn(): mixed => wprism_commerce_extension_assert_table_shape(true),
                 'wrong context default shape fault'
             );
             $wpdb->shape = $mariaShape;
-            duo_commerce_extension_migrate_v1_to_v2();
+            wprism_commerce_extension_migrate_v1_to_v2();
             ecommerce_extension_child_assert_v2($wpdb);
             return;
 
@@ -434,43 +434,43 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_set_v1($wpdb);
             $wpdb->failAlter = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_migrate_v1_to_v2(),
+                static fn(): mixed => wprism_commerce_extension_migrate_v1_to_v2(),
                 'v2 ALTER fault'
             );
             ecommerce_extension_child_assert_v1($wpdb);
-            duo_commerce_extension_migrate_v1_to_v2();
+            wprism_commerce_extension_migrate_v1_to_v2();
             ecommerce_extension_child_assert_v2($wpdb);
             return;
 
         case 'v2-settings':
             ecommerce_extension_child_set_v1($wpdb);
-            $fakeOptionWriteFailures['duo_commerce_extension_settings'] = 1;
+            $fakeOptionWriteFailures['wprism_commerce_extension_settings'] = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_migrate_v1_to_v2(),
+                static fn(): mixed => wprism_commerce_extension_migrate_v1_to_v2(),
                 'v2 settings fault'
             );
             ecommerce_extension_child_check($wpdb->shape === $wpdb->v2Shape, 'v2 settings fault did not verify ALTER shape');
-            ecommerce_extension_child_check(($fakeOptions['duo_commerce_extension_settings'] ?? null) === 'retail', 'v2 settings fault changed scalar prematurely');
-            ecommerce_extension_child_check(($fakeOptions['duo_commerce_extension_schema'] ?? null) === 1, 'v2 settings fault advertised schema 2');
-            duo_commerce_extension_migrate_v1_to_v2();
+            ecommerce_extension_child_check(($fakeOptions['wprism_commerce_extension_settings'] ?? null) === 'retail', 'v2 settings fault changed scalar prematurely');
+            ecommerce_extension_child_check(($fakeOptions['wprism_commerce_extension_schema'] ?? null) === 1, 'v2 settings fault advertised schema 2');
+            wprism_commerce_extension_migrate_v1_to_v2();
             ecommerce_extension_child_assert_v2($wpdb);
             return;
 
         case 'v2-schema':
             ecommerce_extension_child_set_v1($wpdb);
-            $fakeOptionWriteFailures['duo_commerce_extension_schema'] = 1;
+            $fakeOptionWriteFailures['wprism_commerce_extension_schema'] = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_migrate_v1_to_v2(),
+                static fn(): mixed => wprism_commerce_extension_migrate_v1_to_v2(),
                 'v2 schema fault'
             );
             ecommerce_extension_child_check($wpdb->shape === $wpdb->v2Shape, 'v2 schema fault lost verified ALTER shape');
             ecommerce_extension_child_check(
-                ($fakeOptions['duo_commerce_extension_settings'] ?? null)
+                ($fakeOptions['wprism_commerce_extension_settings'] ?? null)
                     === ['schema' => 2, 'channel' => 'retail', 'catalog_mode' => 'managed'],
                 'v2 schema fault did not preserve partial settings transition'
             );
-            ecommerce_extension_child_check(($fakeOptions['duo_commerce_extension_schema'] ?? null) === 1, 'v2 schema fault advertised schema 2');
-            duo_commerce_extension_migrate_v1_to_v2();
+            ecommerce_extension_child_check(($fakeOptions['wprism_commerce_extension_schema'] ?? null) === 1, 'v2 schema fault advertised schema 2');
+            wprism_commerce_extension_migrate_v1_to_v2();
             ecommerce_extension_child_assert_v2($wpdb);
             return;
 
@@ -478,39 +478,39 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_set_no_state($wpdb);
             $wpdb->failCreate = 1;
             ecommerce_extension_child_expect_throw(
-                static fn(): mixed => duo_commerce_extension_install_v2(),
+                static fn(): mixed => wprism_commerce_extension_install_v2(),
                 'v2 CREATE fault'
             );
             ecommerce_extension_child_check($wpdb->shape === null, 'v2 CREATE failure changed table state');
-            ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_schema', $fakeOptions), 'v2 advertised schema after CREATE failure');
-            ecommerce_extension_child_check(!array_key_exists('duo_commerce_extension_settings', $fakeOptions), 'v2 wrote settings after CREATE failure');
-            duo_commerce_extension_install_v2();
+            ecommerce_extension_child_check(!array_key_exists('wprism_commerce_extension_schema', $fakeOptions), 'v2 advertised schema after CREATE failure');
+            ecommerce_extension_child_check(!array_key_exists('wprism_commerce_extension_settings', $fakeOptions), 'v2 wrote settings after CREATE failure');
+            wprism_commerce_extension_install_v2();
             ecommerce_extension_child_assert_v2($wpdb);
             return;
 
         case 'v2-idempotent-activation':
             ecommerce_extension_child_set_v2($wpdb);
-            $fakeOptions['duo_commerce_extension_schema'] = '2';
+            $fakeOptions['wprism_commerce_extension_schema'] = '2';
             ecommerce_extension_child_check(is_callable($fakeActivation), 'v2 fixture did not register activation callback');
             $fakeActivation();
             ecommerce_extension_child_check(
-                $fakeOptions['duo_commerce_extension_schema'] === '2',
+                $fakeOptions['wprism_commerce_extension_schema'] === '2',
                 'v2 idempotent activation did not preserve the stored WordPress scalar spelling'
             );
             ecommerce_extension_child_check(
-                ($fakeOptions['duo_commerce_extension_settings'] ?? null)
+                ($fakeOptions['wprism_commerce_extension_settings'] ?? null)
                     === ['schema' => 2, 'channel' => 'retail', 'catalog_mode' => 'managed'],
                 'v2 idempotent activation changed the authored setting'
             );
             ecommerce_extension_child_check(
-                ($fakeOptions['duo_commerce_extension_activations'] ?? null) === 1,
+                ($fakeOptions['wprism_commerce_extension_activations'] ?? null) === 1,
                 'v2 idempotent activation did not record its lifecycle event'
             );
             return;
 
         case 'broken-activation':
             ecommerce_extension_child_set_v1($wpdb);
-            duo_commerce_extension_migrate_v1_to_v2();
+            wprism_commerce_extension_migrate_v1_to_v2();
             ecommerce_extension_child_assert_v2($wpdb);
             ecommerce_extension_child_check(is_callable($fakeActivation), 'broken fixture did not register activation callback');
             $error = ecommerce_extension_child_expect_throw(
@@ -518,7 +518,7 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
                 'broken activation'
             );
             ecommerce_extension_child_check(
-                $error->getMessage() === 'Duo Commerce Extension reviewed v2 activation failure',
+                $error->getMessage() === 'WPrism Commerce Extension reviewed v2 activation failure',
                 'broken activation message changed'
             );
             ecommerce_extension_child_assert_v2($wpdb);
@@ -535,9 +535,9 @@ function ecommerce_extension_migration_parent(): void {
         throw new RuntimeException('could not resolve scenario root');
     }
     $fixtures = [
-        'v1' => $root . '/sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/plugins/duo-commerce-extension/duo-commerce-extension.php',
-        'fixed-v2' => $root . '/sandbox/fixtures/duo-ecommerce-developer-grind/v2/fixed/duo-commerce-extension.php',
-        'broken-v2' => $root . '/sandbox/fixtures/duo-ecommerce-developer-grind/v2/broken/duo-commerce-extension.php',
+        'v1' => $root . '/sandbox/fixtures/wprism-ecommerce-developer-grind/v1/wp-content/plugins/wprism-commerce-extension/wprism-commerce-extension.php',
+        'fixed-v2' => $root . '/sandbox/fixtures/wprism-ecommerce-developer-grind/v2/fixed/wprism-commerce-extension.php',
+        'broken-v2' => $root . '/sandbox/fixtures/wprism-ecommerce-developer-grind/v2/broken/wprism-commerce-extension.php',
     ];
     $cases = [
         ['fixture' => 'v1', 'case' => 'v1-create'],

@@ -8,10 +8,10 @@ your signature on it actually asserts, and what it costs to take it back.
 
 > **If you only need to certify your OWN site's adapter under your OWN key,
 > you do not need this page.** That path — `adapters/authorities.json`, the
-> **site** trust root, populated by `duo adapter certify` itself — is fully
+> **site** trust root, populated by `wprism adapter certify` itself — is fully
 > shipped today, needs no gate, and is covered end to end in
 > [adapter-authoring.md § Your organization's own
-> approval](adapter-authoring.md#your-organizations-own-approval-duo-adapter-certify).
+> approval](adapter-authoring.md#your-organizations-own-approval-wprism-adapter-certify).
 > This page is about the **platform** trust root instead:
 > `platform/adapter-library/capabilities/adapter-authorities.json`, the one only this project
 > can populate, gated on **G4**, and — as stated below — still empty. None of
@@ -28,7 +28,7 @@ run it, and what happens to a fleet when you do.
 ## Where this stands today
 
 `platform/adapter-library/capabilities/adapter-authorities.json` is
-`{"format":"duo-adapter-authorities/v1","keys":{}}` and **no key has ever been
+`{"format":"wprism-adapter-authorities/v1","keys":{}}` and **no key has ever been
 enrolled**. Issuing the first one is gate **G4**'s decision, and G4's conditions
 are enumerated with their current truth values [at the bottom of this
 page](#the-g4-checklist-what-is-still-missing) — two of them are not met, and one
@@ -116,8 +116,8 @@ kept:
 
 | Word an operator sees | What it means | What it does not mean |
 |---|---|---|
-| `site_signed` | The operator's own root, **or a vendor key delegated into it**, vouched for this adapter in this one repository | Not a Duo endorsement, and not an exercise: `sign-site`'s evidence is the loader's grammar verdict plus a stated reason |
-| `third_party_signed` | A key in the **platform** root signed a reviewed-exercise bundle: a conformance run happened and its results are inside the signature | Not that Duo reviewed the adapter's behaviour, and not that the platform vetted the plugin |
+| `site_signed` | The operator's own root, **or a vendor key delegated into it**, vouched for this adapter in this one repository | Not a WPrism endorsement, and not an exercise: `sign-site`'s evidence is the loader's grammar verdict plus a stated reason |
+| `third_party_signed` | A key in the **platform** root signed a reviewed-exercise bundle: a conformance run happened and its results are inside the signature | Not that WPrism reviewed the adapter's behaviour, and not that the platform vetted the plugin |
 | `signed_unpinned` | A valid signature the repository has not reviewed into its pin | Certification is an elevation the pin gates; an unpinned signature is never elevated |
 
 A **delegated** key resolves under trust root `site` — § v3.8 deliberately spends
@@ -139,7 +139,7 @@ Rehearsed end to end by `regress_platform_authority_population.php` steps 1–6.
 
 An Ed25519 keypair, offline, on hardware you control. The key id is not free
 text: at record v2 it must end in the first 12 hex characters of
-`sha256(public key)`, which is the same default `duo adapter keygen` already
+`sha256(public key)`, which is the same default `wprism adapter keygen` already
 emits. The label in front of it is yours.
 
 ### 2. Write the record
@@ -158,7 +158,7 @@ emits. The label in front of it is yours.
 }
 ```
 
-Into `keys` in a `duo-adapter-authorities/v2` document. Both window ends are
+Into `keys` in a `wprism-adapter-authorities/v2` document. Both window ends are
 mandatory at v2, they parse strictly as `Y-m-d\TH:i:s\Z`, and `not_before` must
 be strictly before `not_after`.
 
@@ -197,7 +197,7 @@ refuses by name rather than by failing to resolve a key.
 ### 5. The vendor certifies, in one repository
 
 ```
-duo adapter certify <site-repo> --name=<adapter> --key-id=<vendor-key-id> \
+wprism adapter certify <site-repo> --name=<adapter> --key-id=<vendor-key-id> \
   --secret-key-file=<0600 file> --reason=<what was verified> --pin
 ```
 
@@ -208,7 +208,7 @@ the adapter reports `signed_unpinned`.
 ### 6. Confirm what an operator will see
 
 ```
-duo adapter doctor <site-repo>
+wprism adapter doctor <site-repo>
 ```
 
 It prints the word from the table above, the principal that vouched, and — if a
@@ -251,7 +251,7 @@ new record, and the old one has to be retired deliberately.
    second-enrollment invariant, and it is what makes enrollment cadence
    independent of release cadence.
 2. **Re-issue** under the new key everything that must outlive the old one:
-   `duo adapter recertify <site-repo> --secret-key-file=<f>` for site-rooted
+   `wprism adapter recertify <site-repo> --secret-key-file=<f>` for site-rooted
    certificates, re-signed delegations for vendors.
 3. **Let the old key expire.** Prefer expiry to revocation for a planned
    rotation: expiry is scheduled, dated and understood, and it withdraws claims
@@ -298,7 +298,7 @@ trust comes from the signature, not from the channel.
      --authority=<platform-key-id> --secret-key-file=<0600 file>
    ```
 3. **Courier it** to
-   `WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json` on each site. This is
+   `WPMU_PLUGIN_DIR/wprism-control/adapter-revocations.json` on each site. This is
    durable operator control state outside the replaceable agent. Any channel;
    the signature is the integrity.
 4. **Expect the measured consequences below**, and plan the remedy before you
@@ -360,13 +360,13 @@ command run on the site that needs it.
 ### Residuals, stated rather than softened
 
 - **Adoption preserves the durable revocation document.** It lives under
-  `duo-control/`, not in the assembled `agent/adapter-library/`. A target that
+  `wprism-control/`, not in the assembled `agent/adapter-library/`. A target that
   still has the historical flat-library document must first copy it to the
   durable path byte-for-byte; adoption refuses before cutover when the old and
   new paths do not prove equal. There is no runtime directory override or
   fallback.
 - **A revocation signed by a key the site's platform root does not carry is
-  inert** — reported by `duo adapter doctor` and not obeyed. Before any
+  inert** — reported by `wprism adapter doctor` and not obeyed. Before any
   enrollment, that is the only state a correctly-signed revocation can be in, and
   the drill records it first: revocation capability is something enrollment buys,
   not something an agent has.
@@ -389,8 +389,8 @@ only when **all eight** conditions hold. Truth values as of this page's commit:
 | 3 | Out-of-band revocation channel exists, and a revocation executed end to end on WP-1.4's fleet with propagation latency measured, including the frozen-path vendor-key case | **Met** | `regress_revocation_reachability.php` (the channel and the frozen-path vendor key) and `regress_platform_authority_population.php` step 9 (the drill on the fleet, latency measured and printed on every run) |
 | 4 | Expiry exercised against an abandoned-key fixture, with its clock source and implausible-clock posture written and tested | **Met** | `regress_authority_record_v2.php` — refusal *at* `not_after` with `>=`, no skew allowance, the host's own wall clock named and printed, and the implausible-clock test ordered *first* so a backwards clock cannot resurrect a retired record |
 | 5 | A written enrollment vetting posture and a platform-root rotation/compromise ceremony | **Met** | This page |
-| 6 | Phase 3's closures live: lint refuses for uncertified out-of-tree adapters and is type-aware; effect scoring reporting with a published false-positive rate on the reviewed 16; receipts independently checked | **Met** | WP-3.1 (`LintTrustGate`), WP-2.4 (type-aware, recorded `LintEnvironment`), WP-3.2 — published baseline **0.0000 over 1595 scored (adapter, surface) judgements**, pinned by `regress_effect_declaration_coverage.php` — and WP-3.3 (independently checkable provider receipts) |
-| 7 | A third party has produced an exercised bundle that verifies at distance from an evidence repository that is not duo-wp | **NOT MET, and not meetable here** | Every mechanical half now ships: the adapter test kit (WP-2.6), and WP-5.2's reviewer tier, which admits `evidence.reviewer`, mints `reviewer_signed`, and is proven at distance in `regress_reviewer_evidence_tier.php` — a bundle from a foreign evidence repository, over a test this repository holds no file and no target for, re-verified after that repository is deleted from disk. What is still missing is the only part that matters: a *third party* actually doing it. No third party exists in this repository, and a fixture playing one proves the plumbing, never the trust. **No fixture can satisfy this one, and none in this program pretends to** |
+| 6 | Phase 3's closures live: lint refuses for uncertified out-of-tree adapters and is type-aware; effect scoring reporting with a published false-positive rate on the reviewed 17; receipts independently checked | **Met** | WP-3.1 (`LintTrustGate`), WP-2.4 (type-aware, recorded `LintEnvironment`), WP-3.2 — published baseline **0.0000 over 3572 scored (adapter, surface) judgements**, pinned by `regress_effect_declaration_coverage.php` — and WP-3.3 (independently checkable provider receipts) |
+| 7 | A third party has produced an exercised bundle that verifies at distance from an evidence repository that is not wprism | **NOT MET, and not meetable here** | Every mechanical half now ships: the adapter test kit (WP-2.6), and WP-5.2's reviewer tier, which admits `evidence.reviewer`, mints `reviewer_signed`, and is proven at distance in `regress_reviewer_evidence_tier.php` — a bundle from a foreign evidence repository, over a test this repository holds no file and no target for, re-verified after that repository is deleted from disk. What is still missing is the only part that matters: a *third party* actually doing it. No third party exists in this repository, and a fixture playing one proves the plumbing, never the trust. **No fixture can satisfy this one, and none in this program pretends to** |
 | 8 | WP-5.4's graded quality axis exists, so competing third-party adapters are comparable at the point of selection | **NOT MET** | WP-5.4 has not shipped. WP-2.8's graduated `outside_version_range` verdict is a different axis (version-range evidence, not adapter quality) and does not satisfy this |
 
 **Two conditions are unmet, and the ordering inside the gate is not negotiable.**

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLI triage smoke test — exercises `duo pending`/`duo classify` (cli/duo)
+# CLI triage smoke test — exercises `wprism pending`/`wprism classify` (cli/wprism)
 # against the EXISTING spike-E env pair, e1 only (e1 :8804, compose profile
 # "spikee", site repo sandbox/siterepo/e1). Companion to cli_smoke.sh, which
 # covers capture/plan/apply/status across e1+e2; this one is scoped to the
@@ -10,23 +10,23 @@
 #
 # Flow: assert e1's site repo starts git-clean -> doctor-check e1 -> assert
 # its review queue starts empty -> fabricate an unclassified post-meta
-# probe -> `duo pending e1` shows it (gate evidence only, no proposal --
-# journal is off on this pair) -> `duo classify e1` interactively via a
+# probe -> `wprism pending e1` shows it (gate evidence only, no proposal --
+# journal is off on this pair) -> `wprism classify e1` interactively via a
 # scripted stdin pipe, choosing runtime -> assert the policy landed in
-# site.duo.json, `wp duo capture` succeeds and touches nothing else, and the
-# queue is empty again -> `duo classify e1 --accept-proposals` on the
+# site.wprism.json, `wp wprism capture` succeeds and touches nothing else, and the
+# queue is empty again -> `wprism classify e1 --accept-proposals` on the
 # now-empty queue exits 0 with the empty-queue message -> full cleanup
-# (probe meta removed, site.duo.json reverted) -- `git -C
+# (probe meta removed, site.wprism.json reverted) -- `git -C
 # sandbox/siterepo/e1 diff` (and `status`) must be empty at the end. Every
 # step asserts its exit code, not just its output.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 COMPOSE="docker compose -f sandbox/docker-compose.yml --profile spikee"
-ENVS_FILE="$REPO_ROOT/.duo-envs.json"
-SITE_JSON="$REPO_ROOT/sandbox/siterepo/e1/site.duo.json"
+ENVS_FILE="$REPO_ROOT/.wprism-envs.json"
+SITE_JSON="$REPO_ROOT/sandbox/siterepo/e1/site.wprism.json"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -52,9 +52,9 @@ assert_exit() {
 cleanup() {
   rm -f "$ENVS_FILE"
   if [ -n "${POST_ID:-}" ]; then
-    $COMPOSE run --rm -T cli-e1 wp post meta delete "$POST_ID" duo_triage_probe >/dev/null 2>&1 || true
+    $COMPOSE run --rm -T cli-e1 wp post meta delete "$POST_ID" wprism_triage_probe >/dev/null 2>&1 || true
   fi
-  git -C sandbox/siterepo/e1 checkout -- site.duo.json >/dev/null 2>&1 || true
+  git -C sandbox/siterepo/e1 checkout -- site.wprism.json >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -63,7 +63,7 @@ PRECHECK="$(git -C sandbox/siterepo/e1 status --porcelain)"
 [ -z "$PRECHECK" ] || fail "sandbox/siterepo/e1 is not clean before this test even starts -- resolve it first:\n$PRECHECK"
 pass "sandbox/siterepo/e1 is clean"
 
-say "write .duo-envs.json (repo root, e1 only -- this pair is triage-smoke's during validation)"
+say "write .wprism-envs.json (repo root, e1 only -- this pair is triage-smoke's during validation)"
 cat > "$ENVS_FILE" <<'EOF'
 {
   "envs": {
@@ -71,82 +71,82 @@ cat > "$ENVS_FILE" <<'EOF'
   }
 }
 EOF
-pass ".duo-envs.json written at $ENVS_FILE"
+pass ".wprism-envs.json written at $ENVS_FILE"
 
-say "duo doctor e1 (retrying briefly -- concurrent docker load from other agents' envs is expected)"
+say "wprism doctor e1 (retrying briefly -- concurrent docker load from other agents' envs is expected)"
 ok=0
 for _ in $(seq 1 30); do
-  if OUT="$("$DUO" doctor e1 2>&1)"; then CODE=0; else CODE=$?; fi
+  if OUT="$("$WPRISM" doctor e1 2>&1)"; then CODE=0; else CODE=$?; fi
   if [ "$CODE" -eq 0 ]; then ok=1; break; fi
   sleep 2
 done
 echo "$OUT"
-[ "$ok" -eq 1 ] || fail "duo doctor e1 never went green (exit $CODE)"
-pass "duo doctor e1: all required checks green"
+[ "$ok" -eq 1 ] || fail "wprism doctor e1 never went green (exit $CODE)"
+pass "wprism doctor e1: all required checks green"
 
 say "baseline: e1's review queue starts empty"
-assert_exit 0 "duo pending e1 (baseline)" -- "$DUO" pending e1
-grep -qi 'review queue is empty' <<<"$OUT" || fail "duo pending e1 (baseline): expected an empty queue -- clean up e1's env before running this smoke test"
+assert_exit 0 "wprism pending e1 (baseline)" -- "$WPRISM" pending e1
+grep -qi 'review queue is empty' <<<"$OUT" || fail "wprism pending e1 (baseline): expected an empty queue -- clean up e1's env before running this smoke test"
 pass "e1's review queue is empty before the probe"
 
 say "fabricate an unclassified probe (post_meta on the spike-E fixture post)"
-POST_ID=$($COMPOSE run --rm -T cli-e1 wp post list --post_type=post --name=duo-acf-content --field=ID | tr -d '\r')
-[ -n "$POST_ID" ] || fail "could not find e1's duo-acf-content post"
-$COMPOSE run --rm -T cli-e1 wp post meta add "$POST_ID" duo_triage_probe x >/dev/null
-pass "post #$POST_ID: duo_triage_probe meta added"
+POST_ID=$($COMPOSE run --rm -T cli-e1 wp post list --post_type=post --name=wprism-acf-content --field=ID | tr -d '\r')
+[ -n "$POST_ID" ] || fail "could not find e1's wprism-acf-content post"
+$COMPOSE run --rm -T cli-e1 wp post meta add "$POST_ID" wprism_triage_probe x >/dev/null
+pass "post #$POST_ID: wprism_triage_probe meta added"
 
-say "duo pending e1 --format=json: the probe shows gate evidence, no proposal, no journal"
-assert_exit 0 "duo pending e1 --format=json (probe present)" -- "$DUO" pending e1 --format=json
+say "wprism pending e1 --format=json: the probe shows gate evidence, no proposal, no journal"
+assert_exit 0 "wprism pending e1 --format=json (probe present)" -- "$WPRISM" pending e1 --format=json
 PENDING_JSON=$(echo "$OUT" | tail -1)
-echo "$PENDING_JSON" | jq -e '. | length >= 1' >/dev/null || fail "duo pending e1 --format=json: expected at least one item"
-PROBE=$(echo "$PENDING_JSON" | jq -c '.[] | select(.section == "post_meta" and .key == "duo_triage_probe")')
-[ -n "$PROBE" ] || fail "duo pending e1 --format=json: probe key not in the queue"
+echo "$PENDING_JSON" | jq -e '. | length >= 1' >/dev/null || fail "wprism pending e1 --format=json: expected at least one item"
+PROBE=$(echo "$PENDING_JSON" | jq -c '.[] | select(.section == "post_meta" and .key == "wprism_triage_probe")')
+[ -n "$PROBE" ] || fail "wprism pending e1 --format=json: probe key not in the queue"
 echo "$PROBE" | jq -e '.proposal == null' >/dev/null || fail "probe: expected no proposal (journal is off on the e-pair), got: $(echo "$PROBE" | jq -c .proposal)"
 echo "$PROBE" | jq -e '(.evidence.entities // 0) >= 1' >/dev/null || fail "probe: expected gate evidence.entities >= 1, got: $(echo "$PROBE" | jq -c .evidence)"
 echo "$PROBE" | jq -e '.evidence.journal == null' >/dev/null || fail "probe: expected no journal evidence on this pair, got: $(echo "$PROBE" | jq -c .evidence)"
 pass "probe listed with gate evidence only, no proposal, no journal"
 
-say "duo pending e1 (human table): sanity-check the rendered view too"
-assert_exit 0 "duo pending e1 (table)" -- "$DUO" pending e1
-grep -q 'post_meta:duo_triage_probe' <<<"$OUT" || fail "duo pending e1: probe row missing from the rendered table"
+say "wprism pending e1 (human table): sanity-check the rendered view too"
+assert_exit 0 "wprism pending e1 (table)" -- "$WPRISM" pending e1
+grep -q 'post_meta:wprism_triage_probe' <<<"$OUT" || fail "wprism pending e1: probe row missing from the rendered table"
 pass "rendered table lists the probe row"
 
-say "duo classify e1 -- interactive triage, choosing runtime for the probe"
+say "wprism classify e1 -- interactive triage, choosing runtime for the probe"
 INPUT=$'r\n'
-if OUT=$(printf '%s' "$INPUT" | "$DUO" classify e1 2>&1); then CODE=0; else CODE=$?; fi
+if OUT=$(printf '%s' "$INPUT" | "$WPRISM" classify e1 2>&1); then CODE=0; else CODE=$?; fi
 echo "$OUT"
-[ "$CODE" -eq 0 ] || fail "duo classify e1: expected exit 0, got $CODE"
-grep -q '1 classified, 0 skipped\.' <<<"$OUT" || fail "duo classify e1: expected the '1 classified, 0 skipped.' summary line"
-pass "duo classify e1 accepted 'runtime' for the probe (exit $CODE)"
+[ "$CODE" -eq 0 ] || fail "wprism classify e1: expected exit 0, got $CODE"
+grep -q '1 classified, 0 skipped\.' <<<"$OUT" || fail "wprism classify e1: expected the '1 classified, 0 skipped.' summary line"
+pass "wprism classify e1 accepted 'runtime' for the probe (exit $CODE)"
 
-say "the policy entry landed in site.duo.json"
-jq -e '.policy.post_meta.duo_triage_probe.class == "runtime"' "$SITE_JSON" >/dev/null \
-  || fail "site.duo.json: expected policy.post_meta.duo_triage_probe.class == \"runtime\", got: $(jq -c '.policy.post_meta.duo_triage_probe // "missing"' "$SITE_JSON")"
-pass 'site.duo.json: policy.post_meta.duo_triage_probe.class == "runtime"'
+say "the policy entry landed in site.wprism.json"
+jq -e '.policy.post_meta.wprism_triage_probe.class == "runtime"' "$SITE_JSON" >/dev/null \
+  || fail "site.wprism.json: expected policy.post_meta.wprism_triage_probe.class == \"runtime\", got: $(jq -c '.policy.post_meta.wprism_triage_probe // "missing"' "$SITE_JSON")"
+pass 'site.wprism.json: policy.post_meta.wprism_triage_probe.class == "runtime"'
 
-say "wp duo capture e1 succeeds now that the probe key is classified"
-assert_exit 0 "duo capture e1 (post-classify)" -- "$DUO" capture e1
-grep -qi 'captured' <<<"$OUT" || fail "duo capture e1: no 'captured' summary line"
-pass "duo capture e1 succeeded (no more loud-and-blocking abort on the probe key)"
+say "wp wprism capture e1 succeeds now that the probe key is classified"
+assert_exit 0 "wprism capture e1 (post-classify)" -- "$WPRISM" capture e1
+grep -qi 'captured' <<<"$OUT" || fail "wprism capture e1: no 'captured' summary line"
+pass "wprism capture e1 succeeded (no more loud-and-blocking abort on the probe key)"
 
-say "duo pending e1 is empty again"
-assert_exit 0 "duo pending e1 (after classify)" -- "$DUO" pending e1
-grep -qi 'review queue is empty' <<<"$OUT" || fail "duo pending e1: expected the queue to be empty after classifying the only item"
+say "wprism pending e1 is empty again"
+assert_exit 0 "wprism pending e1 (after classify)" -- "$WPRISM" pending e1
+grep -qi 'review queue is empty' <<<"$OUT" || fail "wprism pending e1: expected the queue to be empty after classifying the only item"
 pass "e1's review queue is empty again"
 
-say "duo classify e1 --accept-proposals on an empty queue exits 0 with the empty-queue message"
-assert_exit 0 "duo classify e1 --accept-proposals (empty queue)" -- "$DUO" classify e1 --accept-proposals
-grep -qi 'review queue is empty' <<<"$OUT" || fail "duo classify e1 --accept-proposals: expected the empty-queue message"
-pass "duo classify e1 --accept-proposals is a clean no-op on an empty queue"
+say "wprism classify e1 --accept-proposals on an empty queue exits 0 with the empty-queue message"
+assert_exit 0 "wprism classify e1 --accept-proposals (empty queue)" -- "$WPRISM" classify e1 --accept-proposals
+grep -qi 'review queue is empty' <<<"$OUT" || fail "wprism classify e1 --accept-proposals: expected the empty-queue message"
+pass "wprism classify e1 --accept-proposals is a clean no-op on an empty queue"
 
-say "confirm the ONLY tracked change so far is site.duo.json (capture was a true no-op on state/)"
+say "confirm the ONLY tracked change so far is site.wprism.json (capture was a true no-op on state/)"
 CHANGED="$(git -C sandbox/siterepo/e1 diff --name-only)"
-[ "$CHANGED" = "site.duo.json" ] || fail "sandbox/siterepo/e1: expected only site.duo.json to have changed, got:\n$CHANGED"
-pass "only site.duo.json changed -- runtime-classified meta never reaches captured state"
+[ "$CHANGED" = "site.wprism.json" ] || fail "sandbox/siterepo/e1: expected only site.wprism.json to have changed, got:\n$CHANGED"
+pass "only site.wprism.json changed -- runtime-classified meta never reaches captured state"
 
-say "full cleanup: remove the probe meta and revert site.duo.json"
-$COMPOSE run --rm -T cli-e1 wp post meta delete "$POST_ID" duo_triage_probe >/dev/null
-git -C sandbox/siterepo/e1 checkout -- site.duo.json
+say "full cleanup: remove the probe meta and revert site.wprism.json"
+$COMPOSE run --rm -T cli-e1 wp post meta delete "$POST_ID" wprism_triage_probe >/dev/null
+git -C sandbox/siterepo/e1 checkout -- site.wprism.json
 DIFF="$(git -C sandbox/siterepo/e1 diff)"
 [ -z "$DIFF" ] || fail "sandbox/siterepo/e1: expected an empty git diff after cleanup, got:\n$DIFF"
 STATUS="$(git -C sandbox/siterepo/e1 status --porcelain)"

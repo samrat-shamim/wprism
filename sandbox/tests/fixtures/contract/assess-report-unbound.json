@@ -1,5 +1,5 @@
 {
-  "format": "duo-assess-report/v1",
+  "format": "wprism-assess-report/v1",
   "generated_at": "2026-08-17T09:14:02Z",
   "env": "production",
   "target": {
@@ -21,21 +21,21 @@
       "id": "products", "label": "Products", "kind": "post_type",
       "state_class": "authored", "handling": "manage",
       "next_action": "nothing — supported", "decided_by": "operator",
-      "meaning": "Duo versions this surface and applies the repository copy to the target.",
+      "meaning": "WPrism versions this surface and applies the repository copy to the target.",
       "operations": {
         "capture": {"state_class": "authored", "handling": "manage", "readiness": "Ready",
           "certification_provenance": "Platform-certified", "effect_containment": "prevented",
           "effect_containment_basis": "no WordPress hooks fire in the apply window",
           "effect_recovery_semantics": "provider-state restorable", "conditions": [],
           "remediation": null,
-          "meaning": "Duo versions this surface and applies the repository copy to the target.",
+          "meaning": "WPrism versions this surface and applies the repository copy to the target.",
           "annotations": []},
         "release": {"state_class": "authored", "handling": "manage", "readiness": "Ready",
           "certification_provenance": "Platform-certified", "effect_containment": "prevented",
           "effect_containment_basis": "no WordPress hooks fire in the apply window",
           "effect_recovery_semantics": "provider-state restorable", "conditions": [],
           "remediation": null,
-          "meaning": "Duo versions this surface and applies the repository copy to the target.",
+          "meaning": "WPrism versions this surface and applies the repository copy to the target.",
           "annotations": []}
       }
     },
@@ -50,7 +50,7 @@
           "effect_containment": "prevented",
           "effect_containment_basis": "no WordPress hooks fire in the apply window",
           "effect_recovery_semantics": "not applicable", "conditions": [],
-          "remediation": "exclude this surface from the operation; Duo refuses it for a stated reason",
+          "remediation": "exclude this surface from the operation; WPrism refuses it for a stated reason",
           "meaning": "Live operational state is never copied; the target keeps its own.",
           "annotations": []}
       }

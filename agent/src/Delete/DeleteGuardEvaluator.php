@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Lock-boundary proof for manifest-declared deletion guards.
@@ -23,10 +23,10 @@ final class DeleteGuardEvaluator {
         self::$continuitySavepoint = null;
         self::assert_active_transaction('authored transaction continuity');
         try {
-            $name = 'duo_authored_' . bin2hex(random_bytes(12));
+            $name = 'wprism_authored_' . bin2hex(random_bytes(12));
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: authored transaction continuity could not allocate a unique savepoint',
+                'wprism: authored transaction continuity could not allocate a unique savepoint',
                 0,
                 $failure
             );
@@ -35,7 +35,7 @@ final class DeleteGuardEvaluator {
             self::checked_query("SAVEPOINT `$name`");
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: authored transaction continuity could not establish its savepoint',
+                'wprism: authored transaction continuity could not establish its savepoint',
                 0,
                 $failure
             );
@@ -100,7 +100,7 @@ final class DeleteGuardEvaluator {
         if ($rows === false || $rows === null || $error !== '') {
             $detail = $error !== '' ? $error : 'no result returned';
             throw new \RuntimeException(
-                "duo: $purpose refused — storage-engine introspection failed for "
+                "wprism: $purpose refused — storage-engine introspection failed for "
                 . implode(', ', $tables) . ": $detail"
             );
         }
@@ -150,7 +150,7 @@ final class DeleteGuardEvaluator {
                 $details[] = 'unsupported engine (InnoDB required): ' . implode(', ', $unsupported);
             }
             throw new \RuntimeException(
-                "duo: $purpose refused — " . implode('; ', $details)
+                "wprism: $purpose refused — " . implode('; ', $details)
             );
         }
     }
@@ -172,7 +172,7 @@ final class DeleteGuardEvaluator {
         $name = self::$continuitySavepoint;
         if ($name === null) {
             throw new \RuntimeException(
-                "duo: $purpose requires the authored transaction continuity savepoint"
+                "wprism: $purpose requires the authored transaction continuity savepoint"
             );
         }
         try {
@@ -182,7 +182,7 @@ final class DeleteGuardEvaluator {
             self::checked_query("SAVEPOINT `$name`");
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: $purpose lost authored transaction continuity",
+                "wprism: $purpose lost authored transaction continuity",
                 0,
                 $failure
             );
@@ -198,7 +198,7 @@ final class DeleteGuardEvaluator {
             $detail = $error !== '' ? $error : 'no result returned';
             $tableLabel = $purpose === 'deletion guard locking' ? 'guard table ' : 'table ';
             throw new \RuntimeException(
-                "duo: $purpose refused — unable to acquire metadata lock for "
+                "wprism: $purpose refused — unable to acquire metadata lock for "
                 . $tableLabel . "$table: $detail"
             );
         }
@@ -211,7 +211,7 @@ final class DeleteGuardEvaluator {
         }
         $result = $wpdb->query($sql);
         if ($result === false || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: authored transaction savepoint query failed');
+            throw new \RuntimeException('wprism: authored transaction savepoint query failed');
         }
     }
 
@@ -220,7 +220,7 @@ final class DeleteGuardEvaluator {
         $wpdb->last_error = '';
         $active = $wpdb->get_var('SELECT @@in_transaction');
         if ($active !== '1' || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose requires an active transaction");
+            throw new \RuntimeException("wprism: $purpose requires an active transaction");
         }
     }
 
@@ -228,7 +228,7 @@ final class DeleteGuardEvaluator {
     public static function assert_table_identifiers(array $tables, string $purpose): void {
         foreach ($tables as $table) {
             if (!is_string($table) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
-                throw new \RuntimeException("duo: $purpose refused — unsafe table identifier");
+                throw new \RuntimeException("wprism: $purpose refused — unsafe table identifier");
             }
         }
     }
@@ -364,14 +364,14 @@ final class DeleteGuardEvaluator {
                 $result = $countRefs($guard, $uuid, true);
                 if ($result['error'] !== null) {
                     throw new \RuntimeException(
-                        "duo: deletion guard lock refused for {$row['type']} {$row['uuid']}: {$result['error']}"
+                        "wprism: deletion guard lock refused for {$row['type']} {$row['uuid']}: {$result['error']}"
                     );
                 }
                 $expected = (string) (($row['guard_witnesses'] ?? [])[(string) $guardIndex] ?? '');
                 $actual = (string) ($result['witness'] ?? '');
                 if ($expected === '' || $actual === '' || !hash_equals($expected, $actual)) {
                     throw new \RuntimeException(
-                        "duo: deletion guard witness changed after planning for {$row['type']} {$row['uuid']}; "
+                        "wprism: deletion guard witness changed after planning for {$row['type']} {$row['uuid']}; "
                         . 'no mutation attempted — recompile and retry (force flags cannot bypass this race boundary)'
                     );
                 }
@@ -410,7 +410,7 @@ final class DeleteGuardEvaluator {
         if ($findings['blocks'] && !$forced) {
             $reason = implode('; ', $findings['blocks']);
             throw new \RuntimeException(
-                "duo: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
+                "wprism: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
             );
         }
         return $findings;
@@ -488,7 +488,7 @@ final class DeleteGuardEvaluator {
         string $purpose
     ): string {
         if ($minimumPrefixCharacters < 1 || $minimumPrefixCharacters > 65535) {
-            throw new \RuntimeException("duo: $purpose index proof received an invalid prefix frontier");
+            throw new \RuntimeException("wprism: $purpose index proof received an invalid prefix frontier");
         }
         return self::locking_index($table, $column, $purpose, false, $minimumPrefixCharacters);
     }
@@ -503,21 +503,21 @@ final class DeleteGuardEvaluator {
         global $wpdb;
         if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1
             || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $column) !== 1) {
-            throw new \RuntimeException("duo: $purpose index proof received an unsafe table/column name");
+            throw new \RuntimeException("wprism: $purpose index proof received an unsafe table/column name");
         }
         $wpdb->last_error = '';
         $rows = $wpdb->get_results("SHOW INDEX FROM `$table`", ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose index introspection failed");
+            throw new \RuntimeException("wprism: $purpose index introspection failed");
         }
         if (count($rows) > 1024) {
-            throw new \RuntimeException("duo: $purpose index introspection exceeded its bounded row limit");
+            throw new \RuntimeException("wprism: $purpose index introspection exceeded its bounded row limit");
         }
         $groups = [];
         foreach ($rows as $row) {
             $name = is_array($row) ? ($row['Key_name'] ?? null) : null;
             if (!is_array($row) || !self::bounded_server_identifier($name)) {
-                throw new \RuntimeException("duo: $purpose index introspection returned a malformed row");
+                throw new \RuntimeException("wprism: $purpose index introspection returned a malformed row");
             }
             // MySQL permits quoted Unicode/punctuated identifier names. They
             // are valid introspection rows, but an exotic index name is never
@@ -525,7 +525,7 @@ final class DeleteGuardEvaluator {
             // so such an unrelated index cannot poison a usable WP index.
             $groupKey = hash('sha256', $name);
             if (isset($groups[$groupKey]) && !hash_equals($groups[$groupKey]['name'], $name)) {
-                throw new \RuntimeException("duo: $purpose index introspection identity fingerprint collided");
+                throw new \RuntimeException("wprism: $purpose index introspection identity fingerprint collided");
             }
             $groups[$groupKey]['name'] = $name;
             $groups[$groupKey]['safe_name'] = preg_match('/^[A-Za-z0-9_]{1,64}$/D', $name) === 1;
@@ -545,7 +545,7 @@ final class DeleteGuardEvaluator {
                 if ($columnName === $column && $seq === null) {
                     // A row naming our exact predicate column but carrying an
                     // invalid ordinal makes candidate identity ambiguous.
-                    throw new \RuntimeException("duo: $purpose index introspection returned a malformed row");
+                    throw new \RuntimeException("wprism: $purpose index introspection returned a malformed row");
                 }
                 if ($columnName === $column && $seq === 1) {
                     $firstColumnMatches = true;
@@ -584,11 +584,11 @@ final class DeleteGuardEvaluator {
                         && !in_array($visible, ['YES', 'NO'], true))
                     || (array_key_exists('Ignored', $row)
                         && !in_array($ignored, ['YES', 'NO'], true))) {
-                    throw new \RuntimeException("duo: $purpose index introspection returned a malformed row");
+                    throw new \RuntimeException("wprism: $purpose index introspection returned a malformed row");
                 }
                 if (isset($indexRows[$canonicalSeq])) {
                     throw new \RuntimeException(
-                        "duo: $purpose index introspection returned duplicate index positions"
+                        "wprism: $purpose index introspection returned duplicate index positions"
                     );
                 }
                 $indexRows[$canonicalSeq] = [
@@ -609,7 +609,7 @@ final class DeleteGuardEvaluator {
             foreach ($indexRows as $position => $row) {
                 if ($position !== $expectedPosition) {
                     throw new \RuntimeException(
-                        "duo: $purpose index introspection returned noncontiguous index positions"
+                        "wprism: $purpose index introspection returned noncontiguous index positions"
                     );
                 }
                 $metadata = [
@@ -623,7 +623,7 @@ final class DeleteGuardEvaluator {
                 $firstMetadata ??= $metadata;
                 if ($metadata !== $firstMetadata) {
                     throw new \RuntimeException(
-                        "duo: $purpose index introspection returned inconsistent composite-index metadata"
+                        "wprism: $purpose index introspection returned inconsistent composite-index metadata"
                     );
                 }
                 ++$expectedPosition;
@@ -651,7 +651,7 @@ final class DeleteGuardEvaluator {
         }
         if ($candidates === []) {
             throw new \RuntimeException(
-                "duo: $purpose lacks a visible "
+                "wprism: $purpose lacks a visible "
                 . ($minimumPrefixCharacters === null
                     ? 'full-width '
                     : "at-least-$minimumPrefixCharacters-character ")

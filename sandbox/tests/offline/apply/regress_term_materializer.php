@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for TermMaterializer (DUO-3347 slice 6: the term entity
+ * Offline regression for TermMaterializer (issue #3347 slice 6: the term entity
  * materializer extracted from Apply.php). Deliberately narrow: unlike
  * MenuMaterializer/UserMetaMaterializer, term finalization has no single
  * dedicated live/behavioral test file to point to -- terms (categories,
@@ -26,10 +26,10 @@ require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/TermMaterializer.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\TermMaterializer;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\TermMaterializer;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -70,7 +70,7 @@ $check(
 $constructorParams = (new ReflectionClass(TermMaterializer::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams)
-        === ['Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer'],
+        === ['WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ApplyFieldMaterializer'],
     'constructor depends on exactly Policy, Tokens, and ApplyFieldMaterializer -- no Apply instance'
 );
 

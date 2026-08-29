@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/Transport.php';
@@ -24,11 +24,11 @@ require_once __DIR__ . '/CommandOutput.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/Policy.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * `duo assess <env>` — the decision-first, read-only assessment
+ * `wprism assess <env>` — the decision-first, read-only assessment
  * (round-3 MUP §2.1; verb boundary per the module map's rule 9).
  *
  * This class is the *only* place round 3 composes across modules for
@@ -52,23 +52,23 @@ use Duo\CommandRefusalException;
  *     is no assessment at all. MUP §2.1's exit rule says so explicitly.
  *  2. Bootstrap and init probes — both read-only, both optional, both
  *     recorded with their reason when unavailable. An already-adopted site
- *     refuses `wp duo init`, which is the normal case and is reported as a
+ *     refuses `wp wprism init`, which is the normal case and is reported as a
  *     fact, not an error.
- *  3. `wp duo assess-inventory --format=json` — the one new agent command.
+ *  3. `wp wprism assess-inventory --format=json` — the one new agent command.
  *     It carries `coverage` and `pending` inside it, which is why neither
  *     appears as a separate step: MUP §2.1 lists them as inputs, and the
  *     agent already composes them into one read-only pass.
- *  4. `wp duo capabilities --operation=<op> --format=json`, once per
+ *  4. `wp wprism capabilities --operation=<op> --format=json`, once per
  *     *distinct registry operation* the requested product operations map
  *     to — four calls for all six operations, not six.
  *  5. `AdapterCatalog::run(['list'])` on the host, offline; the target's
  *     own `adapter-survey` block already rode in with the inventory.
  *
  * Nothing in this command writes to the target. The only write it performs
- * is local: `.duo/contract/<env>/proposed.json` in the site repository, and
- * `.duo/contract/projection.json` when a contract has already been
+ * is local: `.wprism/contract/<env>/proposed.json` in the site repository, and
+ * `.wprism/contract/projection.json` when a contract has already been
  * accepted (MUP §3.4's refresh row). The proposal carries the environment
- * in its path because it carries it in its content (DUO-3503,
+ * in its path because it carries it in its content (issue #3503,
  * ContractStore.php:21-36): assessing one environment must not overwrite
  * the review in flight for another.
  *
@@ -151,9 +151,9 @@ final class AssessCommand {
     /**
      * The composition itself, shared with `ContractCommand`.
      *
-     * `duo contract propose` and `duo contract accept` both need a fresh
+     * `wprism contract propose` and `wprism contract accept` both need a fresh
      * assessment, and they call this function rather than re-invoking
-     * `php cli/duo assess` as a subprocess: a subprocess would double every
+     * `php cli/wprism assess` as a subprocess: a subprocess would double every
      * target round-trip, lose the typed refusal, and make "the same
      * assessment" a claim about two processes agreeing rather than a fact.
      *
@@ -214,13 +214,13 @@ final class AssessCommand {
             throw new CommandRefusalException(
                 'assess_target_unreachable',
                 'the environment did not pass the checks an assessment reads from',
-                'run duo doctor ' . self::token($driver->name()) . ', repair every failing check, then rerun assess',
+                'run wprism doctor ' . self::token($driver->name()) . ', repair every failing check, then rerun assess',
                 array_values(array_map(
                     static fn (array $check): array => [
                         'code' => 'doctor_check_failed',
                         'check' => (string) $check['label'],
                         'message' => 'a blocking environment check did not pass',
-                        'remediation' => 'run duo doctor for this environment and read the check detail',
+                        'remediation' => 'run wprism doctor for this environment and read the check detail',
                     ],
                     array_filter(
                         is_array($doctor['checks'] ?? null) ? $doctor['checks'] : [],
@@ -241,15 +241,15 @@ final class AssessCommand {
         $composition[] = 'assess-inventory';
         $inventory = self::agentJson(
             $driver,
-            ['duo', 'assess-inventory', '--repo=' . $driver->repoPath(), '--format=json'],
+            ['wprism', 'assess-inventory', '--repo=' . $driver->repoPath(), '--format=json'],
             'assess_inventory_unavailable',
             'the target could not produce a read-only assessment inventory'
         );
-        if (($inventory['format'] ?? null) !== 'duo-assess-inventory/v1') {
+        if (($inventory['format'] ?? null) !== 'wprism-assess-inventory/v1') {
             throw new CommandRefusalException(
                 'assess_inventory_unavailable',
                 'the target returned an inventory document this build does not read',
-                'upgrade the target agent to a build that emits duo-assess-inventory/v1, then rerun assess'
+                'upgrade the target agent to a build that emits wprism-assess-inventory/v1, then rerun assess'
             );
         }
         $target = StackInventory::stack($inventory);
@@ -349,7 +349,7 @@ final class AssessCommand {
      * would make the comparison a comparison of two different questions.
      *
      * It is a targeted re-probe rather than a fresh `assess()`: no doctor, no
-     * inventory, no bootstrap, no init probe — one `wp duo capabilities` call
+     * inventory, no bootstrap, no init probe — one `wp wprism capabilities` call
      * standing between the operator's confirmation and the first mutating
      * call.
      *
@@ -363,7 +363,7 @@ final class AssessCommand {
                 // against the init proposal — the same policy the inventory
                 // was projected against — so surfaces and claims join
                 // (T7 grind A4); on an init-owned repository it is inert.
-                'duo', 'capabilities', '--repo=' . $driver->repoPath(),
+                'wprism', 'capabilities', '--repo=' . $driver->repoPath(),
                 '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
             ],
             'assess_registry_unavailable',
@@ -401,15 +401,15 @@ final class AssessCommand {
      *
      * The proposal is written whenever it can honestly be written — it is the
      * output of the assessment, never authoritative (MUP §3.1). The one thing
-     * that stops it is DUO-3484's mismatch: this is the ONLY
+     * that stops it is issue #3484's mismatch: this is the ONLY
      * `writeProposal()` call in the tree, so withholding here is what makes
      * "no proposal is minted while the two reviewed libraries disagree" a
      * property of the code rather than of a verb. `AssessReport::
      * requireDispositionsAgree()` carries the full rationale.
      *
      * The two callers report the same withholding differently, and that is
-     * the whole difference between them: `duo assess` states it and exits 0,
-     * because diagnosis is what it was asked for; `duo contract propose`
+     * the whole difference between them: `wprism assess` states it and exits 0,
+     * because diagnosis is what it was asked for; `wprism contract propose`
      * refuses first, because minting the file IS what it was asked for.
      *
      * The projection is regenerated either way, and only when a contract has
@@ -431,7 +431,7 @@ final class AssessCommand {
             // stamps that value as `environment` (ContractProposal.php:185)
             // and binds it into `assess_digest` (AssessReport.php:103), so
             // the path it lands under is derived from the same fact rather
-            // than agreed separately (DUO-3503).
+            // than agreed separately (issue #3503).
             $store->writeProposal(
                 (string) $result['report']['env'],
                 ContractProposal::fromAssessReport($result['report'], $result['seed'])
@@ -491,7 +491,7 @@ final class AssessCommand {
             throw new CommandRefusalException(
                 'contract_missing',
                 'this site repository has no accepted application contract',
-                'run duo contract <env> propose, review the proposal, then duo contract <env> accept'
+                'run wprism contract <env> propose, review the proposal, then wprism contract <env> accept'
             );
         }
         $report = $result['report'];
@@ -534,14 +534,14 @@ final class AssessCommand {
     }
 
     /**
-     * The LOCAL site repository — the directory holding `site.duo.json`,
-     * which is where `.duo/contract/` lives.
+     * The LOCAL site repository — the directory holding `site.wprism.json`,
+     * which is where `.wprism/contract/` lives.
      *
      * This is deliberately not `$driver->repoPath()`: that is the *target's*
      * repository path, as seen from inside the target, and on a docker or
      * ssh environment it names a directory this process cannot write to and
      * may not even exist here. The rule matches `Registry::load()`'s
-     * exactly — walk upward for `site.duo.json`, and inside Git accept it
+     * exactly — walk upward for `site.wprism.json`, and inside Git accept it
      * only at the worktree root — because a contract written under a nested
      * repository would authorize a site whose environments are controlled
      * somewhere else.
@@ -551,8 +551,8 @@ final class AssessCommand {
         $siteFile = null;
         $cursor = $dir;
         while (true) {
-            if (is_file($cursor . '/site.duo.json')) {
-                $siteFile = $cursor . '/site.duo.json';
+            if (is_file($cursor . '/site.wprism.json')) {
+                $siteFile = $cursor . '/site.wprism.json';
                 break;
             }
             $parent = dirname($cursor);
@@ -564,15 +564,15 @@ final class AssessCommand {
         if ($siteFile === null) {
             throw new CommandRefusalException(
                 'local_site_repo_missing',
-                'no site.duo.json was found at or above the current directory',
-                'run this command from inside the site repository that holds site.duo.json'
+                'no site.wprism.json was found at or above the current directory',
+                'run this command from inside the site repository that holds site.wprism.json'
             );
         }
         $root = self::gitRoot($dir);
         if ($root !== null && dirname($siteFile) !== $root) {
             throw new CommandRefusalException(
                 'local_site_repo_nested',
-                'the site.duo.json found is not at the Git worktree root',
+                'the site.wprism.json found is not at the Git worktree root',
                 'move the site registry to the root of the repository whose environments it controls'
             );
         }
@@ -661,7 +661,7 @@ final class AssessCommand {
      * One read-only bootstrap probe, or a stated reason there was none.
      *
      * `BootstrapEligibilityReport::inspect()` only reads — it proves a safe
-     * topology before `duo adopt` would write — but it is reachable only on
+     * topology before `wprism adopt` would write — but it is reachable only on
      * a transport that implements `AdoptionTransport`. A docker environment
      * does not, and saying so is more useful than an absent key.
      *
@@ -707,7 +707,7 @@ final class AssessCommand {
     }
 
     /**
-     * The `wp duo init` proposal read, which is read-only by construction:
+     * The `wp wprism init` proposal read, which is read-only by construction:
      * without `--confirm=<digest>` the agent computes and returns a plan and
      * writes nothing.
      *
@@ -746,7 +746,7 @@ final class AssessCommand {
      * `AdapterCatalog::run()` is the module's only entry point and it writes
      * to stdout, so the output is buffered here rather than a second, quiet
      * catalog reader being built beside it — the assessment must report the
-     * same source list `duo adapter list` reports, and the way to guarantee
+     * same source list `wprism adapter list` reports, and the way to guarantee
      * that is to call it.
      *
      * @param callable(array):array|null $injected
@@ -773,9 +773,9 @@ final class AssessCommand {
     }
 
     /**
-     * One `wp duo …` JSON read, with the agent's own refusal preserved.
+     * One `wp wprism …` JSON read, with the agent's own refusal preserved.
      *
-     * The agent answers a refusal with `duo-command-refusal/v1` on stdout,
+     * The agent answers a refusal with `wprism-command-refusal/v1` on stdout,
      * so it is decoded first and re-raised with its own reason code: an
      * assessment that reported `assess_inventory_unavailable` when the
      * target actually said `invalid_arguments` would send the operator to
@@ -794,7 +794,7 @@ final class AssessCommand {
         $result = $driver->captureWp($args);
         if (!in_array($result['exit'], $answerExits, true)) {
             $refusal = json_decode(trim((string) $result['stdout']), true);
-            if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+            if (is_array($refusal) && ($refusal['format'] ?? null) === 'wprism-command-refusal/v1') {
                 throw new CommandRefusalException(
                     self::reasonCode($refusal, $fallbackCode),
                     (string) ($refusal['message'] ?? $fallbackMessage),
@@ -808,7 +808,7 @@ final class AssessCommand {
             throw new CommandRefusalException(
                 $fallbackCode,
                 $fallbackMessage,
-                'run duo doctor ' . self::token($driver->name()) . ' and repair the target, then rerun assess'
+                'run wprism doctor ' . self::token($driver->name()) . ' and repair the target, then rerun assess'
             );
         }
         $decoded = json_decode(trim((string) $result['stdout']), true);
@@ -866,9 +866,9 @@ final class AssessCommand {
                 $documents[basename($file, '.json')] = $file;
             }
         } else {
-            $library = $options['adapter_library'] ?? \Duo\Policy::shipped_adapter_library();
-            if (!$library instanceof \Duo\AdapterLibrary) {
-                throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+            $library = $options['adapter_library'] ?? \WPrism\Policy::shipped_adapter_library();
+            if (!$library instanceof \WPrism\AdapterLibrary) {
+                throw new \InvalidArgumentException('adapter_library must be a WPrism\\AdapterLibrary');
             }
             $documents['profiles'] = $library->profilesPath();
             foreach ($library->packages() as $package) {
@@ -884,7 +884,7 @@ final class AssessCommand {
         // The literal, not ManifestDispositions::FORMAT: this is the wire
         // provenance format recorded in contracts, independent of which
         // physical library layout supplies the documents.
-        $decoded = ['format' => 'duo-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
+        $decoded = ['format' => 'wprism-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
         $raw = '';
         $readable = $logicalFiles !== [];
         foreach ($logicalFiles as $logicalName => $file) {
@@ -923,7 +923,7 @@ final class AssessCommand {
     /**
      * The site's own identity for the proposed contract.
      *
-     * `site.duo.json` carries no name — it is the wire contract for state,
+     * `site.wprism.json` carries no name — it is the wire contract for state,
      * not a project file — so the repository directory name is used, which
      * is the name the operator already types. `spec_version` is read from
      * the file, because it is the one integer that must equal the engine's
@@ -933,13 +933,13 @@ final class AssessCommand {
      * @return array{name:string,spec_version:int}
      */
     private static function siteIdentity(string $siteRepo): array {
-        $raw = @file_get_contents($siteRepo . '/site.duo.json');
+        $raw = @file_get_contents($siteRepo . '/site.wprism.json');
         $decoded = is_string($raw) ? json_decode($raw, true) : null;
         if (!is_array($decoded) || !is_int($decoded['spec_version'] ?? null)) {
             throw new CommandRefusalException(
                 'site_policy_unreadable',
-                'the local site.duo.json could not be read, or declares no integer spec_version',
-                'repair site.duo.json in the site repository, then rerun assess'
+                'the local site.wprism.json could not be read, or declares no integer spec_version',
+                'repair site.wprism.json in the site repository, then rerun assess'
             );
         }
 

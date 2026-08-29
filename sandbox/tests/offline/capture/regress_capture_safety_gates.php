@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../../../agent/src/Capture/CaptureSafetyGates.php';
 
-use Duo\CaptureSafetyGates;
-use Duo\CommandRefusalException;
-use Duo\Tokens;
+use WPrism\CaptureSafetyGates;
+use WPrism\CommandRefusalException;
+use WPrism\Tokens;
 
 function check(bool $condition, string $message): void {
     if (!$condition) {
@@ -28,7 +28,7 @@ $tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
 $gates = new CaptureSafetyGates('/private/repository/');
 
 check(class_exists(CaptureSafetyGates::class, false), 'safety gates load as a direct boundary');
-check(!class_exists(Duo\Capture::class, false), 'safety gates do not load Capture');
+check(!class_exists(WPrism\Capture::class, false), 'safety gates do not load Capture');
 
 $unclassified = refusal(static fn() => $gates->assertOptions(['options:unknown'], [], [], $tokens));
 check($unclassified->reasonCode === 'incomplete_state_discovery', 'unclassified state keeps its stable reason');
@@ -67,7 +67,7 @@ $secret = refusal(static fn() => $gates->guardSecret(
 check($secret->reasonCode === 'secret_state_refused', 'deep secret refusal is owned by the safety boundary');
 check(str_contains($secret->getMessage(), '--repo=/private/repository'), 'secret remediation uses the normalized repository path');
 check(!str_contains((string) json_encode($secret->payload()), 'sk_live_'), 'secret bytes are absent from public diagnostics');
-// DUO-3510: the printed remedy must be the `=` form -- wp-cli parses a
+// issue #3510: the printed remedy must be the `=` form -- wp-cli parses a
 // space-separated --set value as a bare boolean flag and silently drops the
 // intended value (measured against this exact command, Cli.php:2335-2343).
 // The 'options' section additionally needs autoload=preserve or the pasted

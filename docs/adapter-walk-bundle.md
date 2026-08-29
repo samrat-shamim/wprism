@@ -3,8 +3,8 @@
 *Companion to the operator-authored-adapter walk,
 [docs/grind/adapter-walk.md](grind/adapter-walk.md) (`make grind-adapter-walk`),
 whose S2/S3/S4 scenarios drive every rule below end to end. This is the wire
-contract `duo adapter certify` (cli, host-side) must produce and
-`\Duo\AdapterCertification` (agent) verifies. Every rule below is enforced by
+contract `wprism adapter certify` (cli, host-side) must produce and
+`\WPrism\AdapterCertification` (agent) verifies. Every rule below is enforced by
 the agent; a builder that guesses will be refused by name. Originated as the
 round-3 T6 bundle proposal; promoted to canonical documentation 2026-08-21.*
 
@@ -13,13 +13,13 @@ Authority: `agent/src/Adapter/AdapterCertification.php`. Proof:
 
 ## 1. The site trust root — `adapters/authorities.json`
 
-Format `duo-adapter-authorities/v1`, canonical Duo JSON bytes, exactly the
+Format `wprism-adapter-authorities/v1`, canonical WPrism JSON bytes, exactly the
 grammar of the shipped
 `platform/adapter-library/capabilities/adapter-authorities.json`:
 
 ```json
 {
-    "format": "duo-adapter-authorities/v1",
+    "format": "wprism-adapter-authorities/v1",
     "keys": {
         "acme-ops": {
             "adapter_names": ["acme-catalog"],
@@ -36,7 +36,7 @@ grammar of the shipped
 - Each key record carries **exactly** those six keys. The allowlist the
   contract calls `adapters` is spelled **`adapter_names`** — the shipped
   grammar's own name, kept identical so one validator serves both roots.
-- There is a second grammar, `duo-adapter-authorities/v2`, and this walk does
+- There is a second grammar, `wprism-adapter-authorities/v2`, and this walk does
   not use it. It is what an ENROLLED vendor writes: fingerprint-derived key
   ids, a mandatory `not_before`/`not_after` window, `<vendor>-*` namespace
   scoping, and a signed envelope over the whole document. A v1 document is
@@ -56,17 +56,17 @@ grammar of the shipped
 
 ## 2. The bundle — built by the agent, not by the host
 
-**`duo adapter certify` does not build a bundle.** It calls one entry point:
+**`wprism adapter certify` does not build a bundle.** It calls one entry point:
 
 ```php
-\Duo\AdapterCertification::sign_site(
+\WPrism\AdapterCertification::sign_site(
     string $manifestDir,   // must resolve to the library this process loads
     string $repo,          // site repository root
     string $name,          // adapter name; adapters/<name>.json must exist
     string $authorityId,   // key id, resolved against BOTH trust roots
     string $secretKey,     // base64 or hex Ed25519 secret key bytes
     string $reason         // the operator's stated basis; signed and reported
-): string                  // canonical duo-adapter-certification/v1 bytes
+): string                  // canonical wprism-adapter-certification/v1 bytes
 ```
 
 Write the returned bytes to `adapters/certifications/<name>.json`, then call
@@ -92,7 +92,7 @@ nothing.
 The grammar below is therefore what the agent PRODUCES and verifies — read it
 to know what a certificate asserts, not to build one.
 
-## 2a. The bundle grammar — `duo-site-adapter-certification-bundle/v1`
+## 2a. The bundle grammar — `wprism-site-adapter-certification-bundle/v1`
 
 A directory holding `bundle.json` plus its assets. `bundle.json` and the
 `results/*.json` assets use the **four-space pretty** canonical encoding
@@ -104,9 +104,9 @@ existing producer's, unchanged.
 
 `bundle.json` carries **exactly** these sixteen keys:
 
-| key | value for `duo adapter certify` |
+| key | value for `wprism adapter certify` |
 |---|---|
-| `schema_version` | `"duo-site-adapter-certification-bundle/v1"` |
+| `schema_version` | `"wprism-site-adapter-certification-bundle/v1"` |
 | `subject` | `{"kind": "site_adapter", "name": "<n>"}` |
 | `verdict` | `"pass"` |
 | `evidence` | **NEW** — `{"exercised": false, "grammar": "ok", "reason": "<text>"}` |
@@ -187,7 +187,7 @@ and a `plugin` claim (this is the exact fixture the regression pins):
 
 ```json
 {
-    "format": "duo-manifest-dispositions/v1",
+    "format": "wprism-manifest-dispositions/v1",
     "manifests": {
         "<n>": {
             "capabilities": {
@@ -204,7 +204,7 @@ and a `plugin` claim (this is the exact fixture the regression pins):
                 {"reason": "…", "status": "unsupported", "table": "acme_shop_meta"}
             ],
             "evidence": {
-                "bundle_schema": "duo-site-adapter-certification-bundle/v1",
+                "bundle_schema": "wprism-site-adapter-certification-bundle/v1",
                 "tests": []
             },
             "reason": "<the --reason text, verbatim>",
@@ -239,7 +239,7 @@ Enforced, and each has bitten a fixture:
 WP-5.3 / [spec/repo-format.md § v3.17](../spec/repo-format.md). `sign_site()`
 takes an optional seventh argument — one disposition **entry**, the exact
 document shape `adapter-packages/<name>/package/disposition.json` carries — and signs it in
-place of the derivation. `duo adapter certify --ratification-file=<file>` is how
+place of the derivation. `wprism adapter certify --ratification-file=<file>` is how
 an operator supplies one; `null` keeps the derivation, which stays the floor.
 
 Nothing above changes. The envelope (`format`, the single `manifests.<name>`
@@ -262,7 +262,7 @@ narrowed with an `unsupported[]` row and its reason, never by leaving a surface
 out.
 
 The bundle is unchanged: `exercised: false`, `tests: []`, `verdict: pass`. An
-authored entry is a stronger argument, not evidence of a run. `duo adapter
+authored entry is a stronger argument, not evidence of a run. `wprism adapter
 recertify` derives, so it reports an authored certificate as a `blocked` row
 naming `certify --ratification-file` rather than replacing the claim.
 
@@ -273,7 +273,7 @@ conformance bundle on disk. A site certificate does not use it.
 
 ```
 php scripts/adapter-certification.php sign \
-  --manifest-dir=<Duo source root> --repo=<site repo> --name=<n> \
+  --manifest-dir=<WPrism source root> --repo=<site repo> --name=<n> \
   --bundle=<bundle dir> --evidence-repo=<site repo> \
   --authority=<key id> --secret-key-file=<file>
 ```
@@ -330,7 +330,7 @@ definition nothing loads would contradict what the catalog means. It moves to
  "message": "…"}
 ```
 
-which `AdapterCatalog::render_not_installed()` and `wp duo adapter-survey`
+which `AdapterCatalog::render_not_installed()` and `wp wprism adapter-survey`
 already print, `reason_code` and winner included, with no host change. There is
 no `shadowed_by_site` boolean on any `adapters[]` row.
 
@@ -346,10 +346,10 @@ no `shadowed_by_site` boolean on any `adapters[]` row.
 ```
 
 with `status: "certified"` and `evidence.status: "current"` (plus
-`evidence.exercised`), which is what `duo promote`'s existing gate reads. No
+`evidence.exercised`), which is what `wprism promote`'s existing gate reads. No
 host change is needed for promotion to admit a site-certified adapter.
 
-## 5a. `duo-assess-inventory/v1` — the unmanaged-plugin rows
+## 5a. `wprism-assess-inventory/v1` — the unmanaged-plugin rows
 
 `plugins` stays a JSON **list** of `{basename, name, version, active}`, exactly
 as before: `StackInventory::installed()`/`::code()` and
@@ -370,13 +370,13 @@ nothing on this site, and `adapter_survey` already reports that case with its
 own certification word. A single-file plugin has no directory, so its slug is
 the file name without `.php` (`hello.php` → slug `hello`).
 
-## 6. `wp duo init --allow-unmanaged-plugins`
+## 6. `wp wprism init --allow-unmanaged-plugins`
 
 The host must forward the flag to **both** target invocations:
 
 ```
-wp duo init --repo=<path> --format=json [--allow-unmanaged-plugins]
-wp duo init --repo=<path> --confirm=<digest> --format=json [--allow-unmanaged-plugins]
+wp wprism init --repo=<path> --format=json [--allow-unmanaged-plugins]
+wp wprism init --repo=<path> --confirm=<digest> --format=json [--allow-unmanaged-plugins]
 ```
 
 It is inside the proposal digest, so a confirmation that omits it recomputes a

@@ -1,9 +1,9 @@
 <?php
 /**
- * DUO-3508: the review queue's mechanism-ownership filter, and the ref hint's
+ * issue #3508: the review queue's mechanism-ownership filter, and the ref hint's
  * boolean-value caveat.
  *
- * `duo pending` has two halves and, before this, only one of them knew about
+ * `wprism pending` has two halves and, before this, only one of them knew about
  * mechanism ownership. The journal half dropped an item on exactly one test —
  * `Journal::ground_truth() !== null` (Pending.php:494) — which for options is
  * `Policy::option_rule()` (Journal.php:331-334, Policy.php:634-636), the exact
@@ -21,9 +21,9 @@
  * blocking net). A fixture manifest would prove the mechanism works and prove
  * nothing about the queue an operator actually sees.
  *
- * ONE faked collaborator, `Duo\Capture`: `gate_scan_read_only()` reaches
+ * ONE faked collaborator, `WPrism\Capture`: `gate_scan_read_only()` reaches
  * CaptureGateScanner's two JOIN queries (CaptureGateScanner.php:140-143,
- * ScopeDiscovery.php:177) which `DuoTest\FakeWpdb` deliberately refuses to
+ * ScopeDiscovery.php:177) which `WPrismTest\FakeWpdb` deliberately refuses to
  * model (sandbox/tests/lib/FakeWpdb.php:96-100 — a JOIN belongs in live
  * certification, not an in-memory MySQL). It is the same seam
  * sandbox/tests/offline/adapter/regress_adapter_observation.php:245 uses, and
@@ -48,7 +48,7 @@
  */
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     /**
      * The one collaborator seam, per the file docblock. Behaves as the real
      * gate walk does for a site whose scope/meta surfaces are all classified,
@@ -89,13 +89,13 @@ namespace {
     require_once $repoRoot . '/agent/src/Repository/Journal.php';
     require_once $repoRoot . '/agent/src/Review/Pending.php';
 
-    use Duo\Journal;
-    use Duo\Pending;
-    use Duo\Policy;
-    use Duo\SidebarState;
-    use Duo\Tokens;
-    use DuoTest\FakeWpdb;
-    use DuoTest\WpStore;
+    use WPrism\Journal;
+    use WPrism\Pending;
+    use WPrism\Policy;
+    use WPrism\SidebarState;
+    use WPrism\Tokens;
+    use WPrismTest\FakeWpdb;
+    use WPrismTest\WpStore;
 
     // ---------------------------------------------------------------- fixture
 
@@ -105,12 +105,12 @@ namespace {
     $policy->site = ['policy' => []];
     $policy->manifests = [$core];
 
-    duo_check_same(
+    wprism_check_same(
         'theme_mods_',
         $core['dynamic_options']['theme_mods']['prefix'] ?? null,
         'the shipped core.json still declares the theme_mods_ dynamic_options prefix this filter relies on'
     );
-    duo_check_same(
+    wprism_check_same(
         ['block', 'nav_menu', 'text'],
         array_keys($policy->widget_types()),
         'the shipped core.json still declares exactly three widget types, so widget_undeclared below is genuinely undeclared'
@@ -119,7 +119,7 @@ namespace {
     $store = WpStore::reset()->seedOptions(['home' => 'https://queue.example.test']);
     $wpdb = FakeWpdb::install();
 
-    /** One duo_journal row, in the real column shape (Ledger.php:100-113). */
+    /** One wprism_journal row, in the real column shape (Ledger.php:100-113). */
     $journalRow = static function (int $id, string $tbl, string $item, string $surface, string $caps, string $proposal): array {
         return [
             'id' => $id, 't' => '2026-08-21 09:00:00', 'op' => 'update', 'tbl' => $tbl,
@@ -131,7 +131,7 @@ namespace {
     // What a fresh install's journal actually holds: WordPress's own widget and
     // theme bookkeeping writes, plus the two genuinely undeclared plugin
     // options and one boolean core flag that the queue SHOULD keep asking about.
-    $wpdb->seedTable('wp_duo_journal', [
+    $wpdb->seedTable('wp_wprism_journal', [
         $journalRow(1, 'options', 'widget_text', 'admin', 'manage_options', 'authored'),
         $journalRow(2, 'options', 'widget_text', 'rest', 'edit_theme_options', 'runtime'),
         $journalRow(3, 'options', 'widget_block', 'admin', 'manage_options', 'authored'),
@@ -158,7 +158,7 @@ namespace {
         ['option_id' => 5, 'option_name' => 'theme_mods_twentytwentyfive', 'option_value' => serialize(['custom_logo' => 42]), 'autoload' => 'yes'],
         ['option_id' => 6, 'option_name' => 'theme_mods_twentytwentyone', 'option_value' => serialize(['custom_logo' => 42]), 'autoload' => 'yes'],
         ['option_id' => 7, 'option_name' => '_transient_acme_lock', 'option_value' => '1', 'autoload' => 'no'],
-        // The DUO-3508 ref-hint case: a boolean flag whose whole value is '1',
+        // The issue #3508 ref-hint case: a boolean flag whose whole value is '1',
         // on a site that has WordPress's own seed post at id 1.
         ['option_id' => 8, 'option_name' => 'acme_public_flag', 'option_value' => '1', 'autoload' => 'yes'],
         ['option_id' => 9, 'option_name' => 'acme_api_endpoint', 'option_value' => 'https://api.acme.test/v2', 'autoload' => 'yes'],
@@ -171,7 +171,7 @@ namespace {
         ['meta_id' => 1, 'post_id' => 1, 'meta_key' => 'widget_text', 'meta_value' => 'a plugin wrote this'],
     ]);
     // WordPress's own fresh-install seed rows, ids and all — they are why the
-    // pre-DUO-3508 hint was always confidently wrong: every low integer
+    // pre-issue #3508 hint was always confidently wrong: every low integer
     // anywhere in a bookkeeping value resolved to one of these.
     $wpdb->seedTable('wp_posts', [
         ['ID' => 1, 'post_type' => 'post', 'post_status' => 'publish', 'post_title' => 'Hello world!'],
@@ -180,7 +180,7 @@ namespace {
         ['ID' => 42, 'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Featured'],
     ]);
 
-    \Duo\Capture::$gate = [
+    \WPrism\Capture::$gate = [
         'scope' => [], 'options' => [], 'widgets' => [],
         'post_meta' => ['widget_text' => ['entities' => 1, 'post_types' => ['post']]],
         'term_meta' => [], 'user_meta' => [],
@@ -191,13 +191,13 @@ namespace {
     echo "\n== the rule table cannot answer for either mechanism ==\n";
 
     foreach (['widget_text', 'widget_undeclared', 'sidebars_widgets', 'theme_mods_twentytwentyfive', 'theme_mods_twentytwentyone'] as $owned) {
-        duo_check_same(
+        wprism_check_same(
             null,
             Journal::ground_truth($policy, 'options', $owned),
             "Journal::ground_truth() has no answer for the mechanism-owned name '$owned' (the exact/pattern table is blind to it)"
         );
     }
-    duo_check_same(
+    wprism_check_same(
         'derived',
         Journal::ground_truth($policy, 'options', '_transient_acme_lock'),
         'a name the rule table DOES classify is still excluded by ground_truth alone, unchanged'
@@ -208,41 +208,41 @@ namespace {
     $mechanismOwner = new ReflectionMethod(Pending::class, 'mechanism_owner');
     $owner = static fn(string $tbl, string $item): ?string => $mechanismOwner->invoke(null, $policy, $tbl, $item);
 
-    duo_check_same('widgets', $owner('options', 'sidebars_widgets'), 'SidebarState owns the top-level sidebars_widgets option');
-    duo_check_same('widgets', $owner('options', 'widget_text'), 'SidebarState owns a declared widget type row');
-    duo_check_same('widgets', $owner('options', 'widget_undeclared'), 'SidebarState owns an UNdeclared widget type row too — ownership is the family, not the declaration');
-    duo_check_same('dynamic_options', $owner('options', 'theme_mods_twentytwentyfive'), "the active theme's theme_mods row is owned by the dynamic_options resolver");
-    duo_check_same('dynamic_options', $owner('options', 'theme_mods_twentytwentyone'), 'a stale theme_mods residue row is owned by the same declared prefix');
-    // DUO-3509 declares blog_public (authored) in manifests/core.json, so the boolean-valued UNDECLARED example the queue
+    wprism_check_same('widgets', $owner('options', 'sidebars_widgets'), 'SidebarState owns the top-level sidebars_widgets option');
+    wprism_check_same('widgets', $owner('options', 'widget_text'), 'SidebarState owns a declared widget type row');
+    wprism_check_same('widgets', $owner('options', 'widget_undeclared'), 'SidebarState owns an UNdeclared widget type row too — ownership is the family, not the declaration');
+    wprism_check_same('dynamic_options', $owner('options', 'theme_mods_twentytwentyfive'), "the active theme's theme_mods row is owned by the dynamic_options resolver");
+    wprism_check_same('dynamic_options', $owner('options', 'theme_mods_twentytwentyone'), 'a stale theme_mods residue row is owned by the same declared prefix');
+    // issue #3509 declares blog_public (authored) in manifests/core.json, so the boolean-valued UNDECLARED example the queue
     // assertions below use is acme_public_flag; blog_public stays here only to show mechanism_owner() is about mechanisms, not rules.
-    duo_check_same(null, $owner('options', 'blog_public'), 'an unowned core option is left for the queue to ask about');
-    duo_check_same(null, $owner('options', 'acme_api_endpoint'), 'an unowned plugin option is left for the queue to ask about');
-    duo_check_same(null, $owner('postmeta', 'widget_text'), 'the ownership test is options-scoped: a post_meta key of the same name is untouched');
-    duo_check_same(null, $owner('termmeta', 'sidebars_widgets'), 'the ownership test is options-scoped: a term_meta key of the same name is untouched');
+    wprism_check_same(null, $owner('options', 'blog_public'), 'an unowned core option is left for the queue to ask about');
+    wprism_check_same(null, $owner('options', 'acme_api_endpoint'), 'an unowned plugin option is left for the queue to ask about');
+    wprism_check_same(null, $owner('postmeta', 'widget_text'), 'the ownership test is options-scoped: a post_meta key of the same name is untouched');
+    wprism_check_same(null, $owner('termmeta', 'sidebars_widgets'), 'the ownership test is options-scoped: a term_meta key of the same name is untouched');
 
     echo "\n== the queue an operator sees ==\n";
 
     $items = Pending::scan($repoRoot . '/sandbox/tmp', $policy);
     $keys = array_map(static fn(array $i): string => $i['section'] . ':' . $i['key'], $items);
 
-    duo_check_same(
+    wprism_check_same(
         ['options:acme_api_endpoint', 'options:acme_featured_post', 'options:acme_public_flag', 'post_meta:widget_text'],
         $keys,
         'only genuinely undeclared names are queued; every widget_*, sidebars_widgets and theme_mods_* observation is out'
     );
-    duo_check_same(1, \Duo\Capture::$calls, 'the queue still takes exactly one gate walk');
+    wprism_check_same(1, \WPrism\Capture::$calls, 'the queue still takes exactly one gate walk');
 
     $byKey = [];
     foreach ($items as $item) {
         $byKey[$item['section'] . ':' . $item['key']] = $item;
     }
 
-    duo_check_same(
+    wprism_check_same(
         ['n' => 1, 'surfaces' => ['admin' => 1], 'caps' => ['manage_options' => 1], 'proposal' => 'authored'],
         $byKey['options:acme_api_endpoint']['evidence']['journal'] ?? null,
         'a surviving item keeps its full journal evidence bundle and proposal'
     );
-    duo_check_same(
+    wprism_check_same(
         ['n' => 1, 'surfaces' => ['admin' => 1], 'caps' => ['edit_posts' => 1], 'proposal' => 'authored'],
         $byKey['post_meta:widget_text']['evidence']['journal'] ?? null,
         "a post_meta key named 'widget_text' keeps its journal evidence: the filter never leaves the options table"
@@ -252,45 +252,45 @@ namespace {
 
     echo "\n== an undeclared widget type with real instances still refuses ==\n";
 
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => SidebarState::capture($policy, new Tokens(), false),
         RuntimeException::class,
         "capture still refuses widget_undeclared's live instances even though the queue no longer asks about the row",
-        "duo: widget option 'widget_undeclared' contains instances but type 'undeclared' is undeclared"
+        "wprism: widget option 'widget_undeclared' contains instances but type 'undeclared' is undeclared"
     );
 
     // The same seeded row that the queue is now quiet about is the one the
     // capture-time guard refuses on, so the loud path is provably the same
     // fixture, not a different one (SidebarState.php:262-269).
-    duo_check(
+    wprism_check(
         str_contains((string) $wpdb->last_query, "option_name LIKE 'widget\\_%'"),
         'that refusal came from the real widget_% enumeration over this fixture'
     );
 
     echo "\n== the gate half still surfaces an undeclared widget type ==\n";
 
-    \Duo\Capture::$gate['widgets'] = ['undeclared' => [
+    \WPrism\Capture::$gate['widgets'] = ['undeclared' => [
         'entities' => 1,
         'value_shapes' => ['multi-instance array'],
         'reason' => 'live widget instances exist but no pinned manifest declares this widget type',
     ]];
     $withGateFinding = Pending::scan($repoRoot . '/sandbox/tmp', $policy);
-    duo_check(
+    wprism_check(
         in_array('widgets:undeclared', array_map(static fn(array $i): string => $i['section'] . ':' . $i['key'], $withGateFinding), true),
         'the journal filter touches only the journal half: a gate-walk widgets:<type> finding still reaches the queue'
     );
-    \Duo\Capture::$gate['widgets'] = [];
+    \WPrism\Capture::$gate['widgets'] = [];
 
     // ------------------------------------------------------- the ref hint (c)
 
     echo "\n== a whole value of exactly 0/1 is a flag, not a reference ==\n";
 
-    duo_check_same(
+    wprism_check_same(
         null,
         $byKey['options:acme_public_flag']['ref_hint'] ?? null,
         "acme_public_flag's whole value of '1' gets no hint, though post #1 ('Hello world!') exists and used to be offered as one"
     );
-    duo_check_same(
+    wprism_check_same(
         ['kind' => 'post', 'id' => 42, 'title' => 'Featured', 'post_type' => 'page', 'at' => ''],
         $byKey['options:acme_featured_post']['ref_hint'] ?? null,
         'a genuine id-shaped value still gets its hint — the linter is narrowed, not disabled; `at` is empty because the id IS the value'
@@ -302,12 +302,12 @@ namespace {
         ['term_taxonomy_id' => 42, 'term_id' => 42, 'taxonomy' => 'category', 'description' => '', 'parent' => 0, 'count' => 1],
     ])->enableJoinedCaptureSql();
     $refHint = new ReflectionMethod(Pending::class, 'ref_hint');
-    duo_check_same(
+    wprism_check_same(
         ['kind' => 'term', 'id' => 42, 'title' => 'Portable Category', 'post_type' => 'category', 'at' => ''],
         $refHint->invoke(null, 'rank_math_primary_category', '42'),
         'a category-shaped key prefers the term namespace when the same integer is also a live post id'
     );
-    duo_check_same(
+    wprism_check_same(
         [[1, '']],
         Pending::numeric_candidates('1'),
         'numeric_candidates() is unchanged: Lint::scan_tree() shares it at eight call sites and a bare 1 stays a candidate there'
@@ -322,7 +322,7 @@ namespace {
     //   2. wpforms_form_locations[0].id = 5      (postmeta on a wpforms post)
     //   3. block formId "6"                      (in a page's BODY)
     //   4. block formId "14"                     (in a page's BODY)
-    // `duo pending` found ZERO of them and emitted THREE hints, all wrong:
+    // `wprism pending` found ZERO of them and emitted THREE hints, all wrong:
     //   wpforms_settings                          -> post:1 "Hello world!"
     //   wpforms_constant_contact_version = '3'    -> post:3 "Privacy Policy"
     //   action_scheduler_hybrid_store_demarkation = '4'
@@ -368,7 +368,7 @@ namespace {
         ['option_id' => 5, 'option_name' => 'wpforms_versions_lite', 'autoload' => 'yes',
             'option_value' => '{"1.5.9":0,"1.6.7.2":0,"1.7.5":0,"1.9.8.6":0,"2.0.0":0,"2.0.0.5":1787672785}'],
     ]);
-    $wpdb->seedTable('wp_duo_journal', [
+    $wpdb->seedTable('wp_wprism_journal', [
         $journalRow(1, 'options', 'wpforms_settings', 'admin', 'manage_options', 'authored'),
         $journalRow(2, 'options', 'wpforms_constant_contact_version', 'cron', '', 'review'),
         $journalRow(3, 'options', 'action_scheduler_hybrid_store_demarkation', 'cron', '', 'review'),
@@ -382,7 +382,7 @@ namespace {
         ['meta_id' => 1, 'post_id' => 6, 'meta_key' => 'wpforms_form_locations',
             'meta_value' => 'a:1:{i:0;a:6:{s:4:"type";s:4:"page";s:5:"title";s:18:"Recon Contact Page";s:7:"form_id";i:6;s:2:"id";i:5;s:6:"status";s:7:"publish";s:3:"url";s:20:"/recon-contact-page/";}}'],
     ]);
-    \Duo\Capture::$gate = [
+    \WPrism\Capture::$gate = [
         'scope' => [], 'options' => [], 'widgets' => [],
         'post_meta' => ['wpforms_form_locations' => ['entities' => 2, 'post_types' => ['wpforms']]],
         'term_meta' => [], 'user_meta' => [],
@@ -396,7 +396,7 @@ namespace {
 
     foreach ([
         'options:wpforms_settings' =>
-            'a boolean two levels inside a serialized settings array is still a boolean — DUO-3508\'s rule now holds at every depth, not just on a whole value',
+            'a boolean two levels inside a serialized settings array is still a boolean — issue #3508\'s rule now holds at every depth, not just on a whole value',
         'options:wpforms_constant_contact_version' =>
             'a key naming a VERSION holds a version, even when the version is also a live page id',
         'options:action_scheduler_hybrid_store_demarkation' =>
@@ -406,13 +406,13 @@ namespace {
         'options:wpforms_versions_lite' =>
             'a JSON version map is decoded and still yields nothing — the version veto runs before the walk',
     ] as $reconKey => $why) {
-        duo_check(isset($reconByKey[$reconKey]), "$reconKey is in the queue at all (otherwise the hint assertion proves nothing)");
-        duo_check_same(null, $reconByKey[$reconKey]['ref_hint'] ?? null, $why);
+        wprism_check(isset($reconByKey[$reconKey]), "$reconKey is in the queue at all (otherwise the hint assertion proves nothing)");
+        wprism_check_same(null, $reconByKey[$reconKey]['ref_hint'] ?? null, $why);
     }
 
     echo "\n== the reference inside a structure is now reachable ==\n";
 
-    duo_check_same(
+    wprism_check_same(
         ['kind' => 'post', 'id' => 6, 'title' => 'Recon Contact Form', 'post_type' => 'wpforms', 'at' => '[0].form_id'],
         $reconByKey['post_meta:wpforms_form_locations']['ref_hint'] ?? null,
         'wpforms_form_locations now yields a hint at the exact member that matched — the prior engine offered NOTHING here, '
@@ -430,7 +430,7 @@ namespace {
         $collect->invokeArgs(null, $args);
         return $found;
     };
-    duo_check_same(
+    wprism_check_same(
         [[6, '[0].form_id'], [5, '[0].id']],
         $walk(
             unserialize('a:1:{i:0;a:6:{s:4:"type";s:4:"page";s:5:"title";s:18:"Recon Contact Page";s:7:"form_id";i:6;s:2:"id";i:5;s:6:"status";s:7:"publish";s:3:"url";s:20:"/recon-contact-page/";}}', ['allowed_classes' => false]),
@@ -446,17 +446,17 @@ namespace {
     // post's body, and two `wpforms/form-selector` `formId` block attributes
     // inside a page's body. `Pending::current_value()` reads exactly four
     // surfaces — options, post_meta, term_meta, user_meta — so no body-borne
-    // reference has a queue row to carry a hint in the first place. `wp duo
+    // reference has a queue row to carry a hint in the first place. `wp wprism
     // lint` is the body scanner, and on the recon site it DID find both block
     // attrs (`unregistered_block_attr … attrs.formId value=6 matches=post:6`).
     foreach (['post_content', 'post_body', 'blocks'] as $bodySection) {
-        duo_check_same(
+        wprism_check_same(
             null,
             Pending::current_value($bodySection, 'anything'),
             "current_value('$bodySection') is null: the review queue has no body surface, which is why refs 1, 3 and 4 stay out of reach here"
         );
     }
-    duo_check(
+    wprism_check(
         !in_array('post_content', array_map(static fn(array $i): string => $i['section'], $reconItems), true),
         'and no queue row claims one either — the miss is structural, not a heuristic failure'
     );
@@ -469,7 +469,7 @@ namespace {
     // The locator reads `[1].page`, not `.1.page`: WPForms numbers its
     // confirmations `"1"`, `"3"`, and PHP turns a numeric string key into an
     // int on decode, so the walk sees a list position and says so.
-    duo_check_same(
+    wprism_check_same(
         [[4, '[1].page']],
         $walk(json_decode('{"1":{"type":"page","page":"4","page_url_parameters":"src=recon"},"3":{"type":"page","page":"previous_page"}}', true), null),
         'the same walk resolves confirmations.1.page = "4" and offers nothing for the non-numeric `previous_page` sentinel'
@@ -479,9 +479,9 @@ namespace {
 
     echo "\n== SidebarState's ownership claim cannot drift from its queries ==\n";
 
-    duo_check_same('sidebars_widgets', SidebarState::SIDEBARS_OPTION, 'the owned top-level option name is a constant');
+    wprism_check_same('sidebars_widgets', SidebarState::SIDEBARS_OPTION, 'the owned top-level option name is a constant');
     foreach (['sidebars_widgets' => true, 'widget_text' => true, 'widget_' => true, 'widgets_text' => false, 'theme_mods_x' => false, 'sidebars_widgets_backup' => false] as $name => $expected) {
-        duo_check_same($expected, SidebarState::owns_option((string) $name), "owns_option('$name') is " . var_export($expected, true));
+        wprism_check_same($expected, SidebarState::owns_option((string) $name), "owns_option('$name') is " . var_export($expected, true));
     }
 
     // owns_option()'s docblock claims the two queries that MAKE the claim true
@@ -489,14 +489,14 @@ namespace {
     // literal in one of them fails here instead of silently letting the
     // ownership claim and the enumeration drift apart.
     $sidebarSource = (string) file_get_contents($repoRoot . '/agent/src/Repository/SidebarState.php');
-    duo_check(
+    wprism_check(
         str_contains(
             $sidebarSource,
             "self::read_exact_option(self::SIDEBARS_OPTION, 'sidebars option')"
         ),
         'load_sidebars_option() reads the exact bounded row through the constant'
     );
-    duo_check(
+    wprism_check(
         str_contains($sidebarSource, 'self::lock_authored_option_row(')
             && str_contains($sidebarSource, "['option_name' => self::SIDEBARS_OPTION")
             && str_contains($sidebarSource, 'self::queue_authored_option(self::SIDEBARS_OPTION')
@@ -504,5 +504,5 @@ namespace {
         'the apply lock/write/cache/readback path uses the same constant'
     );
 
-    duo_check_summary('regress_pending_queue_ownership');
+    wprism_check_summary('regress_pending_queue_ownership');
 }

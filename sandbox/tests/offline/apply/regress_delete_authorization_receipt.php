@@ -23,21 +23,21 @@ require_once __DIR__ . '/../../../../agent/src/Apply/ApplyLedgerFinalizer.php';
 require_once __DIR__ . '/../../../../agent/src/Rebuild/RebuildSelection.php';
 require_once __DIR__ . '/../../../../agent/src/Scope/ScopedApplyWorkflow.php';
 
-use Duo\ApplyLedgerFinalizer;
-use Duo\ApplyPlanner;
-use Duo\ApplyPreparationCoordinator;
-use Duo\ApplyPreparationRequest;
-use Duo\ApplyServiceCallbacks;
-use Duo\ApplyServices;
-use Duo\CommandRefusalException;
-use Duo\CompiledRepository;
-use Duo\Ledger;
-use Duo\Policy;
-use Duo\RebuildSelection;
-use Duo\ScopedApplyWorkflow;
-use DuoTest\FakeWpdb;
-use DuoTest\FrozenPolicy;
-use DuoTest\WpStore;
+use WPrism\ApplyLedgerFinalizer;
+use WPrism\ApplyPlanner;
+use WPrism\ApplyPreparationCoordinator;
+use WPrism\ApplyPreparationRequest;
+use WPrism\ApplyServiceCallbacks;
+use WPrism\ApplyServices;
+use WPrism\CommandRefusalException;
+use WPrism\CompiledRepository;
+use WPrism\Ledger;
+use WPrism\Policy;
+use WPrism\RebuildSelection;
+use WPrism\ScopedApplyWorkflow;
+use WPrismTest\FakeWpdb;
+use WPrismTest\FrozenPolicy;
+use WPrismTest\WpStore;
 
 // --------------------------------------------------------------- fixtures
 
@@ -83,16 +83,16 @@ $emptyPlan = static fn(): array => [
 // ------------------------------------------------- (1) the pure projection
 
 $oneRow = ApplyPlanner::unauthorized_deletes_refusal([$tombstone]);
-duo_check_same(
-    'duo: planned deletions require --with-deletes (1); no target mutation attempted. '
+wprism_check_same(
+    'wprism: planned deletions require --with-deletes (1); no target mutation attempted. '
         . 'Review and rerun with --with-deletes to authorize:'
         . "\n  - state/deletions/9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29.json",
     $oneRow,
     'the operator refusal names the count, flag, no-mutation result, and row'
 );
 
-duo_check_same(
-    'duo: planned deletions require --with-deletes (2); no target mutation attempted. '
+wprism_check_same(
+    'wprism: planned deletions require --with-deletes (2); no target mutation attempted. '
         . 'Review and rerun with --with-deletes to authorize:'
         . "\n  - state/deletions/9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29.json"
         . "\n  - state/deletions/1d5b7e40-88c2-4f6a-9e33-70a1c2b3d4e5.json",
@@ -100,8 +100,8 @@ duo_check_same(
     'every planned deletion gets its own row, in the deletion order it was handed'
 );
 
-duo_check_same(
-    'duo: planned deletions require --with-deletes (1); no target mutation attempted. '
+wprism_check_same(
+    'wprism: planned deletions require --with-deletes (1); no target mutation attempted. '
         . 'Review and rerun with --with-deletes to authorize:'
         . "\n  - options core_managed_flag",
     ApplyPlanner::unauthorized_deletes_refusal([
@@ -170,7 +170,7 @@ $services = new ApplyServices(
  *
  * @param array<string,mixed> $plan
  * @param array<string,mixed> $opts
- * @return array{prepared:?\Duo\PreparedApply,warnings:list<string>,refusal:?\Throwable}
+ * @return array{prepared:?\WPrism\PreparedApply,warnings:list<string>,refusal:?\Throwable}
  */
 $prepare = static function (array $plan, array $opts, bool $scoped) use ($policy, $compiled, $services, $tree): array {
     $warnings = [];
@@ -193,7 +193,7 @@ $prepare = static function (array $plan, array $opts, bool $scoped) use ($policy
         scopedPromotion: false,
         recoveringScoped: false,
         retryingIncompleteApply: false,
-        promotionOwner: 'duo-test-owner',
+        promotionOwner: 'wprism-test-owner',
         promotionArtifact: str_repeat('e', 64)
     );
     try {
@@ -208,19 +208,19 @@ $plannedDelete['update'] = [$authoredRow];
 $plannedDelete['delete'] = [$tombstone];
 
 $unauthorized = $prepare($plannedDelete, [], false);
-duo_check($unauthorized['refusal'] instanceof CommandRefusalException,
+wprism_check($unauthorized['refusal'] instanceof CommandRefusalException,
     'a full apply with an unauthorized deletion refuses before returning prepared work');
-duo_check_same('apply_refused', $unauthorized['refusal']?->reasonCode,
+wprism_check_same('apply_refused', $unauthorized['refusal']?->reasonCode,
     'the full deletion refusal uses the typed apply refusal envelope');
-duo_check(str_contains((string) $unauthorized['refusal']?->getMessage(), 'no target mutation attempted')
+wprism_check(str_contains((string) $unauthorized['refusal']?->getMessage(), 'no target mutation attempted')
     && str_contains((string) $unauthorized['refusal']?->getMessage(), $tombstone['path']),
     'the operator refusal identifies the pending tombstone and the no-mutation outcome');
-duo_check_same([], $unauthorized['warnings'], 'the full path refuses instead of reporting a successful partial warning');
+wprism_check_same([], $unauthorized['warnings'], 'the full path refuses instead of reporting a successful partial warning');
 
 $authorized = $prepare($plannedDelete, ['with_deletes' => true], false);
-duo_check_same(null, $authorized['refusal'], '--with-deletes prepares the same plan without refusing');
-duo_check_same([], $authorized['warnings'], '--with-deletes emits no unauthorized-deletion refusal warning');
-duo_check_same(
+wprism_check_same(null, $authorized['refusal'], '--with-deletes prepares the same plan without refusing');
+wprism_check_same([], $authorized['warnings'], '--with-deletes emits no unauthorized-deletion refusal warning');
+wprism_check_same(
     true,
     $authorized['prepared']?->executeDeletes,
     '--with-deletes authorizes the executor delete block (AuthoredTransactionExecutor.php:222)'
@@ -229,8 +229,8 @@ duo_check_same(
 $noDeletes = $emptyPlan();
 $noDeletes['update'] = [$authoredRow];
 $clean = $prepare($noDeletes, [], false);
-duo_check_same(null, $clean['refusal'], 'a plan with no tombstone prepares unchanged');
-duo_check_same(
+wprism_check_same(null, $clean['refusal'], 'a plan with no tombstone prepares unchanged');
+wprism_check_same(
     [],
     $clean['warnings'],
     'an apply with nothing to delete gains no warning — every prior warning count is unmoved'
@@ -244,33 +244,33 @@ $drifted['drift'] = [[
     'path' => 'state/posts/page/8f14e45f--team.md',
 ]];
 $stale = $prepare($drifted, [], false);
-duo_check($stale['refusal'] instanceof CommandRefusalException
+wprism_check($stale['refusal'] instanceof CommandRefusalException
     && $stale['refusal']->reasonCode === 'apply_refused'
     && str_contains($stale['refusal']->getMessage(), 'no target mutation attempted')
     && str_contains($stale['refusal']->getMessage(), 'state/posts/page/8f14e45f--team.md'),
     'ordinary drift refuses in preparation before the unrelated update can create a partial apply');
-duo_check_same(null, $stale['prepared'], 'stale-plan refusal returns no executable workset');
+wprism_check_same(null, $stale['prepared'], 'stale-plan refusal returns no executable workset');
 
 // The scoped counterpart is the branch that already refused. It must stay a
 // refusal, with its reason code and its operator sentence byte-identical, and
 // it must not also collect the new warning.
 $scoped = $prepare($plannedDelete, [], true);
-duo_check(
+wprism_check(
     $scoped['refusal'] instanceof CommandRefusalException,
     'scoped apply still refuses an unauthorized tombstone as a typed command refusal'
 );
-duo_check_same(
+wprism_check_same(
     'apply_refused',
     $scoped['refusal'] instanceof CommandRefusalException ? $scoped['refusal']->reasonCode : null,
     'the scoped refusal keeps its reason code'
 );
-duo_check_same(
-    'duo: scoped apply selected live tombstones but --with-deletes was not supplied; '
+wprism_check_same(
+    'wprism: scoped apply selected live tombstones but --with-deletes was not supplied; '
         . 'no scoped session or authored target mutation was created',
     $scoped['refusal']?->getMessage(),
     'the scoped operator sentence is byte-identical (AGENTS.md rule 8)'
 );
-duo_check_same([], $scoped['warnings'], 'the scoped path refuses instead of warning — the two branches are exclusive');
+wprism_check_same([], $scoped['warnings'], 'the scoped path refuses instead of warning — the two branches are exclusive');
 
 // -------------------- finalizer invariant (the refused path cannot reach it)
 
@@ -291,11 +291,11 @@ $finalize = static function (bool $executeDeletes) use (
     $tombstone,
     $revision
 ): FakeWpdb {
-    $wpdb->seedTable('wp_duo_kv', []);
-    $wpdb->setUniqueKey('wp_duo_kv', ['k']);
-    $wpdb->seedTable('wp_duo_state', []);
-    $wpdb->setUniqueKey('wp_duo_state', ['uuid']);
-    $wpdb->seedTable('wp_duo_map', []);
+    $wpdb->seedTable('wp_wprism_kv', []);
+    $wpdb->setUniqueKey('wp_wprism_kv', ['k']);
+    $wpdb->seedTable('wp_wprism_state', []);
+    $wpdb->setUniqueKey('wp_wprism_state', ['uuid']);
+    $wpdb->seedTable('wp_wprism_map', []);
     $plan = $emptyPlan();
     $plan['update'] = [$authoredRow];
     $plan['delete'] = [$tombstone];
@@ -317,16 +317,16 @@ $finalize = static function (bool $executeDeletes) use (
 
 $finalize(false);
 $kv = [];
-foreach ($wpdb->rows('wp_duo_kv') as $row) {
+foreach ($wpdb->rows('wp_wprism_kv') as $row) {
     $kv[(string) $row['k']] = (string) $row['v'];
 }
-duo_check_same(
+wprism_check_same(
     $revision,
     $kv['applied_revision'] ?? null,
     'the low-level finalizer would record the revision without a deletion receipt, so preparation must refuse it'
 );
-$stateUuids = array_column($wpdb->rows('wp_duo_state'), 'uuid');
-duo_check_same(
+$stateUuids = array_column($wpdb->rows('wp_wprism_state'), 'uuid');
+wprism_check_same(
     [$authoredRow['uuid']],
     $stateUuids,
     'the un-executed tombstone leaves no deletion receipt, so it stays pending on every later plan'
@@ -334,10 +334,10 @@ duo_check_same(
 
 $finalize(true);
 $authorizedState = [];
-foreach ($wpdb->rows('wp_duo_state') as $row) {
+foreach ($wpdb->rows('wp_wprism_state') as $row) {
     $authorizedState[(string) $row['uuid']] = (string) $row['entity_type'];
 }
-duo_check_same(
+wprism_check_same(
     'deletion',
     $authorizedState[$tombstone['uuid']] ?? null,
     '--with-deletes records the deletion receipt that clears the tombstone from later plans'
@@ -354,18 +354,18 @@ $mapRows = [[
     'id_kind' => 'post',
     'local_id' => 71,
 ]];
-$wpdb->seedTable('wp_duo_kv', [])->setUniqueKey('wp_duo_kv', ['k']);
-$wpdb->seedTable('wp_duo_state', [])->setUniqueKey('wp_duo_state', ['uuid']);
-$wpdb->seedTable('wp_duo_map', $mapRows)
-    ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
-    ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
-foreach (['wp_duo_kv', 'wp_duo_state', 'wp_duo_map'] as $table) {
+$wpdb->seedTable('wp_wprism_kv', [])->setUniqueKey('wp_wprism_kv', ['k']);
+$wpdb->seedTable('wp_wprism_state', [])->setUniqueKey('wp_wprism_state', ['uuid']);
+$wpdb->seedTable('wp_wprism_map', $mapRows)
+    ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
+foreach (['wp_wprism_kv', 'wp_wprism_state', 'wp_wprism_map'] as $table) {
     $wpdb->setTableEngine($table, 'InnoDB');
 }
 $mapIdentityHashes = [hash('sha256', $mapUuid)];
-$mapRoots = \Duo\ScopedApply::ledger_map_roots($mapIdentityHashes, $mapRows);
+$mapRoots = \WPrism\ScopedApply::ledger_map_roots($mapIdentityHashes, $mapRows);
 $scopeArtifactHash = hash('sha256', 'finalizer-artifact');
-$scopedAuthority = \Duo\ScopedApplySession::make_authority(
+$scopedAuthority = \WPrism\ScopedApplySession::make_authority(
     hash('sha256', 'finalizer-scope'),
     [
         'artifact_hash' => $scopeArtifactHash,
@@ -382,48 +382,48 @@ $scopedAuthority = \Duo\ScopedApplySession::make_authority(
         'selected_before_ledger_map_hash' => (string) $mapRoots['selected_ledger_map_root'],
         'protected_ledger_map_hash' => (string) $mapRoots['protected_ledger_map_root'],
         'protected_out_of_scope_hash' => hash('sha256', 'finalizer-protected'),
-        'ledger_roots_hash' => hash('sha256', \Duo\Canon::encode($mapRoots)),
+        'ledger_roots_hash' => hash('sha256', \WPrism\Canon::encode($mapRoots)),
     ],
     [
         'precondition_hash' => hash('sha256', 'finalizer-plan'),
         'guard_witnesses_hash' => hash('sha256', 'finalizer-guards'),
     ],
     [
-        'work_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'work_hash' => \WPrism\ScopedApplySession::hash_value([]),
         'work_items' => [],
-        'deletions_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'deletions_hash' => \WPrism\ScopedApplySession::hash_value([]),
         'deletion_items' => [],
-        'action_declarations_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'action_declarations_hash' => \WPrism\ScopedApplySession::hash_value([]),
         'action_items' => [],
-        'capabilities_hash' => \Duo\ScopedApplySession::hash_value([]),
-        'effects_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'capabilities_hash' => \WPrism\ScopedApplySession::hash_value([]),
+        'effects_hash' => \WPrism\ScopedApplySession::hash_value([]),
         'effect_items' => [],
         'ledger_map_identity_hashes' => $mapIdentityHashes,
-        'ledger_map_identity_set_hash' => \Duo\ScopedApplySession::hash_value($mapIdentityHashes),
+        'ledger_map_identity_set_hash' => \WPrism\ScopedApplySession::hash_value($mapIdentityHashes),
     ],
     hash('sha256', 'finalizer-code')
 );
-$scopedSession = \Duo\ScopedApplySession::begin(
-    new \Duo\LedgerScopedApplySessionStorage(),
+$scopedSession = \WPrism\ScopedApplySession::begin(
+    new \WPrism\LedgerScopedApplySessionStorage(),
     $scopedAuthority
 );
-$scopedSession->transition(\Duo\ScopedApplySession::PHASE_AUTHORING);
-$authorIntent = \Duo\ScopedApplyCoordinator::intent(
+$scopedSession->transition(\WPrism\ScopedApplySession::PHASE_AUTHORING);
+$authorIntent = \WPrism\ScopedApplyCoordinator::intent(
     $scopedSession,
     1,
-    'duo-scoped-authored-transaction/v2',
+    'wprism-scoped-authored-transaction/v2',
     'finalizer-author',
     hash('sha256', 'finalizer-author-input'),
     hash('sha256', 'finalizer-author-effect'),
     (string) $scopedAuthority['target']['selected_before_hash']
 );
 $scopedSession->append_intent($authorIntent);
-$authorMapHash = \Duo\ScopedApplyCoordinator::authored_ledger_map_hash($mapRoots);
+$authorMapHash = \WPrism\ScopedApplyCoordinator::authored_ledger_map_hash($mapRoots);
 $scopedSession->commit_authored_receipt(
-    \Duo\ScopedApplyCoordinator::receipt($authorIntent, $authorMapHash)
+    \WPrism\ScopedApplyCoordinator::receipt($authorIntent, $authorMapHash)
 );
-$scopedSession->transition(\Duo\ScopedApplySession::PHASE_EFFECTS_PENDING);
-$scopedSession->transition(\Duo\ScopedApplySession::PHASE_VERIFYING);
+$scopedSession->transition(\WPrism\ScopedApplySession::PHASE_EFFECTS_PENDING);
+$scopedSession->transition(\WPrism\ScopedApplySession::PHASE_VERIFYING);
 $scopedVerification = [
     'authored_ledger_map_hash' => $authorMapHash,
     'receipt_hash' => hash('sha256', 'finalizer-convergence'),
@@ -436,11 +436,11 @@ $wpdb->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (
     &$mapSubstituted,
     $mapRows
 ): ?string {
-    if (!$mapSubstituted && str_contains($sql, 'INSERT INTO wp_duo_state')) {
+    if (!$mapSubstituted && str_contains($sql, 'INSERT INTO wp_wprism_state')) {
         $mapSubstituted = true;
         $changed = $mapRows;
         $changed[0]['local_id'] = 72;
-        $db->seedTable('wp_duo_map', $changed);
+        $db->seedTable('wp_wprism_map', $changed);
     }
     return null;
 });
@@ -466,16 +466,16 @@ try {
     );
 }
 $wpdb->onQuery(null);
-duo_check(
+wprism_check(
     $mapSubstituted
         && $mapSubstitutionRefused
-        && $wpdb->rows('wp_duo_map') === $mapRows
-        && $wpdb->rows('wp_duo_state') === []
-        && $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING,
+        && $wpdb->rows('wp_wprism_map') === $mapRows
+        && $wpdb->rows('wp_wprism_state') === []
+        && $scopedSession->phase() === \WPrism\ScopedApplySession::PHASE_VERIFYING,
     'post-author selected-map substitution is refused inside finalization and map/state/session all roll back'
 );
 
-$wpdb->setTableEngine('wp_duo_map', 'MyISAM');
+$wpdb->setTableEngine('wp_wprism_map', 'MyISAM');
 try {
     (new ApplyLedgerFinalizer(static function (): void {}))->finalize(
         $compiled,
@@ -494,16 +494,16 @@ try {
 } catch (\Throwable $failure) {
     $engineDriftRefused = str_contains($failure->getMessage(), 'InnoDB required');
 }
-duo_check(
+wprism_check(
     $engineDriftRefused
-        && $wpdb->rows('wp_duo_map') === $mapRows
-        && $wpdb->rows('wp_duo_state') === []
-        && $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING,
+        && $wpdb->rows('wp_wprism_map') === $mapRows
+        && $wpdb->rows('wp_wprism_state') === []
+        && $scopedSession->phase() === \WPrism\ScopedApplySession::PHASE_VERIFYING,
     'scoped finalization refuses a storage-engine substitution after metadata-lock acquisition without mutation'
 );
-$wpdb->setTableEngine('wp_duo_map', 'InnoDB');
-putenv('DUO_TEST_MODE=1');
-putenv('DUO_TEST_FAIL_DB_CONTEXT=ledger transaction commit');
+$wpdb->setTableEngine('wp_wprism_map', 'InnoDB');
+putenv('WPRISM_TEST_MODE=1');
+putenv('WPRISM_TEST_FAIL_DB_CONTEXT=ledger transaction commit');
 try {
     (new ApplyLedgerFinalizer(static function (): void {}))->finalize(
         $compiled,
@@ -520,22 +520,22 @@ try {
     );
     $scopedCommitRefused = false;
 } catch (\Throwable $failure) {
-    $scopedCommitRefused = $failure instanceof \Duo\DatabaseMutationException
+    $scopedCommitRefused = $failure instanceof \WPrism\DatabaseMutationException
         && str_contains($failure->getMessage(), 'ledger transaction commit');
 } finally {
-    putenv('DUO_TEST_FAIL_DB_CONTEXT');
-    putenv('DUO_TEST_MODE');
+    putenv('WPRISM_TEST_FAIL_DB_CONTEXT');
+    putenv('WPRISM_TEST_MODE');
 }
-$durableVerifyingSession = \Duo\ScopedApplySession::open(
-    new \Duo\LedgerScopedApplySessionStorage()
+$durableVerifyingSession = \WPrism\ScopedApplySession::open(
+    new \WPrism\LedgerScopedApplySessionStorage()
 );
-duo_check(
+wprism_check(
     $scopedCommitRefused
-        && $durableVerifyingSession instanceof \Duo\ScopedApplySession
-        && $durableVerifyingSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING
-        && $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING
-        && $wpdb->rows('wp_duo_map') === $mapRows
-        && $wpdb->rows('wp_duo_state') === [],
+        && $durableVerifyingSession instanceof \WPrism\ScopedApplySession
+        && $durableVerifyingSession->phase() === \WPrism\ScopedApplySession::PHASE_VERIFYING
+        && $scopedSession->phase() === \WPrism\ScopedApplySession::PHASE_VERIFYING
+        && $wpdb->rows('wp_wprism_map') === $mapRows
+        && $wpdb->rows('wp_wprism_state') === [],
     'a confirmed scoped finalizer COMMIT rollback reloads durable and in-memory sessions to verifying'
 );
 (new ApplyLedgerFinalizer(static function (): void {}))->finalize(
@@ -551,9 +551,9 @@ duo_check(
     $scopedVerification,
     $revision
 );
-duo_check(
-    $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_COMPLETE
-        && $wpdb->rows('wp_duo_map') === $mapRows,
+wprism_check(
+    $scopedSession->phase() === \WPrism\ScopedApplySession::PHASE_COMPLETE
+        && $wpdb->rows('wp_wprism_map') === $mapRows,
     'same-process retry after engine/map/commit faults terminalizes the exact verifying session once'
 );
 
@@ -578,13 +578,13 @@ try {
     $finalize(false);
     $terminalCommitRefused = false;
 } catch (\Throwable $failure) {
-    $terminalCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $terminalCommitRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $terminalKv = [];
-foreach ($wpdb->rows('wp_duo_kv') as $row) {
+foreach ($wpdb->rows('wp_wprism_kv') as $row) {
     $terminalKv[(string) $row['k']] = (string) $row['v'];
 }
-duo_check(
+wprism_check(
     $terminalCommitRefused
         && $terminalCommitApplied
         && ($terminalKv['applied_revision'] ?? null) === $revision
@@ -593,6 +593,6 @@ duo_check(
 );
 // Inspecting the exact product postimage above is the explicit recovery
 // boundary after which this same-process fixture may begin another transaction.
-\Duo\Db::forget_transaction_tracking();
+\WPrism\Db::forget_transaction_tracking();
 
-duo_check_summary('delete authorization receipt');
+wprism_check_summary('delete authorization receipt');

@@ -1,4 +1,4 @@
-# EditorConfig for duo-wp. Values are transcribed from what the tree already
+# EditorConfig for wprism. Values are transcribed from what the tree already
 # does, not from a house style: 555 committed .php files are 4-space (zero
 # contain a tab), 128 of 188 .sh files indent 2, every .json/.yml is 2, and
 # the Makefile is necessarily tab-indented. Anything here that disagreed with

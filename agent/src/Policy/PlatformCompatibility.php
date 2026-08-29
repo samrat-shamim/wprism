@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 
@@ -9,7 +9,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * Fail-closed runtime gate for the one shipped platform boundary.
  *
  * The host-side doctor has always compared PHP and the database against
- * docs/compatibility-baseline.json, but a direct `wp duo` mutation bypasses
+ * docs/compatibility-baseline.json, but a direct `wp wprism` mutation bypasses
  * that host command. Policy load is the first common product boundary before
  * repository reads, identity allocation, locks, or authored-state mutation,
  * so the agent independently checks the same declaration through the resolved
@@ -327,10 +327,10 @@ final class PlatformCompatibility {
         }
         throw new CommandRefusalException(
             'platform_unsupported',
-            'this target is outside the exercised Duo platform boundary; policy load and mutation were refused',
+            'this target is outside the exercised WPrism platform boundary; policy load and mutation were refused',
             'move the target onto every required platform value, then retry from an unchanged repository revision',
             $diagnostics,
-            'duo: platform compatibility refused before policy load — ' . implode('; ', array_map(
+            'wprism: platform compatibility refused before policy load — ' . implode('; ', array_map(
                 static fn(array $row): string => $row['axis'] . ' observed ' . $row['observed']
                     . ', requires ' . $row['required'],
                 $diagnostics
@@ -367,7 +367,7 @@ final class PlatformCompatibility {
                     'message' => 'the platform boundary cannot be evaluated safely',
                     'remediation' => 'restore the reviewed platform declaration before retrying',
                 ]],
-                'duo: platform compatibility declaration is malformed; refusing before policy load'
+                'wprism: platform compatibility declaration is malformed; refusing before policy load'
             );
         }
     }
@@ -670,14 +670,14 @@ final class PlatformCompatibility {
             'observed' => $observed,
             'required' => $required,
             'message' => $message,
-            'remediation' => 'use the required platform value before another Duo mutation',
+            'remediation' => 'use the required platform value before another WPrism mutation',
         ];
     }
 
     private static function probe_refusal(string $axis, ?\Throwable $previous = null): CommandRefusalException {
         return new CommandRefusalException(
             'platform_probe_unavailable',
-            'Duo could not read every platform fact required before policy load',
+            'WPrism could not read every platform fact required before policy load',
             'restore the WordPress and database runtime, then retry without changing the repository revision',
             [[
                 'code' => 'platform_probe_unavailable',
@@ -685,7 +685,7 @@ final class PlatformCompatibility {
                 'message' => 'a required platform fact could not be read safely',
                 'remediation' => 'restore the target runtime and repeat the platform preflight',
             ]],
-            "duo: platform compatibility could not read the $axis fact; refusing before policy load",
+            "wprism: platform compatibility could not read the $axis fact; refusing before policy load",
             $previous
         );
     }

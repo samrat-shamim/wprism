@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 
-use Duo\Policy;
+use WPrism\Policy;
 
 /**
  * Repository boundary for Ninja Forms' built-in 3.x table graph.

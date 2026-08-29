@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 use LogicException;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
-require_once DUO_REPO_ROOT . '/sandbox/tests/lib/check.php';
-require_once DUO_REPO_ROOT . '/sandbox/tests/lib/wp_stubs.php';
-require_once DUO_REPO_ROOT . '/sandbox/tests/lib/FakeWpdb.php';
-require_once DUO_REPO_ROOT . '/agent/src/Kernel/CommandRefusal.php';
+require_once WPRISM_REPO_ROOT . '/sandbox/tests/lib/check.php';
+require_once WPRISM_REPO_ROOT . '/sandbox/tests/lib/wp_stubs.php';
+require_once WPRISM_REPO_ROOT . '/sandbox/tests/lib/FakeWpdb.php';
+require_once WPRISM_REPO_ROOT . '/agent/src/Kernel/CommandRefusal.php';
 
 /**
  * Self-tests for sandbox/tests/lib/ -- the harness the offline regress_*.php
@@ -33,9 +33,9 @@ require_once DUO_REPO_ROOT . '/agent/src/Kernel/CommandRefusal.php';
  * These are tooling tests: they may not add a Makefile target, and they do not
  * replace `make regress-offline-all`.
  *
- * OUTPUT DISCIPLINE. duo_check() prints "ok:" to STDOUT and phpunit.xml.dist
+ * OUTPUT DISCIPLINE. wprism_check() prints "ok:" to STDOUT and phpunit.xml.dist
  * sets beStrictAboutOutputDuringTests, so every helper call here is wrapped in
- * an output buffer. duo_check_summary() calls exit(), so its contract (stream
+ * an output buffer. wprism_check_summary() calls exit(), so its contract (stream
  * routing plus exit status) is verified in a real subprocess instead.
  */
 #[CoversNothing]
@@ -43,7 +43,7 @@ final class HarnessLibTest extends TestCase
 {
     protected function setUp(): void
     {
-        duo_check_reset();
+        wprism_check_reset();
         WpStore::reset();
     }
 
@@ -293,7 +293,7 @@ final class HarnessLibTest extends TestCase
     {
         $cases = [
             'attachment marker' => [
-                'sql' => "SELECT k, OCTET_LENGTH(v) AS v_bytes, CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= 512 THEN v ELSE NULL END AS bounded_v, bogus FROM `wp_duo_kv` WHERE LOWER(LEFT(k, 14)) = 'attachment_fs:' ORDER BY BINARY k ASC LIMIT 2",
+                'sql' => "SELECT k, OCTET_LENGTH(v) AS v_bytes, CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= 512 THEN v ELSE NULL END AS bounded_v, bogus FROM `wp_wprism_kv` WHERE LOWER(LEFT(k, 14)) = 'attachment_fs:' ORDER BY BINARY k ASC LIMIT 2",
                 'write' => false,
             ],
             'post stats' => [
@@ -317,23 +317,23 @@ final class HarnessLibTest extends TestCase
                 'write' => false,
             ],
             'promotion insert' => [
-                'sql' => "INSERT INTO `wp_duo_kv` (k, v) VALUES ('promotion_lock', '{}') ON DUPLICATE KEY UPDATE v = IF((JSON_EXTRACT(v, '$.owner')), VALUES(v), v) AND 1=1",
+                'sql' => "INSERT INTO `wp_wprism_kv` (k, v) VALUES ('promotion_lock', '{}') ON DUPLICATE KEY UPDATE v = IF((JSON_EXTRACT(v, '$.owner')), VALUES(v), v) AND 1=1",
                 'write' => true,
             ],
             'promotion update' => [
-                'sql' => "UPDATE `wp_duo_kv` SET v = '{}' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = 'owner' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = 'artifact' AND 1=1",
+                'sql' => "UPDATE `wp_wprism_kv` SET v = '{}' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = 'owner' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = 'artifact' AND 1=1",
                 'write' => true,
             ],
             'prune delete' => [
-                'sql' => 'DELETE m FROM wp_duo_map m LEFT JOIN wp_posts po ON po.ID = m.local_id LEFT JOIN wp_terms t ON t.term_id = m.local_id WHERE m.id_kind = \'post\' AND po.ID IS NULL',
+                'sql' => 'DELETE m FROM wp_wprism_map m LEFT JOIN wp_posts po ON po.ID = m.local_id LEFT JOIN wp_terms t ON t.term_id = m.local_id WHERE m.id_kind = \'post\' AND po.ID IS NULL',
                 'write' => true,
             ],
         ];
 
         foreach ($cases as $label => $case) {
             $db = FakeWpdb::install()->enableFullApplySqlExtensions();
-            $db->seedTable('wp_duo_kv', [])->setColumns('wp_duo_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
-            $db->seedTable('wp_duo_map', [])->setColumns('wp_duo_map', ['local_id' => 'bigint', 'id_kind' => 'varchar(32)']);
+            $db->seedTable('wp_wprism_kv', [])->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+            $db->seedTable('wp_wprism_map', [])->setColumns('wp_wprism_map', ['local_id' => 'bigint', 'id_kind' => 'varchar(32)']);
             $db->seedTable('wp_posts', [])->setColumns('wp_posts', ['ID' => 'bigint', 'post_type' => 'varchar(32)']);
             $db->seedTable('wp_options', [])->setColumns('wp_options', ['option_name' => 'varchar(191)', 'option_value' => 'longtext']);
             $db->seedTable('wp_terms', [])->setColumns('wp_terms', ['term_id' => 'bigint']);
@@ -545,7 +545,7 @@ final class HarnessLibTest extends TestCase
     /**
      * MySQL coerces numerically only when one operand IS a number; two strings
      * compare by collation. '7' = '007' is false there, and the columns this
-     * fake models (duo_kv `k`, option_name, meta_key, packed composite ids
+     * fake models (wprism_kv `k`, option_name, meta_key, packed composite ids
      * rendered through %s) are exactly where a false match would let a suite
      * assert a lookup that finds a row the live target never returns.
      */
@@ -817,7 +817,7 @@ final class HarnessLibTest extends TestCase
      * wpdb reads results over mysqli's TEXT protocol without
      * MYSQLI_OPT_INT_AND_FLOAT_NATIVE, so every non-NULL column value -- and
      * COUNT(*) -- reaches PHP as a string. check.php pushes strict ===, so a
-     * fake handing back the fixture's int would make duo_check_same(19, ...)
+     * fake handing back the fixture's int would make wprism_check_same(19, ...)
      * pass offline and fail live. rows() reads the store, not a result set,
      * and keeps the seeded types.
      */
@@ -1009,45 +1009,45 @@ final class HarnessLibTest extends TestCase
 
     public function testOptionRoundTripKeepsWordPressReturnSemantics(): void
     {
-        self::assertSame('fallback', get_option('duo_missing', 'fallback'));
-        self::assertTrue(add_option('duo_thing', ['a' => 1]));
-        self::assertFalse(add_option('duo_thing', ['a' => 2]), 'add_option refuses an existing option');
-        self::assertSame(['a' => 1], get_option('duo_thing'));
+        self::assertSame('fallback', get_option('wprism_missing', 'fallback'));
+        self::assertTrue(add_option('wprism_thing', ['a' => 1]));
+        self::assertFalse(add_option('wprism_thing', ['a' => 2]), 'add_option refuses an existing option');
+        self::assertSame(['a' => 1], get_option('wprism_thing'));
 
-        self::assertTrue(update_option('duo_thing', ['a' => 2]));
-        self::assertSame(['a' => 2], get_option('duo_thing'));
+        self::assertTrue(update_option('wprism_thing', ['a' => 2]));
+        self::assertSame(['a' => 2], get_option('wprism_thing'));
 
         // The surprising-but-real one: WordPress skips the write and reports
         // false when nothing changed. Engine code must not read that as an
         // error, so the stub must not smooth it over.
-        self::assertFalse(update_option('duo_thing', ['a' => 2]));
+        self::assertFalse(update_option('wprism_thing', ['a' => 2]));
 
-        self::assertTrue(delete_option('duo_thing'));
-        self::assertFalse(delete_option('duo_thing'));
-        self::assertFalse(get_option('duo_thing'));
+        self::assertTrue(delete_option('wprism_thing'));
+        self::assertFalse(delete_option('wprism_thing'));
+        self::assertFalse(get_option('wprism_thing'));
     }
 
     public function testApplyFiltersRunsCallbacksInPriorityThenRegistrationOrder(): void
     {
-        add_filter('duo_test_hook', static fn (string $v): string => $v . '-late', 20);
-        add_filter('duo_test_hook', static fn (string $v): string => $v . '-early', 5);
-        add_filter('duo_test_hook', static fn (string $v): string => $v . '-alsoEarly', 5);
+        add_filter('wprism_test_hook', static fn (string $v): string => $v . '-late', 20);
+        add_filter('wprism_test_hook', static fn (string $v): string => $v . '-early', 5);
+        add_filter('wprism_test_hook', static fn (string $v): string => $v . '-alsoEarly', 5);
 
-        self::assertSame('seed-early-alsoEarly-late', apply_filters('duo_test_hook', 'seed'));
-        self::assertTrue(has_filter('duo_test_hook'));
+        self::assertSame('seed-early-alsoEarly-late', apply_filters('wprism_test_hook', 'seed'));
+        self::assertTrue(has_filter('wprism_test_hook'));
 
         // has_filter() returns the PRIORITY for a named callback, which can be
         // 0; callers must compare with !== false, so it stays an int.
         $named = static fn (string $v): string => $v;
-        add_filter('duo_priority_zero', $named, 0);
-        self::assertSame(0, has_filter('duo_priority_zero', $named));
-        self::assertFalse(has_filter('duo_priority_zero', static fn (string $v): string => $v . '!'));
+        add_filter('wprism_priority_zero', $named, 0);
+        self::assertSame(0, has_filter('wprism_priority_zero', $named));
+        self::assertFalse(has_filter('wprism_priority_zero', static fn (string $v): string => $v . '!'));
     }
 
     public function testApplyFiltersTruncatesArgumentsToAcceptedArgs(): void
     {
         add_filter(
-            'duo_narrow_hook',
+            'wprism_narrow_hook',
             static function (string $value): string {
                 return $value . ':' . func_num_args();
             },
@@ -1055,7 +1055,7 @@ final class HarnessLibTest extends TestCase
             1
         );
 
-        self::assertSame('v:1', apply_filters('duo_narrow_hook', 'v', 'extra', 'more'));
+        self::assertSame('v:1', apply_filters('wprism_narrow_hook', 'v', 'extra', 'more'));
     }
 
     public function testCacheEventsRecordMissesSoInvalidationOrderIsAssertable(): void
@@ -1076,7 +1076,7 @@ final class HarnessLibTest extends TestCase
 
     /**
      * `make regress-offline-all` does NOT give each leaf its own TMPDIR the
-     * way tools/offline.php does, so a fixed /tmp/duo-uploads would be shared
+     * way tools/offline.php does, so a fixed /tmp/wprism-uploads would be shared
      * by every suite running under `make -j8` at that moment: one suite's
      * fixture files visible to another, and "the upload dir holds exactly N
      * files" flaking on scheduling alone.
@@ -1096,7 +1096,7 @@ final class HarnessLibTest extends TestCase
 
         // A store that never created a directory has nothing to remove, and
         // reset() must not touch a path a suite repointed by hand.
-        $borrowed = sys_get_temp_dir() . '/duo-not-ours-' . getmypid();
+        $borrowed = sys_get_temp_dir() . '/wprism-not-ours-' . getmypid();
         mkdir($borrowed);
         $second->uploadBaseDir = $borrowed;
         WpStore::reset();
@@ -1109,7 +1109,7 @@ final class HarnessLibTest extends TestCase
     public function testJsonEqualIgnoresObjectKeyOrderButNotArrayOrder(): void
     {
         $output = $this->capture(static function (): void {
-            duo_check_json_equal(
+            wprism_check_json_equal(
                 '{"b":1,"a":{"d":4,"c":3}}',
                 '{"a":{"c":3,"d":4},"b":1}',
                 'object key order is not part of the JSON data model'
@@ -1117,13 +1117,13 @@ final class HarnessLibTest extends TestCase
         });
 
         self::assertStringStartsWith('ok: ', $output);
-        self::assertSame(0, duo_check_failed());
+        self::assertSame(0, wprism_check_failed());
 
         // The negative runs in a subprocess so its deliberate STDERR line does
         // not land in this run's output and read as a real failure.
         $failing = $this->runSuite(
-            "duo_check_json_equal('[1,2]', '[2,1]', 'array element order IS part of it');\n"
-            . "duo_check_summary('json');\n"
+            "wprism_check_json_equal('[1,2]', '[2,1]', 'array element order IS part of it');\n"
+            . "wprism_check_summary('json');\n"
         );
         self::assertSame(1, $failing['status']);
         self::assertStringContainsString('first difference at: 0', $failing['stderr']);
@@ -1132,15 +1132,15 @@ final class HarnessLibTest extends TestCase
     public function testCheckSameCountsAndLocatesTheFirstDifference(): void
     {
         $output = $this->capture(static function (): void {
-            duo_check_same(['a' => ['b' => 1]], ['a' => ['b' => 1]], 'identical structures pass');
+            wprism_check_same(['a' => ['b' => 1]], ['a' => ['b' => 1]], 'identical structures pass');
         });
         self::assertSame("ok: identical structures pass\n", $output);
 
-        self::assertNull(duo_check_diff_path(['a' => 1], ['a' => 1]));
-        self::assertSame('a.b', duo_check_diff_path(['a' => ['b' => 1]], ['a' => ['b' => 2]]));
-        self::assertSame('a.c', duo_check_diff_path(['a' => ['b' => 1]], ['a' => ['b' => 1, 'c' => 3]]));
+        self::assertNull(wprism_check_diff_path(['a' => 1], ['a' => 1]));
+        self::assertSame('a.b', wprism_check_diff_path(['a' => ['b' => 1]], ['a' => ['b' => 2]]));
+        self::assertSame('a.c', wprism_check_diff_path(['a' => ['b' => 1]], ['a' => ['b' => 1, 'c' => 3]]));
 
-        $stats = duo_check_stats();
+        $stats = wprism_check_stats();
         self::assertSame(1, $stats['passed']);
         self::assertSame(0, $stats['failed']);
     }
@@ -1148,7 +1148,7 @@ final class HarnessLibTest extends TestCase
     public function testCheckThrowsRequiresTheExactExceptionClass(): void
     {
         $output = $this->capture(static function (): void {
-            duo_check_throws(
+            wprism_check_throws(
                 static function (): void {
                     throw new \RuntimeException('boom: context');
                 },
@@ -1159,15 +1159,15 @@ final class HarnessLibTest extends TestCase
         });
 
         self::assertStringStartsWith('ok: ', $output);
-        self::assertSame(0, duo_check_failed());
+        self::assertSame(0, wprism_check_failed());
     }
 
     public function testCheckRefusesMatchesARealCommandRefusalException(): void
     {
         $output = $this->capture(static function (): void {
-            duo_check_refuses(
+            wprism_check_refuses(
                 static function (): void {
-                    throw \Duo\CommandRefusalException::invalidArgument('plan', '--target');
+                    throw \WPrism\CommandRefusalException::invalidArgument('plan', '--target');
                 },
                 'invalid_arguments',
                 'a missing argument is a public, machine-readable refusal'
@@ -1175,19 +1175,19 @@ final class HarnessLibTest extends TestCase
         });
 
         self::assertStringStartsWith('ok: ', $output);
-        self::assertSame(0, duo_check_failed());
+        self::assertSame(0, wprism_check_failed());
 
         // The reason code, not the message, is the contract: a refusal with a
         // different code must fail even though the class matches. Run out of
         // process so the deliberate STDERR line stays out of this run.
         $failing = $this->runSuite(
-            'require_once ' . var_export(DUO_REPO_ROOT . '/agent/src/Kernel/CommandRefusal.php', true) . ";\n"
-            . "duo_check_refuses(\n"
-            . "    static function (): void { throw \\Duo\\CommandRefusalException::applyRefused('nope', 'retry later'); },\n"
+            'require_once ' . var_export(WPRISM_REPO_ROOT . '/agent/src/Kernel/CommandRefusal.php', true) . ";\n"
+            . "wprism_check_refuses(\n"
+            . "    static function (): void { throw \\WPrism\\CommandRefusalException::applyRefused('nope', 'retry later'); },\n"
             . "    'invalid_arguments',\n"
             . "    'a different reason code is a failure'\n"
             . ");\n"
-            . "duo_check_summary('refusal');\n"
+            . "wprism_check_summary('refusal');\n"
         );
         self::assertSame(1, $failing['status']);
         self::assertStringContainsString(
@@ -1198,20 +1198,20 @@ final class HarnessLibTest extends TestCase
 
     public function testCheckClosureFeedsTheSharedCounter(): void
     {
-        $check = duo_check_closure();
+        $check = wprism_check_closure();
 
         $output = $this->capture(static function () use ($check): void {
             $check(true, 'the legacy closure shape still works');
         });
 
         self::assertSame("ok: the legacy closure shape still works\n", $output);
-        self::assertSame(1, duo_check_stats()['passed']);
+        self::assertSame(1, wprism_check_stats()['passed']);
     }
 
     // ----------------------------------------------- summary/exit status
 
     /**
-     * duo_check_summary() calls exit(), so its real contract -- exit status
+     * wprism_check_summary() calls exit(), so its real contract -- exit status
      * plus which stream each line lands on -- is only observable from outside
      * the process.
      *
@@ -1219,10 +1219,10 @@ final class HarnessLibTest extends TestCase
      */
     private function runSuite(string $body): array
     {
-        $file = tempnam(sys_get_temp_dir(), 'duo-harness-') . '.php';
+        $file = tempnam(sys_get_temp_dir(), 'wprism-harness-') . '.php';
         file_put_contents(
             $file,
-            "<?php\nrequire_once " . var_export(DUO_REPO_ROOT . '/sandbox/tests/lib/check.php', true) . ";\n" . $body
+            "<?php\nrequire_once " . var_export(WPRISM_REPO_ROOT . '/sandbox/tests/lib/check.php', true) . ";\n" . $body
         );
 
         $process = proc_open(
@@ -1243,7 +1243,7 @@ final class HarnessLibTest extends TestCase
 
     public function testSummaryExitsZeroAndPrintsPassOnStdout(): void
     {
-        $result = $this->runSuite("duo_check(true, 'a');\nduo_check_summary('demo');\n");
+        $result = $this->runSuite("wprism_check(true, 'a');\nwprism_check_summary('demo');\n");
 
         self::assertSame(0, $result['status']);
         self::assertSame("ok: a\nPASS: demo (1 assertion)\n", $result['stdout']);
@@ -1252,7 +1252,7 @@ final class HarnessLibTest extends TestCase
 
     public function testSummaryExitsOneAndRoutesFailuresToStderr(): void
     {
-        $result = $this->runSuite("duo_check(true, 'a');\nduo_check(false, 'b');\nduo_check_summary('demo');\n");
+        $result = $this->runSuite("wprism_check(true, 'a');\nwprism_check(false, 'b');\nwprism_check_summary('demo');\n");
 
         self::assertSame(1, $result['status']);
         self::assertSame("ok: a\n", $result['stdout'], 'failures must not pollute stdout');
@@ -1265,7 +1265,7 @@ final class HarnessLibTest extends TestCase
     {
         // A suite that silently stops asserting (an early return, a guard that
         // skipped the body) would otherwise exit 0 and hide behind the gate.
-        $result = $this->runSuite("duo_check_summary('demo');\n");
+        $result = $this->runSuite("wprism_check_summary('demo');\n");
 
         self::assertSame(1, $result['status']);
         self::assertStringContainsString('ran no assertions', $result['stderr']);
@@ -1277,15 +1277,15 @@ final class HarnessLibTest extends TestCase
         // whose output matches PHP's diagnostic framing. The harness prints
         // "FAIL:" lines on the failure path, so they must never carry the
         // " in "/" on line " source suffix the guard keys on.
-        $result = $this->runSuite("duo_check(false, 'b');\nduo_check_summary('demo');\n");
+        $result = $this->runSuite("wprism_check(false, 'b');\nwprism_check_summary('demo');\n");
 
         self::assertSame(0, preg_match(self::DIAGNOSTIC_PATTERN, $result['stdout'] . $result['stderr']));
     }
 
     /**
      * The dangerous case is a MULTI-LINE payload, not the single-line message
-     * above: duo_check_repr() used to hand var_export()'s raw newlines to
-     * duo_check_detail(), which indented only the first line, so a captured
+     * above: wprism_check_repr() used to hand var_export()'s raw newlines to
+     * wprism_check_detail(), which indented only the first line, so a captured
      * value whose second line read "Warning: ... in x.php on line 1" landed at
      * column 0 and matched the guard exactly. The suite is already failing at
      * that point, so nothing turns green->red; what it does is retitle a real
@@ -1296,10 +1296,10 @@ final class HarnessLibTest extends TestCase
     {
         $payload = "line1\nWarning: something bad in Foo.php on line 12\nFatal error: x in y.php";
         $result = $this->runSuite(
-            'duo_check_same(' . var_export($payload, true) . ", 'other', 'multi-line evidence');\n"
-            . 'duo_check_throws(static function (): void { throw new RuntimeException('
+            'wprism_check_same(' . var_export($payload, true) . ", 'other', 'multi-line evidence');\n"
+            . 'wprism_check_throws(static function (): void { throw new RuntimeException('
             . var_export($payload, true) . "); }, LogicException::class, 'wrong class');\n"
-            . "duo_check_summary('multiline');\n"
+            . "wprism_check_summary('multiline');\n"
         );
 
         self::assertSame(1, $result['status']);

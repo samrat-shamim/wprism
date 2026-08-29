@@ -15,7 +15,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-release-ref-binding.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-release-ref-binding.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -24,7 +24,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 say()  { printf '\n== %s ==\n' "$*"; }
 
 printf '== syntax ==\n'
-php -l "$ROOT/cli/duo" >/dev/null || fail 'php -l cli/duo'
+php -l "$ROOT/cli/wprism" >/dev/null || fail 'php -l cli/wprism'
 php -l "$ROOT/cli/src/Command/ReleaseCommand.php" >/dev/null || fail 'php -l ReleaseCommand.php'
 pass 'PHP syntax'
 
@@ -32,9 +32,9 @@ php "$ROOT/sandbox/tests/fixtures/release/make-release-site.php" "$TMP/site" >/d
   || { echo "FAIL: could not build the release fixture" >&2; exit 1; }
 
 SITE="$TMP/site/repo"
-export DUO_FIXTURES="$TMP/site/fixtures"
-export DUO_SITE_REPO="$SITE"
-export DUO_CALLS="$TMP/calls.txt"
+export WPRISM_FIXTURES="$TMP/site/fixtures"
+export WPRISM_SITE_REPO="$SITE"
+export WPRISM_CALLS="$TMP/calls.txt"
 PATH="$TMP/site/bin:$PATH"
 export PATH
 
@@ -51,14 +51,14 @@ exec "$REAL_GIT" "\$@"
 SHIM
 chmod +x "$TMP/site/bin/git"
 
-duo() {
+wprism() {
   local out="$1"; shift
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/site/envs.json" "$@" ) \
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/site/envs.json" "$@" ) \
     > "$out" 2> "$out.err"
 }
 
 # The reviewed contract, through the real propose -> review -> accept path.
-duo "$TMP/propose.txt" contract fixture propose \
+wprism "$TMP/propose.txt" contract fixture propose \
   || { fail 'contract propose failed'; cat "$TMP/propose.txt.err" >&2; }
 php -r '
 $path = $argv[1];
@@ -87,16 +87,16 @@ foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
 }
 $proposal["contract"] = $contract;
 file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-' "$SITE/.duo/contract/fixture/proposed.json"
-duo "$TMP/accept.txt" contract fixture accept \
+' "$SITE/.wprism/contract/fixture/proposed.json"
+wprism "$TMP/accept.txt" contract fixture accept \
   || { fail 'contract accept failed'; cat "$TMP/accept.txt.err" >&2; }
 
-RELEASE_DIR="$SITE/.duo/releases"
+RELEASE_DIR="$SITE/.wprism/releases"
 : > "$TMP/git-calls.txt"
 
 # --------------------------------------------------------------- the mismatch
 say '--from on a ref the target is not on'
-duo "$TMP/mismatch.txt" release fixture --from=other --plan-only --format=json
+wprism "$TMP/mismatch.txt" release fixture --from=other --plan-only --format=json
 STATUS=$?
 cat "$TMP/mismatch.txt.err" >> "$TMP/mismatch.txt"
 [ "$STATUS" = 1 ] && pass 'a ref mismatch refuses (exit 1)' || fail "a ref mismatch exited $STATUS"
@@ -110,8 +110,8 @@ grep -Eq 'next.action"?:? *"?retry' "$TMP/mismatch.txt" \
   && fail 'the ref-mismatch refusal offered retry, which asserts the same ref again' \
   || pass 'the ref-mismatch refusal never offers retry'
 grep -Fq 'without --plan-only' "$TMP/mismatch.txt" \
-  && pass 'the remediation names the executing Duo delivery path' \
-  || fail 'the remediation does not explain how Duo can deliver the revision'
+  && pass 'the remediation names the executing WPrism delivery path' \
+  || fail 'the remediation does not explain how WPrism can deliver the revision'
 [ -d "$RELEASE_DIR" ] && [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
   && fail 'a ref mismatch still froze an authorization plan' \
   || pass 'a ref mismatch freezes nothing'
@@ -143,22 +143,22 @@ say '--from on the ref the target is actually on'
 : > "$TMP/git-calls.txt"
 HEAD_REF="$(git -C "$SITE" rev-parse HEAD)"
 
-# DUO-3510: `--plan-only` is documented three times (docs/guides/release.md:
+# issue #3510: `--plan-only` is documented three times (docs/guides/release.md:
 # 122-124, docs/guides/daily-workflow.md:330-331, cli/README.md:502-503) as
 # exiting "having mutated nothing at all — not the target, not the site
 # repository." ReleaseCommand::prepare() used to call $store->writeProjection()
 # unconditionally at step 3, before run()'s plan-only return at :215, so every
-# plan-only release rewrote .duo/contract/projection.json in the site repo.
+# plan-only release rewrote .wprism/contract/projection.json in the site repo.
 # Capture the file's state (present-and-hashed, or absent) before the run
 # below so the "unchanged" assertion after it is meaningful either way.
-PROJECTION="$SITE/.duo/contract/projection.json"
+PROJECTION="$SITE/.wprism/contract/projection.json"
 if [ -f "$PROJECTION" ]; then
   PROJECTION_BEFORE="$(sha256sum "$PROJECTION" | awk '{print $1}')"
 else
   PROJECTION_BEFORE=""
 fi
 
-duo "$TMP/match.txt" release fixture --from="$HEAD_REF" --plan-only
+wprism "$TMP/match.txt" release fixture --from="$HEAD_REF" --plan-only
 STATUS=$?
 cat "$TMP/match.txt.err" >> "$TMP/match.txt"
 [ "$STATUS" = 0 ] && pass 'a matching ref binds and the plan renders (exit 0)' \
@@ -170,12 +170,12 @@ grep -Fq "releasing code revision $HEAD_REF" "$TMP/match.txt" \
 if [ -n "$PROJECTION_BEFORE" ]; then
   PROJECTION_AFTER="$(sha256sum "$PROJECTION" | awk '{print $1}')"
   [ "$PROJECTION_AFTER" = "$PROJECTION_BEFORE" ] \
-    && pass 'plan-only leaves .duo/contract/projection.json bytes unchanged' \
-    || fail 'plan-only rewrote .duo/contract/projection.json, contradicting the "mutated nothing" promise'
+    && pass 'plan-only leaves .wprism/contract/projection.json bytes unchanged' \
+    || fail 'plan-only rewrote .wprism/contract/projection.json, contradicting the "mutated nothing" promise'
 else
   [ ! -f "$PROJECTION" ] \
-    && pass 'plan-only writes no .duo/contract/projection.json into a site repository that had none' \
-    || fail 'plan-only WROTE .duo/contract/projection.json into a site repository that had none, contradicting the "mutated nothing… not the target, not the site repository" promise (docs/guides/release.md:122-124)'
+    && pass 'plan-only writes no .wprism/contract/projection.json into a site repository that had none' \
+    || fail 'plan-only WROTE .wprism/contract/projection.json into a site repository that had none, contradicting the "mutated nothing… not the target, not the site repository" promise (docs/guides/release.md:122-124)'
 fi
 
 # ---------------------------------------------------- executing ref delivery
@@ -198,7 +198,7 @@ cat > "$TMP/deliver.php" <<'PHP'
 declare(strict_types=1);
 require_once $argv[1] . '/cli/src/Command/ReleaseCommand.php';
 
-final class ReleaseDeliveryDriver implements \Duo\Orchestrator\EnvironmentDriver {
+final class ReleaseDeliveryDriver implements \WPrism\Orchestrator\EnvironmentDriver {
     public function __construct(private string $repo) {}
     public function name(): string { return 'delivery'; }
     public function driverId(): string { return 'delivery'; }
@@ -215,18 +215,18 @@ final class ReleaseDeliveryDriver implements \Duo\Orchestrator\EnvironmentDriver
     public function captureWp(array $wpArgs): array { return ['exit' => 1, 'stdout' => '', 'stderr' => '']; }
     public function streamWp(array $wpArgs): int { return 1; }
     public function wpInstruction(array $wpArgs): string { return ''; }
-    public function capabilityReport(string $operation): \Duo\Orchestrator\DriverCapabilityReport {
-        return \Duo\Orchestrator\DriverCapabilityReport::forDriver('delivery', 'delivery', $operation, []);
+    public function capabilityReport(string $operation): \WPrism\Orchestrator\DriverCapabilityReport {
+        return \WPrism\Orchestrator\DriverCapabilityReport::forDriver('delivery', 'delivery', $operation, []);
     }
 }
 
-$method = new ReflectionMethod(\Duo\Orchestrator\ReleaseCommand::class, 'deliverRef');
+$method = new ReflectionMethod(\WPrism\Orchestrator\ReleaseCommand::class, 'deliverRef');
 $driver = new ReleaseDeliveryDriver($argv[3]);
 try {
     $actual = $method->invoke(null, $argv[4], $argv[5], $argv[2], $driver);
     if (($argv[6] ?? '') === 'refuse') exit(3);
     exit(hash_equals($argv[5], (string) $actual) ? 0 : 4);
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     if (($argv[6] ?? '') === 'refuse' && $failure->reasonCode === 'release_delivery_failed') exit(0);
     fwrite(STDERR, $failure->reasonCode . "\n");
     exit(5);
@@ -256,7 +256,7 @@ STATUS=$?
 # ----------------------------------------------------- an unresolvable ref
 say 'a ref that does not exist locally'
 : > "$TMP/git-calls.txt"
-duo "$TMP/unknown.txt" release fixture --from=no-such-ref --plan-only --format=json
+wprism "$TMP/unknown.txt" release fixture --from=no-such-ref --plan-only --format=json
 STATUS=$?
 cat "$TMP/unknown.txt.err" >> "$TMP/unknown.txt"
 [ "$STATUS" = 1 ] && pass 'an unresolvable ref refuses (exit 1)' || fail "an unresolvable ref exited $STATUS"

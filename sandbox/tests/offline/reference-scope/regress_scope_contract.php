@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3344's immutable scope-contract evidence.
+ * Offline regression for issue #3344's immutable scope-contract evidence.
  *
  * This deliberately drives the real compiler, ScopeClosure, Policy action
  * grammar, and ScopeContract over a scratch repository. No WordPress target
@@ -11,14 +11,14 @@
 declare(strict_types=1);
 
 $root = $argv[1] ?? dirname(__DIR__, 4);
-define('DUO_SPEC_VERSION', 3);
-$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
-if (!is_array($duoAgentClassmap)) {
-    throw new \RuntimeException('regress_scope_contract: agent/duo-classmap.php did not return a map');
+define('WPRISM_SPEC_VERSION', 3);
+$wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
+if (!is_array($wprismAgentClassmap)) {
+    throw new \RuntimeException('regress_scope_contract: agent/wprism-classmap.php did not return a map');
 }
-$duoAgentFiles = [];
-foreach ($duoAgentClassmap as $duoAgentPath) {
-    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+$wprismAgentFiles = [];
+foreach ($wprismAgentClassmap as $wprismAgentPath) {
+    $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
 }
 foreach ([
     'Uuid', 'OrderPreserved', 'Canon', 'OptionState', 'UserMetaState', 'Db', 'Secrets',
@@ -29,11 +29,11 @@ foreach ([
     'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure', 'CanonicalSurfaces', 'ScopeContract',
     'ScopedStateOverlay', 'ScopedApplySession', 'ScopedApply', 'Capture',
 ] as $file) {
-    $duoAgentFile = $duoAgentFiles[$file] ?? null;
-    if (!is_string($duoAgentFile)) {
-        throw new \RuntimeException('regress_scope_contract: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
+    if (!is_string($wprismAgentFile)) {
+        throw new \RuntimeException('regress_scope_contract: agent source ' . $file . '.php is absent from agent/wprism-classmap.php');
     }
-    require_once $root . '/agent/' . $duoAgentFile;
+    require_once $root . '/agent/' . $wprismAgentFile;
 }
 require_once "$root/cli/src/Refresh/RefreshPlan.php";
 require_once __DIR__ . '/../policy/manifest_fixtures.php';
@@ -43,18 +43,18 @@ function wp_upload_dir(...$args): never { throw new RuntimeException('TARGET CON
 function apply_filters(...$args): never { throw new RuntimeException('TARGET CONTACT: apply_filters/provider negotiation'); }
 function is_multisite(): bool { return false; }
 
-use Duo\Canon;
-use Duo\AdapterLibrary;
-use Duo\CompiledRepository;
-use Duo\Deletion;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
-use Duo\ScopeClosure;
-use Duo\ScopeContract;
-use Duo\ScopedStateOverlay;
-use Duo\SidebarState;
-use Duo\Orchestrator\RefreshPlan;
+use WPrism\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\CompiledRepository;
+use WPrism\Deletion;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
+use WPrism\ScopeClosure;
+use WPrism\ScopeContract;
+use WPrism\ScopedStateOverlay;
+use WPrism\SidebarState;
+use WPrism\Orchestrator\RefreshPlan;
 
 $failures = 0;
 function check(bool $condition, string $message): void {
@@ -74,7 +74,7 @@ function expect_throw(callable $fn, string $needle, string $message): void {
     }
 }
 
-$tmp = sys_get_temp_dir() . '/duo-scope-contract-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-scope-contract-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0777, true);
 register_shutdown_function(static function () use ($tmp): void {
     if (!is_dir($tmp)) return;
@@ -151,16 +151,16 @@ $fixtureManifest = [
     'name' => 'scope-contract-fixture',
     'spec_version' => 2,
     'post_types' => [
-        'duo_contract' => [
+        'wprism_contract' => [
             'class' => 'authored',
-            'children' => ['duo_child'],
+            'children' => ['wprism_child'],
             'regen_dependency' => [
                 'regenerator' => 'scope-contract-probe',
-                'verify' => ['table' => 'duo_contract_index', 'column' => 'post_id'],
+                'verify' => ['table' => 'wprism_contract_index', 'column' => 'post_id'],
                 'effects' => [effect('scope-contract-regenerator')],
             ],
         ],
-        'duo_child' => ['class' => 'authored'],
+        'wprism_child' => ['class' => 'authored'],
     ],
     'providers' => [[
         'id' => 'scope-contract-provider', 'version' => '1.0.0', 'source' => 'plugin',
@@ -196,11 +196,11 @@ $ids = [
     'menu' => uuid(9), 'menuItem' => uuid(10),
 ];
 $repo = "$tmp/repo";
-put("$repo/site.duo.json", Canon::encode([
+put("$repo/site.wprism.json", Canon::encode([
     'manifests' => ['core', 'scope-contract-fixture'],
     'policy' => [
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
-        'post_types' => ['post', 'page', 'attachment', 'duo_contract', 'duo_child'],
+        'post_types' => ['post', 'page', 'attachment', 'wprism_contract', 'wprism_child'],
         'taxonomies' => ['category', 'post_tag'],
     ],
     'spec_version' => 2,
@@ -231,12 +231,12 @@ put("$repo/state/posts/page/{$ids['page']}--scope-page.md", Canon::post_file(
     $page,
     '<!-- wp:image {"id":"{{post:' . $ids['attachment'] . '}}"} --><figure></figure><!-- /wp:image -->'
 ));
-put("$repo/state/posts/duo_contract/{$ids['custom']}--contract.md", Canon::post_file(
-    front($ids['custom'], 'duo_contract', 'contract'), ''
+put("$repo/state/posts/wprism_contract/{$ids['custom']}--contract.md", Canon::post_file(
+    front($ids['custom'], 'wprism_contract', 'contract'), ''
 ));
 put("$repo/state/menus/main.json", Canon::encode([
     'items' => [[
-        'attr_title' => '', 'classes' => [], 'object' => 'duo_contract', 'parent' => null,
+        'attr_title' => '', 'classes' => [], 'object' => 'wprism_contract', 'parent' => null,
         'position' => 1, 'ref' => '{{post:' . $ids['custom'] . '}}', 'target' => '',
         'title' => 'Contract', 'type' => 'post_type', 'uuid' => $ids['menuItem'], 'xfn' => '',
     ]],
@@ -319,8 +319,8 @@ $contract = ScopeContract::resolve($compiled, $policy, [
     'tombstone:' . $ids['tombstone'], 'post:' . $ids['page'], 'post:' . $ids['page'],
 ]);
 $legacyAfter = ScopeClosure::resolve($compiled, $policy, ['post:' . $ids['page']]);
-check($legacyBefore['format'] === 'duo-scope/v1' && Canon::encode($legacyAfter) === $legacyBytes,
-    'legacy duo-scope/v1 output remains byte-compatible when --contract is absent');
+check($legacyBefore['format'] === 'wprism-scope/v1' && Canon::encode($legacyAfter) === $legacyBytes,
+    'legacy wprism-scope/v1 output remains byte-compatible when --contract is absent');
 check($contract['format'] === ScopeContract::FORMAT && $contract['read_only_evidence'] === true
     && $contract['mutation_authority'] === false,
     'contract is separately versioned, explicitly read-only evidence, and never mutation authority');
@@ -345,9 +345,9 @@ check(true, 'association verifier recomputes the complete contract for the exact
 // but never opted into the types it declares cannot produce that evidence at
 // all — its own state file for the adapter's type is `repository_entity_out_
 // _of_scope` and the compile refuses before a contract exists. Curing that
-// cost one hand edit of site.duo.json per site, so the operator cost scaled
+// cost one hand edit of site.wprism.json per site, so the operator cost scaled
 // with sites × adapters, the product of the two variables adapter
-// decentralization grows. `duo adapter adopt-scope <site-repo>… --name=<n>`
+// decentralization grows. `wprism adapter adopt-scope <site-repo>… --name=<n>`
 // is the shipped single-repo opt-in over a repository SET; what is asserted
 // here is its effect on the evidence, per repository.
 require_once "$root/cli/src/Adapter/AdapterCertify.php";
@@ -375,28 +375,28 @@ function fleet_repo(string $tmp, string $repo, string $manifestDir, string $labe
     fleet_copy($repo, $path);
     $manifest = Canon::decode(Canon::read_file("$manifestDir/scope-contract-fixture.json"));
     unset($manifest['actions'], $manifest['providers']);
-    unset($manifest['post_types']['duo_contract']['regen_dependency']);
+    unset($manifest['post_types']['wprism_contract']['regen_dependency']);
     put("$path/adapters/scope-contract-fixture.json", Canon::encode($manifest));
-    $site = Canon::decode(Canon::read_file("$path/site.duo.json"));
+    $site = Canon::decode(Canon::read_file("$path/site.wprism.json"));
     $site['policy']['post_types'] = ['post', 'page', 'attachment'];
     if ($scope !== []) {
         $site['policy']['scope'] = $scope;
     }
-    put("$path/site.duo.json", Canon::encode($site));
+    put("$path/site.wprism.json", Canon::encode($site));
 
     return $path;
 }
 
-/** One `duo adapter <args>` run, stdout captured; stderr stays on the harness. */
+/** One `wprism adapter <args>` run, stdout captured; stderr stays on the harness. */
 function fleet_run(array $args): array {
     ob_start();
-    $exit = \Duo\Orchestrator\AdapterCertify::run($args);
+    $exit = \WPrism\Orchestrator\AdapterCertify::run($args);
 
     return ['exit' => $exit, 'out' => (string) ob_get_clean()];
 }
 
 function fleet_site_bytes(string $repo): string {
-    return (string) file_get_contents("$repo/site.duo.json");
+    return (string) file_get_contents("$repo/site.wprism.json");
 }
 
 $fleetA = fleet_repo($tmp, $repo, $manifestDir, 'fleet-a');
@@ -410,7 +410,7 @@ $fleetC = fleet_repo(
     $repo,
     $manifestDir,
     'fleet-c',
-    ['post_type' => ['duo_contract' => ['class' => 'runtime']]]
+    ['post_type' => ['wprism_contract' => ['class' => 'runtime']]]
 );
 $fleetBefore = [
     $fleetA => fleet_site_bytes($fleetA),
@@ -431,7 +431,7 @@ foreach ([$fleetA, $fleetB, $fleetC] as $member) {
 
 // PARTIAL FAILURE, stated in evidence terms: the middle repository cannot be
 // written. Every repository must end fully adopted or untouched — a half-
-// written site.duo.json is a policy nothing can bind a contract to.
+// written site.wprism.json is a policy nothing can bind a contract to.
 chmod($fleetB, 0555);
 $fleetFault = fleet_run(['adopt-scope', $fleetA, $fleetB, $fleetC, '--name=scope-contract-fixture']);
 chmod($fleetB, 0755);
@@ -474,7 +474,7 @@ $fleetContractB = ScopeContract::resolve(
     ['post:' . $ids['custom']]
 );
 check(
-    in_array('post:duo_contract', $fleetContractA['eligible_surfaces'], true)
+    in_array('post:wprism_contract', $fleetContractA['eligible_surfaces'], true)
         && $fleetContractA['resolution']['live_root_entities'] === [$ids['custom']],
     'one invocation makes the adapter\'s own declared type an eligible surface, so the contract can carry the '
     . 'per-manifest potential_action/potential_effect rows that projection is made of'
@@ -489,8 +489,8 @@ check(
 // overwritten, and the surface beside it is still adopted.
 $fleetScopeC = Canon::decode(fleet_site_bytes($fleetC))['policy']['scope']['post_type'];
 check(
-    $fleetScopeC['duo_contract'] === ['class' => 'runtime']
-        && $fleetScopeC['duo_child'] === ['class' => 'authored'],
+    $fleetScopeC['wprism_contract'] === ['class' => 'runtime']
+        && $fleetScopeC['wprism_child'] === ['class' => 'authored'],
     'the repository that had recorded a decision keeps it exactly as it wrote it, while the surface it had NOT '
     . 'decided is adopted in the same write — adoption is per NODE, not per repository'
 );
@@ -532,7 +532,7 @@ $fleetOriginal = Canon::decode($fleetBefore[$fleetA]);
 unset($fleetChanged['policy']['scope'], $fleetOriginal['policy']['scope']);
 check(
     Canon::encode($fleetChanged) === Canon::encode($fleetOriginal),
-    'and the fleet write moved policy.scope and nothing else in any site.duo.json it touched — no pin, no flat '
+    'and the fleet write moved policy.scope and nothing else in any site.wprism.json it touched — no pin, no flat '
     . 'list, no section a batch has no business rewriting'
 );
 
@@ -559,15 +559,15 @@ check(ScopeContract::option_root_names($optionContract) === ['blogname'],
 $mixedOptionsContract = ScopeContract::resolve($compiled, $policy, ['options', 'option:blogname']);
 ScopeContract::assert_mutation_supported($mixedOptionsContract, 'scoped promote');
 check(
-    !\Duo\ScopedApply::has_record_scoped_options($mixedOptionsContract)
-        && isset(\Duo\ScopedApply::selected_set($mixedOptionsContract)['options/core'])
-        && !isset(\Duo\ScopedApply::selected_set($mixedOptionsContract)['options/core#blogname']),
+    !\WPrism\ScopedApply::has_record_scoped_options($mixedOptionsContract)
+        && isset(\WPrism\ScopedApply::selected_set($mixedOptionsContract)['options/core'])
+        && !isset(\WPrism\ScopedApply::selected_set($mixedOptionsContract)['options/core#blogname']),
     'a redundant option selector under whole options retains whole-carrier semantics for every consumer'
 );
-$captureScopeContract = new ReflectionMethod(\Duo\Capture::class, 'scope_contract_for_request');
+$captureScopeContract = new ReflectionMethod(\WPrism\Capture::class, 'scope_contract_for_request');
 $captureDirectContract = $captureScopeContract->invoke(null, $optionContract, $compiled, $policy);
 $captureCompactContract = $captureScopeContract->invoke(null, [
-    'format' => 'duo-scope-request/v1',
+    'format' => 'wprism-scope-request/v1',
     'scope_hash' => $optionContract['scope_hash'],
     'selectors' => $optionContract['selectors'],
 ], $compiled, $policy);
@@ -582,10 +582,10 @@ try {
 } catch (Throwable $failure) {
     check(false, 'record-aware scoped promotion accepts valid option-root evidence (' . $failure->getMessage() . ')');
 }
-$resolvedOptionApplyContract = \Duo\ScopedApply::resolve_contract($optionContract, $compiled, $policy);
+$resolvedOptionApplyContract = \WPrism\ScopedApply::resolve_contract($optionContract, $compiled, $policy);
 check(
     ($resolvedOptionApplyContract['scope_hash'] ?? null) === $optionContract['scope_hash']
-        && \Duo\ScopedApply::has_record_scoped_options($resolvedOptionApplyContract),
+        && \WPrism\ScopedApply::has_record_scoped_options($resolvedOptionApplyContract),
     'agent scoped plan/apply associates valid option-root evidence for its record-aware carrier protocol'
 );
 $optionTargetRows = [];
@@ -627,31 +627,31 @@ foreach ($compiled->tree() as $identity => $row) {
         'content' => $content,
     ];
 }
-$optionDecision = \Duo\ScopedApply::option_plan_decision(
+$optionDecision = \WPrism\ScopedApply::option_plan_decision(
     (array) $compiled->tree()['options/core']['data'],
     $optionTargetActual['options/core'],
     [],
     $optionContract,
     ['blogname']
 );
-$optionCandidateRow = \Duo\ScopedApply::target_option_candidate_row(
+$optionCandidateRow = \WPrism\ScopedApply::target_option_candidate_row(
     $compiled->tree()['options/core'],
     $optionTargetActual['options/core'],
     $optionContract
 );
 $optionCandidateRecords = OptionState::records(Canon::decode((string) $optionCandidateRow['content']));
-$optionStateHashes = \Duo\ScopedApply::option_state_hashes(
+$optionStateHashes = \WPrism\ScopedApply::option_state_hashes(
     (array) $compiled->tree()['options/core']['data'],
     $optionContract
 );
-$optionRecoveryRow = \Duo\ScopedApply::recovery_option_row([
+$optionRecoveryRow = \WPrism\ScopedApply::recovery_option_row([
     'uuid' => 'options/core',
     'type' => 'options',
     'path' => 'options/core.json',
     'retry' => true,
     'rebuild_option_names' => ['blogdescription'],
 ], ['blogname'], $compiled->tree()['options/core']);
-$optionProjected = \Duo\ScopedApply::project_plan([
+$optionProjected = \WPrism\ScopedApply::project_plan([
     'update' => [[
         'uuid' => 'options/core',
         'type' => 'options',
@@ -662,7 +662,7 @@ $optionProjected = \Duo\ScopedApply::project_plan([
         'type' => 'post',
     ]],
 ], $optionContract);
-$optionBeforeRoot = \Duo\ScopedApply::selected_observation_root($optionTargetActual, $optionContract);
+$optionBeforeRoot = \WPrism\ScopedApply::selected_observation_root($optionTargetActual, $optionContract);
 $siblingOnlyDrift = $optionTargetActual;
 $siblingRecords = OptionState::records(Canon::decode((string) $siblingOnlyDrift['options/core']['content']));
 $siblingRecords['blogdescription'] = OptionState::present('another protected sibling drift', 'yes');
@@ -680,39 +680,39 @@ check(
         && Canon::encode($optionCandidateRecords['blogdescription'] ?? null)
             === Canon::encode(OptionState::present('protected sibling drift', 'yes'))
         && count($optionStateHashes) === 1
-        && array_key_first($optionStateHashes) === \Duo\ScopedApply::option_state_identity('blogname')
+        && array_key_first($optionStateHashes) === \WPrism\ScopedApply::option_state_identity('blogname')
         && strlen((string) array_key_first($optionStateHashes)) === 64
         && !isset($optionRecoveryRow['retry'])
         && $optionRecoveryRow['rebuild_option_names'] === ['blogname']
         && (($optionProjected['update'][0]['uuid'] ?? null) === 'options/core')
         && ($optionProjected['unchanged'] ?? null) === []
-        && $optionBeforeRoot === \Duo\ScopedApply::selected_observation_root($siblingOnlyDrift, $optionContract)
-        && \Duo\ScopedApply::authored_state(
+        && $optionBeforeRoot === \WPrism\ScopedApply::selected_observation_root($siblingOnlyDrift, $optionContract)
+        && \WPrism\ScopedApply::authored_state(
             $desiredWithSiblingDrift, $compiled, $policy, $optionContract, $optionBeforeRoot
         ) === 'desired',
     'scoped plan/apply selects only the named option, overlays only that record onto the target carrier, and keeps recovery inside the selected virtual record'
 );
 $absentOptionContract = ScopeContract::resolve($compiled, $policy, ['option:blogdescription']);
-$absentOptionDecision = \Duo\ScopedApply::option_plan_decision(
+$absentOptionDecision = \WPrism\ScopedApply::option_plan_decision(
     (array) $compiled->tree()['options/core']['data'],
     $optionTargetActual['options/core'],
     [],
     $absentOptionContract,
     []
 );
-$absentOptionCandidate = \Duo\ScopedApply::target_option_candidate_row(
+$absentOptionCandidate = \WPrism\ScopedApply::target_option_candidate_row(
     $compiled->tree()['options/core'],
     $optionTargetActual['options/core'],
     $absentOptionContract
 );
 $absentOptionCandidateRecords = OptionState::records(Canon::decode((string) $absentOptionCandidate['content']));
-$absentOptionBeforeRoot = \Duo\ScopedApply::selected_observation_root($optionTargetActual, $absentOptionContract);
+$absentOptionBeforeRoot = \WPrism\ScopedApply::selected_observation_root($optionTargetActual, $absentOptionContract);
 check(
     ($absentOptionDecision['bucket'] ?? null) === 'unchanged'
         && (($absentOptionDecision['row']['rebuild_option_names'] ?? null) === [])
         && Canon::encode($absentOptionCandidateRecords['blogdescription'] ?? null)
             === Canon::encode(OptionState::present('protected sibling drift', 'yes'))
-        && \Duo\ScopedApply::authored_state(
+        && \WPrism\ScopedApply::authored_state(
             $optionTargetActual, $compiled, $policy, $absentOptionContract, $absentOptionBeforeRoot
         ) === 'desired',
     'a scoped absent option root preserves a target-owned value and terminalizes as an explicit no-mutation intent'
@@ -775,15 +775,15 @@ put($contractPath, Canon::encode($contract));
 $fakeBin = "$tmp/fake-bin";
 mkdir($fakeBin, 0700, true);
 $forwardedPath = "$tmp/capture-forwarded.json";
-put("$fakeBin/wp", "#!/usr/bin/env php\n<?php file_put_contents(getenv('DUO_CAPTURE_FORWARDED'), json_encode(array_slice(\$argv, 1)));\n");
+put("$fakeBin/wp", "#!/usr/bin/env php\n<?php file_put_contents(getenv('WPRISM_CAPTURE_FORWARDED'), json_encode(array_slice(\$argv, 1)));\n");
 chmod("$fakeBin/wp", 0700);
 put("$tmp/envs.json", json_encode(['envs' => ['fixture' => [
     'transport' => 'local', 'wp_path' => "$tmp/wordpress", 'repo_path' => '/target/repo',
 ]]], JSON_UNESCAPED_SLASHES));
 $oldPath = getenv('PATH') ?: '';
 putenv("PATH=$fakeBin:$oldPath");
-putenv("DUO_CAPTURE_FORWARDED=$forwardedPath");
-$command = [PHP_BINARY, "$root/cli/duo", "--envs-file=$tmp/envs.json", 'capture', 'fixture', "--scope-contract=$contractPath"];
+putenv("WPRISM_CAPTURE_FORWARDED=$forwardedPath");
+$command = [PHP_BINARY, "$root/cli/wprism", "--envs-file=$tmp/envs.json", 'capture', 'fixture', "--scope-contract=$contractPath"];
 $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 $captureExit = -1;
 $captureStderr = '';
@@ -796,7 +796,7 @@ if (is_resource($process)) {
     $captureExit = proc_close($process);
 }
 putenv("PATH=$oldPath");
-putenv('DUO_CAPTURE_FORWARDED');
+putenv('WPRISM_CAPTURE_FORWARDED');
 $forwardedArgs = is_file($forwardedPath) ? json_decode((string) file_get_contents($forwardedPath), true) : null;
 $wire = null;
 foreach ((array) $forwardedArgs as $arg) {
@@ -817,9 +817,9 @@ $badContract['scope_hash'] = str_repeat('0', 64);
 put($badContractPath, Canon::encode($badContract));
 @unlink($forwardedPath);
 putenv("PATH=$fakeBin:$oldPath");
-putenv("DUO_CAPTURE_FORWARDED=$forwardedPath");
+putenv("WPRISM_CAPTURE_FORWARDED=$forwardedPath");
 $badCommand = [
-    PHP_BINARY, "$root/cli/duo", "--envs-file=$tmp/envs.json", 'capture', 'fixture',
+    PHP_BINARY, "$root/cli/wprism", "--envs-file=$tmp/envs.json", 'capture', 'fixture',
     "--scope-contract=$badContractPath", '--format=json',
 ];
 $badProcess = proc_open($badCommand, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $badPipes);
@@ -834,10 +834,10 @@ if (is_resource($badProcess)) {
     $badExit = proc_close($badProcess);
 }
 putenv("PATH=$oldPath");
-putenv('DUO_CAPTURE_FORWARDED');
+putenv('WPRISM_CAPTURE_FORWARDED');
 $badRefusal = json_decode(trim($badStdout), true);
 check($badExit !== 0 && is_array($badRefusal)
-    && ($badRefusal['format'] ?? null) === 'duo-command-refusal/v1'
+    && ($badRefusal['format'] ?? null) === 'wprism-command-refusal/v1'
     && ($badRefusal['reason_code'] ?? null) === 'scope_contract_invalid'
     && !is_file($forwardedPath)
     && !str_contains($badStdout, $badContractPath),
@@ -986,11 +986,11 @@ $inactiveOtherPost = uuid(32);
 $inactiveWidget = uuid(33);
 $inactiveIdentity = SidebarState::key('wp_inactive_widgets');
 $inactivePostRow = static function (string $uuid, string $slug, string $body) use ($policy): array {
-    $data = front($uuid, 'duo_contract', $slug);
+    $data = front($uuid, 'wprism_contract', $slug);
     $content = Canon::post_file($data, $body);
     return [
-        'type' => 'post', 'post_type' => 'duo_contract',
-        'path' => "posts/duo_contract/$uuid--$slug.md",
+        'type' => 'post', 'post_type' => 'wprism_contract',
+        'path' => "posts/wprism_contract/$uuid--$slug.md",
         'hash' => hash('sha256', Canon::post_hash_basis($data, $body, $policy)),
         'source_hash' => hash('sha256', $content), 'content' => $content,
         'data' => $data, 'body' => $body,
@@ -1043,7 +1043,7 @@ $inactiveEvidence = ScopedStateOverlay::selected_deauthorizations(
     ['selected_post_uuids' => [$inactivePost], 'reference_count' => 0]
 );
 check(($inactiveEvidence[0] ?? null) === [
-    'format' => 'duo-inactive-overlay-deauthorization/v1',
+    'format' => 'wprism-inactive-overlay-deauthorization/v1',
     'entity' => $inactiveIdentity,
     'previous_hash' => (string) $inactiveSource->tree()[$inactiveIdentity]['hash'],
     'source_revision' => $inactiveSource->revision_hash(),
@@ -1428,9 +1428,9 @@ check(($newMediaCompiled->tree()[$ids['attachment']]['data']['media'] ?? null) =
 
 $literalMediaRow = [[
     'uuid' => $ids['custom'], 'type' => 'post',
-    'path' => "posts/duo_contract/{$ids['custom']}--contract.md",
+    'path' => "posts/wprism_contract/{$ids['custom']}--contract.md",
     'content' => Canon::post_file(
-        front($ids['custom'], 'duo_contract', 'contract'),
+        front($ids['custom'], 'wprism_contract', 'contract'),
         '<p>documentation literal ' . $otherHash . '.txt is not an attachment reference</p>'
     ),
 ]];
@@ -1601,12 +1601,12 @@ expect_throw(
 // so the complete target probe must reject it before projection.
 $customContract = ScopeContract::resolve($compiled, $policy, ['post:' . $ids['custom']]);
 $targetOnlyChild = uuid(8);
-$childFront = front($targetOnlyChild, 'duo_child', 'target-only-child');
+$childFront = front($targetOnlyChild, 'wprism_child', 'target-only-child');
 $childFront['parent'] = '{{post:' . $ids['custom'] . '}}';
 $targetObserved = $observed;
 $targetObserved[] = [
     'uuid' => $targetOnlyChild, 'type' => 'post',
-    'path' => "posts/duo_child/$targetOnlyChild--target-only-child.md",
+    'path' => "posts/wprism_child/$targetOnlyChild--target-only-child.md",
     'content' => Canon::post_file($childFront, ''),
 ];
 $targetProbeState = ScopedStateOverlay::stage_state_view(
@@ -1661,7 +1661,7 @@ try {
 
 // Scoped refresh exports omit unrelated P rows explicitly, then materialize
 // by overlaying selected P bytes onto the complete exact W baseline.
-$snapshotOf = static function (Duo\CompiledRepository $artifact, string $format = 'duo-refresh-git/v1') use ($contract, $repo): array {
+$snapshotOf = static function (WPrism\CompiledRepository $artifact, string $format = 'wprism-refresh-git/v1') use ($contract, $repo): array {
     $records = [];
     foreach ($artifact->tree() as $identity => $row) {
         $records[(string) $identity] = [
@@ -1705,7 +1705,7 @@ $snapshotOf = static function (Duo\CompiledRepository $artifact, string $format 
 };
 $baseSnapshot = $snapshotOf($compiled);
 $branchSnapshot = $snapshotOf($compiled);
-$productionSnapshot = $snapshotOf($overlayCompiled, 'duo-refresh-production/v1');
+$productionSnapshot = $snapshotOf($overlayCompiled, 'wprism-refresh-production/v1');
 $selectedSet = array_fill_keys(ScopedStateOverlay::selected_identities($contract), true);
 $productionSnapshot['records'] = array_filter(
     $productionSnapshot['records'],
@@ -1732,7 +1732,7 @@ $productionSnapshot['media'][$refreshLiteralName] = [
     'base64' => base64_encode($refreshLiteralBytes),
 ];
 $productionSnapshot['scope'] = [
-    'format' => 'duo-refresh-scope/v1', 'scope_hash' => $contract['scope_hash'],
+    'format' => 'wprism-refresh-scope/v1', 'scope_hash' => $contract['scope_hash'],
     'source' => $contract['source'], 'selectors' => $contract['selectors'],
     'selected_identities' => array_keys($selectedSet), 'out_of_scope' => 'omitted_not_absent',
 ];
@@ -1756,7 +1756,7 @@ check(($planByIdentity[$ids['otherAttachment']]['in_scope'] ?? null) === false
 $refreshTree = "$tmp/scoped-refresh-worktree";
 mkdir($refreshTree, 0700, true);
 put("$refreshTree/.git", "gitdir: disposable\n");
-put("$refreshTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+put("$refreshTree/site.wprism.json", Canon::read_file("$repo/site.wprism.json"));
 $refreshReceipt = RefreshPlan::materialize($scopedPlan, $refreshTree);
 check(($refreshReceipt['scope_hash'] ?? null) === $contract['scope_hash']
     && Canon::read_file("$refreshTree/state/" . $compiled->tree()[$ids['page']]['path'])
@@ -1798,7 +1798,7 @@ foreach ([
     $snapshot['records']['options/core']['hash'] = hash('sha256', $content);
 }
 unset($snapshot);
-$optionsProduction['format'] = 'duo-refresh-production/v1';
+$optionsProduction['format'] = 'wprism-refresh-production/v1';
 $optionsSelectedSet = array_fill_keys(ScopedStateOverlay::selected_identities($optionsContract), true);
 $optionsProduction['records'] = [
     'options/core' => $optionsProduction['records']['options/core'],
@@ -1809,7 +1809,7 @@ $optionsProduction['deletions'] = array_filter(
     ARRAY_FILTER_USE_KEY
 );
 $optionsProduction['scope'] = [
-    'format' => 'duo-refresh-scope/v1', 'scope_hash' => $optionsContract['scope_hash'],
+    'format' => 'wprism-refresh-scope/v1', 'scope_hash' => $optionsContract['scope_hash'],
     'source' => $optionsContract['source'], 'selectors' => $optionsContract['selectors'],
     'selected_identities' => array_keys($optionsSelectedSet), 'out_of_scope' => 'omitted_not_absent',
 ];
@@ -1843,7 +1843,7 @@ $optionsResolved = $optionsPlan;
 $optionsTree = "$tmp/scoped-options-worktree";
 mkdir($optionsTree, 0700, true);
 put("$optionsTree/.git", "gitdir: disposable\n");
-put("$optionsTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+put("$optionsTree/site.wprism.json", Canon::read_file("$repo/site.wprism.json"));
 RefreshPlan::materialize($optionsResolved, $optionsTree);
 $mergedOptions = OptionState::records(Canon::decode(Canon::read_file("$optionsTree/state/options/core.json")));
 check(($mergedOptions['blogname']['value'] ?? null) === 'production-only title'
@@ -1884,7 +1884,7 @@ $runGit(['git', '-C', $strictGitSource, 'config', 'user.name', 'Scope Contract']
 $runGit(['git', '-C', $strictGitSource, 'add', '.keep']);
 $runGit(['git', '-C', $strictGitSource, 'commit', '-m', 'fixture source']);
 $runGit(['git', '-C', $strictGitSource, 'worktree', 'add', '--detach', $strictGitWorktree, 'HEAD']);
-put("$strictGitWorktree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+put("$strictGitWorktree/site.wprism.json", Canon::read_file("$repo/site.wprism.json"));
 scope_contract_copy_tree($manifestDir, "$strictGitWorktree/manifests");
 $strictReceipt = RefreshPlan::materialize($optionsPlan, $strictGitWorktree);
 $runGit(['git', '-C', $strictGitWorktree, 'add', '--all']);
@@ -1922,7 +1922,7 @@ check(($removedById['option:blogname']['category'] ?? null) === 'production-only
 $removedTree = "$tmp/scoped-options-removed-worktree";
 mkdir($removedTree, 0700, true);
 put("$removedTree/.git", "gitdir: disposable\n");
-put("$removedTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+put("$removedTree/site.wprism.json", Canon::read_file("$repo/site.wprism.json"));
 RefreshPlan::materialize($removedPlan, $removedTree);
 $removedOptions = OptionState::records(Canon::decode(Canon::read_file("$removedTree/state/options/core.json")));
 check(($removedOptions['blogname']['state'] ?? null) === 'absent'
@@ -1944,7 +1944,7 @@ $noOptionsProduction['records']['options/core'] = [
     'identity' => 'options/core', 'type' => 'options', 'path' => 'options/core.json',
     'hash' => hash('sha256', $newOptionContent), 'content' => $newOptionContent,
 ];
-$noOptionsProduction['format'] = 'duo-refresh-production/v1';
+$noOptionsProduction['format'] = 'wprism-refresh-production/v1';
 $noOptionsProduction['records'] = [
     'options/core' => $noOptionsProduction['records']['options/core'],
 ];
@@ -1966,7 +1966,7 @@ $noOptionsPlan = RefreshPlan::plan(
 $noOptionsTree = "$tmp/scoped-options-no-baseline-worktree";
 mkdir($noOptionsTree, 0700, true);
 put("$noOptionsTree/.git", "gitdir: disposable\n");
-put("$noOptionsTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+put("$noOptionsTree/site.wprism.json", Canon::read_file("$repo/site.wprism.json"));
 RefreshPlan::materialize($noOptionsPlan, $noOptionsTree);
 $noBaselineOptions = OptionState::records(Canon::decode(Canon::read_file("$noOptionsTree/state/options/core.json")));
 check(($noBaselineOptions['blogname']['value'] ?? null) === 'brand-new-title'

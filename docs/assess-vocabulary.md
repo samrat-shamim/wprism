@@ -1,10 +1,10 @@
 # The assess vocabulary — the normative projection
 
-Six product words describe every surface Duo reports on: `state_class`,
+Six product words describe every surface WPrism reports on: `state_class`,
 `handling`, `readiness`, `certification_provenance`, `effect_containment`,
-`effect_recovery_semantics`. They appear in `duo assess`, in
-`.duo/contract/projection.json`, in the frozen authorization plan, and in the
-text of a `duo release` refusal. **The tables below are their only definition.**
+`effect_recovery_semantics`. They appear in `wprism assess`, in
+`.wprism/contract/projection.json`, in the frozen authorization plan, and in the
+text of a `wprism release` refusal. **The tables below are their only definition.**
 
 They are a *projection*, not a mechanism: each word is computed from data that
 does exist in code, and a wrong word is still a valid string, so nothing fails
@@ -24,7 +24,7 @@ original wrote "MUP", it is written here as the shipped behaviour it became.*
 
 The spec's six per-surface dimensions do not exist in code. They are
 *projected* from data that does. This is the complete mapping; it is
-implemented once, in `\Duo\Orchestrator\ProjectionVocabulary`
+implemented once, in `\WPrism\Orchestrator\ProjectionVocabulary`
 (`cli/src/Contract/ProjectionVocabulary.php`), and nowhere else. It lives in the
 policy-layer Contract module, not in Assess, because Assess, Release and
 Rehearse are all engine-layer siblings: policy is the lowest layer all three can
@@ -40,7 +40,7 @@ read, so one implementation costs zero intra-layer edges
 | `derived` | `Policy::CLASSES` | `derived` |
 | `env` | `Policy::CLASSES` | `environment-bound` |
 | `managed` | `Policy::CLASSES` (`active_plugins`, `template`, `stylesheet`) | `authored` — see handling below |
-| no rule matches; `Capture::gate_scan()` aborts / `wp duo pending` row | `Pending::scan()` | `unclassified` |
+| no rule matches; `Capture::gate_scan()` aborts / `wp wprism pending` row | `Pending::scan()` | `unclassified` |
 | named in `Coverage::report()` as invisible (no discovery path at all) | `Coverage` | `unclassified` |
 | a manifest declares a provider action whose declared effects reach a system outside this WordPress install | manifest `providers` + declared effects | `external` |
 
@@ -87,7 +87,7 @@ to each condition reason; `SurfaceCatalog::conditionRows()` mints the row
 `{check, code, manifest, observed, rechecked_at, satisfied, subject}` from
 them; the frozen authorization plan carries those rows and digests them as
 `inputs_digest.conditions_sha256`; and `AuthorizationPlan::recheckConditions()`
-re-observes every one against a fresh `wp duo capabilities` read immediately
+re-observes every one against a fresh `wp wprism capabilities` read immediately
 before the mutating call (`cli/src/Command/ReleaseCommand.php`, step 6). A
 condition that MOVED refuses `release_condition_changed`; a condition that
 cannot be re-observed at all — its claim absent from the fresh report, or the
@@ -122,7 +122,7 @@ That suite is the gate on this table, one fact vector per cell.
 | Source fact | Projected `certification_provenance` |
 |---|---|
 | `source.source == shipped` **and** claim `status == certified` | `Platform-certified`. The `evidence.status == current` conjunct this row also required is gone: a shipped claim now carries its authored citation with no status at all, so keeping the conjunct would report every platform-reviewed adapter as `Uncertified` (`cli/src/Contract/ProjectionVocabulary.php:788-794`, `:822`) |
-| a site adapter with signed evidence **and** an explicit repository pin binding source `site` + certificate digest | `Site-certified` — **emitted since the adapter walk's §3.2 certification path landed** (this row once read "never emitted" while no operator could complete a certification; `duo adapter certify` is that path). The projection also exposes `principal` and `trust_root`; the contract's attestation placeholder stays `unsigned` |
+| a site adapter with signed evidence **and** an explicit repository pin binding source `site` + certificate digest | `Site-certified` — **emitted since the adapter walk's §3.2 certification path landed** (this row once read "never emitted" while no operator could complete a certification; `wprism adapter certify` is that path). The projection also exposes `principal` and `trust_root`; the contract's attestation placeholder stays `unsigned` |
 | everything else | `Uncertified` |
 
 ### 1.5 Effect containment
@@ -153,7 +153,7 @@ reaching a live system"* (product spec, *External-effect containment and
 recovery semantics*; safety invariant *"unknown containment or recovery
 semantics never reach live systems"*). The whole lifecycle window is declared
 `unknown`, so a release whose plan contains a code lifecycle phase would be
-blocked outright. It is not exempted; it is **declared**: `duo release` refuses
+blocked outright. It is not exempted; it is **declared**: `wprism release` refuses
 until the contract carries an `external_effects[]` entry for that window naming
 the surfaces, `containment: "live"`, an explicit recovery-semantics value, and a
 reviewed reason. The declaration contains nothing — it converts an *unknown*
@@ -169,19 +169,19 @@ production.
 
 Said plainly, because the words above are easy to over-read:
 
-1. **Rehearsal is a preview, not a sandbox.** Duo does not stop a plugin in
+1. **Rehearsal is a preview, not a sandbox.** WPrism does not stop a plugin in
    your preview environment from sending mail, calling a payment API, or
    firing a webhook. Point it at test credentials. That is why §1.5 never
    emits `sandboxed`.
-2. **`Site-certified` is your organization's word, not Duo's.** It is emitted
+2. **`Site-certified` is your organization's word, not WPrism's.** It is emitted
    only on a verified Ed25519 signature over an adapter's exact bytes under a
    trust root the repository or the agent owns. It means customer-organization
-   approval, explicitly not a Duo endorsement; the signed bundle records
+   approval, explicitly not a WPrism endorsement; the signed bundle records
    `exercised: false` beside its grammar verdict, so it never implies the
    adapter was tested against a live site. The **contract's** attestation is a
    separate signature under a separate, operator-provisioned trust root, and
    until one exists the human view says so on the same line: `certified by
-   <principal> (<root> trust root); contract attestation unsigned`. After `duo
+   <principal> (<root> trust root); contract attestation unsigned`. After `wprism
    contract <env> attest` the same line reads `…; contract attested by
    <principal> (site trust root, expires <when>)`.
 3. **Rollback restores bytes, not consequences.** The list of what a profile

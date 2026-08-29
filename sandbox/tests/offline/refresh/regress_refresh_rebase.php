@@ -1,15 +1,15 @@
 <?php
 declare(strict_types=1);
 
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/cli/src/Refresh/RefreshPlan.php';
 
-use Duo\Canon;
-use Duo\OptionState;
-use Duo\Orchestrator\RefreshPlan;
+use WPrism\Canon;
+use WPrism\OptionState;
+use WPrism\Orchestrator\RefreshPlan;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -46,7 +46,7 @@ $options = static function (array $values): array {
 $snapshot = static function (array $records, string $revision): array {
     ksort($records, SORT_STRING);
     return [
-        'format' => 'duo-refresh-git/v1',
+        'format' => 'wprism-refresh-git/v1',
         'records' => $records,
         'deletions' => [],
         'media' => [],
@@ -105,7 +105,7 @@ $context = [
     'production_snapshot_hash' => str_repeat('4', 64),
 ];
 $plan = RefreshPlan::plan($base, $production, $branch, $context);
-$check($plan['format'] === 'duo-refresh-plan/v1' && preg_match('/^[a-f0-9]{64}$/', $plan['plan_hash']) === 1,
+$check($plan['format'] === 'wprism-refresh-plan/v1' && preg_match('/^[a-f0-9]{64}$/', $plan['plan_hash']) === 1,
     'planner emits one content-addressed deterministic plan');
 $check($plan['counts'] === [
     'unchanged' => 2, 'production-only' => 2, 'branch-only' => 2, 'compatible' => 2, 'conflicting' => 2,
@@ -124,7 +124,7 @@ $check($byId['post:x']['reason'] === 'production_and_branch_changed_differently'
 
 $branchDeletesX = $branch;
 unset($branchDeletesX['records']['x']);
-$branchDeletesX['deletions']['x'] = $record('x', 'deletion', '{"format":"duo-deletion/v1"}');
+$branchDeletesX['deletions']['x'] = $record('x', 'deletion', '{"format":"wprism-deletion/v1"}');
 $deletionConflict = RefreshPlan::plan($base, $production, $branchDeletesX, $context);
 $deletionIds = array_column(array_filter(
     $deletionConflict['entries'],
@@ -171,7 +171,7 @@ $refuses(static fn() => RefreshPlan::plan($base, $absentProduction, $branch, $co
 ]), 'strategy cannot select production absence without a tombstone');
 
 $rawProduction = $production;
-$rawProduction['format'] = 'duo-refresh-production/v1';
+$rawProduction['format'] = 'wprism-refresh-production/v1';
 $basis = $rawProduction;
 $rawProduction['snapshot_hash'] = hash('sha256', Canon::encode($basis));
 $normalized = RefreshPlan::normalizeProductionSnapshot($rawProduction);
@@ -190,10 +190,10 @@ $codeRef['completed_code']['revision'] = str_repeat('e', 64);
 $refuses(static fn() => RefreshPlan::assertProductionCodeMatches($codeProduction, $codeRef),
     'separate completed code identity mismatch refuses');
 
-$tmp = sys_get_temp_dir() . '/duo-refresh-rebase-' . bin2hex(random_bytes(5));
+$tmp = sys_get_temp_dir() . '/wprism-refresh-rebase-' . bin2hex(random_bytes(5));
 mkdir($tmp, 0700, true);
 file_put_contents($tmp . '/.git', "gitdir: disposable\n");
-file_put_contents($tmp . '/site.duo.json', "untouched\n");
+file_put_contents($tmp . '/site.wprism.json', "untouched\n");
 mkdir($tmp . '/state', 0700, true);
 file_put_contents($tmp . '/state/stale.json', "stale\n");
 try {
@@ -202,7 +202,7 @@ try {
         'resolved plan materializes selected semantic state in the disposable worktree');
     $check(!is_file($tmp . '/state/stale.json') && is_file($tmp . '/state/options/core.json'),
         'materialization replaces stale state and reassembles options/core');
-    $check(file_get_contents($tmp . '/site.duo.json') === "untouched\n",
+    $check(file_get_contents($tmp . '/site.wprism.json') === "untouched\n",
         'semantic materialization cannot change code/policy paths');
     $refuses(static fn() => RefreshPlan::materialize($plan, $tmp), 'unresolved plan cannot materialize');
     $runtimeReceipt = RefreshPlan::materialize($plan, $tmp, [

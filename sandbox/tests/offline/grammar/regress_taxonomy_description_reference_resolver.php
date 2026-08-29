@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for pure taxonomy description-reference grammar
- * resolution (DUO-3348 slice 49).
+ * resolution (issue #3348 slice 49).
  */
 declare(strict_types=1);
 
@@ -25,7 +25,7 @@ $assertThrows = static function (callable $fn, string $needle, string $label) us
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\TaxonomyDescriptionReferenceResolver::class, false) && class_exists(\\Duo\\ReferenceRules::class, false) && class_exists(\\Duo\\ReferencePath::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\TaxonomyDescriptionReferenceResolver::class, false) && class_exists(\\WPrism\\ReferenceRules::class, false) && class_exists(\\WPrism\\ReferencePath::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -45,7 +45,7 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\TaxonomyDescriptionReferenceResolver;
+use WPrism\TaxonomyDescriptionReferenceResolver;
 
 $manifests = [
     [
@@ -97,7 +97,7 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->description_reference_rule('legacy') === $resolver->resolve('legacy')

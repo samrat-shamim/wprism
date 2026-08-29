@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
@@ -7,10 +7,10 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // Deliberately NOT require_once('Db.php') or require_once('Ledger.php')
-// here: four suites declare a fake Duo\Ledger (regress_adapter_observation.php,
+// here: four suites declare a fake WPrism\Ledger (regress_adapter_observation.php,
 // regress_code_revision_enforcement.php, regress_lifecycle_phase_handoff_unit.php,
 // regress_scoped_promotion_target.php); three of those four ALSO declare a
-// fake Duo\Db (all but regress_code_revision_enforcement.php). Only TWO of
+// fake WPrism\Db (all but regress_code_revision_enforcement.php). Only TWO of
 // the four actually reach this file transitively through Apply.php --
 // regress_code_revision_enforcement.php (via Deploy.php) and regress_scoped_
 // promotion_target.php -- runtime-verified, not assumed (the other two are
@@ -22,7 +22,7 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // checked Db and Ledger with two DIFFERENT, non-equivalent grep patterns
 // (a `final class Db {`-shaped one for Db, a bare `^class Ledger\b` one for
 // Ledger) and wrongly cleared Ledger as unfaked; make regress-offline-all
-// caught the resulting "Cannot redeclare class Duo\Ledger" fatal
+// caught the resulting "Cannot redeclare class WPrism\Ledger" fatal
 // immediately. Re-verified with one symmetric pattern applied to both
 // classes: `grep -rnE '^\s*(final\s+)?class\s+(Db|Ledger)\s*(\{|extends|
 // implements)' sandbox/tests/*.php` (note -n, not -l -- printing the
@@ -32,7 +32,7 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // them explicitly.
 
 /**
- * The term entity materializer (DUO-3347 slice 6, one of the "Entity
+ * The term entity materializer (issue #3347 slice 6, one of the "Entity
  * materializers: posts, terms, menus, options/meta/users, relationships,
  * attachments, typed tables" target seams): reconciles one canonical term's
  * name/slug/parent/description and its own term-object relationships (a
@@ -42,7 +42,7 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
  * Constructed from exactly `(Policy, Tokens, ApplyFieldMaterializer)` — the
  * same narrow contract MenuMaterializer (slice 4) and UserMetaMaterializer
  * (slice 5) established. Unlike MenuMaterializer (which requires nothing
- * itself, DUO-3444), all three constructor types are required directly
+ * itself, issue #3444), all three constructor types are required directly
  * above, matching UserMetaMaterializer's own corrected practice.
  *
  * One dependency does NOT fit that contract: reconcile_term_relationships()
@@ -56,7 +56,7 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
  * live WordPress taxonomy registration) and moving it here would either
  * duplicate it or wrongly couple two still-separate entity materializers.
  * Both methods below take the resolved `$termObjectTaxes` array as an
- * explicit parameter instead — DUO-3347's own guardrail ("dependency
+ * explicit parameter instead — issue #3347's own guardrail ("dependency
  * injection and narrow data contracts") applied to a value Apply already
  * has to compute once per apply run regardless of which entities changed.
  *
@@ -115,18 +115,18 @@ final class TermMaterializer {
         $termTaxonomyId = Db::insert_id('apply insert term taxonomy');
         Db::insert($wpdb->termmeta, [
             'term_id' => $termId,
-            'meta_key' => '_duo_uuid',
+            'meta_key' => '_wprism_uuid',
             'meta_value' => $front['uuid'],
         ], null, 'apply insert term identity');
         $identityRows = $this->fieldMaterializer->meta_owner_range_lock(
             $wpdb->termmeta,
             'term_id',
             'apply insert term identity readback'
-        )->exact_key_rows($termId, '_duo_uuid');
+        )->exact_key_rows($termId, '_wprism_uuid');
         if (count($identityRows) !== 1
             || !is_string($identityRows[0]['meta_value'] ?? null)
             || !hash_equals((string) $front['uuid'], $identityRows[0]['meta_value'])) {
-            throw new \RuntimeException('duo: apply insert term identity did not persist one exact requested sidecar');
+            throw new \RuntimeException('wprism: apply insert term identity did not persist one exact requested sidecar');
         }
         Ledger::set($front['uuid'], $entityType, Ledger::KIND_TERM, $termId);
         Ledger::set($front['uuid'], $entityType, Ledger::KIND_TT, $termTaxonomyId);
@@ -140,7 +140,7 @@ final class TermMaterializer {
         $parentId = 0;
         if (!empty($front['parent'])) {
             $parentId = Ledger::id_for($front['parent'], Ledger::KIND_TERM)
-                ?? throw new \RuntimeException("duo: term {$front['slug']}: parent {$front['parent']} not resolvable");
+                ?? throw new \RuntimeException("wprism: term {$front['slug']}: parent {$front['parent']} not resolvable");
         }
         CacheInvalidationTransaction::assert_term_taxonomy_prepared(
             (string) $front['taxonomy'],
@@ -213,7 +213,7 @@ final class TermMaterializer {
             $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
             if ($keyspace !== 'term') {
                 throw new \RuntimeException(
-                    "duo: term $termId ($taxonomy) declares relationships.$tax, but manifest object_keyspace "
+                    "wprism: term $termId ($taxonomy) declares relationships.$tax, but manifest object_keyspace "
                     . "is '$keyspace' — term relationships require object_keyspace=term"
                 );
             }
@@ -234,7 +234,7 @@ final class TermMaterializer {
             }
             foreach ((array) $uuids as $u) {
                 $tt = Ledger::id_for($u, Ledger::KIND_TT)
-                    ?? throw new \RuntimeException("duo: term {$termId} ($taxonomy) references unresolvable term $u ($tax)");
+                    ?? throw new \RuntimeException("wprism: term {$termId} ($taxonomy) references unresolvable term $u ($tax)");
                 $desiredTt[$tt] = true;
             }
         }
@@ -274,7 +274,7 @@ final class TermMaterializer {
         ksort($desiredTt, SORT_NUMERIC);
         if ($after !== $desiredTt) {
             throw new \RuntimeException(
-                "duo: term $termId ($taxonomy) relationship postcondition disagrees with exact locked storage; "
+                "wprism: term $termId ($taxonomy) relationship postcondition disagrees with exact locked storage; "
                 . 'recovery_required'
             );
         }
@@ -295,14 +295,14 @@ final class TermMaterializer {
             return [];
         }
         if (!array_is_list($taxonomies) || count($taxonomies) > self::MAX_RELATIONSHIP_TAXONOMIES) {
-            throw new \RuntimeException('duo: term-object taxonomy scope is malformed or over the bounded limit');
+            throw new \RuntimeException('wprism: term-object taxonomy scope is malformed or over the bounded limit');
         }
         $out = [];
         foreach ($taxonomies as $taxonomy) {
             if (!is_string($taxonomy)
                 || preg_match('/^[a-z0-9_-]{1,32}$/D', $taxonomy) !== 1
                 || isset($out[$taxonomy])) {
-                throw new \RuntimeException('duo: term-object taxonomy scope contains an invalid/duplicate name');
+                throw new \RuntimeException('wprism: term-object taxonomy scope contains an invalid/duplicate name');
             }
             $out[$taxonomy] = true;
         }
@@ -315,7 +315,7 @@ final class TermMaterializer {
     private function locked_relationship_rows(int $termId, array $taxonomies, string $purpose): array {
         global $wpdb;
         if ($termId <= 0) {
-            throw new \RuntimeException("duo: $purpose received an invalid term identity");
+            throw new \RuntimeException("wprism: $purpose received an invalid term identity");
         }
         DeleteGuardEvaluator::assert_table_identifiers(
             [$wpdb->term_relationships, $wpdb->term_taxonomy],
@@ -348,10 +348,10 @@ final class TermMaterializer {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose bounded locked read failed");
+            throw new \RuntimeException("wprism: $purpose bounded locked read failed");
         }
         if (count($rows) > self::MAX_TERM_RELATIONSHIPS) {
-            throw new \RuntimeException("duo: $purpose exceeds the bounded row limit");
+            throw new \RuntimeException("wprism: $purpose exceeds the bounded row limit");
         }
         $out = [];
         $seen = [];
@@ -365,10 +365,10 @@ final class TermMaterializer {
                 || $targetId === null
                 || !is_string($tax)
                 || !in_array($tax, $taxonomies, true)) {
-                throw new \RuntimeException("duo: $purpose returned a malformed row at position $position");
+                throw new \RuntimeException("wprism: $purpose returned a malformed row at position $position");
             }
             if (isset($seen[$ttId])) {
-                throw new \RuntimeException("duo: $purpose returned a duplicate relationship identity");
+                throw new \RuntimeException("wprism: $purpose returned a duplicate relationship identity");
             }
             $seen[$ttId] = true;
             $out[] = ['term_taxonomy_id' => $ttId, 'taxonomy' => $tax, 'term_id' => $targetId];

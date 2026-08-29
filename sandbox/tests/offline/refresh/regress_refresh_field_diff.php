@@ -2,21 +2,21 @@
 declare(strict_types=1);
 
 /*
- * Offline contract for DUO-3345's redacted field-level Refresh boundary.
+ * Offline contract for issue #3345's redacted field-level Refresh boundary.
  * This never boots WordPress and deliberately exercises raw source spellings
  * (including an escaped Unicode scalar) so a passing strict compile could not
  * hide a decode/re-encode rewrite.
  */
 
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/cli/src/Refresh/RefreshFieldDiff.php';
 require_once $root . '/cli/src/Refresh/RefreshPlan.php';
 
-use Duo\Canon;
-use Duo\Orchestrator\RefreshFieldDiff;
-use Duo\Orchestrator\RefreshPlan;
+use WPrism\Canon;
+use WPrism\Orchestrator\RefreshFieldDiff;
+use WPrism\Orchestrator\RefreshPlan;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -108,7 +108,7 @@ $productionMenu = "{\"items\":[],\"name\":\"production-menu\",\"slug\":\"menu\",
 $branchMenu = "{\"items\":[],\"name\":\"branch-menu\",\"slug\":\"menu\",\"uuid\":\"33333333-3333-4333-8333-333333333333\"}\n";
 
 $plan = [
-    'format' => 'duo-refresh-plan/v1',
+    'format' => 'wprism-refresh-plan/v1',
     'plan_hash' => hash('sha256', 'field-diff-plan'),
     'context' => ['production_snapshot_hash' => hash('sha256', 'field-diff-production')],
     'entries' => [
@@ -837,7 +837,7 @@ $refuses(static fn() => RefreshFieldDiff::normalizeResolution($preHashResolution
 $refuses(static fn() => RefreshFieldDiff::apply($plan, $bundle, $preHashResolution),
     'materialization refuses an unhashed resolution before reading private spans');
 $scoped = $plan;
-$scoped['context']['scope_contract'] = ['format' => 'duo-scope-contract/v1'];
+$scoped['context']['scope_contract'] = ['format' => 'wprism-scope-contract/v1'];
 $refuses(static fn() => RefreshFieldDiff::project($scoped, [
     'base' => $policy(), 'production' => $policy(), 'branch' => $policy(),
 ]), 'scoped plans refuse field-level projection entirely');
@@ -900,7 +900,7 @@ $refuses(static fn() => RefreshFieldDiff::validateDiff($nonTransitiveAtomicRelat
 $fieldSnapshot = static function (string $content, string $revision) use ($row): array {
     $identity = '11111111-1111-4111-8111-111111111111';
     return [
-        'format' => 'duo-refresh-git/v1',
+        'format' => 'wprism-refresh-git/v1',
         'records' => [$identity => $row($identity, 'post', 'posts/post/field-one.md', $content)],
         'deletions' => [],
         'media' => [],
@@ -940,7 +940,7 @@ foreach ($materializeProjection['diff']['records'] as $record) {
 usort($materializeChoices, static fn(array $a, array $b): int =>
     ($a['record_selector_sha256'] . ':' . $a['field_selector_sha256']) <=> ($b['record_selector_sha256'] . ':' . $b['field_selector_sha256']));
 $materializeResolution = RefreshFieldDiff::resolution($materializeProjection['diff'], $materializeChoices);
-$materializeTmp = sys_get_temp_dir() . '/duo-refresh-field-materialize-' . bin2hex(random_bytes(5));
+$materializeTmp = sys_get_temp_dir() . '/wprism-refresh-field-materialize-' . bin2hex(random_bytes(5));
 mkdir($materializeTmp, 0700, true);
 file_put_contents($materializeTmp . '/.git', "gitdir: disposable\n");
 mkdir($materializeTmp . '/state', 0700, true);
@@ -969,7 +969,7 @@ try {
     $removeMaterialize($materializeTmp);
 }
 
-$tmp = sys_get_temp_dir() . '/duo-refresh-field-resolution-' . bin2hex(random_bytes(5));
+$tmp = sys_get_temp_dir() . '/wprism-refresh-field-resolution-' . bin2hex(random_bytes(5));
 $link = $tmp . '-link';
 $fifo = $tmp . '-fifo';
 try {
@@ -1005,7 +1005,7 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// DUO-3494: block-structural post-body composition.
+// issue #3494: block-structural post-body composition.
 //
 // Before this, every changed body was one `body_changed` record choice, so the
 // canonical WordPress conflict -- two editors on one page -- resolved as an

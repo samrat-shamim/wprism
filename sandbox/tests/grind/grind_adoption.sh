@@ -4,8 +4,8 @@
 #
 # One driver, ten situations, each on a FRESH `pair.sh reset` of one dedicated
 # pair. "Progressive" means each situation is the sequence the same operator
-# would actually take: start with the smallest thing Duo can do for that site
-# (`duo doctor`, `duo assess` read-only on the adoption seed), then add
+# would actually take: start with the smallest thing WPrism can do for that site
+# (`wprism doctor`, `wprism assess` read-only on the adoption seed), then add
 # management one decision at a time — never a big-bang init. Every situation
 # ends with the full loop where the site allows it (contract → rehearse → edit
 # → capture → merge → release → verify → recover) or with the typed refusal
@@ -34,8 +34,8 @@
 #   ADOPT_PORT1/2    (default 9600/9601)
 #   ADOPT_SITUATIONS (default A1,…,A10) comma list, run in the order given
 #   ADOPT_KEEP=1     leave the pair and the site repos in place
-#   DUO_EXPECTED_SOURCE_SHA           bind this run to an exact source commit
-#   DUO_WORDPRESS_ORG_OFFLINE         0|1, forwarded to pair.sh/fetch-artifact
+#   WPRISM_EXPECTED_SOURCE_SHA           bind this run to an exact source commit
+#   WPRISM_WORDPRESS_ORG_OFFLINE         0|1, forwarded to pair.sh/fetch-artifact
 #
 # Modes: --self-check (helpers against fixtures, no docker), --dry-run.
 #
@@ -48,7 +48,7 @@ SANDBOX="$(pwd -P)"
 REPO_ROOT="$(cd .. && pwd -P)"
 # shellcheck source=../../bin/artifact-library.sh
 . "$SANDBOX/bin/artifact-library.sh"
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 FIXTURES="$SANDBOX/tests/fixtures/adapter-walk"
 
 MODE=run
@@ -66,7 +66,7 @@ PAIR="${ADOPT_PAIR:-adopt}"
 PORT1="${ADOPT_PORT1:-9600}"
 PORT2="${ADOPT_PORT2:-9601}"
 SITUATIONS="${ADOPT_SITUATIONS:-A1,A2,A3,A4,A5,A6,A7,A8,A9,A10}"
-WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+WORDPRESS_OFFLINE="${WPRISM_WORDPRESS_ORG_OFFLINE:-0}"
 
 # Pinned subjects (the convention-discovered artifact library). Every install is an
 # exact artifact; fetch-artifact.sh refuses an unpinned version.
@@ -115,7 +115,7 @@ SITUATIONS_RUN=()
 install_stack() {
   local side="$1" role="$2" theme="$3"; shift 3
   local artifact spec slug version
-  wp_side "$side" option update blogname "Duo adoption ${PAIR}${side}"
+  wp_side "$side" option update blogname "WPrism adoption ${PAIR}${side}"
   wp_side "$side" site empty --yes
   for spec in "$@"; do
     slug="${spec%@*}"; version="${spec#*@}"
@@ -148,10 +148,10 @@ situation_pair() {
   if ! dry; then
     validate_artifact_library \
       || fail "artifact library is malformed; the grind refused before pair reset"
-    docker build -q -f init-cli.Dockerfile -t "$DUO_CLI_IMAGE" . >/dev/null \
-      || fail "could not build the Git-enabled cli image $DUO_CLI_IMAGE from sandbox/init-cli.Dockerfile"
+    docker build -q -f init-cli.Dockerfile -t "$WPRISM_CLI_IMAGE" . >/dev/null \
+      || fail "could not build the Git-enabled cli image $WPRISM_CLI_IMAGE from sandbox/init-cli.Dockerfile"
   else
-    plan "docker build -q -f init-cli.Dockerfile -t $DUO_CLI_IMAGE .   # wordpress:cli-php8.3 + git"
+    plan "docker build -q -f init-cli.Dockerfile -t $WPRISM_CLI_IMAGE .   # wordpress:cli-php8.3 + git"
   fi
   PAIR_UP=1
   run bash bin/pair.sh reset "$PAIR"
@@ -173,8 +173,8 @@ seed_pages() {
     return 0
   fi
   LANDING_ID="$(wp1 post create --post_type=page --post_status=publish \
-    --post_title='Duo walk landing page' --post_name="$slug" \
-    --post_content='<p>Duo walk landing page, before the release.</p>' --porcelain | tr -d '\r')"
+    --post_title='WPrism walk landing page' --post_name="$slug" \
+    --post_content='<p>WPrism walk landing page, before the release.</p>' --porcelain | tr -d '\r')"
   local about contact
   about="$(wp1 post create --post_type=page --post_status=publish --post_title='About us' --post_name=about \
     --post_content='<p>About the studio.</p>' --porcelain | tr -d '\r')"
@@ -200,25 +200,25 @@ journeys_json() {
   local landing="$1"; shift
   local out
   out="$(jq -n --arg landing "$landing" '[{id: "landing-page", url: $landing, expect_status: 200,
-    expect_contains: "Duo walk landing page", affected_surfaces: ["post_type:page"]}]')"
+    expect_contains: "WPrism walk landing page", affected_surfaces: ["post_type:page"]}]')"
   local extra
   for extra in "$@"; do out="$(jq -c --argjson e "$extra" '. + [$e]' <<<"$out")"; done
   printf '%s' "$out"
 }
 
-# doctor_and_first_look <label> <env> — the smallest thing Duo can do for a
-# site: `duo doctor` names the transport and the agent, `duo assess` on the
+# doctor_and_first_look <label> <env> — the smallest thing WPrism can do for a
+# site: `wprism doctor` names the transport and the agent, `wprism assess` on the
 # adoption seed reads the site without writing anything.
 doctor_and_first_look() {
   local label="$1" env="$2"
-  # The adoption seed first: `duo doctor` checks that the repo path holds a
-  # site.duo.json (a [FAIL] row without one — the honest answer, and not the
-  # first look this situation is about), and `duo assess` reads that seed.
+  # The adoption seed first: `wprism doctor` checks that the repo path holds a
+  # site.wprism.json (a [FAIL] row without one — the honest answer, and not the
+  # first look this situation is about), and `wprism assess` reads that seed.
   seed_repository "$label"
-  say "$label — duo doctor $env (read-only) and duo assess $env on the adoption seed"
-  duo_ok "$EVIDENCE/$label/doctor.txt" "$HOST_R1" doctor "$env"
+  say "$label — wprism doctor $env (read-only) and wprism assess $env on the adoption seed"
+  wprism_ok "$EVIDENCE/$label/doctor.txt" "$HOST_R1" doctor "$env"
   if ! dry; then
-    grep -q '^\[FAIL\]' "$EVIDENCE/$label/doctor.txt" && fail "$label: duo doctor reports a FAIL row on a fresh pair; see $EVIDENCE/$label/doctor.txt"
+    grep -q '^\[FAIL\]' "$EVIDENCE/$label/doctor.txt" && fail "$label: wprism doctor reports a FAIL row on a fresh pair; see $EVIDENCE/$label/doctor.txt"
   fi
   assess_both "$label" "$env" "$HOST_R1" first-look
   if ! dry; then
@@ -233,23 +233,23 @@ doctor_and_first_look() {
 init_capture_baseline() {
   local label="$1" env="$2"; shift 2
   if [ "${ADOPT_INIT_HUMAN:-0}" = 1 ] && ! dry; then
-    # Debugging aid, never the product path: the host's `duo init` talks to
+    # Debugging aid, never the product path: the host's `wprism init` talks to
     # the agent in JSON mode, where a confirmation failure is redacted to
     # `init refused at an unclassified safety gate`. Running the agent's own
     # proposal and confirmation in HUMAN mode prints the primary sentence.
-    say "$label — (ADOPT_INIT_HUMAN) wp duo init --repo=/siterepo, then --confirm=<digest>, in human mode"
+    say "$label — (ADOPT_INIT_HUMAN) wp wprism init --repo=/siterepo, then --confirm=<digest>, in human mode"
     local flags=() a
     for a in "$@"; do flags+=("$a"); done
-    wp_ok "$EVIDENCE/$label/init-human-proposal.txt" 1 duo init --repo=/siterepo --format=json "${flags[@]}"
+    wp_ok "$EVIDENCE/$label/init-human-proposal.txt" 1 wprism init --repo=/siterepo --format=json "${flags[@]}"
     local digest
     digest="$(walk_agent_json "$EVIDENCE/$label/init-human-proposal.txt" | jq -r '.digest')"
     [ -n "$digest" ] && [ "$digest" != null ] || fail "$label: the human-mode proposal printed no digest"
-    wp_ok "$EVIDENCE/$label/init.txt" 1 duo init --repo=/siterepo --confirm="$digest" "${flags[@]}"
+    wp_ok "$EVIDENCE/$label/init.txt" 1 wprism init --repo=/siterepo --confirm="$digest" "${flags[@]}"
   else
-    say "$label — duo init $env --yes $*"
-    duo_ok "$EVIDENCE/$label/init.txt" "$HOST_R1" init "$env" --yes "$@"
+    say "$label — wprism init $env --yes $*"
+    wprism_ok "$EVIDENCE/$label/init.txt" "$HOST_R1" init "$env" --yes "$@"
   fi
-  duo_ok "$EVIDENCE/$label/capture.txt" "$HOST_R1" capture "$env"
+  wprism_ok "$EVIDENCE/$label/capture.txt" "$HOST_R1" capture "$env"
   baseline_commit "$label"
 }
 
@@ -262,10 +262,10 @@ loop_to_recovery() {
   contract_cycle "$label" "${PAIR}1" "$HOST_R1" "$LANDING_ID" "$extraJourney" "$surfaceFilter"
   rehearse_preview "$label"
   say "$label — author a page-body edit on the preview, then capture twice"
-  preview_page_edit "$label" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$label" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$label" "${PAIR}2"
   merge_preview "$label"
-  revert_target "$label" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$label" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$label" "$MAIN_SHA"
   recover_cycle "$label"
   post_recovery_check "$label"
@@ -280,7 +280,7 @@ situation_a1() {
   run mkdir -p "$EVIDENCE/$S"
   situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION"
   write_registry
-  seed_pages duo-walk-landing
+  seed_pages wprism-walk-landing
   doctor_and_first_look "$S" "${PAIR}1"
   if ! dry; then
     local expect got
@@ -304,7 +304,7 @@ situation_a1() {
   CONTRACT_JOURNEYS_JSON="$(journeys_json "$LANDING_PATH")"
   CONTRACT_LIFECYCLE_REASON="a core-only site: the only external effect in the lifecycle window is WordPress' own theme switch, reviewed against $CLASSIC_THEME_SLUG $CLASSIC_THEME_VERSION"
   loop_to_recovery "$S"
-  pass "$S PASSED — a brochure site adopted Duo with the smallest honest loop"
+  pass "$S PASSED — a brochure site adopted WPrism with the smallest honest loop"
 }
 
 # ---------------------------------------------------------------------------
@@ -315,7 +315,7 @@ situation_a2() {
   run mkdir -p "$EVIDENCE/$S"
   situation_pair "$S" "$BLOCK_THEME_SLUG@$BLOCK_THEME_VERSION"
   write_registry
-  seed_pages duo-walk-landing
+  seed_pages wprism-walk-landing
   # A customised footer template part: the site editor's own storage shape
   # (wp_template_part post, wp_theme + wp_template_part_area terms), exactly as
   # sandbox/conformance/seeds/fse.sh writes it.
@@ -326,7 +326,7 @@ situation_a2() {
     footer='<footer-id>'
   else
     footer="$(wp1 post create --post_type=wp_template_part --post_title='Footer' --post_name=footer \
-      --post_status=publish --post_content='<!-- wp:paragraph --><p>Duo adoption footer, before the release.</p><!-- /wp:paragraph -->' --porcelain | tr -d '\r')"
+      --post_status=publish --post_content='<!-- wp:paragraph --><p>WPrism adoption footer, before the release.</p><!-- /wp:paragraph -->' --porcelain | tr -d '\r')"
     wp1 post term add "$footer" wp_theme "$BLOCK_THEME_SLUG" --by=slug
     wp1 post term add "$footer" wp_template_part_area footer --by=slug
   fi
@@ -341,7 +341,7 @@ situation_a2() {
     grep -Fq '[fse_profile_scope_selected]' "$EVIDENCE/$S/init.txt" \
       || fail "$S: init did not print the FSE profile scope advisory for a block theme; see $EVIDENCE/$S/init.txt"
     jq -e '([.policy.post_types[]] | index("wp_template_part") != null) and ([.policy.taxonomies[]] | index("wp_theme") != null)' \
-      "$HOST_R1/site.duo.json" >/dev/null \
+      "$HOST_R1/site.wprism.json" >/dev/null \
       || fail "$S: init did not take the FSE profile's types (wp_template_part, wp_theme) into policy scope"
     pass "$S — init proposed the certified FSE profile scope for the block theme and printed it"
   fi
@@ -365,20 +365,20 @@ situation_a2() {
     local previewFooter
     previewFooter="$(wp2 post list --post_type=wp_template_part --name=footer --field=ID | tr -d '\r' | head -1)"
     [ -n "$previewFooter" ] || fail "$S: the preview carries no footer template part"
-    wp2 post update "$previewFooter" --post_content='<!-- wp:paragraph --><p>Duo adoption footer, released through duo release.</p><!-- /wp:paragraph -->'
+    wp2 post update "$previewFooter" --post_content='<!-- wp:paragraph --><p>WPrism adoption footer, released through wprism release.</p><!-- /wp:paragraph -->'
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local targetFooter
     targetFooter="$(wp2 post list --post_type=wp_template_part --name=footer --field=ID | tr -d '\r' | head -1)"
-    wp2 post update "$targetFooter" --post_content='<!-- wp:paragraph --><p>Duo adoption footer, before the release.</p><!-- /wp:paragraph -->'
+    wp2 post update "$targetFooter" --post_content='<!-- wp:paragraph --><p>WPrism adoption footer, before the release.</p><!-- /wp:paragraph -->'
   fi
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
-    wp2 post list --post_type=wp_template_part --name=footer --field=post_content | tr -d '\r' | grep -Fq 'released through duo release' \
+    wp2 post list --post_type=wp_template_part --name=footer --field=post_content | tr -d '\r' | grep -Fq 'released through wprism release' \
       || fail "$S: the footer template part edit did not arrive on the release target"
     pass "$S — the template part edit round-tripped through the release"
   fi
@@ -392,7 +392,7 @@ situation_a2() {
 # contract_cycle declares them (WooCommerce answers /?post_type=product 200).
 shop_journeys() {
   journeys_json "$LANDING_PATH" "$(jq -nc '{id: "catalog-index", url: "/?post_type=product", expect_status: 200,
-    expect_contains: "Duo walk mug", affected_surfaces: ["post_type:product"]}')"
+    expect_contains: "WPrism walk mug", affected_surfaces: ["post_type:product"]}')"
 }
 
 # create_order <side> <product-id> <email> — one WooCommerce order through the
@@ -421,8 +421,8 @@ situation_a3() {
   run mkdir -p "$EVIDENCE/$S"
   situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" "woocommerce@$WOO_VERSION"
   write_registry
-  seed_shop duo-walk-landing
-  say "$S — two live orders on ${PAIR}1 before Duo is even installed"
+  seed_shop wprism-walk-landing
+  say "$S — two live orders on ${PAIR}1 before WPrism is even installed"
   if dry; then
     plan "wp1 eval wc_create_order() (x2)"
   else
@@ -448,7 +448,7 @@ situation_a3() {
   contract_cycle "$S" "${PAIR}1" "$HOST_R1" "$LANDING_ID" - '.'
   rehearse_preview "$S"
   say "$S — the page edit on the preview; the catalog change on the SOURCE (a new product)"
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   # The new product is authored on the source and captured there, so it is
@@ -464,11 +464,11 @@ situation_a3() {
   git1 fetch -q origin main
   git1 merge -q --ff-only FETCH_HEAD
   if ! dry; then
-    wp1 post update "$LANDING_ID" --post_content='<p>Duo walk landing page, released through duo release.</p>' >/dev/null
-    wp1 wc product create --name='Duo walk poster' --type=simple --regular_price=15.00 --sku=DUO-WALK-POSTER \
+    wp1 post update "$LANDING_ID" --post_content='<p>WPrism walk landing page, released through wprism release.</p>' >/dev/null
+    wp1 wc product create --name='WPrism walk poster' --type=simple --regular_price=15.00 --sku=WPRISM-WALK-POSTER \
       --status=publish --user=admin --porcelain >/dev/null
   fi
-  duo_ok "$EVIDENCE/$S/capture-source-product.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture-source-product.txt" "$HOST_R1" capture "${PAIR}1"
   git1 add -A
   commit1 "grind_adoption $S: a new product authored on the source"
   git1 push -q origin main
@@ -480,23 +480,23 @@ situation_a3() {
   # capture on a clone whose state carries the source's new product, absent
   # live, would mint a deletion intent); only then does the target clone take
   # the source's revision the way a deployment path would — fetch and
-  # fast-forward — because `duo release --from=<sha>` requires the target's
+  # fast-forward — because `wprism release --from=<sha>` requires the target's
   # HEAD to be on the revision it asserts (release_ref_mismatch otherwise).
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   git2 fetch -q origin main
   git2 merge -q --ff-only FETCH_HEAD
   # The order that arrives on the TARGET after the checkpoint: created between
   # the checkpoint the release takes and the recovery — release_cycle takes
-  # the checkpoint inside `duo release --yes`, so the order is placed right
+  # the checkpoint inside `wprism release --yes`, so the order is placed right
   # after the release returns (still after that checkpoint) and before recover.
   release_cycle "$S" "$MAIN_SHA"
   local lateOrder=""
   if ! dry; then
-    lateOrder="$(create_order 2 "$(wp2 post list --post_type=product --name=duo-walk-mug --field=ID | tr -d '\r' | head -1)" 'late-customer@example.test')"
+    lateOrder="$(create_order 2 "$(wp2 post list --post_type=product --name=wprism-walk-mug --field=ID | tr -d '\r' | head -1)" 'late-customer@example.test')"
     [ -n "$lateOrder" ] || fail "$S: could not place the post-checkpoint order on the target"
     wp2 wc shop_order get "$lateOrder" --user=admin --field=id >/dev/null \
       || fail "$S: the post-checkpoint order is not readable on the target"
-    wp2 post list --post_type=product --field=post_title | tr -d '\r' | grep -Fqx 'Duo walk poster' \
+    wp2 post list --post_type=product --field=post_title | tr -d '\r' | grep -Fqx 'WPrism walk poster' \
       || fail "$S: the release did not put the authored product on the target"
     pass "$S — the release landed the catalog change; the target keeps taking orders (order $lateOrder placed after the checkpoint)"
   fi
@@ -512,7 +512,7 @@ situation_a3() {
   fi
   post_recovery_check "$S"
   reap_cycle "$S"
-  pass "$S PASSED — a shop with live orders adopted Duo; the operational-state boundary held exactly as printed"
+  pass "$S PASSED — a shop with live orders adopted WPrism; the operational-state boundary held exactly as printed"
 }
 
 # ---------------------------------------------------------------------------
@@ -530,8 +530,8 @@ seed_seo_and_form() {
     FORM_ID='<form-id>'; FORM_PAGE_PATH='/contact-us/'
     return 0
   fi
-  wp1 post meta update "$LANDING_ID" _yoast_wpseo_title 'Duo walk landing %%sep%% %%sitename%%' >/dev/null
-  wp1 post meta update "$LANDING_ID" _yoast_wpseo_metadesc 'The landing page of the Duo adoption shop.' >/dev/null
+  wp1 post meta update "$LANDING_ID" _yoast_wpseo_title 'WPrism walk landing %%sep%% %%sitename%%' >/dev/null
+  wp1 post meta update "$LANDING_ID" _yoast_wpseo_metadesc 'The landing page of the WPrism adoption shop.' >/dev/null
   # The form through CF7's own API (as sandbox/conformance/seeds/contact-form-7.sh
   # does): CF7's shortcode embeds id="<hash7>", a portable identity, never the
   # numeric post id — a hand-written [contact-form-7 id="<ID>"] would break on
@@ -540,10 +540,10 @@ seed_seo_and_form() {
 <?php
 if (!class_exists('WPCF7_ContactForm')) { fwrite(STDERR, "WPCF7_ContactForm not loaded\n"); exit(1); }
 wp_set_current_user(get_user_by('login', 'admin')->ID);
-$cf = WPCF7_ContactForm::get_template(['title' => 'Duo adoption enquiry']);
+$cf = WPCF7_ContactForm::get_template(['title' => 'WPrism adoption enquiry']);
 $mail = $cf->prop('mail');
 $mail['recipient'] = 'owner@example.test';
-$mail['subject'] = '[Duo adoption] [your-subject]';
+$mail['subject'] = '[WPrism adoption] [your-subject]';
 $cf->set_properties(['mail' => $mail, 'form' => '<label> Your name [text* your-name] </label> <label> Your email [email* your-email] </label> [submit "Send"]']);
 $id = $cf->save();
 if (!$id) { fwrite(STDERR, "CF7 save() failed\n"); exit(1); }
@@ -574,7 +574,7 @@ situation_a4() {
   situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" \
     "woocommerce@$WOO_VERSION" "wordpress-seo@$YOAST_VERSION" "contact-form-7@$CF7_VERSION"
   write_registry
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
   seed_seo_and_form
   doctor_and_first_look "$S" "${PAIR}1"
   if ! dry; then
@@ -600,35 +600,35 @@ situation_a4() {
   say "$S — one edit per adapter on the preview: product price, Yoast title, form label"
   if ! dry; then
     local previewProduct previewForm
-    previewProduct="$(wp2 post list --post_type=product --name=duo-walk-mug --field=ID | tr -d '\r' | head -1)"
-    previewForm="$(wp2 post list --post_type=wpcf7_contact_form --name=duo-adoption-enquiry --field=ID | tr -d '\r' | head -1)"
+    previewProduct="$(wp2 post list --post_type=product --name=wprism-walk-mug --field=ID | tr -d '\r' | head -1)"
+    previewForm="$(wp2 post list --post_type=wpcf7_contact_form --name=wprism-adoption-enquiry --field=ID | tr -d '\r' | head -1)"
     [ -n "$previewProduct" ] && [ -n "$previewForm" ] || fail "$S: the preview lacks the product or the form"
     wp2 wc product update "$previewProduct" --regular_price=26.00 --user=admin >/dev/null
-    wp2 post meta update "$(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1)" _yoast_wpseo_title 'Duo walk landing, released %%sep%% %%sitename%%' >/dev/null
+    wp2 post meta update "$(wp2 post list --post_type=page --name=wprism-walk-landing --field=ID | tr -d '\r' | head -1)" _yoast_wpseo_title 'WPrism walk landing, released %%sep%% %%sitename%%' >/dev/null
     wp2 post meta update "$previewForm" _form '<label> Your name [text* your-name] </label> <label> Your email [email* your-email] </label> <label> Message [textarea your-message] </label> [submit "Send"]' >/dev/null
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   # Put the target back so the release has all four changes to apply.
   if ! dry; then
     local targetProduct targetForm targetLanding
-    targetProduct="$(wp2 post list --post_type=product --name=duo-walk-mug --field=ID | tr -d '\r' | head -1)"
-    targetForm="$(wp2 post list --post_type=wpcf7_contact_form --name=duo-adoption-enquiry --field=ID | tr -d '\r' | head -1)"
-    targetLanding="$(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1)"
+    targetProduct="$(wp2 post list --post_type=product --name=wprism-walk-mug --field=ID | tr -d '\r' | head -1)"
+    targetForm="$(wp2 post list --post_type=wpcf7_contact_form --name=wprism-adoption-enquiry --field=ID | tr -d '\r' | head -1)"
+    targetLanding="$(wp2 post list --post_type=page --name=wprism-walk-landing --field=ID | tr -d '\r' | head -1)"
     wp2 wc product update "$targetProduct" --regular_price=24.00 --user=admin >/dev/null
-    wp2 post meta update "$targetLanding" _yoast_wpseo_title 'Duo walk landing %%sep%% %%sitename%%' >/dev/null
+    wp2 post meta update "$targetLanding" _yoast_wpseo_title 'WPrism walk landing %%sep%% %%sitename%%' >/dev/null
     wp2 post meta update "$targetForm" _form '<label> Your name [text* your-name] </label> <label> Your email [email* your-email] </label> [submit "Send"]' >/dev/null
   fi
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
     local price title form
-    price="$(wp2 wc product get "$(wp2 post list --post_type=product --name=duo-walk-mug --field=ID | tr -d '\r' | head -1)" --user=admin --field=regular_price | tr -d '\r')"
+    price="$(wp2 wc product get "$(wp2 post list --post_type=product --name=wprism-walk-mug --field=ID | tr -d '\r' | head -1)" --user=admin --field=regular_price | tr -d '\r')"
     [ "$price" = "26.00" ] || [ "$price" = "26" ] || fail "$S: the product price edit did not arrive on the target (got '$price')"
-    title="$(wp2 post meta get "$(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1)" _yoast_wpseo_title | tr -d '\r')"
+    title="$(wp2 post meta get "$(wp2 post list --post_type=page --name=wprism-walk-landing --field=ID | tr -d '\r' | head -1)" _yoast_wpseo_title | tr -d '\r')"
     [[ "$title" == *released* ]] || fail "$S: the Yoast title edit did not arrive on the target (got '$title')"
-    form="$(wp2 post meta get "$(wp2 post list --post_type=wpcf7_contact_form --name=duo-adoption-enquiry --field=ID | tr -d '\r' | head -1)" _form | tr -d '\r')"
+    form="$(wp2 post meta get "$(wp2 post list --post_type=wpcf7_contact_form --name=wprism-adoption-enquiry --field=ID | tr -d '\r' | head -1)" _form | tr -d '\r')"
     [[ "$form" == *your-message* ]] || fail "$S: the CF7 form edit did not arrive on the target"
     pass "$S — one release carried a WooCommerce, a Yoast and a CF7 change together"
   fi
@@ -663,7 +663,7 @@ foreach ($languages as $args) {
 }
 echo "languages added\n";
 ' >/dev/null
-  PRODUCT_FR_ID="$(wp1 wc product create --name='Tasse Duo' --type=simple --regular_price=24.00 --sku=DUO-WALK-MUG-FR \
+  PRODUCT_FR_ID="$(wp1 wc product create --name='Tasse WPrism' --type=simple --regular_price=24.00 --sku=WPRISM-WALK-MUG-FR \
     --status=publish --user=admin --porcelain | tr -d '\r')"
   wp1 eval "
 pll_set_post_language($PRODUCT_ID, 'en');
@@ -683,7 +683,7 @@ situation_a5() {
   situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" \
     "woocommerce@$WOO_VERSION" "polylang@$POLYLANG_VERSION"
   write_registry
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
   seed_languages
   doctor_and_first_look "$S" "${PAIR}1"
   if ! dry; then
@@ -729,31 +729,31 @@ situation_a5() {
   say "$S — edit the FRENCH product on the preview, then capture twice"
   if ! dry; then
     local previewFr
-    previewFr="$(wp2 post list --post_type=product --name=tasse-duo --field=ID | tr -d '\r' | head -1)"
+    previewFr="$(wp2 post list --post_type=product --name=tasse-wprism --field=ID | tr -d '\r' | head -1)"
     [ -n "$previewFr" ] || fail "$S: the preview lacks the French product"
-    wp2 wc product update "$previewFr" --description='<p>Tasse Duo, publiée par duo release.</p>' --user=admin >/dev/null
+    wp2 wc product update "$previewFr" --description='<p>Tasse WPrism, publiée par wprism release.</p>' --user=admin >/dev/null
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local targetFr
-    targetFr="$(wp2 post list --post_type=product --name=tasse-duo --field=ID | tr -d '\r' | head -1)"
+    targetFr="$(wp2 post list --post_type=product --name=tasse-wprism --field=ID | tr -d '\r' | head -1)"
     wp2 wc product update "$targetFr" --description='' --user=admin >/dev/null
   fi
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
-    wp2 post list --post_type=product --name=tasse-duo --field=post_content | tr -d '\r' | grep -Fq 'duo release' \
+    wp2 post list --post_type=product --name=tasse-wprism --field=post_content | tr -d '\r' | grep -Fq 'wprism release' \
       || fail "$S: the French product edit did not arrive on the target"
-    wp2 eval "echo pll_get_post_language($(wp2 post list --post_type=product --name=tasse-duo --field=ID | tr -d '\r' | head -1));" | tr -d '\r' | grep -qx fr \
+    wp2 eval "echo pll_get_post_language($(wp2 post list --post_type=product --name=tasse-wprism --field=ID | tr -d '\r' | head -1));" | tr -d '\r' | grep -qx fr \
       || fail "$S: the French product lost its language on the target"
     pass "$S — the translated product edit arrived with its language intact"
   fi
   recover_cycle "$S"
   post_recovery_check "$S"
   reap_cycle "$S"
-  pass "$S PASSED — a multilingual shop adopted Duo; translations travelled and the non-public type was named"
+  pass "$S PASSED — a multilingual shop adopted WPrism; translations travelled and the non-public type was named"
 }
 
 # ---------------------------------------------------------------------------
@@ -770,32 +770,32 @@ seed_builder() {
   if dry; then
     plan "wp1 eval-file (acf_update_field_group + acf_update_field + update_field on the landing page)"
     plan "wp1 eval-file (Elementor Document::save with a heading widget) + one front-end render"
-    BUILDER_PAGE_PATH='/duo-builder-page/'
+    BUILDER_PAGE_PATH='/wprism-builder-page/'
     return 0
   fi
   cat > "$HOST_R1/.tmp-seed-acf.php" <<'PHPEOF'
 <?php
 if (!function_exists('acf_update_field_group')) { fwrite(STDERR, "ACF functions not available\n"); exit(1); }
 acf_update_field_group([
-    'key' => 'group_duo_adoption', 'title' => 'Duo Adoption', 'fields' => [],
+    'key' => 'group_wprism_adoption', 'title' => 'WPrism Adoption', 'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]],
     'menu_order' => 0, 'position' => 'normal', 'style' => 'default',
     'label_placement' => 'top', 'instruction_placement' => 'label', 'active' => true,
 ]);
-$g = get_posts(['post_type' => 'acf-field-group', 'name' => 'group_duo_adoption', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
+$g = get_posts(['post_type' => 'acf-field-group', 'name' => 'group_wprism_adoption', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
 $gid = $g ? (int) $g[0] : 0;
 if (!$gid) { fwrite(STDERR, "field group not created\n"); exit(1); }
-acf_update_field(['key' => 'field_duo_tagline', 'label' => 'Tagline', 'name' => 'duo_tagline', 'type' => 'text', 'parent' => $gid]);
-$landing = get_posts(['post_type' => 'page', 'name' => 'duo-walk-landing', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
+acf_update_field(['key' => 'field_wprism_tagline', 'label' => 'Tagline', 'name' => 'wprism_tagline', 'type' => 'text', 'parent' => $gid]);
+$landing = get_posts(['post_type' => 'page', 'name' => 'wprism-walk-landing', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
 if (!$landing) { fwrite(STDERR, "no landing page\n"); exit(1); }
-update_field('field_duo_tagline', 'Built with care, before the release.', (int) $landing[0]);
+update_field('field_wprism_tagline', 'Built with care, before the release.', (int) $landing[0]);
 echo "acf seed: group=$gid landing=" . $landing[0] . "\n";
 PHPEOF
   wp1 eval-file /siterepo/.tmp-seed-acf.php >/dev/null || fail "the ACF seed failed"
   rm -f "$HOST_R1/.tmp-seed-acf.php"
   local builderPage
-  builderPage="$(wp1 post create --post_type=page --post_status=publish --post_title='Duo builder page' \
-    --post_name=duo-builder-page --post_content='' --porcelain | tr -d '\r')"
+  builderPage="$(wp1 post create --post_type=page --post_status=publish --post_title='WPrism builder page' \
+    --post_name=wprism-builder-page --post_content='' --porcelain | tr -d '\r')"
   cat > "$HOST_R1/.tmp-seed-elementor.php" <<PHPEOF
 <?php
 error_reporting(E_ALL & ~E_DEPRECATED);
@@ -810,7 +810,7 @@ update_post_meta(\$page_id, '_elementor_template_type', 'wp-page');
         'id' => 'adcol0001', 'elType' => 'column', 'settings' => ['_column_size' => 100],
         'elements' => [[
             'id' => 'adhead001', 'elType' => 'widget', 'widgetType' => 'heading',
-            'settings' => ['title' => 'Duo builder heading, before the release.'], 'elements' => [],
+            'settings' => ['title' => 'WPrism builder heading, before the release.'], 'elements' => [],
         ]],
     ]],
 ]];
@@ -822,7 +822,7 @@ PHPEOF
   wp1 eval-file /siterepo/.tmp-seed-elementor.php >/dev/null || fail "the Elementor seed failed"
   rm -f "$HOST_R1/.tmp-seed-elementor.php"
   local url
-  url="$(wp1 post list --post_type=page --name=duo-builder-page --field=url | tr -d '\r' | head -1)"
+  url="$(wp1 post list --post_type=page --name=wprism-builder-page --field=url | tr -d '\r' | head -1)"
   BUILDER_PAGE_PATH="$(printf '%s' "$url" | sed -E 's#^https?://[^/]+##')"
   # Elementor materialises its CSS/cache meta on the first front-end render.
   curl -fs "http://127.0.0.1:${PORT1}${BUILDER_PAGE_PATH}" >/dev/null || fail "the builder page did not render on ${PAIR}1"
@@ -836,7 +836,7 @@ situation_a6() {
   situation_pair "$S" "$BLOCK_THEME_SLUG@$BLOCK_THEME_VERSION" \
     "elementor@$ELEMENTOR_VERSION" "advanced-custom-fields@$ACF_VERSION"
   write_registry
-  seed_pages duo-walk-landing
+  seed_pages wprism-walk-landing
   seed_builder
   doctor_and_first_look "$S" "${PAIR}1"
   if ! dry; then
@@ -851,33 +851,33 @@ situation_a6() {
   # types; whatever Elementor registers that holds rows and nothing declares
   # is either left local by init's own advisory or refused by the scope gate
   # with the classify decision named. Either way it is a NAMED stop, and the
-  # operator decides elementor_library into scope with `duo classify`.
-  say "$S — duo init ${PAIR}1 --yes"
+  # operator decides elementor_library into scope with `wprism classify`.
+  say "$S — wprism init ${PAIR}1 --yes"
   local initOut="$EVIDENCE/$S/init.txt"
   if dry; then
-    plan "(cd $HOST_R1 && duo init ${PAIR}1 --yes) ; on incomplete_policy_scope: duo classify scope:post_type:elementor_library=authored, rerun"
+    plan "(cd $HOST_R1 && wprism init ${PAIR}1 --yes) ; on incomplete_policy_scope: wprism classify scope:post_type:elementor_library=authored, rerun"
   else
-    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$initOut" 2>&1; then
+    if ( cd "$HOST_R1" && php "$WPRISM" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$initOut" 2>&1; then
       pass "$S — init proceeded (elementor_library: $(grep -c elementor_library "$initOut") mention(s) in the init report)"
     else
       local code
       code="$(walk_refusal_code "$initOut" 2>/dev/null || true)"
       [ "$code" = incomplete_policy_scope ] \
-        || fail "$S: duo init refused with [${code:-no typed reason code}], not the scope decision this situation expects; see $initOut"
+        || fail "$S: wprism init refused with [${code:-no typed reason code}], not the scope decision this situation expects; see $initOut"
       grep -Fq 'scope:post_type:elementor_library' "$initOut" \
         || fail "$S: the scope refusal does not name elementor_library"
       pass "$S — init stopped on a NAMED scope decision (elementor_library); deciding it"
-      duo_ok "$EVIDENCE/$S/classify.txt" "$HOST_R1" classify "${PAIR}1" --accept-proposals \
+      wprism_ok "$EVIDENCE/$S/classify.txt" "$HOST_R1" classify "${PAIR}1" --accept-proposals \
         || true
-      duo_ok "$initOut" "$HOST_R1" init "${PAIR}1" --yes
+      wprism_ok "$initOut" "$HOST_R1" init "${PAIR}1" --yes
     fi
   fi
-  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
   baseline_commit "$S"
   assess_both "$S" "${PAIR}1" "$HOST_R1" adopted
   local builderJourney
   builderJourney="$(jq -nc --arg url "$BUILDER_PAGE_PATH" '{id: "builder-page", url: $url, expect_status: 200,
-    expect_contains: "Duo builder heading", affected_surfaces: ["post_type:page"]}')"
+    expect_contains: "WPrism builder heading", affected_surfaces: ["post_type:page"]}')"
   CONTRACT_JOURNEYS_JSON="$(journeys_json "$LANDING_PATH")"
   CONTRACT_LIFECYCLE_REASON="the only external effect this site's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against elementor $ELEMENTOR_VERSION, advanced-custom-fields $ACF_VERSION and $BLOCK_THEME_SLUG $BLOCK_THEME_VERSION, none of which run mail, payment or webhook code on activation"
   contract_cycle "$S" "${PAIR}1" "$HOST_R1" "$LANDING_ID" "$builderJourney" '.'
@@ -885,37 +885,37 @@ situation_a6() {
   say "$S — a design edit on the preview: the Elementor heading and the ACF tagline"
   if ! dry; then
     local previewBuilder previewLanding
-    previewBuilder="$(wp2 post list --post_type=page --name=duo-builder-page --field=ID | tr -d '\r' | head -1)"
-    previewLanding="$(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1)"
+    previewBuilder="$(wp2 post list --post_type=page --name=wprism-builder-page --field=ID | tr -d '\r' | head -1)"
+    previewLanding="$(wp2 post list --post_type=page --name=wprism-walk-landing --field=ID | tr -d '\r' | head -1)"
     [ -n "$previewBuilder" ] && [ -n "$previewLanding" ] || fail "$S: the preview lacks the builder page or the landing page"
     wp2 eval "
 \$admins = get_users(['role' => 'administrator', 'number' => 1]); if (\$admins) { wp_set_current_user(\$admins[0]->ID); }
 \$doc = \Elementor\Plugin::\$instance->documents->get($previewBuilder);
 \$data = \$doc->get_elements_data();
-\$data[0]['elements'][0]['elements'][0]['settings']['title'] = 'Duo builder heading, released through duo release.';
+\$data[0]['elements'][0]['elements'][0]['settings']['title'] = 'WPrism builder heading, released through wprism release.';
 if (\$doc->save(['elements' => \$data]) === false) { fwrite(STDERR, 'save failed'); exit(1); }
-update_field('field_duo_tagline', 'Built with care, released through duo release.', $previewLanding);
+update_field('field_wprism_tagline', 'Built with care, released through wprism release.', $previewLanding);
 echo 'edited';
 " >/dev/null || fail "$S: the preview design edit failed"
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local targetBuilder targetLanding
-    targetBuilder="$(wp2 post list --post_type=page --name=duo-builder-page --field=ID | tr -d '\r' | head -1)"
-    targetLanding="$(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1)"
+    targetBuilder="$(wp2 post list --post_type=page --name=wprism-builder-page --field=ID | tr -d '\r' | head -1)"
+    targetLanding="$(wp2 post list --post_type=page --name=wprism-walk-landing --field=ID | tr -d '\r' | head -1)"
     wp2 eval "
 \$admins = get_users(['role' => 'administrator', 'number' => 1]); if (\$admins) { wp_set_current_user(\$admins[0]->ID); }
 \$doc = \Elementor\Plugin::\$instance->documents->get($targetBuilder);
 \$data = \$doc->get_elements_data();
-\$data[0]['elements'][0]['elements'][0]['settings']['title'] = 'Duo builder heading, before the release.';
+\$data[0]['elements'][0]['elements'][0]['settings']['title'] = 'WPrism builder heading, before the release.';
 \$doc->save(['elements' => \$data]);
-update_field('field_duo_tagline', 'Built with care, before the release.', $targetLanding);
+update_field('field_wprism_tagline', 'Built with care, before the release.', $targetLanding);
 echo 'reverted';
 " >/dev/null || fail "$S: could not put the target's design back"
   fi
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
     # Buffer the ~73KB page into a variable before grepping it. Under `set -o
@@ -926,17 +926,17 @@ echo 'reverted';
     # spike_a_round_trip.sh all document and avoid this same trap.
     builderHtml="$(curl -fs "http://127.0.0.1:${PORT2}${BUILDER_PAGE_PATH}")" \
       || fail "$S: the builder page did not respond on the release target"
-    printf '%s' "$builderHtml" | grep -Fq 'released through duo release' \
+    printf '%s' "$builderHtml" | grep -Fq 'released through wprism release' \
       || fail "$S: the Elementor heading edit did not render on the release target"
-    taglineOut="$(wp2 eval "echo get_field('field_duo_tagline', $(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1));" | tr -d '\r')"
-    printf '%s' "$taglineOut" | grep -Fq 'released through duo release' \
+    taglineOut="$(wp2 eval "echo get_field('field_wprism_tagline', $(wp2 post list --post_type=page --name=wprism-walk-landing --field=ID | tr -d '\r' | head -1));" | tr -d '\r')"
+    printf '%s' "$taglineOut" | grep -Fq 'released through wprism release' \
       || fail "$S: the ACF tagline edit did not arrive on the release target"
     pass "$S — the Elementor and ACF edits round-tripped through the release"
   fi
   recover_cycle "$S"
   post_recovery_check "$S"
   reap_cycle "$S"
-  pass "$S PASSED — a builder site adopted Duo; design edits travelled through the loop"
+  pass "$S PASSED — a builder site adopted WPrism; design edits travelled through the loop"
 }
 
 # ---------------------------------------------------------------------------
@@ -951,11 +951,11 @@ situation_a7() {
   situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" \
     "woocommerce@$WOO_VERSION" "wordpress-seo@$YOAST_VERSION" "contact-form-7@$CF7_VERSION" "$WPFORMS_SLUG@$WPFORMS_VERSION"
   write_registry
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
   seed_seo_and_form
   if ! dry; then
-    wp1 post create --post_type="$WPFORMS_CPT" --post_status=publish --post_title='Duo adoption contact form' --post_name=duo-adoption-contact \
-      --post_content='{"id":"1","settings":{"form_title":"Duo adoption contact form"},"fields":{"1":{"id":"1","type":"email","label":"Email"}}}' --porcelain >/dev/null
+    wp1 post create --post_type="$WPFORMS_CPT" --post_status=publish --post_title='WPrism adoption contact form' --post_name=wprism-adoption-contact \
+      --post_content='{"id":"1","settings":{"form_title":"WPrism adoption contact form"},"fields":{"1":{"id":"1","type":"email","label":"Email"}}}' --porcelain >/dev/null
   fi
   doctor_and_first_look "$S" "${PAIR}1"
   if ! dry; then
@@ -963,8 +963,8 @@ situation_a7() {
       || fail "$S: the first look does not name plugin:$WPFORMS_SLUG"
     pass "$S — the unmanifested plugin is a named row beside three certified adapters"
   fi
-  say "$S — duo init ${PAIR}1 refuses (active_plugin_without_adapter), then proceeds with --allow-unmanaged-plugins"
-  duo_refused "$EVIDENCE/$S/init-refused.txt" active_plugin_without_adapter "$HOST_R1" init "${PAIR}1" --yes
+  say "$S — wprism init ${PAIR}1 refuses (active_plugin_without_adapter), then proceeds with --allow-unmanaged-plugins"
+  wprism_refused "$EVIDENCE/$S/init-refused.txt" active_plugin_without_adapter "$HOST_R1" init "${PAIR}1" --yes
   init_capture_baseline "$S" "${PAIR}1" --allow-unmanaged-plugins
   if ! dry; then
     walk_assert_init_line "$EVIDENCE/$S/init.txt" 'UNMANAGED PLUGIN' "$WPFORMS_BASENAME" active_plugin_without_adapter \
@@ -976,37 +976,37 @@ situation_a7() {
   assess_both "$S" "${PAIR}1" "$HOST_R1" unmanaged
   # Now the operator authors, certifies and pins an adapter AFTER init.
   say "$S — author the WPForms adapter after adoption: coverage → draft → finish → certify --pin"
-  duo_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json
+  wprism_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json
   local seed="$EVIDENCE/$S/coverage.json" draft="$HOST_R1/adapters/$WPFORMS_CPT.json"
   run mkdir -p "$HOST_R1/adapters"
   if ! dry; then
     walk_agent_json "$SCRATCH/$S-coverage.raw" > "$seed"
   fi
-  duo_ok "$EVIDENCE/$S/adapter-draft.txt" "$HOST_R1" adapter-draft "$HOST_R1" --name="$WPFORMS_CPT" \
+  wprism_ok "$EVIDENCE/$S/adapter-draft.txt" "$HOST_R1" adapter-draft "$HOST_R1" --name="$WPFORMS_CPT" \
     --match="^_?$WPFORMS_OPTION_PREFIX" --seed="$seed" --out="$draft"
   finish_wpforms_draft "$S" "$draft"
-  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  wprism_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   keygen_and_certify "$S" "$WPFORMS_CPT"
   # The repository is init-owned: no second init. The pin set changed, and
   # the type left local is re-decided into scope with one classify decision;
   # capture then reads both.
   say "$S — re-decide the left-local type into scope, capture, assess"
-  duo_ok "$EVIDENCE/$S/scope-export.txt" "$HOST_R1" classify "${PAIR}1" --export-batch="$SCRATCH/$S-batch.json" || true
+  wprism_ok "$EVIDENCE/$S/scope-export.txt" "$HOST_R1" classify "${PAIR}1" --export-batch="$SCRATCH/$S-batch.json" || true
   if ! dry; then
     if [ -s "$SCRATCH/$S-batch.json" ] && jq -e --arg k "post_type:$WPFORMS_CPT" '[.decisions[] | select(.key == $k)] | length == 1' "$SCRATCH/$S-batch.json" >/dev/null 2>&1; then
       walk_batch_decide "$SCRATCH/$S-batch.json" scope "post_type:$WPFORMS_CPT" authored "$SCRATCH/$S-batch.decided.json"
-      duo_ok "$EVIDENCE/$S/classify.txt" "$HOST_R1" classify "${PAIR}1" --apply-batch="$SCRATCH/$S-batch.decided.json"
+      wprism_ok "$EVIDENCE/$S/classify.txt" "$HOST_R1" classify "${PAIR}1" --apply-batch="$SCRATCH/$S-batch.decided.json"
     else
       # No queue item: the adapter's authored post type entered scope with the
       # pin change (init-owned repositories re-read the pin set on capture),
       # or the type still sits in policy.scope as runtime — flip that rule.
       jq 'if .policy.scope.post_type["'"$WPFORMS_CPT"'"] then del(.policy.scope.post_type["'"$WPFORMS_CPT"'"]) else . end
-          | .policy.post_types = ((.policy.post_types + ["'"$WPFORMS_CPT"'"]) | unique)' "$HOST_R1/site.duo.json" > "$HOST_R1/site.duo.json.next" \
-        && mv "$HOST_R1/site.duo.json.next" "$HOST_R1/site.duo.json"
-      note "$S — no classify queue item; the post type was moved into policy.post_types by hand (an operator's own site.duo.json edit)"
+          | .policy.post_types = ((.policy.post_types + ["'"$WPFORMS_CPT"'"]) | unique)' "$HOST_R1/site.wprism.json" > "$HOST_R1/site.wprism.json.next" \
+        && mv "$HOST_R1/site.wprism.json.next" "$HOST_R1/site.wprism.json"
+      note "$S — no classify queue item; the post type was moved into policy.post_types by hand (an operator's own site.wprism.json edit)"
     fi
   fi
-  duo_ok "$EVIDENCE/$S/capture-adopted.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture-adopted.txt" "$HOST_R1" capture "${PAIR}1"
   git1 add -A
   commit1 "grind_adoption $S: WPForms adapter authored, certified and pinned after adoption"
   git1 push -q origin main
@@ -1026,22 +1026,22 @@ situation_a7() {
   rehearse_preview "$S"
   say "$S — author a new form on the preview, then capture twice"
   if ! dry; then
-    wp2 post create --post_type="$WPFORMS_CPT" --post_status=publish --post_title='Duo adoption quote form' --post_name=duo-adoption-quote \
-      --post_content='{"id":"3","settings":{"form_title":"Duo adoption quote form"},"fields":{"1":{"id":"1","type":"text","label":"Company"}}}' --porcelain >/dev/null
+    wp2 post create --post_type="$WPFORMS_CPT" --post_status=publish --post_title='WPrism adoption quote form' --post_name=wprism-adoption-quote \
+      --post_content='{"id":"3","settings":{"form_title":"WPrism adoption quote form"},"fields":{"1":{"id":"1","type":"text","label":"Company"}}}' --porcelain >/dev/null
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local previewFormId
-    previewFormId="$(wp2 post list --post_type="$WPFORMS_CPT" --name=duo-adoption-quote --field=ID | tr -d '\r' | head -1)"
+    previewFormId="$(wp2 post list --post_type="$WPFORMS_CPT" --name=wprism-adoption-quote --field=ID | tr -d '\r' | head -1)"
     [ -n "$previewFormId" ] || fail "$S: the preview did not carry the authored form back"
     wp2 post delete "$previewFormId" --force
   fi
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
-    wp2 post list --post_type="$WPFORMS_CPT" --field=post_title | tr -d '\r' | grep -Fqx 'Duo adoption quote form' \
+    wp2 post list --post_type="$WPFORMS_CPT" --field=post_title | tr -d '\r' | grep -Fqx 'WPrism adoption quote form' \
       || fail "$S: the release did not put the authored form on the target"
   fi
   recover_cycle "$S"
@@ -1089,16 +1089,16 @@ situation_a8() {
   write_registry
   install_acme 1 author
   install_acme 2 target
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
   if ! dry; then
-    wp1 post create --post_type="$ACME_CPT" --post_status=publish --post_title='Duo walk item' --post_name=duo-walk-item \
+    wp1 post create --post_type="$ACME_CPT" --post_status=publish --post_title='WPrism walk item' --post_name=wprism-walk-item \
       --post_content='<p>The first catalog item.</p>' --porcelain >/dev/null
   fi
   seed_repository "$S"
   say "$S — promote the bundled adapter to adapters/$ACME_SLUG.json and certify it"
   run mkdir -p "$HOST_R1/adapters"
-  run cp "$SANDBOX/fixtures/$ACME_SLUG/duo-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"
-  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  run cp "$SANDBOX/fixtures/$ACME_SLUG/wprism-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"
+  wprism_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   keygen_and_certify "$S" "$ACME_SLUG"
   init_capture_baseline "$S" "${PAIR}1"
   assess_both "$S" "${PAIR}1" "$HOST_R1" adopted
@@ -1108,7 +1108,7 @@ situation_a8() {
   fi
   local extraJourney surfaceFilter
   extraJourney="$(jq -nc --arg id "$ACME_CPT" '{id: "acme-index", url: "/?post_type=\($id)", expect_status: 200,
-     expect_contains: "Duo walk item", affected_surfaces: ["post_type:\($id)"]}')"
+     expect_contains: "WPrism walk item", affected_surfaces: ["post_type:\($id)"]}')"
   surfaceFilter='.contract.declarations.surfaces = [ .contract.declarations.surfaces[] | if .id == "table:acme_catalog_index" then . + {state_class: "runtime", handling: "preserve local", decided_by: "operator", decided_at: "2026-08-18T09:00:00Z"} | del(.next_action) else . end ]'
   CONTRACT_JOURNEYS_JSON="$(shop_journeys)"
   CONTRACT_LIFECYCLE_REASON="the only external effect this shop's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against woocommerce $WOO_VERSION, $ACME_SLUG 1.x and $CLASSIC_THEME_SLUG $CLASSIC_THEME_VERSION, none of which run mail, payment or webhook code on activation"
@@ -1122,32 +1122,32 @@ situation_a8() {
   say "$S — acme-catalog 1.1.0: a new authored option, declared in both adapter copies, re-certified"
   local codePlugin="$HOST_R1/code/wp-content/plugins/$ACME_SLUG"
   if dry; then
-    plan "sed 1.0.0 -> 1.1.0 in $codePlugin/$ACME_SLUG.php; add acme_catalog_banner; jq options.acme_catalog_banner authored into $codePlugin/duo-adapter.json and adapters/$ACME_SLUG.json"
+    plan "sed 1.0.0 -> 1.1.0 in $codePlugin/$ACME_SLUG.php; add acme_catalog_banner; jq options.acme_catalog_banner authored into $codePlugin/wprism-adapter.json and adapters/$ACME_SLUG.json"
   else
     [ -f "$codePlugin/$ACME_SLUG.php" ] || fail "$S: the code half carries no $codePlugin/$ACME_SLUG.php to change"
     sed -i.bak -e 's/Version: 1\.0\.0/Version: 1.1.0/' -e "s/define('ACME_CATALOG_VERSION', '1.0.0');/define('ACME_CATALOG_VERSION', '1.1.0');/" "$codePlugin/$ACME_SLUG.php"
     rm -f "$codePlugin/$ACME_SLUG.php.bak"
     grep -q "1.1.0" "$codePlugin/$ACME_SLUG.php" || fail "$S: the version bump did not land in the code half"
-    for f in "$codePlugin/duo-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"; do
+    for f in "$codePlugin/wprism-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"; do
       jq '.options.acme_catalog_banner = {class: "authored"}
           | .notes = (.notes + {"1.1.0 (T7 A8)": "acme_catalog_banner is the operator-edited banner text 1.1.0 introduces; authored, no ref."})' "$f" > "$f.next" \
         && mv "$f.next" "$f"
     done
     # The operator sets the new 1.1.0 option live now; the 1.1.0 CODE itself is
-    # deployed to production through `duo deploy` below, which records the
+    # deployed to production through `wprism deploy` below, which records the
     # completed code descriptor refresh-export requires — a raw plugin-file
-    # edit would update WordPress but not Duo's finalized-code ledger.
+    # edit would update WordPress but not WPrism's finalized-code ledger.
     wp1 option update acme_catalog_banner 'Now with banners (1.1.0)' >/dev/null
   fi
   # Re-certify BEFORE validating: editing a certified adapter (here via jq,
-  # which also drops it out of Duo's canonical byte form) supersedes its
-  # companion and stales its pin, so it reads uncertified — `duo adapter
+  # which also drops it out of WPrism's canonical byte form) supersedes its
+  # companion and stales its pin, so it reads uncertified — `wprism adapter
   # certify --pin` is what canonicalizes the bytes, re-signs over them, and
   # re-pins the new digest (docs/guides/adapter-authoring.md: "re-run … after
   # every edit"). manifest-validate then confirms the finalized certified set.
-  duo_ok "$EVIDENCE/$S/certify-1.1.txt" "$HOST_R1" adapter certify "$HOST_R1" --name="$ACME_SLUG" \
+  wprism_ok "$EVIDENCE/$S/certify-1.1.txt" "$HOST_R1" adapter certify "$HOST_R1" --name="$ACME_SLUG" \
     --secret-key-file="$KEYDIR/$ACME_SLUG.key" --key-id="$WALK_KEY_ID" --reason="round-3 T7 A8: 1.1.0 adds acme_catalog_banner" --pin
-  duo_ok "$EVIDENCE/$S/manifest-validate-1.1.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  wprism_ok "$EVIDENCE/$S/manifest-validate-1.1.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   # Capture BEFORE deploy: the re-certified adapter now declares the new
   # authored option acme_catalog_banner, so the repository's options/core.json
   # must carry an explicit record for it or compile refuses schema_content_
@@ -1156,13 +1156,13 @@ situation_a8() {
   # the repository self-consistent to compile. Capture runs AFTER certify
   # because compile requires the adapter in canonical bytes, which certify
   # restores.
-  duo_ok "$EVIDENCE/$S/capture-1.1.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture-1.1.txt" "$HOST_R1" capture "${PAIR}1"
   # Then deploy the 1.1.0 code to PRODUCTION so its completed code descriptor
-  # matches the repository artifact: `duo rehearse`'s refresh-export reads
+  # matches the repository artifact: `wprism rehearse`'s refresh-export reads
   # production's finalized-code ledger and refuses when it differs from the
   # repo (verified — grind_adoption A8). A raw plugin-file edit updates
   # WordPress but not that ledger.
-  duo_ok "$EVIDENCE/$S/deploy-1.1.txt" "$HOST_R1" deploy "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/deploy-1.1.txt" "$HOST_R1" deploy "${PAIR}1"
   git1 add -A
   commit1 "grind_adoption $S: acme-catalog 1.1.0 — code, both adapter copies, re-certified, and the state that names the new option"
   git1 push -q origin main
@@ -1175,11 +1175,11 @@ situation_a8() {
       || fail "$S: the rehearsal preview does not carry the new option"
     pass "$S — the preview runs 1.1.0 with the new option, from the same revision"
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
-  # No target-side revert: `duo rehearse` already materialized adopt2 from the
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
+  # No target-side revert: `wprism rehearse` already materialized adopt2 from the
   # source at 1.1.0, and this is a MATERIALIZE-based release — it propagates the
   # source's finalized 1.1.0 code + state to the target, it does not deploy over
   # a hand-reverted target. An earlier draft reverted adopt2's live plugin to
@@ -1215,20 +1215,20 @@ situation_a9() {
   situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" \
     "woocommerce@$WOO_OLD_VERSION" "wordpress-seo@$YOAST_OLD_VERSION"
   write_registry
-  seed_shop duo-walk-landing
-  # Seed the adoption repository FIRST: `duo doctor` fails "repo path has
-  # site.duo.json" against a path that carries none, so the site repository
+  seed_shop wprism-walk-landing
+  # Seed the adoption repository FIRST: `wprism doctor` fails "repo path has
+  # site.wprism.json" against a path that carries none, so the site repository
   # has to exist before the health check (the same order doctor_and_first_look
   # uses). Only the plugin VERSIONS are out of range here, which is what the
   # assess below is meant to surface — not a missing repo.
   seed_repository "$S"
-  say "$S — duo doctor, then duo assess on a shop whose plugins are OUTSIDE the adapters' version windows"
-  duo_ok "$EVIDENCE/$S/doctor.txt" "$HOST_R1" doctor "${PAIR}1"
+  say "$S — wprism doctor, then wprism assess on a shop whose plugins are OUTSIDE the adapters' version windows"
+  wprism_ok "$EVIDENCE/$S/doctor.txt" "$HOST_R1" doctor "${PAIR}1"
   local firstLook="$SCRATCH/$S-assess-first-look.raw"
   if dry; then
-    plan "(cd $HOST_R1 && duo assess ${PAIR}1 --format=json)  # either a typed refusal naming the version window, or a report whose product/yoast rows read Requalification required / Unsupported"
+    plan "(cd $HOST_R1 && wprism assess ${PAIR}1 --format=json)  # either a typed refusal naming the version window, or a report whose product/yoast rows read Requalification required / Unsupported"
   else
-    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" assess "${PAIR}1" --format=json ) > "$firstLook" 2>&1; then
+    if ( cd "$HOST_R1" && php "$WPRISM" "--envs-file=$ENVS_FILE" assess "${PAIR}1" --format=json ) > "$firstLook" 2>&1; then
       walk_json_tail "$firstLook" > "$EVIDENCE/$S/assess-first-look.json"
       local wooRow
       wooRow="$(walk_assess_projection "$EVIDENCE/$S/assess-first-look.json" post_type:product release | cut -f3)"
@@ -1244,12 +1244,12 @@ situation_a9() {
       pass "$S — assess refused by name on the version window [${code:-untyped}]"
     fi
   fi
-  say "$S — duo init ${PAIR}1 --yes with the plugins outside their windows"
+  say "$S — wprism init ${PAIR}1 --yes with the plugins outside their windows"
   local initOut="$SCRATCH/$S-init-old.raw"
   if dry; then
-    plan "(cd $HOST_R1 && duo init ${PAIR}1 --yes)   # expected: a typed refusal naming the version window"
+    plan "(cd $HOST_R1 && wprism init ${PAIR}1 --yes)   # expected: a typed refusal naming the version window"
   else
-    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$initOut" 2>&1; then
+    if ( cd "$HOST_R1" && php "$WPRISM" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$initOut" 2>&1; then
       fail "$S: init proceeded with woocommerce $WOO_OLD_VERSION and wordpress-seo $YOAST_OLD_VERSION outside their adapters' windows; see $initOut"
     fi
     grep -Eiq "version|range|window" "$initOut" \
@@ -1301,7 +1301,7 @@ situation_a10() {
   run mkdir -p "$EVIDENCE/$S"
   situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" "woocommerce@$WOO_VERSION" "contact-form-7@$CF7_VERSION"
   write_registry
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
   if ! dry; then
     # Both themes installed so the switch later is a real one.
     local artifact
@@ -1311,19 +1311,19 @@ situation_a10() {
     wp2 theme install "$artifact" --force
     # A secret-shaped option value: what init and capture do with it must be
     # a stated redaction, never a copy.
-    wp1 option update duo_walk_api_key 'sk_live_4eC39HqLyjWDarjtT1zdp7dc' >/dev/null
+    wp1 option update wprism_walk_api_key 'sk_live_4eC39HqLyjWDarjtT1zdp7dc' >/dev/null
   fi
   doctor_and_first_look "$S" "${PAIR}1"
   init_capture_baseline "$S" "${PAIR}1"
   if ! dry; then
     grep -Eq "redacted risk surfaces: [1-9][0-9]* secret-shaped option value" "$EVIDENCE/$S/init.txt" \
       || fail "$S: init did not count the secret-shaped option among its redacted risk surfaces"
-    ! grep -rq 'sk_live_4eC39HqLyjWDarjtT1zdp7dc' "$HOST_R1/state" "$HOST_R1/site.duo.json" 2>/dev/null \
+    ! grep -rq 'sk_live_4eC39HqLyjWDarjtT1zdp7dc' "$HOST_R1/state" "$HOST_R1/site.wprism.json" 2>/dev/null \
       || fail "$S: the secret-shaped value reached the repository"
     pass "$S — the secret-shaped option was counted and never copied"
   fi
   # 1. Adopting again over an init-owned repository is a typed stop.
-  say "$S — duo init again over the init-owned repository"
+  say "$S — wprism init again over the init-owned repository"
   # A second init over a fully init-owned repository is a typed stop that names
   # EVERY payload init would have to own — code, media, state, AND the
   # configuration itself. Which one is the PRIMARY reason code is just whichever
@@ -1331,8 +1331,8 @@ situation_a10() {
   # the repository a code/ half), so assert instead that existing_configuration
   # is named among them — that is the fact this edge is about, init recognising
   # the existing adoption rather than clobbering it.
-  if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$EVIDENCE/$S/init-again.txt" 2>&1; then
-    fail "$S: a second duo init over an init-owned repository was expected to refuse, but it succeeded; see $EVIDENCE/$S/init-again.txt"
+  if ( cd "$HOST_R1" && php "$WPRISM" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$EVIDENCE/$S/init-again.txt" 2>&1; then
+    fail "$S: a second wprism init over an init-owned repository was expected to refuse, but it succeeded; see $EVIDENCE/$S/init-again.txt"
   fi
   grep -Fq '[existing_configuration]' "$EVIDENCE/$S/init-again.txt" \
     || fail "$S: the second-init refusal does not name existing_configuration; see $EVIDENCE/$S/init-again.txt"
@@ -1342,9 +1342,9 @@ situation_a10() {
   if ! dry; then wp1 plugin deactivate contact-form-7 >/dev/null; fi
   local capOut="$SCRATCH/$S-capture-deactivated.raw"
   if dry; then
-    plan "(cd $HOST_R1 && duo capture ${PAIR}1)   # either proceeds with the plugin's surfaces reported inactive, or refuses by name"
+    plan "(cd $HOST_R1 && wprism capture ${PAIR}1)   # either proceeds with the plugin's surfaces reported inactive, or refuses by name"
   else
-    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" capture "${PAIR}1" ) > "$capOut" 2>&1; then
+    if ( cd "$HOST_R1" && php "$WPRISM" "--envs-file=$ENVS_FILE" capture "${PAIR}1" ) > "$capOut" 2>&1; then
       note "$S — capture proceeded with contact-form-7 deactivated"
     else
       local code
@@ -1365,13 +1365,13 @@ situation_a10() {
   # init never captured makes the state name a template code/wp-content/themes
   # does not carry, and capture refuses code_state_mismatch: a release would
   # deploy only the managed theme onto a target whose state says the unmanaged
-  # one is active. Managing the new theme is `duo deploy`'s job; this edge
+  # one is active. Managing the new theme is `wprism deploy`'s job; this edge
   # documents the stop, then switches back to the adopted theme.
-  duo_refused "$EVIDENCE/$S/capture-theme-switch.txt" code_state_mismatch "$HOST_R1" capture "${PAIR}1"
+  wprism_refused "$EVIDENCE/$S/capture-theme-switch.txt" code_state_mismatch "$HOST_R1" capture "${PAIR}1"
   pass "$S — switching to a theme outside the adopted code baseline is a typed stop (code_state_mismatch)"
   if ! dry; then
     wp1 theme activate "$CLASSIC_THEME_SLUG" >/dev/null
-    duo_ok "$EVIDENCE/$S/capture-theme-back.txt" "$HOST_R1" capture "${PAIR}1"
+    wprism_ok "$EVIDENCE/$S/capture-theme-back.txt" "$HOST_R1" capture "${PAIR}1"
     pass "$S — switching back to the adopted theme captures cleanly"
   fi
   # 4. An override installed, then removed: shadowed_by_site, then back to
@@ -1380,18 +1380,18 @@ situation_a10() {
   local override="$HOST_R1/adapters/woocommerce.json"
   run mkdir -p "$HOST_R1/adapters"
   if ! dry; then
-    jq '.options.woocommerce_duo_site_override_probe = {class: "authored", autoload: "preserve"}' \
+    jq '.options.woocommerce_wprism_site_override_probe = {class: "authored", autoload: "preserve"}' \
       "$REPO_ROOT/adapter-packages/woocommerce/package/manifest.json" > "$override"
   fi
-  duo_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce --source=site
+  wprism_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce --source=site
   adapter_catalog "$S" override
   if ! dry; then
     walk_assert_shadowed_by_site "$CATALOG_JSON" woocommerce || fail "$S: the override is not reported as shadowing"
     rm -f "$override"
     jq '.manifests = [.manifests[] | if (type == "object" and .name == "woocommerce" and .source == "site") then "woocommerce" else . end]' \
-      "$HOST_R1/site.duo.json" > "$HOST_R1/site.duo.json.next" && mv "$HOST_R1/site.duo.json.next" "$HOST_R1/site.duo.json"
+      "$HOST_R1/site.wprism.json" > "$HOST_R1/site.wprism.json.next" && mv "$HOST_R1/site.wprism.json.next" "$HOST_R1/site.wprism.json"
   fi
-  duo_ok "$EVIDENCE/$S/manifest-pin-back.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce
+  wprism_ok "$EVIDENCE/$S/manifest-pin-back.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce
   adapter_catalog "$S" restored
   if ! dry; then
     [ "$(walk_catalog_row "$CATALOG_JSON" woocommerce | cut -f1)" = shipped ] \
@@ -1400,7 +1400,7 @@ situation_a10() {
       || fail "$S: a shadowed_by_site row lingers after the override was removed"
     pass "$S — the override came and went; the shipped adapter answers again and nothing lingers"
   fi
-  duo_ok "$EVIDENCE/$S/capture-final.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture-final.txt" "$HOST_R1" capture "${PAIR}1"
   git1 add -A
   commit1 "grind_adoption $S: edge cases walked; repository back on the shipped adapter set"
   git1 push -q origin main
@@ -1440,8 +1440,8 @@ preflight() {
   fi
   [[ "$PORT1" =~ ^[0-9]+$ && "$PORT2" =~ ^[0-9]+$ && "$PORT1" != "$PORT2" ]] \
     || fail "ADOPT_PORT1/ADOPT_PORT2 must be two different numeric host ports (got '$PORT1'/'$PORT2')"
-  case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;; esac
-  [ -f "$DUO" ] || fail "host CLI missing: $DUO"
+  case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail "WPRISM_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;; esac
+  [ -f "$WPRISM" ] || fail "host CLI missing: $WPRISM"
   [ -f "$REPO_ROOT/tools/reference-env-provider.php" ] \
     || fail "the reference environment provider is missing: $REPO_ROOT/tools/reference-env-provider.php"
   local pin
@@ -1498,7 +1498,7 @@ else
   mkdir -p "$SANDBOX/tmp"
   SCRATCH="$(mktemp -d "$SANDBOX/tmp/grind-adoption.XXXXXX")"
 fi
-ENVS_FILE="$SCRATCH/.duo-envs.json"
+ENVS_FILE="$SCRATCH/.wprism-envs.json"
 PROVIDER_CONFIG="$SCRATCH/reference-env-provider.json"
 PROVIDER_STATE="$SCRATCH/provider-state"
 EVIDENCE="$SCRATCH/evidence"
@@ -1510,21 +1510,21 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 COMPOSE_FILES=("$SANDBOX/pair.yml" "$SANDBOX/pair.http.yml" "$SANDBOX/pair.artifacts.yml")
 PAIR_UP_FLAGS=(--http --artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
   COMPOSE_FILES+=("$SANDBOX/pair.wordpress-offline.yml")
   PAIR_UP_FLAGS+=(--wordpress-offline)
 fi
-COMPOSE=(docker compose -p "duo-$PAIR")
+COMPOSE=(docker compose -p "wprism-$PAIR")
 for file in "${COMPOSE_FILES[@]}"; do COMPOSE+=(-f "$file"); done
 PAIR_COMPOSE=("${COMPOSE[@]}")
 # shellcheck source=../../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
-DUO_CLI_IMAGE="${DUO_CLI_IMAGE:-duo-walk-cli-git:$PAIR}"
-export DUO_CLI_IMAGE
+WPRISM_CLI_IMAGE="${WPRISM_CLI_IMAGE:-wprism-walk-cli-git:$PAIR}"
+export WPRISM_CLI_IMAGE
 WALK_KEEP="${ADOPT_KEEP:-0}"
 
 run mkdir -p "$PROVIDER_STATE" "$EVIDENCE" "$KEYDIR"

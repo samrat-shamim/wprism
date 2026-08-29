@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline host/agent scope wire regression for DUO-3344.
+ * Offline host/agent scope wire regression for issue #3344.
  *
  * The fake local wp transport records every target argument. A valid
  * immutable contract proves the host emits only the compact request, while
@@ -15,8 +15,8 @@ require_once "$root/agent/src/Repository/CanonicalSurfaces.php";
 require_once "$root/agent/src/Policy/ScopeClosure.php";
 require_once "$root/agent/src/Policy/ScopeContract.php";
 
-use Duo\Canon;
-use Duo\ScopeContract;
+use WPrism\Canon;
+use WPrism\ScopeContract;
 
 $failures = 0;
 function check_wire(bool $condition, string $message): void {
@@ -36,7 +36,7 @@ function put_wire(string $path, string $bytes): void {
     }
 }
 
-$tmp = sys_get_temp_dir() . '/duo-scope-wire-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-scope-wire-' . bin2hex(random_bytes(6));
 if (!mkdir($tmp, 0700, true) && !is_dir($tmp)) {
     throw new RuntimeException('could not create scope wire fixture root');
 }
@@ -120,7 +120,7 @@ $fakeBin = "$tmp/bin";
 mkdir($fakeBin, 0700, true);
 put_wire(
     "$fakeBin/wp",
-    "#!/usr/bin/env php\n<?php\nfile_put_contents(getenv('DUO_SCOPE_WIRE_ARGS'), json_encode(array_slice(\$argv, 1), JSON_UNESCAPED_SLASHES));\n"
+    "#!/usr/bin/env php\n<?php\nfile_put_contents(getenv('WPRISM_SCOPE_WIRE_ARGS'), json_encode(array_slice(\$argv, 1), JSON_UNESCAPED_SLASHES));\n"
 );
 chmod("$fakeBin/wp", 0700);
 $envsPath = "$tmp/envs.json";
@@ -144,16 +144,16 @@ function invoke_wire(
     @unlink($argsPath);
     $oldPath = getenv('PATH') ?: '';
     putenv("PATH=$fakeBin:$oldPath");
-    putenv("DUO_SCOPE_WIRE_ARGS=$argsPath");
+    putenv("WPRISM_SCOPE_WIRE_ARGS=$argsPath");
     $command = array_merge(
-        [PHP_BINARY, "$root/cli/duo", "--envs-file=$envsPath", $verb, 'fixture'],
+        [PHP_BINARY, "$root/cli/wprism", "--envs-file=$envsPath", $verb, 'fixture'],
         $extra
     );
     $process = proc_open($command, [
         0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
     ], $pipes);
     if (!is_resource($process)) {
-        throw new RuntimeException('could not start public duo CLI');
+        throw new RuntimeException('could not start public wprism CLI');
     }
     fclose($pipes[0]);
     $stdout = stream_get_contents($pipes[1]) ?: '';
@@ -162,7 +162,7 @@ function invoke_wire(
     fclose($pipes[2]);
     $exit = proc_close($process);
     putenv("PATH=$oldPath");
-    putenv('DUO_SCOPE_WIRE_ARGS');
+    putenv('WPRISM_SCOPE_WIRE_ARGS');
     $args = is_file($argsPath) ? json_decode((string) file_get_contents($argsPath), true) : null;
     return ['exit' => $exit, 'stdout' => $stdout, 'stderr' => $stderr, 'args' => $args];
 }
@@ -184,7 +184,7 @@ function scope_wire_observation(array $result, array $contract): array {
     check_wire(
         is_array($request)
             && array_keys($request) === ['format', 'scope_hash', 'selectors']
-            && ($request['format'] ?? null) === 'duo-scope-request/v1'
+            && ($request['format'] ?? null) === 'wprism-scope-request/v1'
             && ($request['scope_hash'] ?? null) === $contract['scope_hash']
             && ($request['selectors'] ?? null) === $contract['selectors']
             && !str_contains((string) $decoded, 'ledger_map_identity'),
@@ -235,7 +235,7 @@ $unscopedArgs = array_values(array_filter(
 ));
 check_wire(
     $unscoped['exit'] === 0
-        && $unscopedArgs === ['duo', 'plan', '--repo=/target/repo', '--format=json'],
+        && $unscopedArgs === ['wprism', 'plan', '--repo=/target/repo', '--format=json'],
     'unscoped plan forwarding remains byte-for-byte unchanged'
 );
 
@@ -250,7 +250,7 @@ $badEnvelope = json_decode(trim($bad['stdout']), true);
 check_wire(
     $bad['exit'] !== 0
         && is_array($badEnvelope)
-        && ($badEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($badEnvelope['format'] ?? null) === 'wprism-command-refusal/v1'
         && ($badEnvelope['reason_code'] ?? null) === 'scope_contract_invalid'
         && !is_file($argsPath)
         && !str_contains($bad['stdout'], $tamperedPath)
@@ -301,9 +301,9 @@ check_wire(
     'scoped promote refuses non-SSH targets before contact without leaking its local contract path'
 );
 
-// DUO: widening verified rollback to the RecoveryTransport capability
+// WPRISM: widening verified rollback to the RecoveryTransport capability
 // interface must not leak into scoped promotion. This environment is the one
-// an ordinary `duo promote` now runs the signed verified profile on — same
+// an ordinary `wprism promote` now runs the signed verified profile on — same
 // transport class, full provider set, machine-local signing key — and it still
 // reaches the byte-identical scoped_promotion_unavailable envelope, because a
 // scope contract's forward-only seal semantics are certified on the SSH
@@ -346,7 +346,7 @@ $configuredEnvelope = json_decode(trim($configuredPromote['stdout']), true);
 check_wire(
     $configuredPromote['exit'] !== 0
         && is_array($configuredEnvelope)
-        && ($configuredEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($configuredEnvelope['format'] ?? null) === 'wprism-command-refusal/v1'
         && ($configuredEnvelope['reason_code'] ?? null) === 'scoped_promotion_unavailable'
         && ($configuredEnvelope['message'] ?? null) === 'scoped promotion requires the SSH verified recovery profile'
         && ($configuredEnvelope['remediation'] ?? null)
@@ -387,7 +387,7 @@ $optionPromoteEnvelope = json_decode(trim($optionPromote['stdout']), true);
 check_wire(
     $optionPromote['exit'] !== 0
         && is_array($optionPromoteEnvelope)
-        && ($optionPromoteEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($optionPromoteEnvelope['format'] ?? null) === 'wprism-command-refusal/v1'
         && ($optionPromoteEnvelope['reason_code'] ?? null) === 'scoped_promotion_unavailable'
         && ($optionPromoteEnvelope['remediation'] ?? null)
             === 'use scoped apply for local/docker targets or configure an SSH target with signed checkpoint recovery'
@@ -430,7 +430,7 @@ check_wire(
     'agent plan/apply and internal verifier carry scope_request only when present'
 );
 
-$hostSource = (string) file_get_contents("$root/cli/duo");
+$hostSource = (string) file_get_contents("$root/cli/wprism");
 $applyCoordinatorSource = (string) file_get_contents("$root/agent/src/Apply/ApplyRequestCoordinator.php");
 check_wire(
     str_contains($hostSource, "'--scope-request-b64=' . \$scopeInput['request_b64'], '--scoped-promotion', '--format=json'")

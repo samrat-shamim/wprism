@@ -75,8 +75,8 @@ if ($drillEstate === '' || !is_dir($drillEstate)) {
     fwrite(STDERR, "revocation_drill.php: no estate at {$argv[1]}\n");
     exit(2);
 }
-define('DUO_AGENT_VERSION', (string) $argv[2]);
-define('DUO_SPEC_VERSION', (int) $argv[3]);
+define('WPRISM_AGENT_VERSION', (string) $argv[2]);
+define('WPRISM_SPEC_VERSION', (int) $argv[3]);
 
 $drillRepo = dirname(__DIR__, 4);
 require_once $drillRepo . '/agent/src/Kernel/Canon.php';
@@ -90,10 +90,10 @@ require_once $drillRepo . '/agent/src/Policy/Policy.php';
 // RepositoryCompiler not found" as if it were a site refusal.
 require_once $drillRepo . '/agent/src/Repository/RepositoryCompiler.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\Policy;
 
 // The WordPress seams a policy load can touch, refusing rather than answering —
 // `spec_migration_estate.php:2060-2078` states why a silent stub would hide a
@@ -151,7 +151,7 @@ function drill_live(AdapterLibrary $adapterLibrary, string $repo, string $name):
             'reason' => '',
             'elapsed_ms' => drill_ms($mark),
         ];
-    } catch (\Duo\WithdrawnAuthoritySiteAdapterCertificate $withdrawn) {
+    } catch (\WPrism\WithdrawnAuthoritySiteAdapterCertificate $withdrawn) {
         return [
             'verdict' => 'withdrawn',
             'reason' => $withdrawn->getMessage(),
@@ -184,7 +184,7 @@ function drill_frozen(AdapterLibrary $adapterLibrary, string $estate, string $id
             'reason' => '',
             'elapsed_ms' => drill_ms($mark),
         ];
-    } catch (\Duo\WithdrawnAuthoritySiteAdapterCertificate $withdrawn) {
+    } catch (\WPrism\WithdrawnAuthoritySiteAdapterCertificate $withdrawn) {
         return [
             'verdict' => 'withdrawn',
             'reason' => $withdrawn->getMessage(),
@@ -225,7 +225,7 @@ function drill_site_state(AdapterLibrary $adapterLibrary, string $estate, string
         ];
     }
     $digest = '';
-    foreach (\Duo\ArtifactPolicyIdentity::resolved_adapters($policy) as $row) {
+    foreach (\WPrism\ArtifactPolicyIdentity::resolved_adapters($policy) as $row) {
         if ((string) $row['name'] === $name) {
             $digest = (string) $row['digest'];
         }
@@ -239,9 +239,9 @@ function drill_site_state(AdapterLibrary $adapterLibrary, string $estate, string
     $verdict = 'none';
     if (is_file($artifact)) {
         try {
-            \Duo\CompiledArtifactReader::read_artifact($artifact, $policy);
+            \WPrism\CompiledArtifactReader::read_artifact($artifact, $policy);
             $verdict = 'verified';
-        } catch (\Duo\CommandRefusalException $refusal) {
+        } catch (\WPrism\CommandRefusalException $refusal) {
             $verdict = $refusal->reasonCode;
         } catch (Throwable $t) {
             $verdict = 'refused: ' . $t->getMessage();
@@ -252,7 +252,7 @@ function drill_site_state(AdapterLibrary $adapterLibrary, string $estate, string
         'load' => 'loaded ' . count($policy->manifests) . ' manifests',
         'word' => $policy->adapter_sources()->certification_word($name),
         'digest' => $digest,
-        'manifest_hash' => \Duo\ArtifactPolicyIdentity::manifest_hash($policy),
+        'manifest_hash' => \WPrism\ArtifactPolicyIdentity::manifest_hash($policy),
         'artifact' => $verdict,
     ];
 }
@@ -280,9 +280,9 @@ try {
     $authorities = $library . '/capabilities/adapter-authorities.json';
     $revocations = $library . '/capabilities/adapter-revocations.json';
     $out = [
-        'format' => 'duo-revocation-drill/v1',
-        'agent_version' => DUO_AGENT_VERSION,
-        'spec_version' => DUO_SPEC_VERSION,
+        'format' => 'wprism-revocation-drill/v1',
+        'agent_version' => WPRISM_AGENT_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'library' => 'libs/A',
     ];
 

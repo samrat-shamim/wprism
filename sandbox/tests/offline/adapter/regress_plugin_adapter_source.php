@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3339/B2: the THIRD adapter source — `<plugin-dir>/duo-adapter.json`,
+ * issue #3339/B2: the THIRD adapter source — `<plugin-dir>/wprism-adapter.json`,
  * bundled by an active plugin.
  *
  * Nothing is faked about the scan. Every check below drives the REAL
@@ -28,7 +28,7 @@
  *   1. PRECEDENCE, not refusal, for a plugin-side name collision. A bundled
  *      adapter whose name a shipped or site definition already answers to is
  *      dropped and REPORTED, never refused. Under whole-scan refusal, the day
- *      a popular plugin ships a colliding `duo-adapter.json` every duo site
+ *      a popular plugin ships a colliding `wprism-adapter.json` every wprism site
  *      running it loses every command through an automatic plugin update its
  *      operator never performed.
  *   2. PER-ADAPTER refusal scope. Every condition in this source records a row
@@ -48,22 +48,22 @@
 
 $engineRoot = dirname(__DIR__, 4);
 
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($engineRoot . '/agent/duo.php'), $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($engineRoot . '/agent/wprism.php'), $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_SPEC_VERSION', (int) $m[1]);
-if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", (string) file_get_contents($engineRoot . '/agent/duo.php'), $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_AGENT_VERSION from agent/duo.php\n");
+define('WPRISM_SPEC_VERSION', (int) $m[1]);
+if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", (string) file_get_contents($engineRoot . '/agent/wprism.php'), $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_AGENT_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_AGENT_VERSION', $m[1]);
+define('WPRISM_AGENT_VERSION', $m[1]);
 
 // The parent reaches Policy::load() for the frozen-reconstruction group, which
 // runs the real single-site gate; same switchable stub the sibling suites use.
-$GLOBALS['duo_test_is_multisite'] = false;
+$GLOBALS['wprism_test_is_multisite'] = false;
 function is_multisite(): bool {
-    return (bool) $GLOBALS['duo_test_is_multisite'];
+    return (bool) $GLOBALS['wprism_test_is_multisite'];
 }
 
 require $engineRoot . '/agent/src/Kernel/Canon.php';
@@ -73,10 +73,10 @@ require $engineRoot . '/agent/src/Policy/Policy.php';
 require $engineRoot . '/agent/src/Repository/Ledger.php';
 require $engineRoot . '/agent/src/Repository/RepositoryCompiler.php';
 
-use Duo\AdapterSources;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\AdapterSources;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\Policy;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -103,7 +103,7 @@ function rm_rf(string $path): void {
 }
 
 function scratch(string $label): string {
-    $root = sys_get_temp_dir() . "/duo_regress_plugin_adapter_{$label}_" . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . "/wprism_regress_plugin_adapter_{$label}_" . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     register_shutdown_function(fn() => rm_rf($root));
     return $root;
@@ -130,7 +130,7 @@ function write_file(string $path, string $contents): void {
 function adapter(string $name, array $extra = []): array {
     return $extra + [
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION - 1,
+        'spec_version' => WPRISM_SPEC_VERSION - 1,
         'option_autoload' => 'preserve',
         'options' => ['acme_widget_layout' => ['class' => 'authored']],
     ];
@@ -140,9 +140,9 @@ function adapter(string $name, array $extra = []): array {
  * A bundled adapter, which is an adapter that ALSO declares its owning plugin
  * — and therefore its version range.
  *
- * That second half is not a fixture convenience: DUO-3339's anchor rule makes
+ * That second half is not a fixture convenience: issue #3339's anchor rule makes
  * `plugin` mandatory for this source, and AdapterContractGrammar::validate_adapter_contract()
- * (DUO-3222, Policy.php:5428-5434) has always refused a manifest that names a
+ * (issue #3222, Policy.php:5428-5434) has always refused a manifest that names a
  * plugin without an exact `version_range` — "no latest, wildcard, or unbounded
  * version support may be certified". So a bundled adapter is transitively
  * version-bounded, which is also what keeps `plugin_version_mismatch` a
@@ -170,7 +170,7 @@ function plugins_dir(string $label, array $plugins): string {
         $bundle = $spec['bundle'] ?? null;
         if ($bundle !== null) {
             write_file(
-                "$dir/$sub/duo-adapter.json",
+                "$dir/$sub/wprism-adapter.json",
                 is_string($bundle) ? $bundle : Canon::encode($bundle)
             );
         }
@@ -187,10 +187,10 @@ function plugins_dir(string $label, array $plugins): string {
 /** A site repository with the given pins and (optionally) site adapters. */
 function site_repo(array $pins, array $adapters = []): string {
     $root = scratch('repo');
-    write_file($root . '/site.duo.json', Canon::encode([
+    write_file($root . '/site.wprism.json', Canon::encode([
         'manifests' => $pins,
         'policy' => new \stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     foreach ($adapters as $name => $content) {
         write_file(
@@ -214,8 +214,8 @@ function child_source(): string {
     return <<<'PHP'
 <?php
 declare(strict_types=1);
-define('DUO_SPEC_VERSION', __SPEC__);
-define('DUO_AGENT_VERSION', __AGENT__);
+define('WPRISM_SPEC_VERSION', __SPEC__);
+define('WPRISM_AGENT_VERSION', __AGENT__);
 function is_multisite(): bool { return false; }
 // Query Monitor, Sentry, and Whoops all install one of these on ordinary
 // WordPress sites, which turns any PHP warning raised inside the scan into a
@@ -256,13 +256,13 @@ require __ENGINE_ROOT__ . '/cli/src/Plan/PlanSummary.php';
 $repo = __REPO__;
 $name = __NAME__;
 $payload = [];
-$adapterLibrary = \Duo\Policy::shipped_adapter_library();
+$adapterLibrary = \WPrism\Policy::shipped_adapter_library();
 
 // ONE scan per mode, and both views of it: the architectural claim under test
 // is that discover() and survey() are the same walk, so they are taken
 // together and compared by the parent rather than trusted apart.
 try {
-    $discover = \Duo\AdapterSources::discover_library($adapterLibrary, $repo);
+    $discover = \WPrism\AdapterSources::discover_library($adapterLibrary, $repo);
     $payload['discover'] = [
         'names' => array_values(array_map('strval', array_keys((function ($d) {
             $out = [];
@@ -292,21 +292,21 @@ try {
 }
 
 try {
-    $payload['survey'] = \Duo\AdapterSources::survey_library($adapterLibrary, $repo);
+    $payload['survey'] = \WPrism\AdapterSources::survey_library($adapterLibrary, $repo);
 } catch (\Throwable $t) {
     $payload['survey'] = ['error' => $t->getMessage()];
 }
 
 if (__MODE__ === 'pin' || __MODE__ === 'all') {
     try {
-        $policy = \Duo\Policy::load($repo, [$name], adapterLibrary: $adapterLibrary);
+        $policy = \WPrism\Policy::load($repo, [$name], adapterLibrary: $adapterLibrary);
         $payload['pin'] = [
-            'digest' => \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? null,
-            'source' => \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['source'] ?? null,
-            'trust_tier' => \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['trust_tier'] ?? null,
+            'digest' => \WPrism\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? null,
+            'source' => \WPrism\RepositoryCompiler::resolved_adapters($policy)[0]['source'] ?? null,
+            'trust_tier' => \WPrism\RepositoryCompiler::resolved_adapters($policy)[0]['trust_tier'] ?? null,
         ];
         WP_CLI::$lines = [];
-        (new \Duo\Cli())->manifest_pin([], array_filter(['name' => $name, 'repo' => $repo]));
+        (new \WPrism\Cli())->manifest_pin([], array_filter(['name' => $name, 'repo' => $repo]));
         $payload['pin']['emitted'] = json_decode(implode("\n", WP_CLI::$lines), true);
     } catch (\Throwable $t) {
         $payload['pin'] = ['error' => $t->getMessage()];
@@ -315,7 +315,7 @@ if (__MODE__ === 'pin' || __MODE__ === 'all') {
 
 if (__MODE__ === 'load' || __MODE__ === 'all') {
     try {
-        $policy = \Duo\Policy::load($repo, adapterLibrary: $adapterLibrary);
+        $policy = \WPrism\Policy::load($repo, adapterLibrary: $adapterLibrary);
         $payload['load'] = [
             'names' => array_map(static fn(array $m): string => (string) $m['name'], $policy->manifests),
             'diagnostics' => $policy->adapter_sources()->diagnostics($policy->manifests),
@@ -323,7 +323,7 @@ if (__MODE__ === 'load' || __MODE__ === 'all') {
             // the plan renderers consume — never a second evaluation.
             'blockers' => $policy->adapter_readiness_blockers(),
             'report' => $policy->capability_report(['operation' => 'promote']),
-            'plan_lines' => \Duo\Orchestrator\PlanSummary::render([
+            'plan_lines' => \WPrism\Orchestrator\PlanSummary::render([
                 'adapter_dispositions' => $policy->adapter_readiness_blockers(),
             ])['lines'],
         ];
@@ -334,9 +334,9 @@ if (__MODE__ === 'load' || __MODE__ === 'all') {
 
 if (__MODE__ === 'snapshot') {
     try {
-        $policy = \Duo\Policy::load($repo, adapterLibrary: $adapterLibrary);
+        $policy = \WPrism\Policy::load($repo, adapterLibrary: $adapterLibrary);
         $payload['snapshot'] = $policy->export_snapshot();
-        $payload['resolved'] = \Duo\RepositoryCompiler::resolved_adapters($policy);
+        $payload['resolved'] = \WPrism\RepositoryCompiler::resolved_adapters($policy);
     } catch (\Throwable $t) {
         $payload['snapshot'] = ['error' => $t->getMessage()];
     }
@@ -345,7 +345,7 @@ if (__MODE__ === 'snapshot') {
 if (__MODE__ === 'survey_cli') {
     try {
         WP_CLI::$lines = [];
-        (new \Duo\Cli())->adapter_survey([], array_filter(['format' => 'json', 'repo' => $repo]));
+        (new \WPrism\Cli())->adapter_survey([], array_filter(['format' => 'json', 'repo' => $repo]));
         $payload['halted'] = false;
     } catch (\Throwable $t) {
         $payload['halted'] = $t->getMessage();
@@ -353,7 +353,7 @@ if (__MODE__ === 'survey_cli') {
     $payload['document'] = json_decode(implode("\n", WP_CLI::$lines), true);
     WP_CLI::$lines = [];
     try {
-        (new \Duo\Cli())->adapter_survey([], array_filter(['repo' => $repo]));
+        (new \WPrism\Cli())->adapter_survey([], array_filter(['repo' => $repo]));
     } catch (\Throwable $t) {
         // halt() is the exit-code signal; the rendered lines are the subject.
     }
@@ -379,8 +379,8 @@ function child(array $spec): array {
             '__ENGINE_ROOT__', '__REPO__', '__NAME__', '__MODE__', '__STRICT_ERRORS__',
         ],
         [
-            (string) DUO_SPEC_VERSION,
-            var_export(DUO_AGENT_VERSION, true),
+            (string) WPRISM_SPEC_VERSION,
+            var_export(WPRISM_AGENT_VERSION, true),
             var_export($spec['plugins'] ?? null, true),
             ($spec['get_option'] ?? true) ? 'true' : 'false',
             var_export($spec['active'] ?? [], true),
@@ -392,7 +392,7 @@ function child(array $spec): array {
         ],
         child_source()
     );
-    $dir = sys_get_temp_dir() . '/duo_regress_plugin_adapter_children';
+    $dir = sys_get_temp_dir() . '/wprism_regress_plugin_adapter_children';
     if (!is_dir($dir)) {
         mkdir($dir, 0777, true);
         register_shutdown_function(fn() => rm_rf($dir));
@@ -456,9 +456,9 @@ $happy = child([
 ]);
 check(
     ($happy['discover']['source'] ?? null) === 'plugin'
-    && ($happy['discover']['path'] ?? null) === 'plugins/acme/duo-adapter.json'
-    && ($happy['discover']['file'] ?? null) === $happyPlugins . '/acme/duo-adapter.json',
-    'an active plugin\'s duo-adapter.json is discovered, sourced `plugin`, with a `plugins/`-prefixed provenance '
+    && ($happy['discover']['path'] ?? null) === 'plugins/acme/wprism-adapter.json'
+    && ($happy['discover']['file'] ?? null) === $happyPlugins . '/acme/wprism-adapter.json',
+    'an active plugin\'s wprism-adapter.json is discovered, sourced `plugin`, with a `plugins/`-prefixed provenance '
     . 'path and the real file behind it'
 );
 $happyRow = rows_with($happy['survey']['adapters'] ?? [], 'name', 'acme-widget')[0] ?? [];
@@ -476,7 +476,7 @@ $happyProvenance = $happy['discover']['provenance'] ?? [];
 check(
     ($happyProvenance['status'] ?? null) === 'uncertified'
     && ($happyProvenance['provenance']['source'] ?? null) === 'plugin'
-    && ($happyProvenance['provenance']['path'] ?? null) === 'plugins/acme/duo-adapter.json'
+    && ($happyProvenance['provenance']['path'] ?? null) === 'plugins/acme/wprism-adapter.json'
     && ($happyProvenance['provenance']['format'] ?? null) === AdapterSources::FORMAT,
     'and a synthesized provenance record whose source and repo-independent path are the bundled ones'
 );
@@ -487,7 +487,7 @@ check(
 // thing that can be done.
 check(
     ($happyProvenance['reason'] ?? null) === "adapter 'acme-widget' is bundled by the active plugin 'acme/acme.php' "
-    . '(plugins/acme/duo-adapter.json) and carries no reviewed certification evidence; a bundled adapter cannot be '
+    . '(plugins/acme/wprism-adapter.json) and carries no reviewed certification evidence; a bundled adapter cannot be '
     . 'certified in place — certification is a repository-scoped signed companion at '
     . 'adapters/certifications/acme-widget.json.',
     'the digest-bearing provenance reason names the owning plugin, the bundled path, and the impossibility of '
@@ -499,13 +499,13 @@ check(
     && ($happy['pin']['emitted']['source'] ?? null) === 'plugin'
     && ($happy['pin']['emitted']['digest'] ?? null) === ($happy['pin']['digest'] ?? null)
     && ($happy['pin']['emitted']['name'] ?? null) === 'acme-widget',
-    '`wp duo manifest-pin` emits the bundled adapter\'s own {name,source:"plugin",digest} — pasting it IS the '
+    '`wp wprism manifest-pin` emits the bundled adapter\'s own {name,source:"plugin",digest} — pasting it IS the '
     . 'deliberate act, so no new flag guards it'
 );
-// DUO-3371 (#185) added a shipped/site rule — a manifest's declared `name`
+// issue #3371 (#185) added a shipped/site rule — a manifest's declared `name`
 // must equal its FILE name — and applies it in Policy::load() to whatever
 // source resolved the pin, this one included. For the plugin source it is a
-// TAUTOLOGY: identity inverts here, every bundle is called duo-adapter.json,
+// TAUTOLOGY: identity inverts here, every bundle is called wprism-adapter.json,
 // so the scan keys the origin off the declared name and the two cannot
 // disagree. Pinned because that is a property of how the scan keys an origin,
 // not a law of nature: if anything ever keys a plugin origin off something
@@ -513,8 +513,8 @@ check(
 // check is what says so first.
 check(
     ($happy['load']['names'] ?? null) === ['acme-widget']
-    && ($happy['discover']['provenance']['provenance']['path'] ?? null) === 'plugins/acme/duo-adapter.json',
-    'a bundled adapter passes DUO-3371\'s declared-name==file-name assertion at load: the plugin scan keys its '
+    && ($happy['discover']['provenance']['provenance']['path'] ?? null) === 'plugins/acme/wprism-adapter.json',
+    'a bundled adapter passes issue #3371\'s declared-name==file-name assertion at load: the plugin scan keys its '
     . 'origin off the declared name, so the rule is satisfied by construction rather than by luck'
 );
 check(
@@ -552,7 +552,7 @@ check(
     && ($happyBlocker['source'] ?? null) === 'plugin'
     && ($happyBlocker['trust_tier'] ?? null) === 'declarative_manifest'
     && str_contains((string) ($happyBlocker['reason'] ?? ''), 'plugin adapter source')
-    && str_contains((string) ($happyBlocker['reason'] ?? ''), 'plugins/acme/duo-adapter.json'),
+    && str_contains((string) ($happyBlocker['reason'] ?? ''), 'plugins/acme/wprism-adapter.json'),
     'a bundled adapter carries exactly the posture an unsigned site adapter does — one '
     . 'adapter_source_uncertified blocker naming ITS source and ITS path, from the same report host promotion '
     . 'consumes (code: ' . (string) ($happyBlocker['code'] ?? '(none)') . ')'
@@ -592,7 +592,7 @@ check(
 $inactiveRow = rows_with($inactive['survey']['not_installed'] ?? [], 'reason_code', 'plugin_not_active')[0] ?? [];
 check(
     ($inactiveRow['name'] ?? null) === 'acme-widget'
-    && ($inactiveRow['path'] ?? null) === 'plugins/acme/duo-adapter.json'
+    && ($inactiveRow['path'] ?? null) === 'plugins/acme/wprism-adapter.json'
     && ($inactiveRow['source'] ?? null) === 'plugin'
     && ($inactiveRow['winner'] ?? null) === null
     && str_contains((string) ($inactiveRow['message'] ?? ''), 'is not active'),
@@ -624,7 +624,7 @@ $collision = child([
 $collisionRows = rows_with($collision['discover']['plugin_refusals'] ?? [], 'code', 'source_collision');
 check(
     count($collisionRows) === 1
-    && ($collisionRows[0]['paths'] ?? null) === ['plugins/acme/duo-adapter.json', 'plugins/beta/duo-adapter.json']
+    && ($collisionRows[0]['paths'] ?? null) === ['plugins/acme/wprism-adapter.json', 'plugins/beta/wprism-adapter.json']
     && ($collisionRows[0]['source'] ?? null) === 'plugin'
     && ($collisionRows[0]['scope'] ?? null) === 'adapter',
     'one row for the pair, naming both files — precedence ranks SOURCES, and these are the same source, so there '
@@ -670,7 +670,7 @@ $wooShadow = rows_with($wooResult['discover']['not_installed'] ?? [], 'reason_co
 check(
     ($wooResult['discover']['plugin_refusals'] ?? null) === []
     && ($wooShadow['name'] ?? null) === 'woocommerce'
-    && ($wooShadow['path'] ?? null) === 'plugins/woocommerce/duo-adapter.json'
+    && ($wooShadow['path'] ?? null) === 'plugins/woocommerce/wprism-adapter.json'
     && ($wooShadow['winner']['source'] ?? null) === 'shipped'
     && ($wooShadow['winner']['path'] ?? null) === $manifestDir->package('woocommerce')->manifestPath(),
     'THE case Amendment A exists for: a plugin that starts bundling a name this project ships produces NO refusal '
@@ -753,8 +753,8 @@ foreach ($privilegeCases as $label => $extra) {
     $rows = rows_with($result['discover']['plugin_refusals'] ?? [], 'code', 'out_of_tree_privilege');
     check(
         count($rows) === 1
-        && ($rows[0]['paths'] ?? null) === ['plugins/acme/duo-adapter.json']
-        && str_starts_with((string) $rows[0]['message'], "duo: plugin adapter 'plugins/acme/duo-adapter.json'")
+        && ($rows[0]['paths'] ?? null) === ['plugins/acme/wprism-adapter.json']
+        && str_starts_with((string) $rows[0]['message'], "wprism: plugin adapter 'plugins/acme/wprism-adapter.json'")
         && ($result['discover']['source'] ?? null) === null,
         "a bundled manifest reaching for $label is refused by the SAME assert_out_of_tree_contract() the site "
         . 'source uses, with only the noun changed, and is not installed (message: '
@@ -822,7 +822,7 @@ $anchorOk = child([
     'name' => 'acme-widget',
 ]);
 // The anchor rule makes `plugin` mandatory, and Policy has refused a manifest
-// naming a plugin with no exact `version_range` since DUO-3222 ("no latest,
+// naming a plugin with no exact `version_range` since issue #3222 ("no latest,
 // wildcard, or unbounded version support may be certified"). So EVERY bundled
 // adapter is transitively version-bounded — which is what keeps
 // plugin_version_mismatch a reachable readiness blocker for this source rather
@@ -843,7 +843,7 @@ check(
     && str_contains((string) ($unboundedRow['grammar']['message'] ?? ''), 'unbounded support')
     && str_contains((string) ($unbounded['pin']['error'] ?? ''), 'unbounded support'),
     'a bundle declaring its owning plugin with no version_range is DISCOVERED and then refused by the ordinary '
-    . 'adapter contract — the anchor rule makes every bundled adapter transitively version-bounded (DUO-3222), '
+    . 'adapter contract — the anchor rule makes every bundled adapter transitively version-bounded (issue #3222), '
     . 'which is not a rule this source invented and not one it can waive'
 );
 
@@ -860,12 +860,12 @@ check(
 echo "\n== identity comes from the DECLARED name, and only from it (case h) ==\n";
 // ======================================================================
 $identityCases = [
-    'missing' => ['plugin' => 'acme/acme.php', 'spec_version' => DUO_SPEC_VERSION],
+    'missing' => ['plugin' => 'acme/acme.php', 'spec_version' => WPRISM_SPEC_VERSION],
     'uppercase' => adapter('Acme-Widget', ['plugin' => 'acme/acme.php']),
     'numeric-only' => bundle('123', 'acme/acme.php'),
     'path-like' => adapter('../escape', ['plugin' => 'acme/acme.php']),
     'reserved' => bundle('dispositions', 'acme/acme.php'),
-    'non-string' => ['name' => 42, 'plugin' => 'acme/acme.php', 'spec_version' => DUO_SPEC_VERSION],
+    'non-string' => ['name' => 42, 'plugin' => 'acme/acme.php', 'spec_version' => WPRISM_SPEC_VERSION],
 ];
 foreach ($identityCases as $label => $manifest) {
     $dir = plugins_dir('identity', ['acme' => ['bundle' => $manifest]]);
@@ -874,7 +874,7 @@ foreach ($identityCases as $label => $manifest) {
     check(
         count($rows) === 1
         && ($rows[0]['code'] ?? null) === 'invalid_adapter_name'
-        && ($rows[0]['paths'] ?? null) === ['plugins/acme/duo-adapter.json']
+        && ($rows[0]['paths'] ?? null) === ['plugins/acme/wprism-adapter.json']
         && ($result['survey']['adapters'] ?? []) !== []
         && rows_with($result['survey']['adapters'], 'source', 'plugin') === [],
         "a $label declared name is refused as invalid_adapter_name and installs nothing (rows: "
@@ -898,7 +898,7 @@ foreach ($shapeCases as $label => $raw) {
     check(
         count($rows) === 1
         && ($rows[0]['code'] ?? null) === 'malformed_manifest'
-        && str_starts_with((string) $rows[0]['message'], "duo: plugin adapter 'plugins/acme/duo-adapter.json'"),
+        && str_starts_with((string) $rows[0]['message'], "wprism: plugin adapter 'plugins/acme/wprism-adapter.json'"),
         "a bundle that is $label is refused as malformed_manifest naming the file as a plugin adapter (rows: "
         . implode(', ', array_column($rows, 'code')) . ')'
     );
@@ -913,20 +913,20 @@ check(
 );
 
 // ======================================================================
-echo "\n== near-misses in this engine's own duo- namespace (case j) ==\n";
+echo "\n== near-misses in this engine's own wprism- namespace (case j) ==\n";
 // ======================================================================
-// `duo-adapters.JSON` rather than `duo-adapter.JSON` for the extension-case
-// row, and for exactly the reason DUO-3381 records for the certificate
+// `wprism-adapters.JSON` rather than `wprism-adapter.JSON` for the extension-case
+// row, and for exactly the reason issue #3381 records for the certificate
 // fixture: on a case-insensitive host (macOS default) writing
-// `duo-adapter.JSON` beside `duo-adapter.json` OVERWRITES the real bundle
+// `wprism-adapter.JSON` beside `wprism-adapter.json` OVERWRITES the real bundle
 // instead of creating a second entry, so the fixture would silently stop
 // testing the refusal it names. The rule under test is about the EXTENSION's
 // case, which a distinct basename exercises identically on every host.
 $nearMisses = [
-    'duo-adapters.JSON' => 'extension_case_mismatch',
-    'duo-adapters.json' => 'reserved_name',
-    'duo-adapter.certification.json' => 'certification_source',
-    'duo-adapter.v2.json' => 'reserved_name',
+    'wprism-adapters.JSON' => 'extension_case_mismatch',
+    'wprism-adapters.json' => 'reserved_name',
+    'wprism-adapter.certification.json' => 'certification_source',
+    'wprism-adapter.v2.json' => 'reserved_name',
 ];
 foreach ($nearMisses as $entry => $expected) {
     $dir = plugins_dir('nearmiss', [
@@ -935,12 +935,12 @@ foreach ($nearMisses as $entry => $expected) {
             'files' => [$entry => "{}\n"],
         ],
     ]);
-    // Fixture manufacture asserted before the refusal is (DUO-3381): a near
+    // Fixture manufacture asserted before the refusal is (issue #3381): a near
     // miss that the filesystem folded onto the real bundle would leave this
     // check passing for the wrong reason, or silently not running at all.
     if (!in_array($entry, scandir("$dir/acme") ?: [], true)
-        || !in_array('duo-adapter.json', scandir("$dir/acme") ?: [], true)) {
-        check(false, "fixture '$entry' does not exist as its own entry beside duo-adapter.json on this filesystem");
+        || !in_array('wprism-adapter.json', scandir("$dir/acme") ?: [], true)) {
+        check(false, "fixture '$entry' does not exist as its own entry beside wprism-adapter.json on this filesystem");
         continue;
     }
     $result = child(['plugins' => $dir, 'active' => ['acme/acme.php'], 'name' => 'acme-widget']);
@@ -960,7 +960,7 @@ check(
             'plugins' => plugins_dir('cert-namespace', [
                 'acme' => [
                     'bundle' => bundle('acme-widget', 'acme/acme.php'),
-                    'files' => ['duo-adapter.certification.json' => "{}\n"],
+                    'files' => ['wprism-adapter.certification.json' => "{}\n"],
                 ],
             ]),
             'active' => ['acme/acme.php'],
@@ -991,15 +991,15 @@ check(
     . 'named certifications/ and adapters/ — draw nothing at all: the sweep only judges names this engine claimed'
 );
 $rootBundle = plugins_dir('rootfile', ['acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')]]);
-write_file($rootBundle . '/duo-adapter.json', Canon::encode(adapter('rogue')));
+write_file($rootBundle . '/wprism-adapter.json', Canon::encode(adapter('rogue')));
 $rootResult = child(['plugins' => $rootBundle, 'active' => ['acme/acme.php'], 'name' => 'acme-widget']);
 $rootRows = rows_with($rootResult['discover']['plugin_refusals'] ?? [], 'code', 'reserved_name');
 check(
     count($rootRows) === 1
-    && ($rootRows[0]['paths'] ?? null) === ['plugins/duo-adapter.json']
+    && ($rootRows[0]['paths'] ?? null) === ['plugins/wprism-adapter.json']
     && str_contains((string) $rootRows[0]['message'], 'owned by no plugin')
     && ($rootResult['discover']['source'] ?? null) === 'plugin',
-    'a duo-adapter.json at the PLUGINS ROOT belongs to no plugin — no owning basename, no version window, no '
+    'a wprism-adapter.json at the PLUGINS ROOT belongs to no plugin — no owning basename, no version window, no '
     . 'activation that consented to it — so it is refused while the properly bundled adapter beside it installs'
 );
 $singleFile = child([
@@ -1020,10 +1020,10 @@ echo "\n== symlinks: the bundle is real, the plugin directory need not be (case 
 $linkRoot = scratch('symlink');
 mkdir($linkRoot . '/plugins/acme', 0777, true);
 write_file($linkRoot . '/plugins/acme/acme.php', "<?php\n");
-write_file($linkRoot . '/elsewhere/duo-adapter.json', Canon::encode(
+write_file($linkRoot . '/elsewhere/wprism-adapter.json', Canon::encode(
     bundle('acme-widget', 'acme/acme.php')
 ));
-symlink($linkRoot . '/elsewhere/duo-adapter.json', $linkRoot . '/plugins/acme/duo-adapter.json');
+symlink($linkRoot . '/elsewhere/wprism-adapter.json', $linkRoot . '/plugins/acme/wprism-adapter.json');
 $linkResult = child([
     'plugins' => $linkRoot . '/plugins',
     'active' => ['acme/acme.php'],
@@ -1034,14 +1034,14 @@ check(
     count($linkRows) === 1
     && ($linkRows[0]['code'] ?? null) === 'symlink_source'
     && ($linkResult['discover']['source'] ?? null) === null,
-    'a symlinked duo-adapter.json is refused: what the engine loads has to be covered by the owning plugin\'s own '
+    'a symlinked wprism-adapter.json is refused: what the engine loads has to be covered by the owning plugin\'s own '
     . 'version, update, and review story'
 );
 $linkedDirRoot = scratch('symlinkdir');
 mkdir($linkedDirRoot . '/plugins', 0777, true);
 mkdir($linkedDirRoot . '/checkout/acme', 0777, true);
 write_file($linkedDirRoot . '/checkout/acme/acme.php', "<?php\n");
-write_file($linkedDirRoot . '/checkout/acme/duo-adapter.json', Canon::encode(
+write_file($linkedDirRoot . '/checkout/acme/wprism-adapter.json', Canon::encode(
     bundle('acme-widget', 'acme/acme.php')
 ));
 symlink($linkedDirRoot . '/checkout/acme', $linkedDirRoot . '/plugins/acme');
@@ -1053,7 +1053,7 @@ $linkedDir = child([
 check(
     ($linkedDir['discover']['plugin_refusals'] ?? null) === []
     && ($linkedDir['discover']['source'] ?? null) === 'plugin'
-    && ($linkedDir['discover']['path'] ?? null) === 'plugins/acme/duo-adapter.json',
+    && ($linkedDir['discover']['path'] ?? null) === 'plugins/acme/wprism-adapter.json',
     'while a symlinked PLUGIN DIRECTORY is accepted — development checkouts symlink plugin directories as a '
     . 'matter of course, and both sides resolve exactly as Providers::plugin_anchor_problem() resolves them'
 );
@@ -1067,7 +1067,7 @@ check(
     ($noWpRow['scanned'] ?? null) === false
     && ($noWpRow['path'] ?? null) === null
     && str_contains((string) $noWpRow['note'], 'no WP_PLUGIN_DIR in this process')
-    && str_contains((string) $noWpRow['note'], 'wp duo adapter-survey'),
+    && str_contains((string) $noWpRow['note'], 'wp wprism adapter-survey'),
     'a process with no WP_PLUGIN_DIR reports the plugin source as NOT SCANNED and names the command that can '
     . 'scan it — an empty result would have been a claim about the world instead of about this process'
 );
@@ -1214,7 +1214,7 @@ check(
 );
 
 // ======================================================================
-echo "\n== `wp duo adapter-survey` is the target-side surface (7.3) ==\n";
+echo "\n== `wp wprism adapter-survey` is the target-side surface (7.3) ==\n";
 // ======================================================================
 $cli = child([
     'plugins' => $mixedPlugins,
@@ -1227,7 +1227,7 @@ $cli = child([
 ]);
 $document = $cli['document'] ?? [];
 check(
-    ($document['format'] ?? null) === 'duo-adapter-catalog/v2'
+    ($document['format'] ?? null) === 'wprism-adapter-catalog/v2'
     && ($document['command'] ?? null) === 'survey'
     && is_array($document['sources'] ?? null) && count($document['sources']) === 3
     && is_array($document['not_installed'] ?? null)
@@ -1258,7 +1258,7 @@ check(
 $surveySurfaces = array_column($document['deferred'] ?? [], 'surface');
 check(
     count($surveySurfaces) === 4
-    && str_contains(implode("\n", $surveySurfaces), 'site.duo.json policy.tables / policy.options')
+    && str_contains(implode("\n", $surveySurfaces), 'site.wprism.json policy.tables / policy.options')
     && str_contains(implode("\n", $surveySurfaces), 'the pinned SET')
     && str_contains(implode("\n", $surveySurfaces), 'interpreter /')
     && str_contains(implode("\n", $surveySurfaces), 'provider negotiation and certification'),
@@ -1325,7 +1325,7 @@ $lockedRoot = plugins_dir('locked', [
 // where the harness can actually create it.
 $chmodWorks = @chmod($lockedRoot . '/acme', 0311)
     && !is_readable($lockedRoot . '/acme')
-    && is_file($lockedRoot . '/acme/duo-adapter.json');
+    && is_file($lockedRoot . '/acme/wprism-adapter.json');
 if (!$chmodWorks) {
     // Skipping is stated, never silent: a check that quietly stops running is
     // the same failure as a check that never existed.
@@ -1361,12 +1361,12 @@ if (!$chmodWorks) {
         $lockedRows = rows_with($locked['discover']['plugin_refusals'] ?? [], 'code', 'source_unreadable');
         check(
             count($lockedRows) === 1
-            && ($lockedRows[0]['paths'] ?? null) === ['plugins/acme/duo-adapter.json']
+            && ($lockedRows[0]['paths'] ?? null) === ['plugins/acme/wprism-adapter.json']
             && ($lockedRows[0]['scope'] ?? null) === 'adapter'
             && str_contains((string) $lockedRows[0]['message'], 'cannot prove')
             && ($locked['discover']['source'] ?? null) === null,
             "the adapter is REFUSED rather than installed, $label: the near-miss set is the evidence that this "
-            . 'plugin bundles exactly one duo-adapter.json, and a directory that will not list has not produced '
+            . 'plugin bundles exactly one wprism-adapter.json, and a directory that will not list has not produced '
             . 'it (rows: ' . implode(', ', array_column($locked['discover']['plugin_refusals'] ?? [], 'code')) . ')'
         );
         check(
@@ -1427,8 +1427,8 @@ $unreadableBundle = plugins_dir('unreadable', [
     'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
     'good' => ['bundle' => bundle('other-widget', 'good/good.php')],
 ]);
-if (@chmod($unreadableBundle . '/acme/duo-adapter.json', 0000)
-    && !is_readable($unreadableBundle . '/acme/duo-adapter.json')) {
+if (@chmod($unreadableBundle . '/acme/wprism-adapter.json', 0000)
+    && !is_readable($unreadableBundle . '/acme/wprism-adapter.json')) {
     foreach ([false, true] as $strictRead) {
         $readLabel = $strictRead ? 'with a warnings-as-exceptions handler' : 'with ordinary PHP error handling';
         $unreadable = child([
@@ -1449,7 +1449,7 @@ if (@chmod($unreadableBundle . '/acme/duo-adapter.json', 0000)
         check(
             count($unreadableRows) === 1
             && str_contains((string) $unreadableRows[0]['message'], 'cannot be read')
-            && str_contains((string) $unreadableRows[0]['remediation'], 'readable by the user running duo')
+            && str_contains((string) $unreadableRows[0]['remediation'], 'readable by the user running wprism')
             && ($unreadable['discover']['source'] ?? null) === null,
             "and refuses it as one clean row telling the operator what to fix, $readLabel (rows: "
             . implode(', ', array_column($unreadable['discover']['plugin_refusals'] ?? [], 'code')) . ')'
@@ -1459,10 +1459,10 @@ if (@chmod($unreadableBundle . '/acme/duo-adapter.json', 0000)
             "while the readable bundle beside it still installs, $readLabel"
         );
     }
-    @chmod($unreadableBundle . '/acme/duo-adapter.json', 0644);
+    @chmod($unreadableBundle . '/acme/wprism-adapter.json', 0644);
 } else {
     check(true, '(SKIPPED: this harness cannot create an unreadable file on this filesystem/uid)');
-    @chmod($unreadableBundle . '/acme/duo-adapter.json', 0644);
+    @chmod($unreadableBundle . '/acme/wprism-adapter.json', 0644);
 }
 
 // ======================================================================
@@ -1476,10 +1476,10 @@ echo "\n== a bundle is CONTAINED before it is read — inactive plugins included
 $escapeRoot = scratch('escape');
 mkdir($escapeRoot . '/plugins/sleeping', 0777, true);
 write_file($escapeRoot . '/plugins/sleeping/sleeping.php', "<?php\n");
-write_file($escapeRoot . '/outside/duo-adapter.json', Canon::encode(
+write_file($escapeRoot . '/outside/wprism-adapter.json', Canon::encode(
     bundle('escaped-name', 'sleeping/sleeping.php')
 ));
-symlink($escapeRoot . '/outside/duo-adapter.json', $escapeRoot . '/plugins/sleeping/duo-adapter.json');
+symlink($escapeRoot . '/outside/wprism-adapter.json', $escapeRoot . '/plugins/sleeping/wprism-adapter.json');
 // No `name` here on purpose: passing one makes the child call file(), whose
 // not-found message legitimately echoes the name the CALLER asked for. The
 // claim under test is that the name inside the FILE never appears, so nothing
@@ -1491,7 +1491,7 @@ $escaped = child([
 $escapedRefusals = rows_with($escaped['survey']['refusals'] ?? [], 'code', 'symlink_source');
 check(
     count($escapedRefusals) === 1
-    && ($escapedRefusals[0]['paths'] ?? null) === ['plugins/sleeping/duo-adapter.json'],
+    && ($escapedRefusals[0]['paths'] ?? null) === ['plugins/sleeping/wprism-adapter.json'],
     'an INACTIVE plugin whose bundle is a symlink out of the plugins directory draws the same symlink_source '
     . 'refusal an active one does (rows: '
     . implode(', ', array_column($escaped['survey']['refusals'] ?? [], 'code')) . ')'
@@ -1550,7 +1550,7 @@ check(
 $injectedEntry = plugins_dir('injection-entry', [
     'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
 ]);
-$entryEscape = "duo-adapters\x1b[2J.json";
+$entryEscape = "wprism-adapters\x1b[2J.json";
 write_file($injectedEntry . '/acme/' . $entryEscape, "{}\n");
 $entryInjected = child(['plugins' => $injectedEntry, 'active' => ["acme\x1b[2J/acme.php", 'acme/acme.php']]);
 $entryText = implode("\n", array_column($entryInjected['discover']['plugin_refusals'] ?? [], 'message'));
@@ -1595,7 +1595,7 @@ check(
 $pathVector = plugins_dir('render-path', [
     'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
 ]);
-write_file($pathVector . '/acme/' . "duo-adapters\x1b[2J.json", "{}\n");
+write_file($pathVector . '/acme/' . "wprism-adapters\x1b[2J.json", "{}\n");
 $pathRendered = child([
     'plugins' => $pathVector,
     'active' => ['acme/acme.php'],
@@ -1610,7 +1610,7 @@ check(
     . 'refusal `paths` list either, which the renderer used to implode straight into the terminal'
 );
 check(
-    ($pathRendered['document']['refusals'][0]['paths'][0] ?? null) === "plugins/acme/duo-adapters\x1b[2J.json",
+    ($pathRendered['document']['refusals'][0]['paths'][0] ?? null) === "plugins/acme/wprism-adapters\x1b[2J.json",
     'and that path is likewise exact in the document, so it still names the file an operator has to go delete'
 );
 
@@ -1704,7 +1704,7 @@ $dirEscape = "acme\x1b[2Jx";
 $dirEscapeRoot = plugins_dir('render-dir', []);
 write_file($dirEscapeRoot . '/' . $dirEscape . '/' . $dirEscape . '.php', "<?php\n");
 write_file(
-    $dirEscapeRoot . '/' . $dirEscape . '/duo-adapter.json',
+    $dirEscapeRoot . '/' . $dirEscape . '/wprism-adapter.json',
     Canon::encode(bundle('acme-widget', $dirEscape . '/' . $dirEscape . '.php', ['interpreter' => 'acf']))
 );
 $dirEscaped = child([
@@ -1775,7 +1775,7 @@ $bothActive = child([
 check(
     ($bothActive['discover']['plugin_refusals'] ?? null) === []
     && ($bothActive['discover']['source'] ?? null) === 'plugin'
-    && ($bothActive['discover']['path'] ?? null) === 'plugins/acme/duo-adapter.json',
+    && ($bothActive['discover']['path'] ?? null) === 'plugins/acme/wprism-adapter.json',
     'while a directory whose SECOND plugin file is also active accepts the manifest that names it — exact '
     . 'equality against every active basename in that directory, not against whichever one sorts first'
 );
@@ -1822,23 +1822,23 @@ check(
 echo "\n== two shapes that used to be invisible ==\n";
 // ======================================================================
 $dirBundle = plugins_dir('dirbundle', ['acme' => []]);
-mkdir($dirBundle . '/acme/duo-adapter.json', 0777, true);
-write_file($dirBundle . '/acme/duo-adapter.json/real.json', "{}\n");
+mkdir($dirBundle . '/acme/wprism-adapter.json', 0777, true);
+write_file($dirBundle . '/acme/wprism-adapter.json/real.json', "{}\n");
 $dirBundleResult = child(['plugins' => $dirBundle, 'active' => ['acme/acme.php'], 'name' => 'acme-widget']);
 $dirRows = rows_with($dirBundleResult['discover']['plugin_refusals'] ?? [], 'code', 'symlink_source');
 check(
     count($dirRows) === 1
     && str_contains((string) $dirRows[0]['message'], 'a directory')
     && ($dirBundleResult['discover']['source'] ?? null) === null,
-    'a DIRECTORY named duo-adapter.json draws a refusal naming what it actually is — is_file() alone passed it '
+    'a DIRECTORY named wprism-adapter.json draws a refusal naming what it actually is — is_file() alone passed it '
     . 'over in silence, so a plugin whose author made one installed nothing and was told nothing'
 );
-// The bait is real: a duo-adapter.json ONE LEVEL ABOVE the plugins directory,
+// The bait is real: a wprism-adapter.json ONE LEVEL ABOVE the plugins directory,
 // which is exactly where `..` lands. Without the fixture the exclusion would
 // be untestable — the walk would find nothing there and pass for the wrong
 // reason.
 $traversalRoot = plugins_dir('traversal', ['acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')]]);
-write_file(dirname($traversalRoot) . '/duo-adapter.json', Canon::encode(adapter('smuggled', [
+write_file(dirname($traversalRoot) . '/wprism-adapter.json', Canon::encode(adapter('smuggled', [
     'plugin' => '../x.php',
 ])));
 $traversalActive = child([
@@ -1847,7 +1847,7 @@ $traversalActive = child([
     'name' => 'acme-widget',
 ]);
 check(
-    is_file(dirname($traversalRoot) . '/duo-adapter.json'),
+    is_file(dirname($traversalRoot) . '/wprism-adapter.json'),
     'the traversal bait exists one level above the plugins directory, so the exclusion below is testable'
 );
 check(
@@ -1897,7 +1897,7 @@ check(
 // a plugin row anyway, so routing plugin rows through it is indistinguishable
 // there. What separates the two is a live `certification_source` refusal —
 // which B2 made reachable from the PLUGIN source, by a plugin shipping a
-// `duo-adapter.certification.json` beside its bundle.
+// `wprism-adapter.certification.json` beside its bundle.
 //
 // Two independent bugs are pinned here at once. Routing a plugin row through
 // the site branch answers `certification_unjudged` about a certificate that
@@ -1907,7 +1907,7 @@ check(
 $strayCertPlugins = plugins_dir('straycert', [
     'acme' => [
         'bundle' => bundle('acme-widget', 'acme/acme.php'),
-        'files' => ['duo-adapter.certification.json' => "{}\n"],
+        'files' => ['wprism-adapter.certification.json' => "{}\n"],
     ],
     'good' => ['bundle' => bundle('other-widget', 'good/good.php')],
 ]);
@@ -2027,9 +2027,9 @@ $snapshot = $frozenChild['snapshot'] ?? [];
 check(
     ($snapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['source'] ?? null) === 'plugin'
     && ($snapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['path'] ?? null)
-        === 'plugins/acme/duo-adapter.json'
+        === 'plugins/acme/wprism-adapter.json'
     && ($snapshot['adapter_sources']['format'] ?? null) === AdapterSources::FORMAT
-    && ($snapshot['format'] ?? null) === 'duo-policy-snapshot/v6'
+    && ($snapshot['format'] ?? null) === 'wprism-policy-snapshot/v6'
     && !array_key_exists('capabilities', $snapshot),
     'the exported snapshot freezes the bundled provenance inside the adapter-sources record it always used — the '
     . 'path is a function of the manifest\'s own `plugin` claim, so bundled provenance still needs no key of its '
@@ -2041,8 +2041,8 @@ check(
 $frozen = Policy::from_snapshot($snapshot);
 check(
     $frozen->adapter_sources()->source('acme-widget') === 'plugin'
-    && $frozen->adapter_sources()->path('acme-widget') === 'plugins/acme/duo-adapter.json'
-    && \Duo\RepositoryCompiler::resolved_adapters($frozen) === ($frozenChild['resolved'] ?? null),
+    && $frozen->adapter_sources()->path('acme-widget') === 'plugins/acme/wprism-adapter.json'
+    && \WPrism\RepositoryCompiler::resolved_adapters($frozen) === ($frozenChild['resolved'] ?? null),
     'and a process with NO plugin directory at all reconstructs the identical source, path, and digest'
 );
 check(

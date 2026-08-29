@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
  * The closed post-freeze next-action set, and the deterministic mapping from
@@ -36,7 +36,7 @@ use Duo\CommandRefusalException;
  * | `incomplete_apply` | `recover` | same shape one layer down: the authored-state transaction did not reach its terminal receipt. |
  * | `ambiguous_commitment` | `reconcile` | the controller lost the response and cannot prove whether the target committed. **Never `retry`**: replaying an unprovable commitment is how a release is applied twice. |
  * | `receipt_uncertain` | `reconcile` | the durable receipt is unreadable or disagrees with the target; the same quarantine. |
- * | `drift_detected` | `reconcile` | the target moved outside Duo since the plan was frozen; merge it, do not overwrite it. |
+ * | `drift_detected` | `reconcile` | the target moved outside WPrism since the plan was frozen; merge it, do not overwrite it. |
  * | `ref_mismatch` | `reconcile` | MUP §2.3 step 2: `--from <ref>` is a binding assertion, and a target `HEAD` mismatch is reconciled, not forced. |
  * | `transport_transient` | `retry` | the only class that earns a retry — and only after receipt reconciliation proves replay safe (`RETRY_PRECONDITION`). |
  * | `plan_changed` | `retry` | a clean pre-mutation refusal (MUP §2.3 step 3): nothing was written, so rebuilding the plan and re-authorizing is safe. |
@@ -100,7 +100,7 @@ final class NextAction {
         'authority_required' => 'the frozen plan named authority that has not been supplied',
         'capability_expired' => 'a condition re-checked at the mutation gate no longer holds',
         'checkpoint_unavailable' => "the selected recovery profile's checkpoint is absent or did not verify",
-        'drift_detected' => 'the target changed outside Duo after the plan was frozen',
+        'drift_detected' => 'the target changed outside WPrism after the plan was frozen',
         // Not a claim about any subject's evidence: no agent emits this code.
         // `ContractProjection::STALE_EVIDENCE_BLOCKER` (:53-62) is synthesized
         // by the cli alone when the observed `registry_sha256` differs from the

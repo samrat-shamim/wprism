@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Graph validation is a pure canonical-tree pass. Normal direct loads close
 // its collaborators; focused fixtures may preload narrow doubles, so retain

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/PassthroughCommand.php';
@@ -10,7 +10,7 @@ require_once __DIR__ . '/PassthroughCommand.php';
  * Host routing boundary for public promotion.
  *
  * The ordinary/frozen and signed scoped promotion state machines remain
- * compatibility-owned by cli/duo. This handler owns only the public selector
+ * compatibility-owned by cli/wprism. This handler owns only the public selector
  * so the scope boundary can be characterized without loading target workflow
  * code or starting a transport process.
  */

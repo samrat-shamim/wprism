@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Fail-closed codecs for manifest-declared deletion guards.

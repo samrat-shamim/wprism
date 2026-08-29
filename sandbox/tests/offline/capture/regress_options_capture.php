@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Direct offline characterization for DUO-3349's options read boundary.
+ * Direct offline characterization for issue #3349's options read boundary.
  * The fake WordPress database exercises real Policy, Tokens, PlainData, and
  * OptionState behavior without loading Capture, Snapshot, or WordPress.
  */
@@ -201,7 +201,7 @@ final class OptionsCaptureFakeWpdb {
     public function get_var($query) {
         [$sql, $args] = $this->unwrap($query);
         $this->reads[] = ['sql' => $sql, 'args' => $args];
-        if (str_contains($sql, 'SELECT uuid FROM wp_duo_map')) {
+        if (str_contains($sql, 'SELECT uuid FROM wp_wprism_map')) {
             return $this->uuids[(string) ($args[0] ?? '')][(int) ($args[1] ?? 0)] ?? null;
         }
         return null;
@@ -220,10 +220,10 @@ require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/OptionsCapture.php';
 
-use Duo\OptionState;
-use Duo\OptionsCapture;
-use Duo\Policy;
-use Duo\Tokens;
+use WPrism\OptionState;
+use WPrism\OptionsCapture;
+use WPrism\Policy;
+use WPrism\Tokens;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -232,8 +232,8 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $check(class_exists(OptionsCapture::class), 'OptionsCapture loads as a direct offline boundary');
-$check(!class_exists(Duo\Capture::class, false), 'OptionsCapture does not load Capture');
-$check(!class_exists(Duo\Snapshot::class, false), 'OptionsCapture does not load Snapshot');
+$check(!class_exists(WPrism\Capture::class, false), 'OptionsCapture does not load Capture');
+$check(!class_exists(WPrism\Snapshot::class, false), 'OptionsCapture does not load Snapshot');
 
 $wpdb = new OptionsCaptureFakeWpdb();
 $GLOBALS['wpdb'] = $wpdb;

@@ -19,17 +19,17 @@
  * The assertion is a DECODE COUNT, not a wall time. A timing threshold on a
  * shared developer machine is a flake generator and says nothing about the
  * mechanism; the count is exact, reproducible on any host, and names the defect
- * directly. It is collected by declaring `Duo\json_decode()` and
- * `Duo\file_get_contents()` in the measuring process before the agent is
+ * directly. It is collected by declaring `WPrism\json_decode()` and
+ * `WPrism\file_get_contents()` in the measuring process before the agent is
  * required: `Canon::decode()`/`Canon::read_file()` call both UNQUALIFIED from
- * inside `namespace Duo`, so PHP resolves the namespaced function first and the
+ * inside `namespace WPrism`, so PHP resolves the namespaced function first and the
  * counter sits on the real product path with no seam added to the engine for a
  * test's benefit. The interception is proved live before it is trusted
  * (`instrument_alive` below); a counter that silently stopped intercepting
  * would report a beautiful, meaningless 0.
  *
  * NO `declare(strict_types=1)` HERE, DELIBERATELY. This file re-declares two
- * functions the whole `Duo` namespace calls. Under strict types every one of
+ * functions the whole `WPrism` namespace calls. Under strict types every one of
  * those forwarded calls would be argument-checked against the global signature
  * with THIS file's strictness rather than the calling file's, which would make
  * the harness capable of changing the behaviour of the path it exists to
@@ -41,25 +41,25 @@
  * fixture allocates far more than the load under test, so a single-process
  * suite could only ever report its own fixture manufacture. Each measurement
  * therefore runs in a child `php` invocation of THIS file, selected by
- * DUO_POLICY_LOAD_SCALE_LIBRARY, which is set nowhere else. Re-entering the
+ * WPRISM_POLICY_LOAD_SCALE_LIBRARY, which is set nowhere else. Re-entering the
  * same file (the idiom sandbox/tests/offline/cli/regress_doctor_command.php
  * uses) keeps one definition of the measurement instead of a second fixture
  * that could agree with a broken engine.
  */
 
-namespace Duo {
+namespace WPrism {
     /**
      * The two seams the count is taken at. Both forward verbatim — same
      * arguments, same return value, same `json_last_error()` state for
      * `Canon::decode()`'s check on the line after its call.
      */
     function json_decode(...$args) {
-        \DuoScaleProbe::$decodes++;
+        \WPrismScaleProbe::$decodes++;
         return \json_decode(...$args);
     }
 
     function file_get_contents(...$args) {
-        \DuoScaleProbe::$reads[] = (string) $args[0];
+        \WPrismScaleProbe::$reads[] = (string) $args[0];
         return \file_get_contents(...$args);
     }
 }
@@ -74,11 +74,11 @@ namespace {
     function is_multisite(): bool {
         return false;
     }
-    if (!defined('DUO_SPEC_VERSION')) {
-        define('DUO_SPEC_VERSION', 2);
+    if (!defined('WPRISM_SPEC_VERSION')) {
+        define('WPRISM_SPEC_VERSION', 2);
     }
 
-    final class DuoScaleProbe {
+    final class WPrismScaleProbe {
         public static int $decodes = 0;
         /** @var list<string> */
         public static array $reads = [];
@@ -89,7 +89,7 @@ namespace {
         }
     }
 
-    $scaleLibrary = (string) (getenv('DUO_POLICY_LOAD_SCALE_LIBRARY') ?: '');
+    $scaleLibrary = (string) (getenv('WPRISM_POLICY_LOAD_SCALE_LIBRARY') ?: '');
 
     // ------------------------------------------------------------------
     // Child mode: one measurement of one library, as one JSON line.
@@ -101,29 +101,29 @@ namespace {
         require __DIR__ . '/../../../../agent/src/Policy/ManifestDispositions.php';
         require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 
-        $pins = explode(',', (string) getenv('DUO_POLICY_LOAD_SCALE_PINS'));
-        $adapterLibrary = Duo\AdapterLibrary::fromLegacyFlatDirectory($scaleLibrary);
+        $pins = explode(',', (string) getenv('WPRISM_POLICY_LOAD_SCALE_PINS'));
+        $adapterLibrary = WPrism\AdapterLibrary::fromLegacyFlatDirectory($scaleLibrary);
 
         // Proof that the seam is live, taken through the same engine method the
         // measurement counts, before any number is reported.
-        DuoScaleProbe::reset();
-        Duo\Canon::decode('{"instrument":"alive"}');
-        $instrumentAlive = DuoScaleProbe::$decodes === 1;
+        WPrismScaleProbe::reset();
+        WPrism\Canon::decode('{"instrument":"alive"}');
+        $instrumentAlive = WPrismScaleProbe::$decodes === 1;
 
-        DuoScaleProbe::reset();
+        WPrismScaleProbe::reset();
         gc_collect_cycles();
         $usedBefore = memory_get_usage();
         $peakBefore = memory_get_peak_usage();
-        $policy = Duo\Policy::load(null, $pins, adapterLibrary: $adapterLibrary);
+        $policy = WPrism\Policy::load(null, $pins, adapterLibrary: $adapterLibrary);
         $peakAfter = memory_get_peak_usage();
         $usedAfter = memory_get_usage();
         $libraryPrefix = rtrim($scaleLibrary, '/') . '/';
         $libraryReads = array_values(array_filter(
-            DuoScaleProbe::$reads,
+            WPrismScaleProbe::$reads,
             static fn(string $path): bool => str_starts_with($path, $libraryPrefix)
         ));
         fwrite(STDOUT, (string) json_encode([
-            'decodes' => DuoScaleProbe::$decodes,
+            'decodes' => WPrismScaleProbe::$decodes,
             'instrument_alive' => $instrumentAlive,
             // LIBRARY-RELATIVE, not basename: since WP-4.4 a one-pin load
             // opens `dispositions/pinned-adapter.json` and `pinned-adapter.json`,
@@ -157,7 +157,7 @@ namespace {
     function scale_pinned_manifest(string $name): array {
         return [
             'name' => $name,
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
             'option_autoload' => 'preserve',
             'options' => [str_replace('-', '_', $name) . '_layout' => ['class' => 'authored']],
         ];
@@ -165,7 +165,8 @@ namespace {
 
     /**
      * A filler manifest, padded to roughly the size of the smallest manifest
-     * that actually ships (manifests/classic-editor.json is 1,378 bytes). The
+     * that actually ships
+     * (`adapter-packages/classic-editor/package/manifest.json` is 1,381 bytes). The
      * padding is what makes the memory half of this suite mean anything: the
      * pre-WP-1.2 engine held every one of these decoded at once.
      */
@@ -175,7 +176,7 @@ namespace {
             'notes' => str_repeat('synthetic library filler for the O(pinned) load contract. ', 16),
             'option_autoload' => 'preserve',
             'options' => [str_replace('-', '_', $name) . '_layout' => ['class' => 'authored']],
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ];
     }
 
@@ -279,8 +280,8 @@ namespace {
      * @return array{exit:int,output:string,measurement:?array<string,mixed>}
      */
     function scale_measure(string $library, array $pins): array {
-        $command = 'DUO_POLICY_LOAD_SCALE_LIBRARY=' . escapeshellarg($library)
-            . ' DUO_POLICY_LOAD_SCALE_PINS=' . escapeshellarg(implode(',', $pins))
+        $command = 'WPRISM_POLICY_LOAD_SCALE_LIBRARY=' . escapeshellarg($library)
+            . ' WPRISM_POLICY_LOAD_SCALE_PINS=' . escapeshellarg(implode(',', $pins))
             . ' ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' 2>&1';
         $lines = [];
         $status = 0;
@@ -307,25 +308,25 @@ namespace {
     foreach ($sizes as $n) {
         $result = scale_measure($libraries[$n]['dir'], ['pinned-adapter']);
         $measurement = $result['measurement'];
-        duo_check(
+        wprism_check(
             $result['exit'] === 0 && is_array($measurement),
             "a one-pin load against a $n-manifest library succeeds"
         );
         if (!is_array($measurement)) {
-            // Through duo_check_repr(): a child that died carries a PHP
+            // Through wprism_check_repr(): a child that died carries a PHP
             // diagnostic and a 10,000-name refusal list, and both a raw
             // "Fatal error: … in x.php on line N" at column 0 and the length
             // are things the offline diagnostics guard and the reader
             // respectively cannot use.
-            duo_check_detail(duo_check_repr($result['output']));
+            wprism_check_detail(wprism_check_repr($result['output']));
             continue;
         }
         $measurements[$n] = $measurement;
-        duo_check(
+        wprism_check(
             $measurement['instrument_alive'] === true,
             "the decode counter is proved live before the $n-manifest measurement is trusted"
         );
-        duo_check(
+        wprism_check(
             $measurement['decodes'] === 3,
             "one pin against $n manifests costs exactly 3 decodes (profiles + disposition + manifest); counted "
             . $measurement['decodes']
@@ -335,13 +336,13 @@ namespace {
         // basenames turned one red assertion into 480 KB of gate output that
         // buried the other nineteen.
         $reads = $measurement['library_reads'];
-        duo_check(
+        wprism_check(
             $reads === ['dispositions/profiles.json', 'pinned-adapter.json', 'dispositions/pinned-adapter.json'],
             "and exactly those three library files are opened at $n manifests: "
             . implode(', ', array_slice($reads, 0, 3))
             . (count($reads) > 3 ? ' … and ' . (count($reads) - 3) . ' more' : '')
         );
-        duo_check(
+        wprism_check(
             $measurement['manifests'] === 1,
             "the load resolved its one pin against the $n-manifest library"
         );
@@ -349,7 +350,7 @@ namespace {
 
     echo "\n== proportional to PINS, independent of library size ==\n";
     $twoPins = scale_measure($libraries[1000]['dir'], ['pinned-adapter', 'second-adapter']);
-    duo_check(
+    wprism_check(
         $twoPins['exit'] === 0
             && ($twoPins['measurement']['decodes'] ?? null) === 5
             && ($twoPins['measurement']['manifests'] ?? null) === 2,
@@ -357,7 +358,7 @@ namespace {
         . 'addressed the reviewed source per subject — so the count still tracks PINS, which is the whole claim ('
         . var_export($twoPins['measurement']['decodes'] ?? $twoPins['output'], true) . ')'
     );
-    duo_check(
+    wprism_check(
         count($measurements) === count($sizes)
             && count(array_unique(array_column($measurements, 'decodes'))) === 1,
         'a library 100x larger costs the same: ' . implode(', ', array_map(
@@ -412,16 +413,16 @@ namespace {
     scale_scaffold_library($libraries[10000]['dir']);
     $lean = scale_measure($libraries[10000]['dir'], ['pinned-adapter']);
     $leanMeasurement = $lean['measurement'];
-    duo_check(
+    wprism_check(
         $lean['exit'] === 0 && is_array($leanMeasurement),
         '10,000 malformed unpinned disposition documents do not refuse a covered pin'
     );
     if (!is_array($leanMeasurement)) {
-        duo_check_detail(duo_check_repr($lean['output']));
+        wprism_check_detail(wprism_check_repr($lean['output']));
         $leanMeasurement = ['decodes' => -1, 'peak_delta' => PHP_INT_MAX, 'retained_delta' => PHP_INT_MAX];
     }
     $unreadBytes = $libraries[10000]['filler_bytes'];
-    duo_check(
+    wprism_check(
         $leanMeasurement['decodes'] === 3,
         'and they are neither read nor refused: still 3 decodes, counted ' . $leanMeasurement['decodes']
     );
@@ -430,13 +431,13 @@ namespace {
     // the registry's — see the attribution above — so they say what they can
     // honestly say: whatever the scan costs per NAME, it stays under what the
     // library holds in BYTES, because no manifest is ever opened.
-    duo_check(
+    wprism_check(
         $leanMeasurement['peak_delta'] < $unreadBytes,
         'the load peaks at ' . number_format($leanMeasurement['peak_delta'])
         . ' bytes — the adapter-source scan, one origins row per file — under the '
         . number_format($unreadBytes) . ' bytes of manifest content it never opened'
     );
-    duo_check(
+    wprism_check(
         $leanMeasurement['retained_delta'] < $unreadBytes,
         'and the loaded policy retains ' . number_format($leanMeasurement['retained_delta'])
         . ' bytes: those origins, plus ONE decoded manifest per pin — never the library\'s manifest content'
@@ -454,7 +455,7 @@ namespace {
     // these are allocator figures: what is being pinned is the shape — flat,
     // not linear — and an entry count 5,000x larger costing 5% more would be a
     // per-entry term creeping back.
-    duo_check(
+    wprism_check(
         ($measurements[10000]['peak_delta'] ?? PHP_INT_MAX) < $unreadBytes
             && $leanMeasurement['peak_delta'] < $unreadBytes,
         'and neither valid nor malformed unpinned dispositions add a per-entry load term after the explicit '
@@ -462,8 +463,8 @@ namespace {
         . ' bytes versus ' . number_format($leanMeasurement['peak_delta'])
     );
 
-    if (duo_check_failed() === 0) {
+    if (wprism_check_failed() === 0) {
         exec('rm -rf ' . escapeshellarg($scaleRoot));
     }
-    duo_check_summary('regress_policy_load_scale');
+    wprism_check_summary('regress_policy_load_scale');
 }

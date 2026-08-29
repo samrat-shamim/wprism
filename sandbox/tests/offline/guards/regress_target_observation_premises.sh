@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Regression — DUO-3423: a live target read must establish that its observation
-# answered before it can accuse Duo. Adapter-specific premise contracts belong
+# Regression — issue #3423: a live target read must establish that its observation
+# answered before it can accuse WPrism. Adapter-specific premise contracts belong
 # to the adapter package that owns them; this guard discovers those contracts
 # instead of carrying a central adapter/path/count registry.
 #
@@ -8,7 +8,7 @@
 # target-observation-premises.tsv, a format/count ratchet followed by one
 # literal assertion per line:
 #
-#   # format duo-target-observation-premises/v1
+#   # format wprism-target-observation-premises/v1
 #   # expected observations=N fixtures=N
 #   observation<TAB>tests/conformance/check.sh<TAB>literal assertion prefix
 #   fixture<TAB>tests/certify/version-matrix.sh<TAB>literal assertion prefix
@@ -67,7 +67,7 @@ source_declares_manifest_participant() { # <file> <adapter-slug>
 
 source_uses_premise_helpers() { # <file>
   load_active_shell_source "$1" || return 1
-  grep -Eq '^[[:space:]]*require_(observed_nonempty|duo_answered|fixture_ids|fixture_values)([[:space:];&|]|$)' \
+  grep -Eq '^[[:space:]]*require_(observed_nonempty|wprism_answered|fixture_ids|fixture_values)([[:space:];&|]|$)' \
     <<< "$ACTIVE_SHELL_SOURCE"
 }
 
@@ -99,8 +99,8 @@ validate_contract_file() { # <contract> <package-root> [repository-root]
   while IFS= read -r line || [ -n "$line" ]; do
     line_no=$((line_no + 1))
     if [ "$line_no" -eq 1 ]; then
-      [ "$line" = '# format duo-target-observation-premises/v1' ] \
-        || { contract_error "$contract" "$line_no" 'missing format duo-target-observation-premises/v1'; return 1; }
+      [ "$line" = '# format wprism-target-observation-premises/v1' ] \
+        || { contract_error "$contract" "$line_no" 'missing format wprism-target-observation-premises/v1'; return 1; }
       continue
     fi
     if [ "$line_no" -eq 2 ]; then
@@ -174,9 +174,9 @@ validate_contract_file() { # <contract> <package-root> [repository-root]
           "@repo premise has no active canonical manifest participant declaration for $slug"
         return 1
       }
-      [ "$comment" = "duo-premise-owner: $slug" ] || {
+      [ "$comment" = "wprism-premise-owner: $slug" ] || {
         contract_error "$contract" "$line_no" \
-          "@repo premise requires exact # duo-premise-owner: $slug on its active assertion"
+          "@repo premise requires exact # wprism-premise-owner: $slug on its active assertion"
         return 1
       }
     fi
@@ -213,14 +213,14 @@ validate_version_matrix_premises() { # <package version-matrix.sh>
 
 run_contract_mutation_checks() {
   local scratch='' package='' contract='' source='' result=''
-  scratch="$(mktemp -d "${TMPDIR:-/tmp}/duo-premise-contract.XXXXXX")"
+  scratch="$(mktemp -d "${TMPDIR:-/tmp}/wprism-premise-contract.XXXXXX")"
   package="$scratch/package"
   contract="$package/evidence/$CONTRACT_NAME"
   source="$package/tests/conformance/check.sh"
   mkdir -p "$(dirname "$source")" "$(dirname "$contract")"
   printf '%s\n' 'require_observed_nonempty "probe answered" "$out"' > "$source"
   printf '%s\n' \
-    '# format duo-target-observation-premises/v1' \
+    '# format wprism-target-observation-premises/v1' \
     '# expected observations=1 fixtures=0' \
     $'observation\ttests/conformance/check.sh\trequire_observed_nonempty "probe answered"' > "$contract"
   result="$(validate_contract_file "$contract" "$package")" \
@@ -318,7 +318,7 @@ run_contract_mutation_checks() {
   clear_active_shell_cache
 
   printf '%s\n' \
-    '# format duo-target-observation-premises/v1' \
+    '# format wprism-target-observation-premises/v1' \
     '# expected observations=1 fixtures=0' \
     $'observation\ttests/conformance/check.sh\trequire_observed_nonempty "stale"' > "$contract"
   if validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
@@ -326,7 +326,7 @@ run_contract_mutation_checks() {
     fail 'package premise contract accepted a stale assertion mutation'
   fi
   printf '%s\n' \
-    '# format duo-target-observation-premises/v1' \
+    '# format wprism-target-observation-premises/v1' \
     '# expected observations=1 fixtures=0' \
     $'observation\t../outside.sh\trequire_observed_nonempty "probe answered"' > "$contract"
   if validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
@@ -335,7 +335,7 @@ run_contract_mutation_checks() {
   fi
 
   printf '%s\n' \
-    '# format duo-target-observation-premises/v1' \
+    '# format wprism-target-observation-premises/v1' \
     '# expected observations=2 fixtures=0' \
     $'observation\ttests/conformance/check.sh\trequire_observed_nonempty "probe answered"' > "$contract"
   if validate_contract_file "$contract" "$package" >/dev/null 2>&1; then
@@ -373,50 +373,50 @@ run_contract_mutation_checks() {
   local owner_contract="$owner_package/evidence/$CONTRACT_NAME"
   mkdir -p "$(dirname "$owner_source")" "$(dirname "$owner_contract")"
   printf '%s\n' \
-    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
-    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+    'WPRISM_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # wprism-premise-owner: acf' > "$owner_source"
   printf '%s\n' \
-    '# format duo-target-observation-premises/v1' \
+    '# format wprism-target-observation-premises/v1' \
     '# expected observations=1 fixtures=0' \
     $'observation\t@repo/sandbox/tests/certify/certify_owner.sh\trequire_observed_nonempty "owned assertion"' \
     > "$owner_contract"
   validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null \
     || { rm -rf "$scratch"; fail 'package premise contract refused its exact @repo owner'; }
   printf '%s\n' \
-    ': # DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
-    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+    ': # WPRISM_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # wprism-premise-owner: acf' > "$owner_source"
   if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
     rm -rf "$scratch"
     fail 'package premise contract accepted an inline-comment-only @repo participant'
   fi
   printf '%s\n' \
     "cat <<'INERT_PARTICIPANT' >/dev/null" \
-    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'WPRISM_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
     'INERT_PARTICIPANT' \
-    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+    'require_observed_nonempty "owned assertion" "$out" # wprism-premise-owner: acf' > "$owner_source"
   if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
     rm -rf "$scratch"
     fail 'package premise contract accepted a heredoc-only @repo participant'
   fi
   printf '%s\n' \
     'never_runs() {' \
-    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
-    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' \
+    'WPRISM_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # wprism-premise-owner: acf' \
     '}' > "$owner_source"
   if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
     rm -rf "$scratch"
     fail 'package premise contract accepted an @repo participant trapped in an uncalled function'
   fi
   printf '%s\n' \
-    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
+    'require_observed_nonempty "owned assertion" "$out" # wprism-premise-owner: acf' > "$owner_source"
   if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
     rm -rf "$scratch"
     fail 'package premise contract accepted a missing @repo participant'
   fi
   printf '%s\n' \
-    'DUO_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
-    'require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf' > "$owner_source"
-  sed 's/duo-premise-owner: acf/duo-premise-owner: woocommerce/' "$owner_source" > "$owner_source.mutated"
+    'WPRISM_CERTIFICATION_MANIFESTS_JSON='\''["acf"]'\''' \
+    'require_observed_nonempty "owned assertion" "$out" # wprism-premise-owner: acf' > "$owner_source"
+  sed 's/wprism-premise-owner: acf/wprism-premise-owner: woocommerce/' "$owner_source" > "$owner_source.mutated"
   mv "$owner_source.mutated" "$owner_source"
   if validate_contract_file "$owner_contract" "$owner_package" "$repo_fixture" >/dev/null 2>&1; then
     rm -rf "$scratch"
@@ -485,45 +485,45 @@ pass "package-owned version-matrix plugin observations have matching fixture pre
 # Global engine/core premise contracts remain central because their source and
 # consumer are not owned by a single adapter.
 OBSERVATIONS=(
-  'conformance/checks/fse.sh|require_duo_answered "conf2 duo plan after active-theme mismatch" json'
-  'conformance/checks/fse.sh|require_duo_answered "conf2 duo plan after restoring active theme" json'
+  'conformance/checks/fse.sh|require_wprism_answered "conf2 wprism plan after active-theme mismatch" json'
+  'conformance/checks/fse.sh|require_wprism_answered "conf2 wprism plan after restoring active theme" json'
   'conformance/checks/core.sh|require_observed_nonempty "conf2 custom_logo post type"'
   'conformance/checks/core.sh|require_observed_nonempty "conf2 custom_css post type"'
   'conformance/checks/core.sh|require_observed_nonempty "conf2 custom_css post content"'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo pending after apply" json'
-  'conformance/checks/core.sh|require_duo_answered "conf1 duo pending unknown-widget probe" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo apply --force-theirs conflict override" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan unforced conflict" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan unforced conflict human view" human'
-  'conformance/checks/core.sh|require_duo_answered "conf1 duo capture page deletion" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan referential page deletion" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo apply forced page deletion" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan page deletion retry" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan guard-blocked deletion conflict" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan guard-blocked deletion human view" human'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan local deletion conflict" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan local deletion conflict human view" human'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo apply forced local deletion conflict" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan branch deletion conflict" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan missing guard table" json'
-  'conformance/checks/core.sh|require_duo_answered "conf2 duo plan fresh target deletion interpretation" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism pending after apply" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf1 wprism pending unknown-widget probe" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism apply --force-theirs conflict override" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan unforced conflict" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan unforced conflict human view" human'
+  'conformance/checks/core.sh|require_wprism_answered "conf1 wprism capture page deletion" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan referential page deletion" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism apply forced page deletion" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan page deletion retry" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan guard-blocked deletion conflict" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan guard-blocked deletion human view" human'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan local deletion conflict" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan local deletion conflict human view" human'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism apply forced local deletion conflict" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan branch deletion conflict" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan missing guard table" json'
+  'conformance/checks/core.sh|require_wprism_answered "conf2 wprism plan fresh target deletion interpretation" json'
   'tests/certify/certify_merge.sh|require_observed_nonempty "A About post title after merge"'
   'tests/certify/certify_merge.sh|require_observed_nonempty "A Hello post title after merge"'
   'tests/certify/certify_merge.sh|require_observed_nonempty "B About post title after apply"'
   'tests/certify/certify_merge.sh|require_observed_nonempty "B Team post title after apply"'
   'tests/certify/certify_merge.sh|require_observed_nonempty "A Team post title after recapture"'
-  'tests/certify/certify_merge.sh|require_duo_answered "env B drift plan" json'
-  'tests/certify/certify_merge.sh|require_duo_answered "env B apply with preserved local drift" human'
-  'tests/certify/certify_merge.sh|require_duo_answered "env B retry plan after preserved drift" json'
-  'tests/certify/certify_merge.sh|require_duo_answered "env A unresolved-conflict plan" json'
-  'tests/certify/certify_merge.sh|require_duo_answered "env A final lint" json'
-  'tests/certify/certify_merge.sh|require_duo_answered "env B final lint" json'
+  'tests/certify/certify_merge.sh|require_wprism_answered "env B drift plan" json'
+  'tests/certify/certify_merge.sh|require_wprism_answered "env B apply with preserved local drift" human'
+  'tests/certify/certify_merge.sh|require_wprism_answered "env B retry plan after preserved drift" json'
+  'tests/certify/certify_merge.sh|require_wprism_answered "env A unresolved-conflict plan" json'
+  'tests/certify/certify_merge.sh|require_wprism_answered "env A final lint" json'
+  'tests/certify/certify_merge.sh|require_wprism_answered "env B final lint" json'
   'tests/certify/certify_adversarial_matrix.sh|require_observed_nonempty "A ledger local id after refused duplicate plan"'
   'tests/certify/certify_adversarial_matrix.sh|require_observed_nonempty "B ledger local id after refused duplicate plan"'
   'tests/certify/certify_adversarial_matrix.sh|require_fixture_ids LOC_LOCAL'
   'tests/certify/certify_adversarial_matrix.sh|require_observed_nonempty "restored ledger local id after identity import"'
-  'tests/certify/certify_merge.sh|require_duo_answered "B retry apply after capture" json'
-  'tests/certify/certify_merge.sh|require_duo_answered "B clean plan after retry" json'
+  'tests/certify/certify_merge.sh|require_wprism_answered "B retry apply after capture" json'
+  'tests/certify/certify_merge.sh|require_wprism_answered "B clean plan after retry" json'
   'tests/certify/certify_ssh_adoption_roundtrip.sh|require_observed_nonempty "target runtime checksum before apply"'
   'tests/certify/certify_ssh_adoption_roundtrip.sh|require_observed_nonempty "target runtime checksum after apply"'
   'tests/certify/certify_ssh_adoption_roundtrip.sh|require_observed_nonempty "target authored banner after apply"'
@@ -567,7 +567,7 @@ grep -Fq '[ -z "$(wp_conf2 post list --post_type=attachment --name=conformance-l
   || fail "the expected-empty attachment deletion predicate disappeared from the explicit exemption inventory"
 grep -Fq 'rollback-alpha --field=ID)' conformance/checks/core.sh \
   || fail "the expected-empty rollback deletion predicates disappeared from the explicit exemption inventory"
-grep -Fq 'SELECT uuid FROM wp_duo_map WHERE uuid' tests/certify/certify_adversarial_matrix.sh \
+grep -Fq 'SELECT uuid FROM wp_wprism_map WHERE uuid' tests/certify/certify_adversarial_matrix.sh \
   || fail "the expected-empty identity-map setup predicate disappeared from the explicit exemption inventory"
 grep -Fq 'git -C siterepo/certmatrix1 status --porcelain -- state' tests/certify/certify_adversarial_matrix.sh \
   || fail "the adversarial clean-repository observation exemption lost its direct git status evidence"

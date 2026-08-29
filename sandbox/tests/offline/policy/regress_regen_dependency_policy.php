@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3234's Policy.php-side wiring: regen_dependency() declaration
+ * issue #3234's Policy.php-side wiring: regen_dependency() declaration
  * lookup, validate_regen_dependencies() load-time shape checking, and
  * regenerators() manifest-shipped-PHP loading (the interpreter()-mirrored
  * trust boundary). Uses an explicit FAKE flat adapter library containing a
@@ -18,7 +18,7 @@
  * regress_snapshot_meta.sh/regress_shipping_zones.sh/regress_collision.sh
  * — all live, docker-based). sandbox/tests/live/regress_tec_regen.sh is that
  * live proof, including the hard-fail + marker-retry mechanics. Nor the
- * DUO-3360 digest binding of the regenerator FILE (a changed regenerator is a
+ * issue #3360 digest binding of the regenerator FILE (a changed regenerator is a
  * changed adapter): that row is built by two implementations that cannot call
  * each other, so it is pinned as one row in
  * sandbox/tests/offline/adapter/regress_actions_providers.php beside the interpreter/provider
@@ -28,7 +28,7 @@
  * and the script exits 1.
  */
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_regen_policy_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_regen_policy_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir . '/regenerators', 0777, true);
 register_shutdown_function(function () use ($fixtureDir) {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixtureDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -42,7 +42,7 @@ register_shutdown_function(function () use ($fixtureDir) {
 // (regenerate(int $localId): void) — records its calls for assertions.
 file_put_contents($fixtureDir . '/regenerators/fake-regen.php', <<<'PHP'
 <?php
-namespace Duo\Regenerators;
+namespace WPrism\Regenerators;
 final class FakeRegen {
     public static array $calls = [];
     public function __construct($policy) {}
@@ -58,15 +58,15 @@ require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
-use Duo\Policy;
+use WPrism\Policy;
 
-// DUO-3247: spec_version is now mandatory at Policy::load() — this file
-// never requires agent/duo.php, so DUO_SPEC_VERSION would otherwise be
+// issue #3247: spec_version is now mandatory at Policy::load() — this file
+// never requires agent/wprism.php, so WPRISM_SPEC_VERSION would otherwise be
 // undefined here (same fallback-define regress_adapter_contract.php uses).
 // Every fixture below must declare it just to get PAST that gate and reach
 // the regen_dependency checks this file actually exists to test.
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = 0;
@@ -104,7 +104,7 @@ echo "\n== regen_dependency() lookup ==\n";
 
 write_manifest($fixtureDir, 'a', [
     'name' => 'a',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
         'widget' => [
             'regen_dependency' => [
@@ -129,13 +129,13 @@ echo "\n== parent/child post-type declarations ==\n";
 // under more than one parent: the inverse API is plural and deterministic.
 write_manifest($fixtureDir, 'relations', [
     'name' => 'relations',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
-        'duo_album' => ['children' => ['duo_chapter', 'duo_asset']],
-        'duo_story' => ['children' => ['duo_chapter']],
-        'duo_chapter' => [],
-        'duo_asset' => [],
-        'duo_isolated' => [],
+        'wprism_album' => ['children' => ['wprism_chapter', 'wprism_asset']],
+        'wprism_story' => ['children' => ['wprism_chapter']],
+        'wprism_chapter' => [],
+        'wprism_asset' => [],
+        'wprism_isolated' => [],
     ],
 ]);
 $relationPolicy = manifest_fixture_policy_load($fixtureDir, null, ['relations']);
@@ -144,20 +144,20 @@ $hasRelationApi = method_exists($relationPolicy, 'child_post_types')
     && method_exists($relationPolicy, 'post_type_relation_closure');
 check($hasRelationApi, 'Policy exposes generic child, plural-parent, and bidirectional relation-closure APIs');
 if ($hasRelationApi) {
-    check($relationPolicy->child_post_types('duo_album') === ['duo_asset', 'duo_chapter'],
+    check($relationPolicy->child_post_types('wprism_album') === ['wprism_asset', 'wprism_chapter'],
         'parent children are sorted deterministically, independent of declaration order');
-    check($relationPolicy->child_post_types('duo_story') === ['duo_chapter'],
+    check($relationPolicy->child_post_types('wprism_story') === ['wprism_chapter'],
         'an unrelated declared parent returns only its manifest-declared child type');
-    check($relationPolicy->parent_post_types('duo_chapter') === ['duo_album', 'duo_story'],
+    check($relationPolicy->parent_post_types('wprism_chapter') === ['wprism_album', 'wprism_story'],
         'a shared child returns every declaring parent in sorted order');
-    check($relationPolicy->parent_post_types('duo_asset') === ['duo_album'],
+    check($relationPolicy->parent_post_types('wprism_asset') === ['wprism_album'],
         'plural inverse retains a one-parent relationship as a one-element array');
-    check($relationPolicy->parent_post_types('duo_isolated') === [],
+    check($relationPolicy->parent_post_types('wprism_isolated') === [],
         'a declared type without children has no inferred parent');
-    check($relationPolicy->post_type_relation_closure(['duo_story', 'duo_isolated'])
-        === ['duo_album', 'duo_asset', 'duo_chapter', 'duo_isolated', 'duo_story'],
+    check($relationPolicy->post_type_relation_closure(['wprism_story', 'wprism_isolated'])
+        === ['wprism_album', 'wprism_asset', 'wprism_chapter', 'wprism_isolated', 'wprism_story'],
         'relation closure walks child-to-parent and parent-to-child edges and retains every root');
-    check($relationPolicy->post_type_relation_closure(['duo_not_declared']) === ['duo_not_declared'],
+    check($relationPolicy->post_type_relation_closure(['wprism_not_declared']) === ['wprism_not_declared'],
         'an undeclared root is safely self-only rather than guessed from a product convention');
 }
 
@@ -166,10 +166,10 @@ if ($hasRelationApi) {
 // loading the manifest before any Apply query can infer a relation.
 write_manifest($fixtureDir, 'relation-invalid-shape', [
     'name' => 'relation-invalid-shape',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
-        'duo_parent' => ['children' => 'duo_child'],
-        'duo_child' => [],
+        'wprism_parent' => ['children' => 'wprism_child'],
+        'wprism_child' => [],
     ],
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-invalid-shape']), 'children',
@@ -177,33 +177,33 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-
 
 write_manifest($fixtureDir, 'relation-missing-child', [
     'name' => 'relation-missing-child',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
-        'duo_parent' => ['children' => ['duo_missing_child']],
+        'wprism_parent' => ['children' => ['wprism_missing_child']],
     ],
 ]);
-check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-missing-child']), 'duo_missing_child',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-missing-child']), 'wprism_missing_child',
     'a child type absent from post_types refuses at manifest load');
 
 write_manifest($fixtureDir, 'relation-duplicate-child', [
     'name' => 'relation-duplicate-child',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
-        'duo_parent' => ['children' => ['duo_child', 'duo_child']],
-        'duo_child' => [],
+        'wprism_parent' => ['children' => ['wprism_child', 'wprism_child']],
+        'wprism_child' => [],
     ],
 ]);
-check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-duplicate-child']), 'duo_child',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-duplicate-child']), 'wprism_child',
     'a duplicate child in one parent declaration refuses at manifest load');
 
 write_manifest($fixtureDir, 'relation-self-child', [
     'name' => 'relation-self-child',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
-        'duo_parent' => ['children' => ['duo_parent']],
+        'wprism_parent' => ['children' => ['wprism_parent']],
     ],
 ]);
-check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-self-child']), 'duo_parent',
+check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['relation-self-child']), 'wprism_parent',
     'a post type cannot declare itself as a child');
 
 // ======================================================================
@@ -211,7 +211,7 @@ echo "\n== validate_regen_dependencies() — load-time shape checking ==\n";
 
 write_manifest($fixtureDir, 'b', [
     'name' => 'b',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['verify' => ['table' => 't', 'column' => 'c']]]], // missing regenerator
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['b']), 'has no string regenerator',
@@ -221,7 +221,7 @@ unlink($fixtureDir . '/dispositions/b.json');
 
 write_manifest($fixtureDir, 'c', [
     'name' => 'c',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'x', 'verify' => ['table' => 't']]]], // missing column
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['c']), 'verify: {table:', 'missing verify.column refuses at load()');
@@ -231,7 +231,7 @@ unlink($fixtureDir . '/regenerators/x.php');
 
 write_manifest($fixtureDir, 'd', [
     'name' => 'd',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => '', 'verify' => ['table' => 't', 'column' => 'c']]]], // empty regenerator
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['d']), 'is not a canonical lowercase ASCII slug',
@@ -242,7 +242,7 @@ unlink($fixtureDir . '/dispositions/d.json');
 // A well-formed declaration must load cleanly (no false-positive refusal).
 write_manifest($fixtureDir, 'e', [
     'name' => 'e',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'fixture-regen', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 try {
@@ -254,7 +254,7 @@ try {
 
 write_manifest($fixtureDir, 'i', [
     'name' => 'i',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => [
         'regenerator' => 'i-regen',
         'verify' => ['table' => 't', 'column' => 'c'],
@@ -267,7 +267,7 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['i']), 'ca
 
 write_manifest($fixtureDir, 'j', [
     'name' => 'j',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => [
         'regenerator' => 'j-regen',
         'verify' => ['table' => 't', 'column' => 'c'],
@@ -279,7 +279,7 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['j']), 'co
 
 write_manifest($fixtureDir, 'k', [
     'name' => 'k',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => [
         'regenerator' => 'k-regen',
         'verify' => ['table' => 't', 'column' => 'c'],
@@ -296,13 +296,13 @@ echo "\n== regenerators() — manifest-shipped-PHP loading ==\n";
 $policy = manifest_fixture_policy_load($fixtureDir, null, ['a']);
 $regens = $policy->regenerators();
 check(isset($regens['fake-regen']), 'declared regenerator name is loaded and keyed correctly');
-check(get_class($regens['fake-regen']) === 'Duo\\Regenerators\\FakeRegen', 'CamelCase class-name transform matches the real class (hyphenated name)');
+check(get_class($regens['fake-regen']) === 'WPrism\\Regenerators\\FakeRegen', 'CamelCase class-name transform matches the real class (hyphenated name)');
 $regens['fake-regen']->regenerate(42);
-check(\Duo\Regenerators\FakeRegen::$calls === [42], 'the loaded instance is genuinely callable — regenerate() ran and recorded the call');
+check(\WPrism\Regenerators\FakeRegen::$calls === [42], 'the loaded instance is genuinely callable — regenerate() ran and recorded the call');
 
 write_manifest($fixtureDir, 'f', [
     'name' => 'f',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'two-word_name', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 // A "-" and "_" in the declared name must both CamelCase correctly. Create
@@ -310,7 +310,7 @@ write_manifest($fixtureDir, 'f', [
 // bytes before Policy sees a pin.
 file_put_contents($fixtureDir . '/regenerators/two-word_name.php', <<<'PHP'
 <?php
-namespace Duo\Regenerators;
+namespace WPrism\Regenerators;
 final class TwoWordName {
     public function __construct($policy) {}
     public function regenerate(int $localId): void {}
@@ -319,25 +319,25 @@ PHP
 );
 $policy2 = manifest_fixture_policy_load($fixtureDir, null, ['f']);
 $regens2 = $policy2->regenerators();
-check(isset($regens2['two-word_name']) && get_class($regens2['two-word_name']) === 'Duo\\Regenerators\\TwoWordName',
+check(isset($regens2['two-word_name']) && get_class($regens2['two-word_name']) === 'WPrism\\Regenerators\\TwoWordName',
     'a name mixing hyphen AND underscore CamelCases correctly (two-word_name -> TwoWordName), matching the file it resolves to');
 
 write_manifest($fixtureDir, 'g', [
     'name' => 'g',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'does-not-exist', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 manifest_fixture_adapter_library($fixtureDir);
 unlink($fixtureDir . '/regenerators/does-not-exist.php');
-check_throws(fn() => \Duo\AdapterLibrary::fromLegacyFlatDirectory($fixtureDir), 'missing=[does-not-exist]',
+check_throws(fn() => \WPrism\AdapterLibrary::fromLegacyFlatDirectory($fixtureDir), 'missing=[does-not-exist]',
     'the closed adapter library refuses a declared regenerator with no matching file');
 file_put_contents($fixtureDir . '/regenerators/does-not-exist.php', "<?php\n");
 
 // A regenerator file that exists but doesn't define the right class/method.
-file_put_contents($fixtureDir . '/regenerators/broken.php', "<?php\nnamespace Duo\\Regenerators;\nfinal class Broken {}\n");
+file_put_contents($fixtureDir . '/regenerators/broken.php', "<?php\nnamespace WPrism\\Regenerators;\nfinal class Broken {}\n");
 write_manifest($fixtureDir, 'h', [
     'name' => 'h',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['widget' => ['regen_dependency' => ['regenerator' => 'broken', 'verify' => ['table' => 't', 'column' => 'c']]]],
 ]);
 $policy4 = manifest_fixture_policy_load($fixtureDir, null, ['h']);
@@ -348,7 +348,7 @@ check_throws(fn() => $policy4->regenerators(), 'must define', 'a regenerator fil
 // validator back into Policy.php while the behavior suite remains green.
 $policySource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $manifestValidatorSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php');
-$postTypeGrammar = new \ReflectionClass('Duo\\PostTypeGrammar');
+$postTypeGrammar = new \ReflectionClass('WPrism\\PostTypeGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
     $postTypeGrammar->hasMethod('validate_regen_dependencies')

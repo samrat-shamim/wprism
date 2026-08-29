@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
- * Review artifact for classifying a large pre-Duo queue without pretending
+ * Review artifact for classifying a large pre-WPrism queue without pretending
  * old writes have journal proposals. The artifact contains no live values:
  * it is the already-redacted `pending` evidence plus explicit operator
  * decisions. A digest binds it to the exact queue that was reviewed, so an
@@ -13,15 +13,15 @@ namespace Duo\Orchestrator;
  */
 final class ClassificationBatch {
     /**
-     * v2 (DUO-3496). A v1 row carried class/ref/cast/allow_secret and nothing
+     * v2 (issue #3496). A v1 row carried class/ref/cast/allow_secret and nothing
      * else, so it could not express a COMPLETE decision: the site grammar
      * demands `autoload` on an options rule classed authored or managed and a
      * boolean `required` on one classed env
      * (agent/src/Grammar/OptionGrammar.php:76-96 and :42-56), and a filled v1
-     * batch therefore applied into a site.duo.json the very next `duo pending`
+     * batch therefore applied into a site.wprism.json the very next `wprism pending`
      * refused to load.
      *
-     * Bumped rather than extended in place, on DUO-3489's own test — absence
+     * Bumped rather than extended in place, on issue #3489's own test — absence
      * must not read as a decision. Under v1 a missing `autoload` is
      * ambiguous in exactly the way that precedent refuses: it can mean "the
      * reviewer left the field blank" or "the exporter never offered a field
@@ -32,10 +32,10 @@ final class ClassificationBatch {
      * `queue_sha256`, so the remedy is one re-export of a document nobody
      * keeps.
      */
-    public const FORMAT = 'duo-classification-batch/v2';
+    public const FORMAT = 'wprism-classification-batch/v2';
 
     /** The shape retired above; recognized by name so a stale artifact gets its own remedy. */
-    public const FORMAT_WITHOUT_STORAGE_DECISIONS = 'duo-classification-batch/v1';
+    public const FORMAT_WITHOUT_STORAGE_DECISIONS = 'wprism-classification-batch/v1';
 
     /**
      * The agent's option-storage vocabulary, restated because the
@@ -103,7 +103,7 @@ final class ClassificationBatch {
     public static function queueHash(array $items): string {
         $json = json_encode(self::normalize($items), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: could not encode the pending queue for classification-batch binding');
+            throw new \RuntimeException('wprism: could not encode the pending queue for classification-batch binding');
         }
         return hash('sha256', $json);
     }
@@ -111,22 +111,22 @@ final class ClassificationBatch {
     public static function encode(array $batch): string {
         $json = json_encode($batch, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: could not encode classification batch');
+            throw new \RuntimeException('wprism: could not encode classification batch');
         }
         return $json . "\n";
     }
 
     public static function load(string $path): array {
         if (!is_file($path)) {
-            throw new \RuntimeException("duo: classification batch not found: $path");
+            throw new \RuntimeException("wprism: classification batch not found: $path");
         }
         $raw = file_get_contents($path);
         if (!is_string($raw)) {
-            throw new \RuntimeException("duo: could not read classification batch: $path");
+            throw new \RuntimeException("wprism: could not read classification batch: $path");
         }
         $batch = json_decode($raw, true);
         if (!is_array($batch) || json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException("duo: invalid classification-batch JSON in $path: " . json_last_error_msg());
+            throw new \RuntimeException("wprism: invalid classification-batch JSON in $path: " . json_last_error_msg());
         }
         return $batch;
     }
@@ -142,21 +142,21 @@ final class ClassificationBatch {
             // not malformed, it is a form with missing fields, and no edit to
             // it can produce a complete decision.
             throw new \RuntimeException(
-                'duo: classification batch format ' . self::FORMAT_WITHOUT_STORAGE_DECISIONS
+                'wprism: classification batch format ' . self::FORMAT_WITHOUT_STORAGE_DECISIONS
                 . ' predates the per-class decision fields an options row must carry'
                 . ' (autoload for authored/managed, required for env); re-export the batch'
-                . ' (duo classify <env> --export-batch=<path>) and review the fresh artifact'
+                . ' (wprism classify <env> --export-batch=<path>) and review the fresh artifact'
             );
         }
         if (($batch['format'] ?? null) !== self::FORMAT) {
             throw new \RuntimeException(
-                "duo: unsupported classification batch format '" . (string) ($batch['format'] ?? '')
+                "wprism: unsupported classification batch format '" . (string) ($batch['format'] ?? '')
                 . "' (expected " . self::FORMAT . ')'
             );
         }
         if (($batch['environment'] ?? null) !== $environment) {
             throw new \RuntimeException(
-                "duo: classification batch is for environment '" . (string) ($batch['environment'] ?? '')
+                "wprism: classification batch is for environment '" . (string) ($batch['environment'] ?? '')
                 . "', not '$environment'"
             );
         }
@@ -164,11 +164,11 @@ final class ClassificationBatch {
         if (!is_string($batch['queue_sha256'] ?? null)
             || !hash_equals($currentHash, (string) $batch['queue_sha256'])) {
             throw new \RuntimeException(
-                "duo: classification batch is stale; pending queue is now $currentHash. Export and review a fresh batch."
+                "wprism: classification batch is stale; pending queue is now $currentHash. Export and review a fresh batch."
             );
         }
         if (!is_array($batch['decisions'] ?? null) || !array_is_list($batch['decisions'])) {
-            throw new \RuntimeException('duo: classification batch decisions must be a JSON list');
+            throw new \RuntimeException('wprism: classification batch decisions must be a JSON list');
         }
 
         $pending = [];
@@ -185,26 +185,26 @@ final class ClassificationBatch {
         $needAllowSecret = false;
         foreach ($batch['decisions'] as $i => $row) {
             if (!is_array($row)) {
-                throw new \RuntimeException("duo: classification batch decisions[$i] must be an object");
+                throw new \RuntimeException("wprism: classification batch decisions[$i] must be an object");
             }
             $section = self::requiredString($row, 'section', "decisions[$i]");
             $key = self::requiredString($row, 'key', "decisions[$i]");
             if (preg_match('/[;,=]/', $key)) {
                 throw new \RuntimeException(
-                    "duo: $section:$key cannot travel through wp duo classify's semicolon-joined --set grammar"
+                    "wprism: $section:$key cannot travel through wp wprism classify's semicolon-joined --set grammar"
                 );
             }
             $identity = $section . "\0" . $key;
             if (isset($seen[$identity])) {
-                throw new \RuntimeException("duo: duplicate classification decision for $section:$key");
+                throw new \RuntimeException("wprism: duplicate classification decision for $section:$key");
             }
             $seen[$identity] = true;
             if (!isset($pending[$identity])) {
-                throw new \RuntimeException("duo: classification decision $section:$key is not in the bound pending queue");
+                throw new \RuntimeException("wprism: classification decision $section:$key is not in the bound pending queue");
             }
             if (!in_array($section, ['options', 'post_meta', 'term_meta', 'user_meta', 'scope'], true)) {
                 throw new \RuntimeException(
-                    "duo: $section:$key requires a manifest/schema change and cannot be resolved by a site-policy classification batch"
+                    "wprism: $section:$key requires a manifest/schema change and cannot be resolved by a site-policy classification batch"
                 );
             }
 
@@ -218,7 +218,7 @@ final class ClassificationBatch {
                 : ['authored', 'runtime', 'derived', 'env', 'managed'];
             if (!is_string($class) || !in_array($class, $allowed, true)) {
                 throw new \RuntimeException(
-                    "duo: invalid class for $section:$key (expected " . implode('|', $allowed) . ')'
+                    "wprism: invalid class for $section:$key (expected " . implode('|', $allowed) . ')'
                 );
             }
             $decision = ['section' => $section, 'key' => $key, 'class' => $class];
@@ -226,7 +226,7 @@ final class ClassificationBatch {
                 $value = $row[$field] ?? null;
                 if ($value !== null && $value !== '') {
                     if (!is_string($value)) {
-                        throw new \RuntimeException("duo: $section:$key $field must be a string or null");
+                        throw new \RuntimeException("wprism: $section:$key $field must be a string or null");
                     }
                     $decision[$field] = $value;
                 }
@@ -234,24 +234,24 @@ final class ClassificationBatch {
             if ($section === 'scope') {
                 if (!preg_match('/^(post_type|taxonomy):.+$/', $key)) {
                     throw new \RuntimeException(
-                        "duo: scope key '$key' must be post_type:<name> or taxonomy:<name>"
+                        "wprism: scope key '$key' must be post_type:<name> or taxonomy:<name>"
                     );
                 }
                 if (isset($decision['ref']) || isset($decision['cast'])) {
-                    throw new \RuntimeException("duo: scope:$key accepts class only (no ref or cast)");
+                    throw new \RuntimeException("wprism: scope:$key accepts class only (no ref or cast)");
                 }
             } else {
                 if (isset($decision['ref'])
                     && !preg_match('/^(post|term|user)(\[\])?$/', $decision['ref'])) {
                     throw new \RuntimeException(
-                        "duo: invalid ref '{$decision['ref']}' for $section:$key "
+                        "wprism: invalid ref '{$decision['ref']}' for $section:$key "
                         . '(expected post|term|user, optionally suffixed with [])'
                     );
                 }
                 if (isset($decision['cast'])
                     && !in_array($decision['cast'], ['string', 'csv'], true)) {
                     throw new \RuntimeException(
-                        "duo: invalid cast '{$decision['cast']}' for $section:$key (expected string|csv)"
+                        "wprism: invalid cast '{$decision['cast']}' for $section:$key (expected string|csv)"
                     );
                 }
             }
@@ -260,16 +260,16 @@ final class ClassificationBatch {
                 : null;
             $allowSecret = $row['allow_secret'] ?? false;
             if (!is_bool($allowSecret)) {
-                throw new \RuntimeException("duo: $section:$key allow_secret must be boolean");
+                throw new \RuntimeException("wprism: $section:$key allow_secret must be boolean");
             }
             if ($allowSecret && ($class !== 'authored' || $secret === null)) {
                 throw new \RuntimeException(
-                    "duo: $section:$key sets allow_secret without an authored, secret-flagged pending item"
+                    "wprism: $section:$key sets allow_secret without an authored, secret-flagged pending item"
                 );
             }
             if ($class === 'authored' && $secret !== null && !$allowSecret) {
                 throw new \RuntimeException(
-                    "duo: refusing authored decision for secret-flagged $section:$key ($secret); set allow_secret=true in the reviewed row"
+                    "wprism: refusing authored decision for secret-flagged $section:$key ($secret); set allow_secret=true in the reviewed row"
                 );
             }
             if ($allowSecret) {
@@ -292,14 +292,14 @@ final class ClassificationBatch {
         if ($incomplete) {
             sort($incomplete, SORT_STRING);
             throw new \RuntimeException(
-                'duo: classification batch is incomplete; every bound pending item needs an explicit class:'
+                'wprism: classification batch is incomplete; every bound pending item needs an explicit class:'
                 . "\n  - " . implode("\n  - ", $incomplete)
             );
         }
         if ($undecided) {
             sort($undecided, SORT_STRING);
             throw new \RuntimeException(
-                'duo: classification batch is incomplete; these reviewed decisions still need the field the'
+                'wprism: classification batch is incomplete; these reviewed decisions still need the field the'
                 . " site grammar demands before the rule can load:\n  - " . implode("\n  - ", $undecided)
             );
         }
@@ -308,9 +308,9 @@ final class ClassificationBatch {
 
     /**
      * The per-class completion an options rule needs, decided here rather
-     * than discovered by the target (DUO-3496).
+     * than discovered by the target (issue #3496).
      *
-     * `wp duo classify` writes into site.duo.json, and every later
+     * `wp wprism classify` writes into site.wprism.json, and every later
      * Policy::load() runs OptionGrammar over what it wrote: an options rule
      * classed authored or managed without `autoload` and one classed env
      * without a boolean `required` are both refused there. Reading a blank
@@ -328,7 +328,7 @@ final class ClassificationBatch {
         if ($section !== 'options') {
             if ($autoload !== null || $required !== null) {
                 throw new \RuntimeException(
-                    "duo: $section:$key sets autoload/required, which belong only to an options rule"
+                    "wprism: $section:$key sets autoload/required, which belong only to an options rule"
                 );
             }
             return ['fields' => [], 'undecided' => null];
@@ -340,12 +340,12 @@ final class ClassificationBatch {
         $needsAutoload = in_array($class, self::CLASSES_NEEDING_AUTOLOAD, true);
         if ($autoload !== null && !$needsAutoload) {
             throw new \RuntimeException(
-                "duo: options:$key sets autoload with class=$class; the storage flag is read only for authored and managed option rules"
+                "wprism: options:$key sets autoload with class=$class; the storage flag is read only for authored and managed option rules"
             );
         }
         if ($required !== null && $class !== 'env') {
             throw new \RuntimeException(
-                "duo: options:$key sets required with class=$class; the provisioning decision is read only for env option rules"
+                "wprism: options:$key sets required with class=$class; the provisioning decision is read only for env option rules"
             );
         }
         if ($needsAutoload) {
@@ -357,7 +357,7 @@ final class ClassificationBatch {
             if (!is_string($autoload)
                 || !in_array($autoload, array_merge(self::OPTION_AUTOLOAD_SENTINELS, self::OPTION_AUTOLOAD_VALUES), true)) {
                 throw new \RuntimeException(
-                    "duo: invalid autoload '" . (is_scalar($autoload) ? (string) $autoload : gettype($autoload))
+                    "wprism: invalid autoload '" . (is_scalar($autoload) ? (string) $autoload : gettype($autoload))
                     . "' for options:$key (expected "
                     . implode('|', array_merge(self::OPTION_AUTOLOAD_SENTINELS, self::OPTION_AUTOLOAD_VALUES)) . ')'
                 );
@@ -373,7 +373,7 @@ final class ClassificationBatch {
             }
             if (!is_bool($required)) {
                 throw new \RuntimeException(
-                    "duo: options:$key required must be true or false, not "
+                    "wprism: options:$key required must be true or false, not "
                     . (is_scalar($required) ? "'" . (string) $required . "'" : gettype($required))
                 );
             }
@@ -385,7 +385,7 @@ final class ClassificationBatch {
     private static function requiredString(array $row, string $field, string $where): string {
         $value = $row[$field] ?? null;
         if (!is_string($value) || $value === '') {
-            throw new \RuntimeException("duo: $where.$field must be a non-empty string");
+            throw new \RuntimeException("wprism: $where.$field must be a non-empty string");
         }
         return $value;
     }

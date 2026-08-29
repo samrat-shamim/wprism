@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
@@ -41,7 +41,7 @@ final class PostCapture {
 
         if ((string) $post->post_password !== '') {
             throw new \RuntimeException(
-                "duo: protected {$post->post_type} '{$post->post_name}' (post $id) has post_password; "
+                "wprism: protected {$post->post_type} '{$post->post_name}' (post $id) has post_password; "
                 . 'spec v2 has no portable secret representation for post passwords, so capture refuses it'
             );
         }
@@ -77,7 +77,7 @@ final class PostCapture {
             $parent = $this->tokens->id_to_token((int) $post->post_parent, 'post');
             if ($parent === null) {
                 throw new \RuntimeException(
-                    "duo: post {$post->post_name} has unmanaged parent post {$post->post_parent} — capture scope must include it"
+                    "wprism: post {$post->post_name} has unmanaged parent post {$post->post_parent} — capture scope must include it"
                 );
             }
         }
@@ -147,7 +147,7 @@ final class PostCapture {
             $secretLabel = Secrets::hard_match_deep($decoded);
             if ($secretLabel !== null) {
                 throw new \RuntimeException(
-                    "duo: $context contains a $secretLabel; refusing to capture serialized authored configuration"
+                    "wprism: $context contains a $secretLabel; refusing to capture serialized authored configuration"
                 );
             }
             $body = serialize($this->tokens->plain_data_capture($decoded));
@@ -165,7 +165,7 @@ final class PostCapture {
             $context = "{$post->post_type} '{$post->post_name}'";
             $rule = $this->policy->body_ref_rule((string) $post->post_type)
                 ?? throw new \RuntimeException(
-                    "duo: $context declares body=" . BodyRefGrammar::BODY_MODE . ' but no body_refs paths are '
+                    "wprism: $context declares body=" . BodyRefGrammar::BODY_MODE . ' but no body_refs paths are '
                     . 'loaded for it — the manifest that declared the mode is not the manifest that is pinned'
                 );
             $body = BodyRefGrammar::capture(

@@ -1,5 +1,5 @@
 {
-    "assess_digest": "sha256:5e407955d806114e80a46403fa62b417cbaee9db2848c24a8611db75b5d1379c",
+    "assess_digest": "sha256:e21f5af7f2d0d6953658605ce3a36845449fbe8f1a8fc2e626fd8f1abde97975",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
@@ -18,7 +18,7 @@
         },
         "registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },
-    "format": "duo-assess-report/v1",
+    "format": "wprism-assess-report/v1",
     "generated_at": "2026-08-17T09:14:02Z",
     "surfaces": [
         {
@@ -27,7 +27,7 @@
             "id": "post_type:product",
             "kind": "post_type",
             "label": "post_type:product",
-            "meaning": "authored catalog content Duo manages end to end",
+            "meaning": "authored catalog content WPrism manages end to end",
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
@@ -40,7 +40,7 @@
                     "effect_recovery_semantics": "provider-state restorable",
                     "gap_action": "nothing — supported",
                     "handling": "manage",
-                    "meaning": "authored catalog content Duo manages end to end",
+                    "meaning": "authored catalog content WPrism manages end to end",
                     "readiness": "Ready",
                     "remediation": null,
                     "state_class": "authored"

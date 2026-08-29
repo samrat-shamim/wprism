@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
@@ -34,7 +34,7 @@ final class Journal {
      * ordinary WordPress/plugin bootstrap has completed.  A plugin/provider
      * may still have written during bootstrap, but this prevents the journal
      * query hook from turning that request's buffer (or a later callback) into
-     * a Duo-owned INSERT at shutdown.
+     * a WPrism-owned INSERT at shutdown.
      */
     private static bool $observationSuspended = false;
 
@@ -43,14 +43,14 @@ final class Journal {
             return;
         }
         self::$booted = true;
-        // DUO_JOURNAL (wp-config.php) is the deployment-time switch, but it's
+        // WPRISM_JOURNAL (wp-config.php) is the deployment-time switch, but it's
         // sourced from WORDPRESS_CONFIG_EXTRA and eval()'d fresh every
         // request straight from the container's environment — nothing
         // reachable at runtime (file edits, wp-cli, opcache invalidation)
         // can override it without recreating the container. This option is
         // a live kill switch for the same effect (e.g. overhead A/B
         // measurement) without needing that.
-        if (get_option('duo_journal_disabled')) {
+        if (get_option('wprism_journal_disabled')) {
             return;
         }
         // The one door that DECLINES instead of refusing. boot() runs inside
@@ -60,13 +60,13 @@ final class Journal {
         // the verbs, which refuse loudly through
         // SiteTopology::assert_single_site(). What declining prevents is
         // concrete: the shutdown flush reaches Ledger::ensure() (:116) and its
-        // four `CREATE TABLE IF NOT EXISTS {$wpdb->prefix}duo_*`
+        // four `CREATE TABLE IF NOT EXISTS {$wpdb->prefix}wprism_*`
         // (agent/src/Repository/Ledger.php:81-105) against the SERVING blog's
-        // prefix, so an enabled DUO_JOURNAL seeded a `wp_N_duo_*` set on every
+        // prefix, so an enabled WPRISM_JOURNAL seeded a `wp_N_wprism_*` set on every
         // blog that served a write -- residue no rollback removes
         // (cli/src/Onboarding/Adopt.php's rollbackScript() restores filesystem
         // paths only, and there is no DROP TABLE anywhere in the shipped tree).
-        // Fixed at the mechanism rather than at duo.php's opt-in condition so
+        // Fixed at the mechanism rather than at wprism.php's opt-in condition so
         // every caller of boot(), adapter observation included, inherits it.
         if (function_exists('is_multisite') && is_multisite()) {
             return;
@@ -95,7 +95,7 @@ final class Journal {
             return $sql;
         }
         $tbl = self::unprefix($tbl);
-        if (str_starts_with($tbl, 'duo_')) {
+        if (str_starts_with($tbl, 'wprism_')) {
             return $sql;
         }
         $ctx = self::context();
@@ -134,7 +134,7 @@ final class Journal {
                 array_push($params, $r[0], $r[1], $r[2], $r[3], $r[4], $r[5], $r[6], $r[7], $r[8]);
             }
             Db::query($wpdb->prepare(
-                "INSERT INTO {$wpdb->prefix}duo_journal (t, op, tbl, item, surface, actor, caps, hook, proposal) VALUES "
+                "INSERT INTO {$wpdb->prefix}wprism_journal (t, op, tbl, item, surface, actor, caps, hook, proposal) VALUES "
                 . implode(',', $values),
                 $params
             ), 'journal flush observations');
@@ -285,7 +285,7 @@ final class Journal {
             || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_var')) {
             return 'unusable';
         }
-        $table = $wpdb->prefix . 'duo_journal';
+        $table = $wpdb->prefix . 'wprism_journal';
         $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
         $readError = $wpdb->last_error ?? '';
         // A failed probe is not evidence that the table is absent: reporting
@@ -330,7 +330,7 @@ final class Journal {
         global $wpdb;
         $rows = $wpdb->get_results(
             "SELECT tbl, item, surface, caps, proposal, COUNT(*) AS n
-             FROM {$wpdb->prefix}duo_journal
+             FROM {$wpdb->prefix}wprism_journal
              GROUP BY tbl, item, surface, caps, proposal
              ORDER BY tbl, item, surface",
             ARRAY_A
@@ -392,7 +392,7 @@ final class Journal {
                 'message' => 'a failed journal read is not evidence that the journal is empty',
                 'remediation' => 'restore readable provenance state before reading its aggregate evidence',
             ]],
-            'duo: provenance journal aggregate SELECT failed'
+            'wprism: provenance journal aggregate SELECT failed'
         );
     }
 

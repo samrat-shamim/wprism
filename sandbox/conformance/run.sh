@@ -10,15 +10,15 @@
 # paths below remain the package fallback while the other adapters migrate:
 #   conformance/seeds/<name>.sh        conf1 only, before capture: author
 #                                       the manifest's representative content.
-#   conformance/postdeploy/<name>.sh   conf2 only, strictly after `wp duo
-#                                       deploy` and strictly before `duo
+#   conformance/postdeploy/<name>.sh   conf2 only, strictly after `wp wprism
+#                                       deploy` and strictly before `wprism
 #                                       apply`: fixups that need conf2's
 #                                       plugin genuinely ACTIVE, which only
 #                                       becomes true once deploy runs (conf2
 #                                       arrives at the seed step with plugin
 #                                       FILES only — install_env's
 #                                       role=target). Motivating case (task
-#                                       DUO-3223): a plugin's OWN activation
+#                                       issue #3223): a plugin's OWN activation
 #                                       hook can mint default content
 #                                       independently on each side with no
 #                                       natural key for apply to converge on
@@ -61,8 +61,8 @@
 #
 # Usage: bash sandbox/conformance/run.sh <manifest-name>
 # Set CONF_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) to bind the sweep to an
-# exact agent/manifests commit (DUO-3377's gate — see below, before reset).
-# Set CONF_RECORD_VECTOR=<file> to leave a replayable `duo-conformance-vector/v1`
+# exact agent/manifests commit (issue #3377's gate — see below, before reset).
+# Set CONF_RECORD_VECTOR=<file> to leave a replayable `wprism-conformance-vector/v1`
 # document behind (WP-2.7, conformance/record-vector.sh — recorded only after
 # the round-trip acceptance passes, replayed offline by
 # sandbox/tests/offline/capture/regress_conformance_vector_replay.php).
@@ -103,9 +103,9 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 # The premise/answer assertion helpers the seeds and postdeploy hooks call
-# (require_fixture_ids/values/state, require_duo_answered) live in the shared
+# (require_fixture_ids/values/state, require_wprism_answered) live in the shared
 # fragment: TWO harnesses source those hooks (this one and
-# sandbox/tests/certify/certify_version_matrix.sh), and DUO-3408 is what happens when
+# sandbox/tests/certify/certify_version_matrix.sh), and issue #3408 is what happens when
 # a helper reaches only one of them. Full doctrine in the fragment itself.
 . conformance/asserts.sh
 
@@ -160,9 +160,9 @@ fi
 # hooks inherit explicit platform-only authority. Named integration scenarios
 # set their declared participant context independently of this platform lane.
 if [ -f "../adapter-packages/$MANIFEST/evidence/artifacts.lock.json" ]; then
-  export DUO_ARTIFACT_PACKAGE="$MANIFEST"
+  export WPRISM_ARTIFACT_PACKAGE="$MANIFEST"
 elif [ "$MANIFEST" = core ] || [ "$MANIFEST" = fse ]; then
-  export DUO_ARTIFACT_PLATFORM_ONLY=1
+  export WPRISM_ARTIFACT_PLATFORM_ONLY=1
 fi
 jq -e '
   (.plugins | type == "array") and
@@ -194,7 +194,7 @@ esac
 # responds to): a real port collision there would otherwise surface as an
 # opaque `docker compose up` failure instead of this explicit, named cause.
 if [ "$CONF_PAIR" = "conf" ]; then
-  if docker ps --format '{{.Names}}' | grep -qE 'duo-sandbox-wp-conf[12]-1'; then
+  if docker ps --format '{{.Names}}' | grep -qE 'wprism-sandbox-wp-conf[12]-1'; then
     CONF1_PORT=8840
     CONF2_PORT=8841
     echo "note: legacy conf1/conf2 containers are still running — using fallback ports $CONF1_PORT/$CONF2_PORT instead of 8806/8807" >&2
@@ -203,14 +203,14 @@ if [ "$CONF_PAIR" = "conf" ]; then
     CONF2_PORT="${CONF2_PORT:-8807}"
   fi
 fi
-WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+WORDPRESS_OFFLINE="${WPRISM_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
   0|1) ;;
-  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+  *) fail "WPRISM_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
 esac
-export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
-COMPOSE="docker compose -p duo-${CONF_PAIR} -f pair.yml -f pair.http.yml -f pair.artifacts.yml"
-PAIR_COMPOSE=(docker compose -p "duo-${CONF_PAIR}" -f pair.yml -f pair.http.yml -f pair.artifacts.yml)
+export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+COMPOSE="docker compose -p wprism-${CONF_PAIR} -f pair.yml -f pair.http.yml -f pair.artifacts.yml"
+PAIR_COMPOSE=(docker compose -p "wprism-${CONF_PAIR}" -f pair.yml -f pair.http.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--http --artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
   COMPOSE="$COMPOSE -f pair.wordpress-offline.yml"
@@ -224,15 +224,15 @@ validate_artifact_library \
 # Package checks run as child shells. Pin the repository root explicitly so
 # the exported artifact helpers never try to derive it from BASH_SOURCE after
 # function export has detached them from bin/artifact-library.sh.
-DUO_ARTIFACT_LIBRARY_ROOT="$(cd .. && pwd)"
-export DUO_ARTIFACT_LIBRARY_ROOT
+WPRISM_ARTIFACT_LIBRARY_ROOT="$(cd .. && pwd)"
+export WPRISM_ARTIFACT_LIBRARY_ROOT
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
   # The disposable site repo is jointly managed by host-side Git and the
   # container's uid-33 wp-cli process. Give files created by conformance wp
   # commands a cooperative umask so the host can diff/remove capture output
-  # on native Linux bind mounts. This wraps only the test harness; Duo's
+  # on native Linux bind mounts. This wraps only the test harness; WPrism's
   # production process umask and permission policy remain untouched.
   $COMPOSE run --rm -T "cli${side}" sh -c 'umask 000; exec wp "$@"' sh "$@"
 }
@@ -241,35 +241,35 @@ wp_conf2() { wp_env conf2 "$@"; }
 # pair.sh set these for ITS OWN compose invocations while bringing the pair
 # up, but that was a separate process — its exports die with it. Every one
 # of run.sh's own $COMPOSE calls below creates a fresh --rm container
-# (never a persistent one), so pair.yml's ${DUO_PAIR}/${DUO_PORT1}/
-# ${DUO_PORT2} interpolation (WORDPRESS_DB_NAME among them) needs these set
+# (never a persistent one), so pair.yml's ${WPRISM_PAIR}/${WPRISM_PORT1}/
+# ${WPRISM_PORT2} interpolation (WORDPRESS_DB_NAME among them) needs these set
 # in THIS shell too, every time — confirmed the hard way: without this,
-# WORDPRESS_DB_NAME silently resolved to "wp_1" (DUO_PAIR defaulting to an
+# WORDPRESS_DB_NAME silently resolved to "wp_1" (WPRISM_PAIR defaulting to an
 # empty string) instead of "wp_conf1", surfacing only as a generic "Error
 # establishing a database connection" from wp-cli, not a missing-variable
 # warning that would have pointed straight at the cause.
-export DUO_PAIR="$CONF_PAIR" DUO_PORT1="$CONF1_PORT" DUO_PORT2="$CONF2_PORT"
+export WPRISM_PAIR="$CONF_PAIR" WPRISM_PORT1="$CONF1_PORT" WPRISM_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
 export -f wp_env wp_conf1 wp_conf2 say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
-  require_duo_answered capture_duo_json_success require_observed_nonempty \
+  require_wprism_answered capture_wprism_json_success require_observed_nonempty \
   establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
   artifact_library_repo_root artifact_library_package_context artifact_library_participant_context \
   artifact_library_platform_context artifact_library_platform_emit artifact_library_emit \
   validate_artifact_library artifact_library_jq
 
-# DUO-3377: a sweep IS evidence, so it must be able to state which
+# issue #3377: a sweep IS evidence, so it must be able to state which
 # agent/manifests bytes produced it. CONF_EXPECTED_SOURCE_SHA=$(git rev-parse
 # HEAD) binds this run to that exact commit: pair.sh's own gate then refuses
 # below — before `reset` DROP/CREATEs either database and before any container
 # starts — unless the source it is about to mount is that commit, clean (see
 # pair.sh's assert_candidate_source for the canonical default and the explicit
-# DUO_SOURCE_ROOT worktree override). Exported rather
-# than passed as an argument for the same process-boundary reason DUO_PAIR/
-# DUO_PORT1/DUO_PORT2 are exported above: pair.sh is a subprocess here, and
+# WPRISM_SOURCE_ROOT worktree override). Exported rather
+# than passed as an argument for the same process-boundary reason WPRISM_PAIR/
+# WPRISM_PORT1/WPRISM_PORT2 are exported above: pair.sh is a subprocess here, and
 # `reset` accepts no flags at all. Unset leaves every sweep byte-identical.
 if [ -n "${CONF_EXPECTED_SOURCE_SHA:-}" ]; then
-  export DUO_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"
+  export WPRISM_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"
 fi
 # Every wp_env call below is a fresh direct Compose process. Keep the selected
 # mounts in this shell so another pair's teardown cannot rewrite shared .env
@@ -292,7 +292,7 @@ normalize_archive_root() { # normalize_archive_root <env> <plugin|theme> <slug> 
     theme) base=/var/www/html/wp-content/themes ;;
     *) fail "invalid extension kind for archive-root normalization" ;;
   esac
-  $COMPOSE run --rm -T "cli${side}" sh /duo-harness/artifact-archive-root.sh \
+  $COMPOSE run --rm -T "cli${side}" sh /wprism-harness/artifact-archive-root.sh \
     "$base" "$archive_root" "$slug" \
     || fail "could not normalize pinned $kind archive root $archive_root to $slug on $env"
 }
@@ -309,15 +309,15 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
   # install + activate + setup hook, same as always — capture must see the
   # fully-set-up environment.
   #
-  # role=target (conf2) is the actual promotion target `wp duo deploy`
+  # role=target (conf2) is the actual promotion target `wp wprism deploy`
   # reconciles later (see the "deploy conf2" step below, after the clone):
   # plugin FILES only, no --activate, no setup hook. Pre-activating conf2
-  # here too (the old behavior, before this restructure) made `duo
+  # here too (the old behavior, before this restructure) made `wprism
   # apply`'s job artificially easy — activation state already matched
   # canonical before deploy ever ran, so conformance never actually
   # exercised deploy's reconciliation. This is bug #2's fix.
   local env="$1" role="$2" side="${1#conf}" spec slug version artifact archive_root installed_version
-  wp_env "$env" option update blogname "Duo ${env} (${MANIFEST})"
+  wp_env "$env" option update blogname "WPrism ${env} (${MANIFEST})"
   wp_env "$env" site empty --yes
   if [ "${#PLUGINS[@]}" -gt 0 ]; then
     for spec in "${PLUGINS[@]}"; do
@@ -383,7 +383,7 @@ echo "$ENTRY" | jq '{
   manifests: .pin,
   policy: {options: {}, post_meta: {}, post_types: .post_types, taxonomies: .taxonomies},
   spec_version: 2
-}' > "$R1"/site.duo.json
+}' > "$R1"/site.wprism.json
 cp site-repo.gitignore.template "$R1"/.gitignore
 git -C "$R1" init -q -b main
 git -C "$R1" remote add origin "../origin-${CONF_PAIR}.git"
@@ -394,13 +394,13 @@ say "seed representative authored content on conf1 ($SEED)"
 bash "$SEED"
 
 say "capture conf1 into the site repo"
-wp_conf1 duo capture --repo=/siterepo
+wp_conf1 wprism capture --repo=/siterepo
 git -C "$R1" add -A
-git -C "$R1" -c user.name=duo -c user.email=duo@example.test commit -qm "capture: seeded $MANIFEST content on conf1"
+git -C "$R1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "capture: seeded $MANIFEST content on conf1"
 git -C "$R1" push -qu origin main
 
 # --- suspicious-ref lint gate ------------------------------------------------
-# Generalized suspicious-ref linter (agent/src/Review/Lint.php / `wp duo lint`):
+# Generalized suspicious-ref linter (agent/src/Review/Lint.php / `wp wprism lint`):
 # flags ref-shaped values that reached canonical state without a declared
 # rewrite path — exactly the blind spot the byte-diff acceptance checks
 # below cannot see (the FSE, Polylang and Elementor frontier explorations
@@ -408,7 +408,7 @@ git -C "$R1" push -qu origin main
 # all in-tree manifests run clean against it; a finding here means either a
 # manifest gap or a genuinely dangling/unrewritten ref — both are failures.
 say "lint conf1's captured state (hard gate)"
-# `wp duo lint --format=json` exits 1 when it HAS findings (Cli.php's
+# `wp wprism lint --format=json` exits 1 when it HAS findings (Cli.php's
 # lint() prints the findings array, then WP_CLI::halt(1)) — that's the
 # ordinary, expected non-zero outcome for the "found suspicious refs" case
 # this whole gate exists to catch, which is why a bare `|| true` used to
@@ -422,26 +422,26 @@ say "lint conf1's captured state (hard gate)"
 # JSON array — a crash can't fake that (every code path that prints
 # anything to stdout at all prints the findings array, nothing else).
 LINT_RC=0
-LINT_OUT=$(wp_conf1 duo lint --repo=/siterepo --format=json) || LINT_RC=$?
+LINT_OUT=$(wp_conf1 wprism lint --repo=/siterepo --format=json) || LINT_RC=$?
 LINT_JSON=$(printf '%s\n' "$LINT_OUT" | tail -1)
 if ! printf '%s\n' "$LINT_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
   printf '%s\n' "$LINT_OUT"
-  fail "wp duo lint crashed or produced malformed output (exit $LINT_RC, manifest: $MANIFEST) — expected a JSON array as the last line of output; raw output above"
+  fail "wp wprism lint crashed or produced malformed output (exit $LINT_RC, manifest: $MANIFEST) — expected a JSON array as the last line of output; raw output above"
 fi
 LINT_N=$(printf '%s\n' "$LINT_JSON" | jq 'length')
 if [ "$LINT_RC" != "0" ] && [ "$LINT_N" = "0" ]; then
   printf '%s\n' "$LINT_OUT"
-  fail "wp duo lint exited $LINT_RC but its own output claims 0 findings (manifest: $MANIFEST) — inconsistent, treating as a crash rather than trusting it"
+  fail "wp wprism lint exited $LINT_RC but its own output claims 0 findings (manifest: $MANIFEST) — inconsistent, treating as a crash rather than trusting it"
 fi
 if [ "$LINT_N" != "0" ]; then
   echo "$LINT_JSON" | jq .
-  fail "wp duo lint found $LINT_N suspicious ref(s) in captured state (manifest: $MANIFEST)"
+  fail "wp wprism lint found $LINT_N suspicious ref(s) in captured state (manifest: $MANIFEST)"
 fi
 echo "lint: clean, 0 findings"
 # --- end lint gate -----------------------------------------------------------
 
 say "acceptance: capture is deterministic (capture twice, zero diff)"
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r "$R1"/state "$R1"/.tmp-state2 || fail "capture is not deterministic"
 rm -rf "$R1"/.tmp-state2
 pass "capture-twice diff is empty"
@@ -458,15 +458,15 @@ fi
 
 if [ "$MODE" = "capture-plan" ]; then
   say "capture-plan acceptance: reviewed operations are reachable without claiming apply"
-  CAPABILITY_JSON=$(wp_conf1 duo capabilities --repo=/siterepo --operation=capture --format=json | awk 'NF { line=$0 } END { print line }')
-  require_duo_answered "conf1 duo capabilities --operation=capture" json "$CAPABILITY_JSON"
+  CAPABILITY_JSON=$(wp_conf1 wprism capabilities --repo=/siterepo --operation=capture --format=json | awk 'NF { line=$0 } END { print line }')
+  require_wprism_answered "conf1 wprism capabilities --operation=capture" json "$CAPABILITY_JSON"
   printf '%s\n' "$CAPABILITY_JSON" | jq -e '
     (.manifests | type == "array" and length > 0) and
     all(.manifests[]; (.operations | index("capture")) != null)
   ' >/dev/null || fail "capture capability report does not expose capture for every pinned adapter"
 
-  PLAN_JSON=$(wp_conf1 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-  require_duo_answered "conf1 duo plan after deterministic capture" json "$PLAN_JSON"
+  PLAN_JSON=$(wp_conf1 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_wprism_answered "conf1 wprism plan after deterministic capture" json "$PLAN_JSON"
   printf '%s\n' "$PLAN_JSON" | jq -e '
     type == "object" and
     (.create | type == "array") and
@@ -488,17 +488,17 @@ REV=$(git -C "$R2" rev-parse HEAD)
 # plugin FILES only, no activation, no setup hook (install_env's
 # role=target) — this is the step that actually reconciles activation/
 # theme state from canonical, via real activate_plugin()/switch_theme()
-# calls (Deploy.php), deliberately outside `duo apply`'s hook-free canary.
+# calls (Deploy.php), deliberately outside `wprism apply`'s hook-free canary.
 # Must run after conf2's clone (it reads canonical from THIS environment's
 # /siterepo, pair.yml mounts "$R2" there — not conf1's) and
-# before `duo apply` (spec ordering: deploy code -> reconcile activation ->
+# before `wprism apply` (spec ordering: deploy code -> reconcile activation ->
 # migrations fire as an activation side effect -> THEN apply state).
-say "deploy conf2 from canonical (wp duo deploy) — the real promotion path"
+say "deploy conf2 from canonical (wp wprism deploy) — the real promotion path"
 DEPLOY_RC=0
-DEPLOY_OUT=$(wp_conf2 duo deploy --repo=/siterepo --format=json) || DEPLOY_RC=$?
+DEPLOY_OUT=$(wp_conf2 wprism deploy --repo=/siterepo --format=json) || DEPLOY_RC=$?
 if [ "$DEPLOY_RC" != "0" ]; then
   echo "$DEPLOY_OUT"
-  fail "wp duo deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
+  fail "wp wprism deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
 fi
 echo "$DEPLOY_OUT" | jq .
 pass "deploy succeeded on conf2"
@@ -548,7 +548,7 @@ case "$SETUP" in
     # WooCommerce is active on conf2 now (deploy, just above). HPOS is a
     # feature FLAG, not activation state, so deploy (activation/theme only)
     # never owns it. Re-run Woo's idempotent new-shop lifecycle and verify
-    # both the selected store and physical table. Must happen before `duo apply` below:
+    # both the selected store and physical table. Must happen before `wprism apply` below:
     # apply is about to write order data, and it needs to land in whichever
     # storage backend HPOS selects — same reason conf1 needed it enabled
     # before its seed authored any orders.
@@ -576,10 +576,10 @@ ADOPT_BY_SLUG=terms,posts
 if [ "$MANIFEST" = core ] || [ "$MANIFEST" = polylang ]; then
   ADOPT_BY_SLUG=terms,posts,menus
 fi
-capture_duo_json_success \
+capture_wprism_json_success \
   APPLY_JSON \
-  "conf2 duo apply" \
-  wp_conf2 duo apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" \
+  "conf2 wprism apply" \
+  wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" \
   --default-author=admin --revision="$REV" --json
 export APPLY_JSON
 echo "$APPLY_JSON" | jq .
@@ -598,13 +598,13 @@ if [ -f "$POSTAPPLY" ]; then
 fi
 
 say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null
 diff -r "$R1"/state "$R2"/.tmp-conf2state || fail "round-trip mismatch between conf1 and conf2 for manifest '$MANIFEST'"
 pass "canonical state identical across environments"
 
 # Optional vector recording (WP-2.7). A FLAG on this harness, never a second
-# harness: the four things a `duo-conformance-vector/v1` document holds — the
-# live rows, conf1's duo_map, a duo-adapter-probe/v1 read off this same pinned
+# harness: the four things a `wprism-conformance-vector/v1` document holds — the
+# live rows, conf1's wprism_map, a wprism-adapter-probe/v1 read off this same pinned
 # target, and both canonical trees — exist only here, only now, and only
 # because the acceptance diff above just passed. Placed BEFORE the recapture is
 # removed for that last reason: a recorder that re-derived the recapture would

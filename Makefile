@@ -16,7 +16,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-unadopt
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
-.PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
+.PHONY: regress-init-command regress-init-contract regress-wprism-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live regress-local-verified-rollback-live
 .PHONY: regress-identity-token-codec
 .PHONY: regress-pair-budget-lock regress-pair-compose-unit regress-pair-db-engine regress-proof-legacy-pair
@@ -64,7 +64,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
 	regress-adapter-package-current-paths \
 	regress-multisite-refusal regress-polylang-tec-rewrite-coinstall regress-polylang-live-fixtures regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification regress-certificate-axis-binding regress-cross-root-replay \
-	regress-post-field-classification regress-init-contract regress-duo-init regress-duo3316-contract \
+	regress-post-field-classification regress-init-contract regress-wprism-init regress-reference-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
 	regress-lint-host-verb regress-lint-type-exemptions \
 	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
@@ -133,7 +133,7 @@ grind-r1a:
 grind-r1b:
 	bash sandbox/tests/grind/grind_r1b_shop.sh
 
-# DUO-3337: the full ecommerce developer proof is live-only and deliberately
+# issue #3337: the full ecommerce developer proof is live-only and deliberately
 # outside regress-offline-all.  Require an explicit disposable pair and free
 # ports so an accidental `make grind-ecommerce-developer-live` cannot consume
 # the shared Docker/MariaDB budget or collide with another agent.
@@ -174,7 +174,8 @@ pair-list:
 # around. Own sandbox/bin/pair.sh pair (r3b1 :8852 / r3b2 :8853, journal
 # on) — NOT the legacy sandbox/docker-compose.yml. The script is the spec;
 # the engine gaps this round escalated are recorded in the note strings of
-# manifests/the-events-calendar.json and manifests/paid-memberships-pro.json.
+# adapter-packages/the-events-calendar/package/manifest.json and
+# adapter-packages/paid-memberships-pro/package/manifest.json.
 grind-r3b:
 	bash sandbox/tests/grind/grind_r3b_events.sh
 
@@ -183,33 +184,34 @@ grind-r3b:
 # pages/category/pa_color terms/one product, per-language menus, an
 # UNTRANSLATED variable product (pa_size x pa_color, 4 variations). Own
 # sandbox/bin/pair.sh pair (r3a1 :8850 / r3a2 :8851) — NOT the legacy
-# sandbox/docker-compose.yml. The script is the spec; manifests/polylang.json's
-# own notes carry what this round confirmed live.
+# sandbox/docker-compose.yml. The script is the spec;
+# adapter-packages/polylang/package/manifest.json's own notes carry what this
+# round confirmed live.
 grind-r3a:
 	bash sandbox/tests/grind/grind_r3a_multilingual.sh
 
 regress-natural-key-rename:
 	php sandbox/tests/offline/repository/regress_natural_key_rename.php
 
-# Certify merge (DUO-3228): permanentizes spike_b_merge.sh's divergent-edit
+# Certify merge (issue #3228): permanentizes spike_b_merge.sh's divergent-edit
 # + conflict + resolve + converge flow as a re-runnable LOCAL regression
 # fixture (own sandbox/bin/pair.sh pair, "mergecert" 8860/8861, headless) —
 # extended with a typed-snapshot table-entity conflict
 # (woocommerce_attribute_taxonomies) and a negative test against the real
-# repository semantic compiler's conflict_marker diagnostic (DUO-3208).
+# repository semantic compiler's conflict_marker diagnostic (issue #3208).
 # Gate is local evidence, not CI, per commit 1efb6df (the conformance CI
 # workflow is disabled by owner decision). See sandbox/tests/
 # certify_merge.sh's header for full scope: what's proven here vs.
 # explicitly routed elsewhere (add/add same-slug rejection is unblocked now
-# that DUO-3208 landed, but stays out of this fixture per the issue's own
-# routing to DUO-3223's matrix).
+# that issue #3208 landed, but stays out of this fixture per the issue's own
+# routing to issue #3223's matrix).
 certify-merge:
 	bash sandbox/tests/certify/certify_merge.sh
 
-# DUO-3228, rebuilt at DUO-3487: the cross-branch plugin-version-skew merge —
+# issue #3228, rebuilt at issue #3487: the cross-branch plugin-version-skew merge —
 # the scenario certify-merge above deliberately routes away from itself, and
-# the one #478 left UNCOVERED when it deleted the duo-loop-demo fixture this
-# was originally built on. Rebuilt on the retained duo-agency-cpt fixture
+# the one #478 left UNCOVERED when it deleted the wprism-loop-demo fixture this
+# was originally built on. Rebuilt on the retained wprism-agency-cpt fixture
 # plugin (code-bound through the site repo's own code/ tree) with the
 # migrated option classified by site policy, so no shipped manifest byte
 # moves. Own pair (a3487sk 8986/8987 by default, parameterized:
@@ -217,18 +219,18 @@ certify-merge:
 certify-version-skew-merge:
 	bash sandbox/tests/certify/certify_version_skew_merge.sh
 
-# DUO-3223 (adversarial certification matrix): cases that don't belong to
+# issue #3223 (adversarial certification matrix): cases that don't belong to
 # any single capability's own certification fixture. PART 1 (add/add
 # same-slug -> RepositoryCompiler's duplicate_natural_identity) was routed
-# here explicitly by certify_merge.sh/DUO-3228's own scope note. PART 2
+# here explicitly by certify_merge.sh/issue #3228's own scope note. PART 2
 # (restored-target disaster recovery: fail closed on lost ledger history,
 # then identity-export/identity-import to a clean, byte-identical
-# continuation) proves DUO-3223's own "fresh/mapped/restored target" axis.
+# continuation) proves issue #3223's own "fresh/mapped/restored target" axis.
 # See the script's own header for full detail.
 certify-adversarial-matrix:
 	bash sandbox/tests/certify/certify_adversarial_matrix.sh
 
-# DUO-3223 slice 4 (--with-deletes scenarios): the three manifests with real
+# issue #3223 slice 4 (--with-deletes scenarios): the three manifests with real
 # deletion boundaries on plugin-owned typed-snapshot tables, beyond core's
 # own (checks/core.sh). WooCommerce and Ninja Forms prove explicit fail-closed
 # parent boundaries, Ninja Forms also proves its independently safe child-row
@@ -237,18 +239,18 @@ certify-adversarial-matrix:
 certify-deletion-matrix:
 	bash sandbox/tests/certify/certify_deletion_matrix.sh
 
-# DUO-3223's own last remaining piece (version-boundary matrix), unblocked
+# issue #3223's own last remaining piece (version-boundary matrix), unblocked
 # by the owner ruling on artifact sourcing (issue comment 0ec1d2e3): installs
 # ACF from a sha256-verified wp.org artifact (never a bare slug, never
 # "latest") at BOTH its manifest-declared version_range boundaries, proving
 # the range is backed by real evidence at its own edges, not just whatever
 # version every other fixture happens to have installed. First real plugin
-# only -- see the script's own header for why, and DUO-3223 for the
+# only -- see the script's own header for why, and issue #3223 for the
 # remaining 6 pinned manifests as their own next slice.
 certify-version-matrix:
 	bash sandbox/tests/certify/certify_version_matrix.sh
 
-# DUO-3213 (atomic capture publication): offline, no docker -- exercises
+# issue #3213 (atomic capture publication): offline, no docker -- exercises
 # agent/src/Publication/Publish.php's capture lock, staging dir, atomic swap, and crash
 # recovery directly, including a real SIGKILL of a child process mid-
 # publish. See the script's own header for what is/isn't covered here vs.
@@ -257,27 +259,28 @@ certify-version-matrix:
 regress-capture-publish:
 	php sandbox/tests/offline/capture/regress_capture_publish.php
 
-# DUO-3231: code_drift detection (Deploy::code_drift(), a narrower question
+# issue #3231: code_drift detection (Deploy::code_drift(), a narrower question
 # than code_mismatch — did an installed plugin/theme version change since
-# the last successful 'duo deploy'/'duo capture', regardless of whether the
+# the last successful 'wprism deploy'/'wprism capture', regardless of whether the
 # new version is still within a pinned version_range) + the advisory
-# DISALLOW_FILE_MODS `duo doctor` check. Own pair.sh pair ("codedrift"
+# DISALLOW_FILE_MODS `wprism doctor` check. Own pair.sh pair ("codedrift"
 # 8862/8863, headless). Uses WordPress core's own bundled Hello Dolly
 # plugin — zero network installs.
 regress-code-drift:
 	bash sandbox/tests/live/regress_code_drift.sh
 
-# DUO-3233 (sub-key option classification): a fresh, from-scratch pair
+# issue #3233 (sub-key option classification): a fresh, from-scratch pair
 # (sandbox/bin/pair.sh, asub3233 8910/8911) — Polylang's `post_types`/
 # `taxonomies`/`nav_menus` and Yoast's `disableadvanced_meta` sub-keys of
 # their respective env-classified option blobs now capture/apply
 # independently, merging into the live blob without clobbering excluded
-# sibling keys. See manifests/polylang.json's and manifests/yoast.json's
-# own notes for the full empirical trail.
+# sibling keys. See adapter-packages/polylang/package/manifest.json's and
+# adapter-packages/yoast/package/manifest.json's own notes for the full
+# empirical trail.
 regress-option-subkeys:
 	bash sandbox/tests/live/regress_option_subkeys.sh
 
-# DUO-3211: explicit absent/present/deleted option records, exact autoload,
+# issue #3211: explicit absent/present/deleted option records, exact autoload,
 # conflict/delete safety, database assertions, recapture, and retry.
 regress-option-reconciliation:
 	bash sandbox/tests/live/regress_option_reconciliation.sh
@@ -312,7 +315,7 @@ regress-core-scope-platform:
 
 # Exact database engine matrix: one full round trip per CLAIMED engine on that
 # engine's own shared server (sandbox/db.yml's MariaDB 11 and
-# sandbox/db.mysql.yml's MySQL 8.4, selected with DUO_DB_ENGINE), carrying the
+# sandbox/db.mysql.yml's MySQL 8.4, selected with WPRISM_DB_ENGINE), carrying the
 # five probe groups docs/mysql-dialect-audit.md derived from the shipped SQL in
 # its stated order — §5 authentication FIRST, then GET_LOCK bounds, the
 # VALUES(col) upserts through the real lease CAS, the planted non-JSON lease
@@ -327,7 +330,7 @@ regress-core-scope-database:
 regress-attachment-portability:
 	bash sandbox/tests/live/regress_attachment_portability.sh
 
-# DUO-3206: offline wpdb return semantics plus a live, isolated failure-
+# issue #3206: offline wpdb return semantics plus a live, isolated failure-
 # injection matrix for insert/update/delete/transactions/rebuild-actions/ledger.
 regress-fatal-mutations-unit:
 	bash sandbox/tests/offline/apply/regress_fatal_mutations_unit.sh
@@ -335,7 +338,7 @@ regress-fatal-mutations-unit:
 regress-fatal-mutations-live:
 	bash sandbox/tests/live/regress_fatal_mutations_live.sh
 
-# DUO-3222 (version-pinned adapter compatibility contract): Policy::load()'s
+# issue #3222 (version-pinned adapter compatibility contract): Policy::load()'s
 # new validators, Policy::theme_ranges(), and RepositoryCompiler's
 # per-manifest digest/resolved_adapters() — pure PHP, offline, no docker
 # (same idiom as regress-capture-publish above). See the script's own
@@ -349,8 +352,8 @@ regress-adapter-contract:
 # this target, the Makefile and tools/offline-corpus.mk stay byte-identical.
 # Only tools/offline.php's checked changed-run command line may delegate an
 # explicit scenario task. An ambient variable cannot weaken the canonical gate.
-ifneq ($(origin DUO_OFFLINE_DELEGATED_SCENARIOS),command line)
-unexport DUO_OFFLINE_DELEGATED_SCENARIOS
+ifneq ($(origin WPRISM_OFFLINE_DELEGATED_SCENARIOS),command line)
+unexport WPRISM_OFFLINE_DELEGATED_SCENARIOS
 endif
 regress-adapter-packages:
 	php sandbox/tests/offline/adapter/regress_adapter_packages.php
@@ -361,13 +364,21 @@ regress-adapter-packages:
 # require no central Makefile edit. Explicit engine/scenario targets below win
 # normally; an unknown compatibility name refuses in the resolver.
 .PHONY: adapter-package-make-force
-regress-%: export DUO_ADAPTER_PACKAGE_MAKE_TARGET = $@
+regress-%: export WPRISM_ADAPTER_PACKAGE_MAKE_TARGET = $@
 regress-%: adapter-package-make-force
+	php tools/adapter-package-make-target.php --target-from-make
+
+# Package-owned spikes use the same basename-derived compatibility dispatch as
+# package regressions. Explicit root spikes above win for the shared historical
+# scenarios; `spike-e` deliberately aggregates ACF's capsule-owned
+# spike_e_acf.sh through this rule.
+spike-%: export WPRISM_ADAPTER_PACKAGE_MAKE_TARGET = $@
+spike-%: adapter-package-make-force
 	php tools/adapter-package-make-target.php --target-from-make
 
 adapter-package-make-force:
 
-# DUO-3223/recertification: pinned artifact downloads retry transient curl
+# issue #3223/recertification: pinned artifact downloads retry transient curl
 # failures at most three times, while digest mismatches and exhausted
 # failures remain fail-closed with only the partial temp file removed.
 regress-fetch-artifact:
@@ -378,20 +389,21 @@ regress-manifest-dispositions:
 
 # WP-4.4 (spec § v3.4): the reviewed claim source moved from one
 # manifests/dispositions.json to one document per subject under
-# manifests/dispositions/, and NOT ONE ADAPTER DIGEST MOVED. Pins all 16
-# shipped digests, manifest_hash and registry_sha256 as literals captured from
-# the pre-split tree; measures each enumerated Canon-encoding hazard (a nested
-# list re-ordered and a UTF-8 reason re-composed MOVE a digest; map key order
-# does not; int/float is the one a digest cannot catch, so the census asserts
-# the reviewed source holds no number at all); and re-runs every per-entry,
-# root, profile and coverage refusal from the split form in its existing
-# wording.
+# manifests/dispositions/, and NOT ONE ADAPTER DIGEST MOVED. The historical
+# pre-split tree had 16 subjects; the current WPrism baseline has 17 and is
+# pinned separately. The suite pins the historical 16-subject digests,
+# manifest_hash and registry_sha256 as literals captured from that tree;
+# measures each enumerated Canon-encoding hazard (a nested list re-ordered and
+# a UTF-8 reason re-composed MOVE a digest; map key order does not; int/float is
+# the one a digest cannot catch, so the census asserts the reviewed source
+# holds no number at all); and re-runs every per-entry, root, profile and
+# coverage refusal from the split form in its existing wording.
 regress-disposition-split:
 	php sandbox/tests/offline/policy/regress_disposition_split.php
 
 # WP-4.6 (spec § v3.5): a spec_version 3 adapter narrows its capability claim to
 # the boundary cells it was exercised on; a WIDER cell refuses by name; the key
-# is inert at v2, so all 16 shipped claims stay byte-identical; and every
+# is inert at v2, so all 17 currently shipped claims stay byte-identical; and every
 # load-time refusal in PlatformCompatibility::assert_supported() -- all five
 # axes, #560's process axis included -- still fires with a narrowing adapter
 # projected, because narrowing scopes the CLAIM and not the runtime.
@@ -418,7 +430,7 @@ regress-topology-gate:
 	php sandbox/tests/offline/policy/regress_topology_gate.php
 
 # The v3 static dry run: what each candidate spec-v3 rule would refuse today,
-# measured against all 16 shipped manifests plus the synthetic estate, with
+# measured against all 17 shipped manifests plus the synthetic estate, with
 # every rule input read from the shipped constants the v3 code will consult.
 regress-spec-v3-dry-run:
 	php sandbox/tests/offline/policy/regress_spec_v3_dry_run.php
@@ -434,13 +446,12 @@ regress-spec-v3-dry-run:
 regress-spec-v3-document:
 	php sandbox/tests/offline/policy/regress_spec_v3_document.php
 
-# WP-4.12 -- THE FLIP's central invariant: DUO_SPEC_VERSION 2 -> 3 moved
-# nothing a deployed site holds. All 16 adapter digests and manifest_hash for
-# seven representative pin sets are compared against FROZEN pre-flag fixtures
-# captured before the defines moved (never regenerated since; the fixture's own
-# sha256 is a literal in the suite). Plus what the flip DID move -- the platform
-# inside every capability claim -- and the hand-mixed bundle (v3 agent, v2
-# platform.json) refusing at the shipped platform_boundary sentence.
+# WP-4.12 -- THE FLIP's current WPrism identity baseline. The current 17
+# subject digests, manifest_hash values for seven representative pin sets,
+# registry address and frozen-policy snapshot are compared against the explicit
+# greenfield fixture (the fixture and its sha256 are literals in the suite).
+# The suite also proves the platform-only mutation refusals: a hand-mixed bundle
+# (v3 agent, v2 platform.json) refuses at the shipped platform_boundary sentence.
 regress-spec-v3-digest-neutrality:
 	php sandbox/tests/offline/policy/regress_spec_v3_digest_neutrality.php
 
@@ -453,7 +464,7 @@ regress-spec-migration-verbs:
 
 # WP-4.2: the spec_version acceptance window (§ v3.1) and the engine_features
 # channel (§ v3.2). Probes ONE set of manifests against two engines -- this
-# process at the shipped DUO_SPEC_VERSION, and a child process that defines N+1
+# process at the shipped WPRISM_SPEC_VERSION, and a child process that defines N+1
 # -- because a spec version is a define() and a PHP process holds one of those,
 # and because the channel's admitting half is only reachable at N+1 before the
 # flip. Also runs the release-gate floor check against a mutated copy, so the
@@ -465,7 +476,7 @@ regress-spec-window:
 # CLOSED at spec_version 3 and open at v2, from ONE definition shared with the
 # signer. Two engines and two trees -- a child process at N+1 for the verdict
 # matrix, and a copied tree whose two defines move with platform.json for the
-# empirical baseline through `duo manifest-validate`: [ok] at v2 and [error]
+# empirical baseline through `wprism manifest-validate`: [ok] at v2 and [error]
 # naming the key at v3, on identical fixture bytes. Also runs the release-gate
 # same-set check against a mutated copy, so the gate is proven to bite.
 regress-closed-top-level-keys:
@@ -473,10 +484,10 @@ regress-closed-top-level-keys:
 
 # WP-6.4: `declaration_evidence` (spec/repo-format.md § v3.13), the FIRST
 # grammar section shipped after v3 -- through the engine_features channel, with
-# DUO_SPEC_VERSION left at 3 and asserted in the same run. Walks the three
+# WPRISM_SPEC_VERSION left at 3 and asserted in the same run. Walks the three
 # verdicts on a section v3 did not have (admitted / refused by FEATURE name /
 # refused as a typo), the section's own closed grammar, and both halves of the
-# deferral: the shipped library cannot adopt it without moving 16 digests, so
+# deferral: the shipped library cannot adopt it without moving 17 digests, so
 # the prose grep in regress_shipped_option_declarations.php stays and the schema
 # check covers fixtures and out-of-tree adapters.
 regress-structured-evidence:
@@ -501,7 +512,7 @@ regress-site-adapter-certification:
 # rider exists for -- an agent PATCH release that moves agent_version, an axis
 # note and one already-exercised PHP patch leaves the certificate VALID -- is
 # driven through a CHILD process, because one PHP process holds one
-# DUO_AGENT_VERSION and "the agent released" is not otherwise expressible.
+# WPRISM_AGENT_VERSION and "the agent released" is not otherwise expressible.
 regress-certificate-axis-binding:
 	php sandbox/tests/offline/adapter/regress_certificate_axis_binding.php
 
@@ -515,13 +526,13 @@ regress-certificate-axis-binding:
 # signature are fixed vectors so no certificate in the field moves, and opening
 # the lane later is a POLICY flip -- which is register row R-28 and gate G5's
 # condition 7 (spec/repo-format.md § v3.11). The manifest slot is driven in a
-# CHILD process at DUO_SPEC_VERSION N+1: the closed key set is gated at
+# CHILD process at WPRISM_SPEC_VERSION N+1: the closed key set is gated at
 # spec_version 3 and a spec version is a define().
 regress-v3-reservations:
 	php sandbox/tests/offline/adapter/regress_v3_reservations.php
 
 # WP-5.3 / spec/repo-format.md § v3.17: the signing profile that accepts a
-# disposition the AUTHOR wrote. `duo adapter certify --ratification-file`
+# disposition the AUTHOR wrote. `wprism adapter certify --ratification-file`
 # replaces sign_site()'s derivation and NOTHING else -- every semantic rule is
 # still ManifestDispositions::validate_external_entry(), reached through the
 # same chain the derived floor goes through, so the refusal matrix here is
@@ -628,8 +639,8 @@ regress-graded-claim:
 # limitation ledger with tools/engine-gaps.json (whose closed-gap rows also
 # assert the implementations they cite are still on disk), the irreversibility
 # register with the signature domains, closed key sets and grammars the
-# refusals consult, the classmap with agent/src, the offline corpus
-# include with the suite files on disk, and the computed evidence grades with
+# refusals consult, the public API snapshot and classmap with agent/src, the
+# offline corpus include with the suite files on disk, and the computed evidence grades with
 # the three evidence records they are arithmetic over (WP-5.4: a grade is
 # re-derived on every run and never stored as a verdict somebody edits).
 release-gate:
@@ -637,6 +648,7 @@ release-gate:
 	php tools/provider-protocol-doc.php --check
 	php tools/engine-gap-doc.php --check
 	php tools/wire-surface.php --check
+	php tools/api-surface.php --check
 	php tools/classmap-generate.php --check
 	php tools/offline-corpus.php --check
 	php tools/adapter-kit.php --check
@@ -650,12 +662,13 @@ regress-multisite-refusal:
 regress-polylang-tec-rewrite-coinstall:
 	bash integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh
 
-# DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
-# pure PHP fixture manifests/interpreters, no WordPress or docker.
+# issue #3262: optional term/user interpreter hooks plus static-policy fallback;
+# pure PHP adapter-package runtime/interpreter fixtures, no WordPress or
+# docker.
 regress-interpreter-policy:
 	php sandbox/tests/offline/policy/regress_interpreter_policy.php
 
-# DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
+# issue #3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
 # theme (twentytwentyfour, zero network installs) via `wp eval` — no
 # site-repo/plan/apply pipeline needed, since code_mismatch() is a plain
@@ -663,7 +676,7 @@ regress-interpreter-policy:
 regress-adapter-theme-range:
 	bash sandbox/tests/live/regress_adapter_theme_range.sh
 
-# DUO-3487: the PLUGIN twin of the theme leg above, rebuilding the live proof
+# issue #3487: the PLUGIN twin of the theme leg above, rebuilding the live proof
 # #478 removed with spike_g_code.sh. Asserts code_mismatch()'s plugin row
 # field by field in both directions against bundled plugins (akismet and the
 # legacy single-file hello.php, zero network installs), including the
@@ -673,14 +686,14 @@ regress-adapter-theme-range:
 regress-adapter-plugin-range:
 	bash sandbox/tests/live/regress_adapter_plugin_range.sh
 
-# DUO-3266/DUO-3275: menu-item meta capture used to read a fixed 8-key
+# issue #3266/issue #3275: menu-item meta capture used to read a fixed 8-key
 # allowlist and silently drop everything else, never reaching the
 # unclassified-meta gate ordinary post_meta already has. Live, own pair
 # (asub3275 8954/8955): runs the FULL canonical loud-gate -> pending ->
 # classify -> clean-capture cycle (not just capture-time refusal) — a fake
-# mega-menu plugin's meta key refuses capture, surfaces in `wp duo pending`
-# under section=post_meta with nav_menu_item in post_types (DUO-3275: not a
-# dead-end 'menu_item_meta' section), classifies via the exact `wp duo
+# mega-menu plugin's meta key refuses capture, surfaces in `wp wprism pending`
+# under section=post_meta with nav_menu_item in post_types (issue #3275: not a
+# dead-end 'menu_item_meta' section), classifies via the exact `wp wprism
 # classify --set` syntax pending suggests, then captures/applies/round-trips
 # across two independent environments with real token resolution.
 regress-menu-item-meta-gate:
@@ -689,7 +702,7 @@ regress-menu-item-meta-gate:
 regress-widgets:
 	bash sandbox/tests/live/regress_widgets.sh
 
-# DUO-3216: offline host-orchestrator state-machine contract — one compiled
+# issue #3216: offline host-orchestrator state-machine contract — one compiled
 # artifact, pre-checkpoint lease, retire -> activate -> apply ordering, stop-on-first-
 # failure, exact cleanup, and serialized transport-shaped restore instructions.
 regress-promotion-unit:
@@ -702,7 +715,7 @@ regress-promotion-unit:
 regress-lifecycle-options-snapshot:
 	php sandbox/tests/offline/code-half/regress_lifecycle_options_snapshot.php
 
-# Fatal-safe control-plane bootstrap: DUO_JOURNAL must not call WordPress
+# Fatal-safe control-plane bootstrap: WPRISM_JOURNAL must not call WordPress
 # option/filter APIs before after_wp_config_load has loaded the normal runtime.
 regress-journal-bootstrap:
 	php sandbox/tests/offline/recovery/regress_journal_bootstrap.php
@@ -717,18 +730,18 @@ code-half-unit: regress-repository-compiler regress-code-revision-enforcement re
 regress-repository-compiler:
 	bash sandbox/tests/offline/repository/regress_repository_compiler.sh
 
-# DUO-3316: generalized taxonomy object keyspaces, full description
+# issue #3316: generalized taxonomy object keyspaces, full description
 # json_refs/key_refs, attached structured-meta sidecar variants/two-sidecar
 # refusal, load-time refusal matrices, frozen-policy parity, and compiler
 # raw-id portability gates.
-regress-duo3316-contract:
-	php sandbox/tests/offline/grammar/regress_duo3316_contract.php
+regress-reference-contract:
+	php sandbox/tests/offline/grammar/regress_reference_contract.php
 
 regress-coverage-offline:
 	php sandbox/tests/offline/assess-contract/regress_coverage_offline.php
 
 # Live: needs an already-up pair with WooCommerce active, e.g.
-#   DUO_PAIR=mypair make regress-coverage
+#   WPRISM_PAIR=mypair make regress-coverage
 regress-coverage:
 	bash sandbox/tests/live/regress_coverage.sh
 
@@ -750,7 +763,7 @@ regress-capture-atomicity:
 regress-capture-record-readback:
 	php sandbox/tests/offline/capture/regress_capture_record_readback.php
 
-# WP-2.7: replay a recorded duo-conformance-vector/v1 through the real engine
+# WP-2.7: replay a recorded wprism-conformance-vector/v1 through the real engine
 # (FakeWpdb seeded from the recorded rows, FrozenPolicy loading the adapter),
 # and prove the replay verdict is a DISTINCT, WEAKER word than the live
 # conformance verdict the vector was recorded under. Recording is a flag on
@@ -764,7 +777,7 @@ regress-action-scope:
 regress-provider-contract:
 	php sandbox/tests/offline/adapter/regress_provider_contract.php
 
-# DUO-3338: the structured native-action vocabulary and the plugin-owned
+# issue #3338: the structured native-action vocabulary and the plugin-owned
 # provider contract. One target, two harnesses (see the wrapper's header):
 # the load-time half never stubs a WordPress function, the runtime half stubs
 # exactly the lifecycle primitives negotiation reads. regress-provider-contract
@@ -779,13 +792,13 @@ regress-core-rewrite-native-action:
 regress-wp-cli-child-process:
 	php sandbox/tests/offline/guards/regress_wp_cli_child_process.php
 
-# DUO-3338 live counterpart: a custom sandbox plugin advertising its OWN
-# provider through the `duo_providers` filter, negotiated and invoked against a
+# issue #3338 live counterpart: a custom sandbox plugin advertising its OWN
+# provider through the `wprism_providers` filter, negotiated and invoked against a
 # real target. Own pair, so it is live-list material, never offline-all.
 regress-provider-contract-live:
 	bash sandbox/tests/live/regress_provider_contract_live.sh
 
-# DUO-3340 live adapter-authoring exercise: controlled plugin source, journal /
+# issue #3340 live adapter-authoring exercise: controlled plugin source, journal /
 # pending review, inert host draft, shipped-manifest graduation, and provider /
 # native-action target convergence. Own disposable pair; never part of the
 # offline count.
@@ -795,31 +808,31 @@ regress-adapter-authoring-live:
 
 adapter-authoring-exercise: regress-adapter-authoring-live
 
-# DUO-3348 first extraction slice: ManifestGrammar (table/widget declaration
+# issue #3348 first extraction slice: ManifestGrammar (table/widget declaration
 # grammar out of Policy.php), OFFLINE (no WordPress, DB, providers, or docker)
 # — belongs in regress-offline-all and its count.
 regress-manifest-grammar:
 	php sandbox/tests/offline/policy/regress_manifest_grammar.php
 
-# DUO-3345 (#189): value-free plan category summaries, OFFLINE (no WordPress,
+# issue #3345 (#189): value-free plan category summaries, OFFLINE (no WordPress,
 # DB, providers, or docker) — belongs in regress-offline-all and its count.
 regress-plan-category-summary:
 	php sandbox/tests/offline/cli/regress_plan_category_summary.php
 
-# DUO-3345 (#189): the LIVE counterpart. Its own pair +
+# issue #3345 (#189): the LIVE counterpart. Its own pair +
 # PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2 — belongs in regress-live-list, NEVER
 # the offline count.
 regress-plan-category-summary-live:
 	bash sandbox/tests/live/regress_plan_category_summary_live.sh
 
-# DUO-3345 (bounded plan-view slice): offline proof of the explicit
+# issue #3345 (bounded plan-view slice): offline proof of the explicit
 # same-snapshot filtered projection, canonical AND/OR request grammar,
 # UUID ordering/cap, value-free references, full safety/readiness evidence,
 # host validation/legacy refusal, and control-byte-safe new itemization.
 regress-plan-view:
 	php sandbox/tests/offline/cli/regress_plan_view.php
 
-# DUO-3317 live counterpart: a provider whose declared `requires` names an
+# issue #3317 live counterpart: a provider whose declared `requires` names an
 # environment this target does not have refuses before the first mutation, then
 # the identical apply against the shipped adapter (which declares no such
 # requirement) converges. Bundle-free — the requirement is supplied through a
@@ -828,7 +841,7 @@ regress-plan-view:
 regress-provider-requirements-live:
 	bash sandbox/tests/live/regress_provider_requirements_live.sh
 
-# DUO-3318: ownership of the engine's closed manifest vocabularies, the safe
+# issue #3318: ownership of the engine's closed manifest vocabularies, the safe
 # extension points around them, and the parent-scoped multi-column natural key
 # they were written down for. A second adapter is the fixture: every negative
 # is a well-formed manifest reaching into another manifest's entities or
@@ -836,25 +849,26 @@ regress-provider-requirements-live:
 regress-vocabulary-ownership:
 	php sandbox/tests/offline/policy/regress_vocabulary_ownership.php
 
-# DUO-3374: the close gate's squash-parent count, header-scoped — proven
+# issue #3374: the close gate's squash-parent count, header-scoped — proven
 # against scratch commits including the message-body shape that false-failed
 # a live close (see the suite's own header).
 regress-close-gate-parent-count:
 	bash sandbox/tests/offline/guards/regress_close_gate_parent_count.sh
 
-# DUO-3327: `duo manifest-validate`, the adapter author's offline grammar check,
+# issue #3327: `wprism manifest-validate`, the adapter author's offline grammar check,
 # and the machine-readable grammar document it emits from the engine's own
 # closed vocabularies. Drives the real host CLI as a subprocess against scratch
-# manifest fixtures (shared with the DUO-3318 ownership suite), against scratch
-# site repos (the two guards that read site.duo.json as input, asserted both
-# ways), and against the shipped manifests/ directory with and without --site.
+# manifest fixtures (shared with the issue #3318 ownership suite), against scratch
+# site repos (the two guards that read site.wprism.json as input, asserted both
+# ways), and against the shipped adapter-package and platform-library sources
+# with and without --site.
 # Authoring aid, not a gate on anything.
 regress-manifest-validate:
 	bash sandbox/tests/offline/policy/regress_manifest_validate.sh
 
-# WP-2.4(a): `duo lint-tree`, the linter as a WordPress-free host verb. Drives
-# the REAL `wp duo lint` handler (through a WP_CLI stub) and the REAL host
-# binary as a subprocess over one recorded duo-lint-environment/v1 transcript,
+# WP-2.4(a): `wprism lint-tree`, the linter as a WordPress-free host verb. Drives
+# the REAL `wp wprism lint` handler (through a WP_CLI stub) and the REAL host
+# binary as a subprocess over one recorded wprism-lint-environment/v1 transcript,
 # and compares raw stdout bytes both ways. One child run poisons get_option()/
 # untrailingslashit()/$wpdb to throw, so "WordPress-free" is asserted
 # positively. The one class a host process cannot perform (WordPress's block
@@ -871,7 +885,7 @@ regress-lint-host-verb:
 regress-lint-type-exemptions:
 	php sandbox/tests/offline/policy/regress_lint_type_exemptions.php
 
-# DUO-3325: `duo adapter-draft`, the safe adapter-DRAFT generator (offline slice).
+# issue #3325: `wprism adapter-draft`, the safe adapter-DRAFT generator (offline slice).
 # Reuses policy-to-manifest's facts core (Policy::export_manifest) and adds OFFLINE
 # proposers over a site repo's captured state/**, emitting inert `_draft` candidates
 # a human ratifies by hand. Drives the real host CLI as a subprocess against scratch
@@ -882,8 +896,8 @@ regress-lint-type-exemptions:
 regress-adapter-draft:
 	bash sandbox/tests/offline/adapter/regress_adapter_draft.sh
 
-# WP-2.1: `wp duo adapter-probe`, the live half of adapter-draft's `--evidence=`
-# seam. Emits duo-adapter-probe/v1 -- real PK, column types/nullability, unique
+# WP-2.1: `wp wprism adapter-probe`, the live half of adapter-draft's `--evidence=`
+# seam. Emits wprism-adapter-probe/v1 -- real PK, column types/nullability, unique
 # keys, per-column index coverage in DeleteGuardEvaluator::lock_index()'s own
 # terms, FOREIGN KEY presence, EAV twin shape and one COUNT vs COUNT DISTINCT --
 # and proposes nothing. Offline: the shared FakeWpdb for the SHOW TABLES/SHOW
@@ -893,21 +907,22 @@ regress-adapter-draft:
 regress-adapter-probe:
 	php sandbox/tests/offline/adapter/regress_adapter_probe.php
 
-# WP-2.5: `wp duo adapter-deletion-feasibility`, DeleteGuardEvaluator::
-# lock_index() run at AUTHORING time. Emits duo-deletion-feasibility/v1 -- per
+# WP-2.5: `wp wprism adapter-deletion-feasibility`, DeleteGuardEvaluator::
+# lock_index() run at AUTHORING time. Emits wprism-deletion-feasibility/v1 -- per
 # proposed guard, the covering index or a null with the reason ('no index leads
 # with this column' / 'prefix index of N bytes cannot cover a declared key of
 # M'). The verdict is lock_index()'s own return value and an explanation that
 # disagrees with it refuses, so the report cannot drift into a second
 # implementation of the rule. It answers FEASIBILITY only: no capability, no
-# cascade set, no ratification -- manifests/ninja-forms.json:17's "does not
-# advertise table:nf3_forms deletion" stays a human's sentence, and the suite
+# cascade set, no ratification -- the note at
+# adapter-packages/ninja-forms/package/manifest.json:17, "does not advertise
+# table:nf3_forms deletion", stays a human's sentence, and the suite
 # asserts the tool cannot reach it. Offline: the shared FakeWpdb for SHOW
 # TABLES LIKE, recorded fixtures for the SHOW INDEX it declines.
 regress-deletion-feasibility:
 	php sandbox/tests/offline/adapter/regress_deletion_feasibility.php
 
-# WP-2.2: `duo adapter boundary`, version-range bisection that emits EVIDENCE
+# WP-2.2: `wprism adapter boundary`, version-range bisection that emits EVIDENCE
 # and can never emit a manifest edit. Drives the real AdapterBoundary::search()
 # over recorded outcome tables: the 13 bisection-shaped blocks of
 # the convention-discovered artifact library each reproduce from their own rows,
@@ -915,13 +930,14 @@ regress-deletion-feasibility:
 # failing release is never proposed as a boundary in any of 30 windows, a
 # recorded contradiction inside the settled window BLOCKS rather than
 # narrowing, an unresolvable artifact is reported rather than counted as a
-# failing release, and every file under manifests/ is byte-identical before
-# and after -- including across the real subprocess run that reads acf's
+# failing release, and every shipped adapter-package/platform-library source
+# file is byte-identical before and after -- including across the real
+# subprocess run that reads acf's
 # declared range. Offline: pure PHP plus the shipped artifact-fragment parser.
 regress-adapter-boundary-search:
 	php sandbox/tests/offline/adapter/regress_adapter_boundary_search.php
 
-# WP-2.9: `duo adapter proposals` -- the scheduled job around that planner.
+# WP-2.9: `wprism adapter proposals` -- the scheduled job around that planner.
 # Re-bisects every pinned plugin from its own recorded ledger and emits the
 # range bump as BOTH edits (manifest version_range + disposition
 # supported_versions), proven acceptable by the REAL
@@ -932,31 +948,32 @@ regress-adapter-boundary-search:
 # newest green probe, platform.json's own per-axis shape) is DERIVED: a ledger
 # asserting its own is refused, and the census ranks the rows by sites pinning
 # x releases behind while keeping its names-and-counts redaction. Every file
-# under manifests/ is byte-identical before and after. Offline: pure PHP plus
-# the real duo executable.
+# under the shipped adapter-package/platform-library sources is byte-identical
+# before and after. Offline: pure PHP plus
+# the real wprism executable.
 regress-boundary-proposals:
 	php sandbox/tests/offline/adapter/regress_boundary_proposals.php
 
-# DUO-3408: the shared conformance assertion fragment -- every require_*
+# issue #3408: the shared conformance assertion fragment -- every require_*
 # helper the seeds/postdeploy hooks call must be defined in ONE fragment both
 # sourcing harnesses load, or bundle leg 12 dies at `command not found`.
 # Offline: pure grep over the harness sources.
 regress-conformance-asserts:
 	bash sandbox/tests/offline/guards/regress_conformance_asserts.sh
 
-# DUO-3409: the core sweep's `duo explain` envs registry allocates a per-run
+# issue #3409: the core sweep's `wprism explain` envs registry allocates a per-run
 # private directory (portable across GNU/BSD mktemp); prove it is collision-safe
 # offline. Pure shell/file-I/O, no docker -- belongs in regress-offline-all.
 regress-explain-registry:
 	bash sandbox/tests/offline/guards/regress_explain_registry.sh
 
-# DUO-3413: the core sweep's strict-explain post-conditions must name
+# issue #3413: the core sweep's strict-explain post-conditions must name
 # infrastructure, not the engine, on an empty-at-exit-0 db export; prove the
 # premise guard and the evidence-pasting offline. Pure shell, no docker.
 regress-explain-export-premise:
 	bash sandbox/tests/offline/guards/regress_explain_export_premise.sh
 
-# DUO-3401: the core sweep's non-duo wp-cli OBSERVATION reads (post get/list,
+# issue #3401: the core sweep's non-wprism wp-cli OBSERVATION reads (post get/list,
 # comment get, db query on target state) must name infrastructure, not the
 # engine, on an empty-at-exit-0 compose death; prove require_observed_nonempty's
 # domain behavior and that each guarded call site captures+guards before
@@ -964,7 +981,7 @@ regress-explain-export-premise:
 regress-observation-guards:
 	bash sandbox/tests/offline/guards/regress_observation_guards.sh
 
-# DUO-3400: the three older live regressions do not source the shared
+# issue #3400: the three older live regressions do not source the shared
 # conformance assertion fragment, so their compose-death boundary is a small
 # explicit source contract: preserve the real refusal status (1), capture the
 # complete transport output, and print both when the transport misroutes.
@@ -972,7 +989,7 @@ regress-observation-guards:
 regress-live-exit-code-contract:
 	bash sandbox/tests/offline/guards/regress_live_exit_code_contract.sh
 
-# DUO-3423: family-wide inventory of live target reads used by conformance
+# issue #3423: family-wide inventory of live target reads used by conformance
 # post-conditions. Every non-empty observation is premise-guarded before its
 # comparison/accusation; expected-empty absence and clean-git predicates are
 # explicitly inventoried instead of being misclassified as fixture failures.
@@ -983,27 +1000,28 @@ regress-target-observation-premises:
 regress-polylang-live-fixtures:
 	bash sandbox/tests/offline/guards/regress_polylang_live_fixtures.sh
 
-# DUO-3366: certify_version_matrix.sh must delete Elementor's active-kit
+# issue #3366: certify_version_matrix.sh must delete Elementor's active-kit
 # reference before site empty removes its post, and must fail on the exact
 # null-post warning paths at the upper Elementor boundary. Static, offline.
 regress-elementor-matrix-reset:
 	bash sandbox/tests/offline/guards/regress_elementor_matrix_reset.sh
 
-# DUO-3362: grind_r1c_agency.sh must not regenerate the committed
-# manifests/duo-agency-cpt.json wholesale (that would delete its hand-authored
-# providers/actions); it exports to a scratch path and verifies instead. Static.
+# issue #3362: grind_r1c_agency.sh must not regenerate the committed
+# adapter-packages/wprism-agency-cpt/package/manifest.json wholesale (that would
+# delete its hand-authored providers/actions); it exports to a scratch path and
+# verifies instead. Static.
 regress-grind-r1c-manifest-preserve:
 	bash sandbox/tests/offline/guards/regress_grind_r1c_manifest_preserve.sh
 
-# DUO-3339: the installed-adapter catalog -- `duo adapter list|inspect|doctor`
+# issue #3339: the installed-adapter catalog -- `wprism adapter list|inspect|doctor`
 # over both adapter sources the engine has, plus AdapterSources::survey(), the
 # reporting half of the source scan. Drives the real host CLI as a subprocess
 # against the REAL shipped library and scratch site repositories, and pins the
 # architectural claim of the split by comparing each reported refusal against
 # the message AdapterSources::discover() throws for the same fixture, byte for
 # byte. Offline: file I/O and pure PHP only.
-# DUO-3339 slice B2 (#187): the plugin adapter source. Its Makefile target was
-# dropped in a #151 Makefile conflict resolution (DUO-3417); the suite is
+# issue #3339 slice B2 (#187): the plugin adapter source. Its Makefile target was
+# dropped in a #151 Makefile conflict resolution (issue #3417); the suite is
 # offline and belongs in regress-offline-all.
 regress-plugin-adapter-source:
 	bash sandbox/tests/offline/adapter/regress_plugin_adapter_source.sh
@@ -1022,14 +1040,14 @@ regress-ecosystem-adapter-batch:
 regress-adapter-production-readiness:
 	php sandbox/tests/offline/adapter/regress_adapter_production_readiness.php
 
-# DUO-3340: one target-owned, value-redacted AdapterSources/pending/journal
+# issue #3340: one target-owned, value-redacted AdapterSources/pending/journal
 # observation plus strict host transport/hash/create-only validation. Offline:
 # fake wpdb/WP hooks only; this intentionally does not claim the separate
 # two-environment live exercise harness.
 regress-adapter-observation:
 	bash sandbox/tests/offline/adapter/regress_adapter_observation.sh
 
-# DUO-3318 live counterpart: the parent-scoped natural key through capture,
+# issue #3318 live counterpart: the parent-scoped natural key through capture,
 # deploy, apply, rename, and independent recapture across two environments
 # whose local ids genuinely differ. Own pair, so it is live-list material,
 # never offline-all.
@@ -1042,11 +1060,11 @@ regress-code-revision-enforcement:
 regress-code-descriptor-compiler:
 	php sandbox/tests/offline/code-half/regress_code_descriptor_compiler.php
 
-# DUO-3499, the code-half split. Four suites for four separable claims: the
+# issue #3499, the code-half split. Four suites for four separable claims: the
 # lock grammar refuses every malformed declaration by name; the compile gate
 # refuses an unresolved, drifted or Git-excluded-but-undeclared component and
-# cannot be forced; `duo init --code=split` classifies on the HOST against real
-# archive bytes and the agent verifies rather than trusts; and `duo code-classify`
+# cannot be forced; `wprism init --code=split` classifies on the HOST against real
+# archive bytes and the agent verifies rather than trusts; and `wprism code-classify`
 # migrates an existing repository to the identical code_revision. None contacts
 # the network -- the release registry is a local file:// fixture.
 regress-code-source-lock:
@@ -1061,7 +1079,7 @@ regress-init-code-split:
 regress-code-classify:
 	php sandbox/tests/offline/code-half/regress_code_classify.php
 
-# DUO-3500, the resolver DUO-3499 deliberately did not ship. One suite for one
+# issue #3500, the resolver issue #3499 deliberately did not ship. One suite for one
 # claim: the bytes a lock declares can be put back on the HOST, verified twice
 # (archive digest before unpack, tree digest after), materialized atomically,
 # and never silently -- a corrupt cache, a re-released archive, a drifted
@@ -1070,9 +1088,9 @@ regress-code-classify:
 regress-code-resolve:
 	php sandbox/tests/offline/code-half/regress_code_resolve.php
 
-# DUO-3514, the host->target half `duo code-resolve` refused before: an ssh
+# issue #3514, the host->target half `wprism code-resolve` refused before: an ssh
 # environment resolves on the HOST into a throwaway staging worktree, ships one
-# tar, and verifies the trees TARGET-SIDE in .duo/code-push against the lock's
+# tar, and verifies the trees TARGET-SIDE in .wprism/code-push against the lock's
 # tree_sha256 before anything is renamed into code/wp-content. The fixture
 # transport runs the target-side scripts through sh and answers code-inventory
 # with the agent's own component_inventory(), so the ordering, the tar members
@@ -1082,7 +1100,7 @@ regress-code-resolve-push:
 	php sandbox/tests/offline/code-half/regress_code_resolve_push.php
 
 # The host verb that makes a component with no wp.org release lockable instead
-# of carried in Git: `duo code-import <archive.zip>` puts the operator's
+# of carried in Git: `wprism code-import <archive.zip>` puts the operator's
 # archive into the host's content-addressed cache and prints the digests the
 # lock records. The store semantics are pinned beside the classification in
 # regress_init_code_split.php; this suite pins the command surface and its
@@ -1090,7 +1108,7 @@ regress-code-resolve-push:
 regress-code-import:
 	php sandbox/tests/offline/code-half/regress_code_import.php
 
-# DUO-3348 slice 25: the optional site.duo.json code envelope grammar moved
+# issue #3348 slice 25: the optional site.wprism.json code envelope grammar moved
 # out of Policy.php into CodeConfigGrammar.php. Code's descriptor compiler and
 # materialization paths remain the runtime owners; this direct suite proves
 # the exact wrapper diagnostics and both Policy loader entry points.
@@ -1106,7 +1124,7 @@ regress-code-descriptor-unit:
 regress-code-materializer-unit:
 	bash sandbox/tests/offline/code-half/regress_code_materializer_unit.sh
 
-# DUO-3350 slice 5: removal authority (remove_old_owned_files/
+# issue #3350 slice 5: removal authority (remove_old_owned_files/
 # assert_removal_safe/owned_extra_files and their eight internal-only
 # helpers) moved from Code.php into a new CodeOwnershipPruner.php -- the
 # seam CodeMaterializer.php's own docblock already named as its declared
@@ -1128,7 +1146,7 @@ regress-code-stage-lock-unit:
 regress-code-stage-transaction-unit:
 	bash sandbox/tests/offline/code-half/regress_code_stage_transaction_unit.sh
 
-# DUO-3501: code-stage leaves a target row alone when it already holds the
+# issue #3501: code-stage leaves a target row alone when it already holds the
 # descriptor's exact bytes and mode, instead of temp+renaming all 8,918 files
 # of a real payload on every deploy. Every per-row refusal in the suite is set
 # up with a target that already matches, so a skip decided before those checks
@@ -1142,15 +1160,15 @@ regress-code-ledger-transaction-unit:
 regress-plan-summary-code-drift:
 	php sandbox/tests/offline/cli/regress_plan_summary_code_drift.php
 
-# DUO-3345 (plan naming slice): offline, no docker — plan rows carrying an
+# issue #3345 (plan naming slice): offline, no docker — plan rows carrying an
 # authored WordPress name (post title, term/menu name) render it beside the
-# repository path in duo status; rows without one render exactly as before.
+# repository path in wprism status; rows without one render exactly as before.
 # The agent-side twin renderer is proven live by the core conformance
 # check's plan-naming scenario.
 regress-plan-title-render:
 	php sandbox/tests/offline/cli/regress_plan_title_render.php
 
-# DUO-3345 (three-way conflict slice): the stable JSON evidence and host
+# issue #3345 (three-way conflict slice): the stable JSON evidence and host
 # summary distinguish target last-synced base, repository intent, target
 # intent, non-destructive reconciliation, and the loud destructive override.
 # The agent-side renderer and real Apply plan rows are proven by core
@@ -1158,12 +1176,12 @@ regress-plan-title-render:
 regress-conflict-view:
 	php sandbox/tests/offline/apply/regress_conflict_view.php
 
-# DUO-3347 slice 1: ConvergenceVerifier was extracted from Apply's post-apply
+# issue #3347 slice 1: ConvergenceVerifier was extracted from Apply's post-apply
 # convergence gate; retain its offline characterization in the release bundle.
 regress-convergence-verifier:
 	php sandbox/tests/offline/apply/regress_convergence_verifier.php
 
-# DUO-3489: what an apply over a drifted target tells the operator (the gate's
+# issue #3489: what an apply over a drifted target tells the operator (the gate's
 # diagnosis crossing the verify-canonical subprocess boundary, the "was the
 # target mutated" answer, the preserved-drift cause and remedy) and what its
 # retry does to the drift it preserved.
@@ -1179,7 +1197,7 @@ regress-apply-drift-convergence:
 regress-graduated-version-range:
 	php sandbox/tests/offline/apply/regress_graduated_version_range.php
 
-# DUO-3502: a FULL apply without --with-deletes performs no planned deletion at
+# issue #3502: a FULL apply without --with-deletes performs no planned deletion at
 # all — ApplyPreparationCoordinator refused only the scoped case, the executor
 # skipped its delete block, and the revision was still recorded as applied — so
 # the operator's only signal was "delete":1 beside "deleted":0 in the receipt
@@ -1188,7 +1206,7 @@ regress-graduated-version-range:
 regress-delete-authorization-receipt:
 	php sandbox/tests/offline/apply/regress_delete_authorization_receipt.php
 
-# DUO-3347 slice 2: ApplyPlanner was extracted from Apply's plan/conflict
+# issue #3347 slice 2: ApplyPlanner was extracted from Apply's plan/conflict
 # production (conflict_view, forced/incomplete override evidence, display
 # titles, lifecycle comparison, nested-delete counts); direct-API proof
 # complementing regress_conflict_view.php's/regress_plan_title_render.php's/
@@ -1203,22 +1221,22 @@ regress-table-graph:
 regress-table-schema:
 	php sandbox/tests/offline/repository/regress_table_schema.php
 
-# DUO-3349: direct certification for Capture's extracted read-only live-scope
+# issue #3349: direct certification for Capture's extracted read-only live-scope
 # boundary: gaps, post/term rosters, taxonomy ownership, and observation checks.
 regress-scope-discovery:
 	php sandbox/tests/offline/reference-scope/regress_scope_discovery.php
 
-# DUO-3349: direct certification for Snapshot's extracted mapped, natural,
+# issue #3349: direct certification for Snapshot's extracted mapped, natural,
 # and composite typed-row identity state machine plus its compatibility facade.
 regress-snapshot-identity:
 	php sandbox/tests/offline/repository/regress_snapshot_identity.php
 
-# DUO-3349: direct certification for the extracted typed-table read pipeline:
+# issue #3349: direct certification for the extracted typed-table read pipeline:
 # ordinary/composite rows, attached meta, secret refusal, and canonical bytes.
 regress-typed-table-capture:
 	php sandbox/tests/offline/capture/regress_typed_table_capture.php
 
-# DUO-3349: direct certification for the extracted typed-table write pipeline:
+# issue #3349: direct certification for the extracted typed-table write pipeline:
 # phase ordering, refs/meta, invalidation, reparenting, deletes, and composite upsert.
 regress-typed-table-materializer:
 	php sandbox/tests/offline/apply/regress_typed_table_materializer.php
@@ -1226,7 +1244,7 @@ regress-typed-table-materializer:
 regress-snapshot-pruner:
 	php sandbox/tests/offline/repository/regress_snapshot_pruner.php
 
-# DUO-3347 slice 3: the shared policy-owned authored-field materializer
+# issue #3347 slice 3: the shared policy-owned authored-field materializer
 # delegates post/term reconciliation and checked meta/option writes while
 # retaining Apply's compatibility facades. Existing termmeta coverage drives
 # the policy-aware path; this direct suite pins the moved low-level behavior.
@@ -1238,13 +1256,14 @@ regress-apply-field-materializer:
 # PRE-WRITE rows, which rejects every sibling-classified interpreter key on an
 # owner an apply is about to create -- `VMATRIX_MANIFEST=acf bash
 # sandbox/tests/certify/certify_version_matrix.sh` died at the acf 6.0.0 target
-# apply with "duo: authored post meta '_duo_related' disagrees with the locked
-# target context". Drives the real manifests/interpreters/acf.php through the
-# post, term and user materializers, and keeps #556's two protections pinned.
+# apply with "wprism: authored post meta '_wprism_related' disagrees with the locked
+# target context". Drives the real
+# `adapter-packages/acf/package/runtime/interpreters/acf.php` through the post,
+# term and user materializers, and keeps #556's two protections pinned.
 regress-authored-meta-context:
 	php sandbox/tests/offline/apply/regress_authored_meta_context.php
 
-# DUO-3347 slice 4: MenuMaterializer was extracted from Apply's menu entity
+# issue #3347 slice 4: MenuMaterializer was extracted from Apply's menu entity
 # reconciliation (finalize_menu/assign_locations), on top of slice 3's shared
 # ApplyFieldMaterializer. Deliberately a wiring/shape proof only -- full
 # behavioral coverage stays in regress_lifecycle_options_snapshot.php (still
@@ -1252,7 +1271,7 @@ regress-authored-meta-context:
 regress-menu-materializer:
 	php sandbox/tests/offline/apply/regress_menu_materializer.php
 
-# DUO-3347 slice 5: UserMetaMaterializer was extracted from Apply's user
+# issue #3347 slice 5: UserMetaMaterializer was extracted from Apply's user
 # entity reconciliation (finalize_user_meta, plus its exact-login resolver),
 # on top of slice 3's shared ApplyFieldMaterializer. Deliberately a
 # wiring/shape proof only -- full behavioral coverage (exact-login boundary
@@ -1261,7 +1280,7 @@ regress-menu-materializer:
 regress-user-meta-materializer:
 	php sandbox/tests/offline/apply/regress_user_meta_materializer.php
 
-# DUO-3347 slice 6: TermMaterializer was extracted from Apply's term entity
+# issue #3347 slice 6: TermMaterializer was extracted from Apply's term entity
 # reconciliation (finalize_term, encode_description, reconcile_term_
 # relationships), on top of slice 3's shared ApplyFieldMaterializer. The one
 # dependency outside that narrow contract -- Apply's memoized, WordPress-
@@ -1275,7 +1294,7 @@ regress-user-meta-materializer:
 regress-term-materializer:
 	php sandbox/tests/offline/apply/regress_term_materializer.php
 
-# DUO-3347 slice 7: apply_options()/option_apply_target()/
+# issue #3347 slice 7: apply_options()/option_apply_target()/
 # dynamic_option_rule_for_name()/dynamic_option_resolver_values()/
 # apply_value()/apply_option_sub_keys() moved from Apply.php into a new
 # OptionsMaterializer.php (the "options/meta" entity materializer target
@@ -1289,7 +1308,7 @@ regress-term-materializer:
 regress-options-materializer:
 	php sandbox/tests/offline/apply/regress_options_materializer.php
 
-# DUO-3347 slice 8: reconcile_relationships()/delete_post_relationships()/
+# issue #3347 slice 8: reconcile_relationships()/delete_post_relationships()/
 # delete_term_relationships() moved from Apply.php into a new
 # RelationshipMaterializer.php (the "relationships" entity materializer
 # target seam), narrower than its siblings' (Policy, Tokens,
@@ -1304,7 +1323,7 @@ regress-options-materializer:
 regress-relationship-materializer:
 	php sandbox/tests/offline/apply/regress_relationship_materializer.php
 
-# DUO-3347 slice 9: place_attachment() moved from Apply.php into a new
+# issue #3347 slice 9: place_attachment() moved from Apply.php into a new
 # AttachmentMaterializer.php (the "attachments" entity materializer target
 # seam), constructed from (ApplyFieldMaterializer, CompiledRepository) --
 # no Policy, no Tokens, even narrower than RelationshipMaterializer's
@@ -1324,7 +1343,7 @@ regress-attachment-materializer:
 regress-full-apply-attachment-recovery:
 	php sandbox/tests/offline/apply/regress_full_apply_attachment_recovery.php
 
-# DUO-3347 slice 10: ensure_post_row() moved from Apply.php into a new
+# issue #3347 slice 10: ensure_post_row() moved from Apply.php into a new
 # PostMaterializer.php (the "posts" entity materializer target seam),
 # constructed from (Tokens) -- no Policy, matching AttachmentMaterializer's
 # even-narrower-than-usual precedent. Stays a thin Apply facade since its
@@ -1342,13 +1361,13 @@ regress-full-apply-attachment-recovery:
 regress-post-materializer:
 	php sandbox/tests/offline/apply/regress_post_materializer.php
 
-# DUO-3347 slice 12: delete_entity()/assert_zero() moved from Apply.php into
+# issue #3347 slice 12: delete_entity()/assert_zero() moved from Apply.php into
 # a new DeleteExecutor.php (the executor half of the "DeleteGuardEvaluator/
 # DeleteExecutor" target seam -- guard evaluation, i.e. build_plan()'s own
 # collision detection that decides whether a delete is authorized at all,
 # stays out: it is entangled with ApplyPlanner, a materially larger and
 # riskier cut than this already-decided, already-authorized row deletion,
-# and DUO-3347's own guardrail against changing conflict semantics or
+# and issue #3347's own guardrail against changing conflict semantics or
 # deletion authority in extraction PRs applies directly). Constructed from
 # (Policy, RelationshipMaterializer, MenuMaterializer) -- no $scopeContract:
 # the only place delete_entity() read it was the trailing
@@ -1369,13 +1388,13 @@ regress-post-materializer:
 regress-delete-executor:
 	php sandbox/tests/offline/apply/regress_delete_executor.php
 
-# DUO-3347 slice 18: DeleteGuardValueCodec owns the fail-closed decoding of
+# issue #3347 slice 18: DeleteGuardValueCodec owns the fail-closed decoding of
 # target-controlled metadata and canonical repair tokens. The broader
 # manifest/lock/witness product path remains in regress-woocommerce-deletion-authority.
 regress-delete-guard-value-codec:
 	php sandbox/tests/offline/apply/regress_delete_guard_value_codec.php
 
-# DUO-3347 guard seams: DeleteGuardEvaluator owns the index-prefix proof that
+# issue #3347 guard seams: DeleteGuardEvaluator owns the index-prefix proof that
 # makes a guard's locking read a real gap boundary, the generic per-guard
 # findings contract, plan-time delete-bucket annotation, final recheck
 # refusal/findings, and locked witness revalidation. The broader
@@ -1385,7 +1404,7 @@ regress-delete-guard-value-codec:
 regress-delete-guard-evaluator:
 	php sandbox/tests/offline/apply/regress_delete_guard_evaluator.php
 
-# DUO-3348 slice 2: CompiledRepository/RepositoryCompilationException moved
+# issue #3348 slice 2: CompiledRepository/RepositoryCompilationException moved
 # out of RepositoryCompiler.php into their own CompiledArtifact.php (the
 # "CompiledArtifact value object" target seam); proves the file loads and
 # round-trips standalone, complementing regress_repository_compiler.sh's/
@@ -1394,14 +1413,14 @@ regress-delete-guard-evaluator:
 regress-compiled-artifact:
 	php sandbox/tests/offline/repository/regress_compiled_artifact.php
 
-# DUO-3350 slice 1: PathSafety was extracted from Code's path-traversal/
+# issue #3350 slice 1: PathSafety was extracted from Code's path-traversal/
 # symlink-crossing guards. Proves real filesystem symlink detection (not
 # just string shape) survived the move and that Code's ten kept facades
 # delegate rather than duplicate the logic.
 regress-path-safety:
 	php sandbox/tests/offline/code-half/regress_path_safety.php
 
-# DUO-3348 slice 4: adapter provenance / capability-readiness resolution
+# issue #3348 slice 4: adapter provenance / capability-readiness resolution
 # (manifest_disposition, capability_claim, certification_readiness_blockers,
 # adapter_readiness_blockers, provider_readiness_blockers, capability_report)
 # moved out of Policy.php into AdapterRegistry.php (the "AdapterRegistry and
@@ -1413,7 +1432,7 @@ regress-path-safety:
 regress-adapter-registry:
 	php sandbox/tests/offline/adapter/regress_adapter_registry.php
 
-# DUO-3348 slice 5: manifest-pin normalization/validation (normalize_manifest_
+# issue #3348 slice 5: manifest-pin normalization/validation (normalize_manifest_
 # pins, validate_manifest_sources, validate_manifest_pins) moved out of
 # Policy.php into PinResolver.php (the "PinResolver" half of the "ManifestLoader
 # / PinResolver" target seam; load()/from_snapshot() themselves stay on
@@ -1425,7 +1444,7 @@ regress-adapter-registry:
 regress-pin-resolver:
 	php sandbox/tests/offline/policy/regress_pin_resolver.php
 
-# DUO-3348 slice 6: the action/provider/effect declaration grammar
+# issue #3348 slice 6: the action/provider/effect declaration grammar
 # (validate_actions, validate_providers, validate_no_conflicting_provider_ids,
 # validate_effect_contracts, plus their private helpers and closed-vocabulary
 # constants) moved out of Policy.php into ActionProviderGrammar.php. All four
@@ -1443,7 +1462,7 @@ regress-pin-resolver:
 regress-action-provider-grammar:
 	php sandbox/tests/offline/adapter/regress_action_provider_grammar.php
 
-# DUO-3348 slice 7: the cross-manifest "one owner, no contradiction" guard
+# issue #3348 slice 7: the cross-manifest "one owner, no contradiction" guard
 # family (validate_no_conflicting_taxonomy_object_keyspaces,
 # validate_no_conflicting_description_reference_rules,
 # validate_no_conflicting_option_rules, validate_no_conflicting_post_type_
@@ -1464,7 +1483,7 @@ regress-action-provider-grammar:
 regress-cross-manifest-guards:
 	php sandbox/tests/offline/policy/regress_cross_manifest_guards.php
 
-# DUO-3348 slice 8: the "named sub-key of an otherwise-atomic manifest
+# issue #3348 slice 8: the "named sub-key of an otherwise-atomic manifest
 # value" declaration grammar (validate_sub_keys() for options.*.sub_keys,
 # validate_dynamic_options() for the top-level dynamic_options key, plus
 # their shared private assert_sub_key_parent_has_no_value_fields() helper
@@ -1473,7 +1492,7 @@ regress-cross-manifest-guards:
 # private helper -- the real coupling that justifies moving both together,
 # not an assumption. Policy::CLASSES stayed on Policy (11 call sites across
 # the file, not exclusive to this cluster), visibility widened private ->
-# public. regress_dynamic_options_policy.php and regress_duo3316_contract.php
+# public. regress_dynamic_options_policy.php and regress_reference_contract.php
 # already cover most of this cluster's real refusal behavior through
 # Policy::load()/from_snapshot(), unchanged by the move; this suite is
 # validate_sub_keys()'s own first direct behavioral proof (no dedicated test
@@ -1482,7 +1501,7 @@ regress-cross-manifest-guards:
 regress-sub-key-grammar:
 	php sandbox/tests/offline/grammar/regress_sub_key_grammar.php
 
-# DUO-3348 slice 9: exact and taxonomy-pattern object_keyspace declaration
+# issue #3348 slice 9: exact and taxonomy-pattern object_keyspace declaration
 # grammar moved out of Policy.php into TaxonomyGrammar.php. The live
 # taxonomy_object_keyspace() resolver remains on Policy because Capture, Apply,
 # Lint, and RepositoryCompiler call it at runtime; this suite proves the pure
@@ -1492,7 +1511,7 @@ regress-sub-key-grammar:
 regress-taxonomy-grammar:
 	php sandbox/tests/offline/grammar/regress_taxonomy_grammar.php
 
-# DUO-3348 slice 11: option-name reference declaration grammar and the
+# issue #3348 slice 11: option-name reference declaration grammar and the
 # cross-manifest identical-pattern guard moved out of Policy.php into
 # OptionReferenceGrammar.php. Runtime option-name matching/discovery remains
 # on Policy/Capture/OptionsMaterializer; this direct suite proves the pure
@@ -1500,21 +1519,21 @@ regress-taxonomy-grammar:
 regress-option-reference-grammar:
 	php sandbox/tests/offline/grammar/regress_option_reference_grammar.php
 
-# DUO-3348 slice 12: the closed post-type body/phase declaration grammar
+# issue #3348 slice 12: the closed post-type body/phase declaration grammar
 # moved out of Policy.php into PostTypeGrammar.php. The runtime lookup stays
 # on Policy as the compatibility facade; this direct suite proves the
 # collaborator's refusal text, defaults, vocabulary publication, and wiring.
 regress-post-type-grammar:
 	php sandbox/tests/offline/grammar/regress_post_type_grammar.php
 
-# DUO-3348 slice 13: the pure option-namespace and authored-meta keyspace
+# issue #3348 slice 13: the pure option-namespace and authored-meta keyspace
 # discovery grammar moved out of Policy.php into DiscoveryGrammar.php. Live
 # discovery remains on Capture; this direct suite proves the manifest-only
 # validator and both Policy loader entry points.
 regress-discovery-grammar:
 	php sandbox/tests/offline/policy/regress_discovery_grammar.php
 
-# DUO-3348 slice 23: cross-source reference-keyspace closure and attached-meta
+# issue #3348 slice 23: cross-source reference-keyspace closure and attached-meta
 # ownership grammar moved out of Policy.php into ReferenceKeyspaceGrammar.php.
 # ReferenceShapeGrammar retains the local declaration-shape pass; runtime
 # reference resolution remains on Policy and its consumers. This direct suite
@@ -1523,7 +1542,7 @@ regress-discovery-grammar:
 regress-reference-keyspace-grammar:
 	php sandbox/tests/offline/grammar/regress_reference_keyspace_grammar.php
 
-# DUO-3348 slice 24: ref/token/ledger kind vocabulary grammar moved out of
+# issue #3348 slice 24: ref/token/ledger kind vocabulary grammar moved out of
 # Policy.php into ReferenceKindGrammar.php. Runtime reference resolution stays
 # on Policy and its consumers; this direct suite proves the shared declared
 # id_kind extension path, all claim surfaces, and both Policy loader paths.
@@ -1535,19 +1554,19 @@ regress-reference-kind-grammar:
 # stays refused and stays recorded in tools/engine-gaps.json. Proves the third
 # verb {cache_group, cache_key} on both spellings, its engine_features staging
 # (a grammar change post-v3 with no version bump), the apply-time drop and its
-# readback, and -- through the real `duo manifest-validate` -- a synthetic
+# readback, and -- through the real `wprism manifest-validate` -- a synthetic
 # Paid Memberships Pro whose whole executable surface is replaced by one
 # declarative line, dropping it out of `compatibility_shim`.
 regress-invalidate-vocabulary:
 	php sandbox/tests/offline/grammar/regress_invalidate_vocabulary.php
 
-# DUO-3350 slice 2: the lifecycle dependency graph planner is independent of
+# issue #3350 slice 2: the lifecycle dependency graph planner is independent of
 # WordPress side effects; Deploy retains compatibility facades for its reads
 # and execution path.
 regress-deploy-planner:
 	php sandbox/tests/offline/code-half/regress_deploy_planner.php
 
-# DUO-3350 slice 6: code_mismatch()/code_revision_mismatch()/code_drift()/
+# issue #3350 slice 6: code_mismatch()/code_revision_mismatch()/code_drift()/
 # record_code_versions() and their two internal-only helpers
 # (compiled_code_revision(), check_theme_range()) moved from Deploy.php into
 # a new LifecyclePlanner.php -- the detection/reporting half of the
@@ -1569,9 +1588,9 @@ regress-deploy-planner:
 regress-lifecycle-planner:
 	php sandbox/tests/offline/code-half/regress_lifecycle_planner.php
 
-# DUO-3507: `duo capture` observes the code-version baseline and never
+# issue #3507: `wprism capture` observes the code-version baseline and never
 # accepts one. Pins LifecyclePlanner::observe_code_versions() (writes only
-# when there is nothing to accept; freezes duo_kv['code_versions']
+# when there is nothing to accept; freezes wprism_kv['code_versions']
 # byte-identical and returns the rows when there is), that
 # record_code_versions() still clobbers unconditionally so deploy's
 # --force-code-drift accept path keeps working, and that the capture call
@@ -1579,7 +1598,7 @@ regress-lifecycle-planner:
 regress-capture-code-baseline:
 	php sandbox/tests/offline/code-half/regress_capture_code_baseline.php
 
-# DUO-3350 slice 7: options_snapshot()/bind_lifecycle_missing_options()/
+# issue #3350 slice 7: options_snapshot()/bind_lifecycle_missing_options()/
 # unexpected_lifecycle_state_changes() moved from Deploy.php into a new
 # StateHandoffVerifier.php -- the before/after canonical options snapshot
 # comparison Deploy::run() itself calls at specific points in its own
@@ -1601,7 +1620,7 @@ regress-capture-code-baseline:
 regress-state-handoff-verifier:
 	php sandbox/tests/offline/code-half/regress_state_handoff_verifier.php
 
-# DUO-3350 slice 8: the WP-mutation body of Deploy::run() -- deactivate,
+# issue #3350 slice 8: the WP-mutation body of Deploy::run() -- deactivate,
 # dependency-ordered activate, active_plugins order correction, and
 # switch_theme() -- moved into a new LifecycleExecutor.php, the execution
 # half of the "LifecyclePlanner / LifecycleExecutor" target seam slice 6's
@@ -1626,7 +1645,7 @@ regress-state-handoff-verifier:
 regress-lifecycle-executor:
 	php sandbox/tests/offline/code-half/regress_lifecycle_executor.php
 
-# DUO-3345 (structured-refusal slice): the real agent command handlers emit
+# issue #3345 (structured-refusal slice): the real agent command handlers emit
 # one versioned, actionable, credential-redacted JSON refusal for every
 # primary compile/capture/plan/apply/deploy failure while human mode and the
 # existing typed compiler diagnostics remain compatible.
@@ -1642,22 +1661,22 @@ regress-cli-json-refusals:
 regress-typed-refusal-envelopes:
 	php sandbox/tests/offline/cli/regress_typed_refusal_envelopes.php
 
-# DUO-3517: the `wp duo` surface the host invokes must be the surface the agent
+# issue #3517: the `wp wprism` surface the host invokes must be the surface the agent
 # registers, resolved the way WP-CLI resolves it (@subcommand tag, else the raw
 # method name -- never an implicit hyphenation). `code_inventory` shipped
-# unreachable as `wp duo code-inventory` because nothing compared the two.
+# unreachable as `wp wprism code-inventory` because nothing compared the two.
 regress-agent-subcommand-names:
 	php sandbox/tests/offline/cli/regress_agent_subcommand_names.php
 
-# DUO-3351 slice 1: host command output owns the shared JSON refusal and
-# argument-format contract; cli/duo retains only compatibility facades.
+# issue #3351 slice 1: host command output owns the shared JSON refusal and
+# argument-format contract; cli/wprism retains only compatibility facades.
 regress-command-output:
 	php sandbox/tests/offline/cli/regress_command_output.php
 
 regress-environment-command-preflight:
 	php sandbox/tests/offline/environment/regress_environment_command_preflight.php
 
-# DUO-3351 slice 4: target-free typed option grammar for `duo env`.
+# issue #3351 slice 4: target-free typed option grammar for `wprism env`.
 regress-environment-command-options:
 	php sandbox/tests/offline/environment/regress_environment_command_options.php
 
@@ -1670,7 +1689,7 @@ regress-environment-list-command:
 regress-doctor-command:
 	php sandbox/tests/offline/cli/regress_doctor_command.php
 
-# WP-1.5: `duo adapter doctor --migration`, the blast-radius preflight. Its
+# WP-1.5: `wprism adapter doctor --migration`, the blast-radius preflight. Its
 # acceptance is a CROSS-CHECK, not an expectation table: it drives the verb
 # against WP-1.4's own nine-site estate at the post-bump state and asserts, per
 # site, that the invalidation set it PREDICTED equals the set that rehearsal
@@ -1706,27 +1725,27 @@ regress-capture-command:
 regress-status-command:
 	php sandbox/tests/offline/cli/regress_status_command.php
 
-# DUO-3351 slice 10: the scope host handler owns only protected control-plane
+# issue #3351 slice 10: the scope host handler owns only protected control-plane
 # forwarding and transport exit propagation; scope semantics remain in agent.
 regress-scope-command:
 	php sandbox/tests/offline/cli/regress_scope_command.php
 
-# DUO-3351 slice 11: refresh owns host parsing/refusal/output while Refresh
+# issue #3351 slice 11: refresh owns host parsing/refusal/output while Refresh
 # retains the semantic planning and target workflow.
 regress-refresh-command:
 	php sandbox/tests/offline/refresh/regress_refresh_command.php
 
-# DUO-3351 slice 12: rebase owns parser/refusal/output semantics while
+# issue #3351 slice 12: rebase owns parser/refusal/output semantics while
 # Refresh retains the semantic candidate/ref workflow and durable abort.
 regress-rebase-command:
 	php sandbox/tests/offline/refresh/regress_rebase_command.php
 
-# DUO-3351 slice 3: ordinary and scoped agent forwarding share one typed,
+# issue #3351 slice 3: ordinary and scoped agent forwarding share one typed,
 # target-free host boundary; malformed scope wire input refuses before contact.
 regress-passthrough-command:
 	php sandbox/tests/offline/cli/regress_passthrough_command.php
 
-# DUO-3345 (explain slice): one freshly-observed entity row projects a
+# issue #3345 (explain slice): one freshly-observed entity row projects a
 # deterministic, value-free source -> policy -> reference -> structured
 # action -> verification chain. No WordPress, target mutation, or provider
 # code is used by this pure contract fixture.
@@ -1743,16 +1762,16 @@ regress-deploy-command:
 	php sandbox/tests/offline/cli/regress_deploy_command.php
 
 # The deploy checkpoint and its recoverability: the export sits under the
-# lease exactly where promote's does (cli/duo:2385-2388), and the
+# lease exactly where promote's does (cli/wprism:2385-2388), and the
 # deploy-<runId>.sql it writes is the file RetainedCheckpoints globs and
 # RecoverCommand rebuilds. Against the prior build the round trip throws
 # checkpoint_listing_malformed. Pure fakes; no target contact.
 regress-deploy-checkpoint:
 	php sandbox/tests/offline/recovery/regress_deploy_checkpoint.php
 
-# DUO-3514's retention half: promote and deploy each retain an unbounded
-# whole-DB dump under .duo/checkpoints and nothing ever removed one.
-# `duo recover <env> --prune-retained=<keep-n>` is the only verb that does,
+# issue #3514's retention half: promote and deploy each retain an unbounded
+# whole-DB dump under .wprism/checkpoints and nothing ever removed one.
+# `wprism recover <env> --prune-retained=<keep-n>` is the only verb that does,
 # it plans unless --confirm-prune is given, it keeps the newest N of EACH verb
 # so the last before-image is never deletable, it never considers a signed
 # receipt, and it refuses while a generation is nonterminal. Pure fakes; the
@@ -1760,7 +1779,7 @@ regress-deploy-checkpoint:
 regress-checkpoint-prune:
 	php sandbox/tests/offline/recovery/regress_checkpoint_prune.php
 
-# DUO-3351 slice 19: the public promotion router owns only scoped-versus-
+# issue #3351 slice 19: the public promotion router owns only scoped-versus-
 # ordinary selection; the target promotion state machines remain unchanged.
 regress-promote-command:
 	php sandbox/tests/offline/cli/regress_promote_command.php
@@ -1821,12 +1840,12 @@ grind-adoption:
 	ADOPT_PAIR="$(ADOPT_PAIR)" ADOPT_PORT1="$(ADOPT_PORT1)" ADOPT_PORT2="$(ADOPT_PORT2)" ADOPT_SITUATIONS="$(ADOPT_SITUATIONS)" \
 	bash sandbox/tests/grind/grind_adoption.sh
 
-# DUO-3216: live activation/deactivation/order gate, deploy-window mail/HTTP
+# issue #3216: live activation/deactivation/order gate, deploy-window mail/HTTP
 # observations, and the composed host promote path with a retained DB dump.
 regress-promotion:
 	bash sandbox/tests/live/regress_promotion.sh
 
-# DUO-3214(a): offline, no docker -- Capture::guard_secret()'s two
+# issue #3214(a): offline, no docker -- Capture::guard_secret()'s two
 # is_string()-gated call sites (post_meta, options) now deep-scan via
 # Secrets::hard_match_deep() unconditionally, so an authored value that
 # decodes to an array (a serialized settings blob) can no longer skip
@@ -1836,12 +1855,12 @@ regress-promotion:
 regress-capture-secret-scan:
 	bash sandbox/tests/offline/capture/regress_capture_secret_scan.sh
 
-# DUO-3349: direct login-keyed user-meta entity capture boundary. Pure PHP
+# issue #3349: direct login-keyed user-meta entity capture boundary. Pure PHP
 # with a fake wpdb/policy/token fixture; no Docker or WordPress bootstrap.
 regress-user-meta-capture:
 	php sandbox/tests/offline/capture/regress_user_meta_capture.php
 
-# DUO-3349: direct post/term metadata discovery + classification boundary.
+# issue #3349: direct post/term metadata discovery + classification boundary.
 # Pure PHP with fake wpdb/policy/token fixtures; no Docker or WordPress.
 regress-entity-meta-capture:
 	php sandbox/tests/offline/capture/regress_entity_meta_capture.php
@@ -1852,7 +1871,7 @@ regress-menu-capture:
 regress-media-capture:
 	php sandbox/tests/offline/capture/regress_media_capture.php
 
-# DUO-3349: direct option discovery, encoding, side-channel, and lifecycle
+# issue #3349: direct option discovery, encoding, side-channel, and lifecycle
 # boundary. Pure PHP with fake wpdb/policy/token fixtures; no Docker.
 regress-options-capture:
 	php sandbox/tests/offline/capture/regress_options_capture.php
@@ -1878,9 +1897,9 @@ regress-capture-gate-scanner:
 regress-capture-refactor-boundaries:
 	php sandbox/tests/offline/capture/regress_capture_refactor_boundaries.php
 
-# DUO-3285: closes a real aliveness gap this issue's own bundle uncovered.
+# issue #3285: closes a real aliveness gap this issue's own bundle uncovered.
 # OptionsCapture's option_name_refs (task #93) consumer loop
-# shipped a real defect (DUO-3286: undefined $liveOptionNames, a warning
+# shipped a real defect (issue #3286: undefined $liveOptionNames, a warning
 # not a fatal, so capture kept exiting 0 while silently skipping every
 # option_name_refs rule) that no offline suite would have caught -- proven
 # live by reverting the fix locally and watching regress-offline-all stay
@@ -1891,10 +1910,11 @@ regress-capture-refactor-boundaries:
 regress-option-name-refs-wiring:
 	bash sandbox/tests/offline/capture/regress_option_name_refs_wiring.sh
 
-# DUO-3214(b) / task #123: offline, no docker -- Canon::normalize()'s new
+# issue #3214(b) / task #123: offline, no docker -- Canon::normalize()'s new
 # OrderPreserved-aware branch, which stops alphabetically resorting a meta
-# value a manifest rule declares "order_preserving": true (manifests/
-# woocommerce.json's `_product_attributes` closes the causation-proven
+# value a manifest rule declares "order_preserving": true
+# (adapter-packages/woocommerce/package/manifest.json's `_product_attributes`
+# closes the causation-proven
 # WooCommerce variation-title word-reordering bug). See the script's own
 # header for what's proven here (the Canon.php mechanism) vs. by live
 # sandbox evidence (the real WooCommerce variation title converging
@@ -1902,9 +1922,9 @@ regress-option-name-refs-wiring:
 regress-order-preserving:
 	php sandbox/tests/offline/grammar/regress_order_preserving.php
 
-# DUO-3481 (dev-loop round 2): duplication conformance vectors. The three
+# issue #3481 (dev-loop round 2): duplication conformance vectors. The three
 # deployables (agent/, cli/, recovery/) keep deliberately separate copies of
-# canonical-JSON encoding, the duo-command-refusal/v1 envelope, plan-row
+# canonical-JSON encoding, the wprism-command-refusal/v1 envelope, plan-row
 # labels, version-range and safe-relative-path helpers, plus the five
 # PlanSummary<->agent Cli "keep lockstep" renderers. Until now the only thing
 # holding those copies byte-identical was a comment. This suite drives every
@@ -1921,11 +1941,11 @@ regress-canonical-json-parity:
 regress-assess-projection:
 	php sandbox/tests/offline/assess-contract/regress_assess_projection.php
 
-# wp duo assess-inventory: the duo-assess-inventory/v1 document over a fake site — names and counts only, byte-stable, no option value ever leaks
+# wp wprism assess-inventory: the wprism-assess-inventory/v1 document over a fake site — names and counts only, byte-stable, no option value ever leaks
 regress-assess-inventory:
 	php sandbox/tests/offline/assess-contract/regress_assess_inventory.php
 
-# duo-application-contract/v1: canonical bytes, closed keys, digest stability, attestation enum, compare-and-swap store
+# wprism-application-contract/v1: canonical bytes, closed keys, digest stability, attestation enum, compare-and-swap store
 regress-contract-shape:
 	php sandbox/tests/offline/assess-contract/regress_contract_shape.php
 
@@ -1937,7 +1957,7 @@ regress-contract-attestation:
 regress-contract-projection:
 	php sandbox/tests/offline/assess-contract/regress_contract_projection.php
 
-# duo assess composes doctor → probes → inventory → capabilities → catalog in order and refuses (never partially succeeds) on missing access; proposed.json written locally
+# wprism assess composes doctor → probes → inventory → capabilities → catalog in order and refuses (never partially succeeds) on missing access; proposed.json written locally
 regress-assess-composition:
 	bash sandbox/tests/offline/assess-contract/regress_assess_composition.sh
 
@@ -1945,11 +1965,11 @@ regress-assess-composition:
 regress-assess-bounds:
 	bash sandbox/tests/offline/assess-contract/regress_assess_bounds.sh
 
-# duo contract propose → accept → files written canonical and staged; stale proposal refused; newer-digest overwrite refused
+# wprism contract propose → accept → files written canonical and staged; stale proposal refused; newer-digest overwrite refused
 regress-contract-accept:
 	bash sandbox/tests/offline/assess-contract/regress_contract_accept.sh
 
-# DUO-3503: the proposal is per environment (.duo/contract/<env>/proposed.json) while contract.json/projection.json stay per site; assessing another env leaves a reviewed proposal untouched; a proposal stamped for another env refuses before the target is contacted; an illegal env path segment refuses
+# issue #3503: the proposal is per environment (.wprism/contract/<env>/proposed.json) while contract.json/projection.json stay per site; assessing another env leaves a reviewed proposal untouched; a proposal stamped for another env refuses before the target is contacted; an illegal env path segment refuses
 regress-contract-multi-env:
 	bash sandbox/tests/offline/assess-contract/regress_contract_multi_env.sh
 
@@ -1957,7 +1977,7 @@ regress-contract-multi-env:
 # release gate below enforces): release, verify, recover and rehearse.
 # Offline over fixture site repos, fake drivers
 # and a fake `wp`/`ssh`; no docker.
-# duo-authorization-plan/v1: durable freeze before any mutation, digest stability, plan_changed invalidation on any fact drift, --plan-only mutates nothing, weaker --profile needs the explicit flag
+# wprism-authorization-plan/v1: durable freeze before any mutation, digest stability, plan_changed invalidation on any fact drift, --plan-only mutates nothing, weaker --profile needs the explicit flag
 regress-authorization-plan:
 	php sandbox/tests/offline/assess-contract/regress_authorization_plan.php
 
@@ -1965,11 +1985,11 @@ regress-authorization-plan:
 regress-release-containment-gate:
 	php sandbox/tests/offline/assess-contract/regress_release_containment_gate.php
 
-# duo-recovery-claim/v1 is literal: byte-identical between the frozen plan and recovery; does_not_restore non-empty for every profile including verified-automatic
+# wprism-recovery-claim/v1 is literal: byte-identical between the frozen plan and recovery; does_not_restore non-empty for every profile including verified-automatic
 regress-recover-claim:
 	php sandbox/tests/offline/assess-contract/regress_recover_claim.php
 
-# ROUND 3 T6 (wire contract: docs/adapter-walk-bundle.md): `duo adapter keygen|certify|pin` — the
+# ROUND 3 T6 (wire contract: docs/adapter-walk-bundle.md): `wprism adapter keygen|certify|pin` — the
 # operator's own trust root under adapters/authorities.json, the unexercised site bundle, the
 # exact {name,source,digest} pin, and the shipped-name override; offline against a scratch site repo
 regress-adapter-certify:
@@ -2003,7 +2023,7 @@ regress-recover-ordering:
 # canonical list of what a human may see): the MUP leak audit — no internal
 # identifier in the human view of assess / release
 # --plan-only / verify / recover / rehearse unless a documented command consumes
-# it; every public `wp duo` command is host-driven or named in
+# it; every public `wp wprism` command is host-driven or named in
 # docs/guides/internals.md; the retired four-command raw-recovery recipe cites
 # nowhere but internals.md. Offline over the T2/T3 fixture sites.
 regress-mup-leak-audit:
@@ -2014,26 +2034,26 @@ regress-mup-leak-audit:
 regress-promotion-lock:
 	bash sandbox/tests/live/regress_promotion_lock.sh
 
-# DUO-3353: responsibility-focused publication/lease control-plane seams.
+# issue #3353: responsibility-focused publication/lease control-plane seams.
 # Offline and intentionally independent of WordPress/$wpdb; the existing
 # capture and promotion suites remain the behavioral characterization of the
 # compatibility facades.
 regress-control-plane-seams:
 	php sandbox/tests/offline/recovery/regress_control_plane_seams.php
 
-# DUO-3506: the two `promotion-abort` refusals carry a stable reason code, and
+# issue #3506: the two `promotion-abort` refusals carry a stable reason code, and
 # their operator sentence does not move. Without the code, a superseded
-# checkpoint reached `duo recover` as one constant, reasonless line; with a
+# checkpoint reached `wprism recover` as one constant, reasonless line; with a
 # changed sentence, the live pin regress_promotion_lock.sh:99-107 breaks.
 regress-promotion-abort-reason:
 	php sandbox/tests/offline/recovery/regress_promotion_abort_reason.php
 
-# DUO-3352: shared canonical JSON, durable publication, exclusive locking,
+# issue #3352: shared canonical JSON, durable publication, exclusive locking,
 # and bounded provider transport used by the rollback/resource bundles.
 regress-recovery-protocol:
 	php sandbox/tests/offline/recovery/regress_recovery_protocol.php
 
-# DUO-3223: real target-wide capture/apply/delete contention. Same-destination
+# issue #3223: real target-wide capture/apply/delete contention. Same-destination
 # publishers refuse at the filesystem lock; different destinations and apply
 # cross-races refuse at the shared target-writer fence. One winning apply
 # verifies rewrite regeneration, one winning delete removes the mapping once,
@@ -2041,7 +2061,7 @@ regress-recovery-protocol:
 regress-capture-concurrency:
 	bash sandbox/tests/live/regress_capture_concurrency.sh
 
-# DUO-3285: the 25 regress_*.{sh,php} scripts below existed in sandbox/tests/
+# issue #3285: the 25 regress_*.{sh,php} scripts below existed in sandbox/tests/
 # with NO Makefile target at all before this issue -- unreachable via `make`,
 # discoverable only by grepping the directory listing by hand. Surfaced by
 # the same survey that built regress-offline-all/regress-live-list below:
@@ -2056,14 +2076,14 @@ regress-adopt-rollback:
 regress-local-bootstrap:
 	php sandbox/tests/offline/cli/regress_local_bootstrap.php
 
-# DUO-3365: one disposable pair supplies a real installed WordPress volume,
+# issue #3365: one disposable pair supplies a real installed WordPress volume,
 # then an out-of-band controller container proves local adopt -> init from a
-# target with no pre-mounted Duo control plane. Live-only; never offline-all.
+# target with no pre-mounted WPrism control plane. Live-only; never offline-all.
 regress-local-bootstrap-live:
 	bash sandbox/tests/live/regress_local_bootstrap_live.sh
 
 # Automatic verified rollback on a `local` target, on the same disposable-pair
-# estate DUO-3365 established: the controller container IS the target, which is
+# estate issue #3365 established: the controller container IS the target, which is
 # what makes the local transport real. Live-only; never offline-all.
 regress-local-verified-rollback-live:
 	bash sandbox/tests/live/regress_local_verified_rollback_live.sh
@@ -2088,7 +2108,7 @@ regress-url-query-reference-codec:
 # `column_codecs` (Redirection 5.9.0's PHP-serialized `action_data`) and
 # `attr_id_codecs` (WPForms Lite's string-typed `formId`). Both sections ship
 # post-v3 through `engine_features` with NO version bump, which each suite
-# asserts by pinning DUO_SPEC_VERSION at 3.
+# asserts by pinning WPRISM_SPEC_VERSION at 3.
 regress-column-codec-grammar:
 	php sandbox/tests/offline/grammar/regress_column_codec_grammar.php
 
@@ -2174,32 +2194,32 @@ regress-environment-materializer:
 	php sandbox/tests/offline/environment/regress_environment_materializer.php
 
 # The published provider protocol (docs/branch-environment-provider.md) and
-# the `duo env provider-check` harness, proven against the LIVE
+# the `wprism env provider-check` harness, proven against the LIVE
 # CommandEnvironmentProvider so neither can drift from what the orchestrator
 # actually sends. No docker, no pair, no source environment is contacted.
 regress-env-provider-conformance:
 	php sandbox/tests/offline/environment/regress_env_provider_conformance.php
 
-# DUO-3324: public attach/materialize over the real SSH driver with an
+# issue #3324: public attach/materialize over the real SSH driver with an
 # offline SSH wrapper and generic machine-local provider; no provisioning is
 # claimed and reap is verified as exact detach.
 regress-environment-materializer-ssh:
 	php sandbox/tests/offline/environment/regress_environment_materializer_ssh.php
 
-# DUO-3324: phase-exact recovery under provider response loss. This is
+# issue #3324: phase-exact recovery under provider response loss. This is
 # deliberately offline: its command provider persists each fixture mutation
 # before withholding the response, then proves the public journal resumes
 # only with the exact operation owner and idempotency tuple.
 regress-environment-materializer-recovery:
 	php sandbox/tests/offline/environment/regress_environment_materializer_recovery.php
 
-# DUO-3324: full public-CLI proof against one isolated pair.  This is live
+# issue #3324: full public-CLI proof against one isolated pair.  This is live
 # deliberately: it owns source/target DB/media/repository resources and its
 # machine-local provider independently proves snapshot/fence/TTL cleanup.
 regress-environment-materializer-live:
 	bash sandbox/tests/live/regress_environment_materializer_live.sh
 
-# The `duo env provider-check` harness against tools/reference-env-provider.php
+# The `wprism env provider-check` harness against tools/reference-env-provider.php
 # on a real pair. Live deliberately: the offline suite proves the harness
 # agrees with the ORCHESTRATOR using stub providers this repo writes, and only
 # a real, independent provider can prove the synthetic cycle is one such a
@@ -2211,7 +2231,7 @@ regress-env-provider-conformance-live:
 regress-frozen-materialization-promotion:
 	php sandbox/tests/offline/environment/regress_frozen_materialization_promotion.php
 
-# DUO-3513: DockerTransport's opt-in `mode: "exec"` against a resident
+# issue #3513: DockerTransport's opt-in `mode: "exec"` against a resident
 # compose service (vs. today's default `run --rm`, a fresh container per
 # call). Entirely offline: the not-running precondition's docker probe is
 # injected through DockerTransport's constructor seam, so this suite never
@@ -2219,7 +2239,7 @@ regress-frozen-materialization-promotion:
 regress-docker-exec-mode:
 	php sandbox/tests/offline/environment/regress_docker_exec_mode.php
 
-# DUO-3384: PlanSummary::render() tolerates partial fixtures by design, so a
+# issue #3384: PlanSummary::render() tolerates partial fixtures by design, so a
 # valid `{}` renders clean. This drives an empty, a missing-bucket, and a
 # complete plan through both promotion reconciliation boundaries, and pins the
 # validator's required buckets to what agent/src/Apply/Apply.php actually emits.
@@ -2272,7 +2292,7 @@ regress-taxonomy-object-keyspace:
 regress-env-options-policy:
 	php sandbox/tests/offline/policy/regress_env_options_policy.php
 
-# DUO-3509: the option names a fresh `duo init` on WP 7.0.3 + WooCommerce
+# issue #3509: the option names a fresh `wprism init` on WP 7.0.3 + WooCommerce
 # 11.0.1 + Yoast 28.3 + CF7 6.1.7 demanded a decision for, asserted against
 # the REAL shipped manifests through Policy::option_rule_details() -- plus
 # the one name (wp_user_roles) deliberately left undeclared.
@@ -2282,38 +2302,38 @@ regress-shipped-option-declarations:
 regress-export-manifest-roundtrip:
 	php sandbox/tests/offline/policy/regress_export_manifest_roundtrip.php
 
-# DUO-3348 slice 27: the pure PolicyWriter projection and its stable
+# issue #3348 slice 27: the pure PolicyWriter projection and its stable
 # Policy::export_manifest() facade, including the export/load round trip.
 regress-policy-writer:
 	php sandbox/tests/offline/policy/regress_policy_writer.php
 
-# DUO-3348 slice 28: the shared pure per-manifest grammar pipeline used by
+# issue #3348 slice 28: the shared pure per-manifest grammar pipeline used by
 # live Policy::load() and frozen Policy::from_snapshot() validation.
 regress-manifest-validator:
 	php sandbox/tests/offline/policy/regress_manifest_validator.php
 
-# DUO-3348 slice 29: the shared pure site.duo.json policy validation
+# issue #3348 slice 29: the shared pure site.wprism.json policy validation
 # sequence used by live Policy::load() and frozen Policy::from_snapshot().
 regress-site-policy-validator:
 	php sandbox/tests/offline/policy/regress_site_policy_validator.php
 
-# DUO-3348 slice 36: final cross-manifest closure/pin binding shared by live
+# issue #3348 slice 36: final cross-manifest closure/pin binding shared by live
 # and frozen Policy loading.
 regress-policy-load-finalizer:
 	php sandbox/tests/offline/policy/regress_policy_load_finalizer.php
 
-# DUO-3348 slice 30: the pure policy/manifest identity projection moved out of
+# issue #3348 slice 30: the pure policy/manifest identity projection moved out of
 # RepositoryCompiler into ArtifactPolicyIdentity; checks direct loading, its
 # historical compiler facades, and the independent registry-row digest proof.
 regress-artifact-policy-identity:
 	php sandbox/tests/offline/policy/regress_artifact_policy_identity.php
 
-# DUO-3348 slice 35: persisted compiled-artifact validation is independent of
+# issue #3348 slice 35: persisted compiled-artifact validation is independent of
 # repository tree building while RepositoryCompiler retains its public facade.
 regress-compiled-artifact-reader:
 	php sandbox/tests/offline/repository/regress_compiled_artifact_reader.php
 
-# DUO-3348 slice 31: pure attachment/media partition validation moved out of
+# issue #3348 slice 31: pure attachment/media partition validation moved out of
 # RepositoryCompiler while the compiler retains tree orchestration and its
 # aggregate diagnostic refusal.
 regress-repository-media-catalog:
@@ -2385,15 +2405,15 @@ regress-refresh-rebase:
 regress-refresh-field-diff:
 	php sandbox/tests/offline/refresh/regress_refresh_field_diff.php
 
-# DUO merge-check: the env-free half of the merge story. Drives the real
-# `duo merge-check` executable against real Git fixtures, so the exit-code
+# WPRISM merge-check: the env-free half of the merge story. Drives the real
+# `wprism merge-check` executable against real Git fixtures, so the exit-code
 # contract a customer's CI binds to (0/1/2/3) is asserted as a process
 # result rather than as a return value.
 regress-merge-check:
 	php sandbox/tests/offline/refresh/regress_merge_check.php
 
-# The fleet census: `duo census` folds N duo-assess-inventory/v1 documents into
-# duo-fleet-census/v1 with no environment, no target and no WordPress. Drives
+# The fleet census: `wprism census` folds N wprism-assess-inventory/v1 documents into
+# wprism-fleet-census/v1 with no environment, no target and no WordPress. Drives
 # the real executable against synthetic manifest libraries and inventories
 # under sandbox/tmp, because the deliverable includes the dispatch entry, the
 # usage line, the exit-code contract and the redaction property — none of which
@@ -2401,8 +2421,8 @@ regress-merge-check:
 regress-fleet-census:
 	php sandbox/tests/offline/cli/regress_fleet_census.php
 
-# The cohort re-baseline: `duo census --baseline=` folds two duo-fleet-census/v1
-# documents into duo-cohort-rebaseline/v1 — the coverage-ratio delta, funnel
+# The cohort re-baseline: `wprism census --baseline=` folds two wprism-fleet-census/v1
+# documents into wprism-cohort-rebaseline/v1 — the coverage-ratio delta, funnel
 # movement and per-adapter surface attribution WP-6.3's exit criterion reads.
 # Deterministic over fixture censuses, including the case the program is most
 # likely to hit: a cohort that ships every adapter and moves no ratio, rendered
@@ -2412,8 +2432,8 @@ regress-fleet-census:
 regress-cohort-rebaseline:
 	php sandbox/tests/offline/cli/regress_cohort_rebaseline.php
 
-# WP-5.6, adapter discovery and distribution: `duo adapter discover|install|
-# update` over RECORDED duo-adapter-index/v1 fixtures, with no live network on
+# WP-5.6, adapter discovery and distribution: `wprism adapter discover|install|
+# update` over RECORDED wprism-adapter-index/v1 fixtures, with no live network on
 # any path (the one https:// entry exists to prove it is discoverable and
 # refuses at install). Every refusing install is asserted twice — the typed
 # code, and that the repository's adapters/ tree is byte-for-byte unchanged —
@@ -2460,51 +2480,51 @@ regress-ssh-rollback-certification:
 regress-pair-bootstrap-unit:
 	bash sandbox/tests/offline/guards/regress_pair_bootstrap_unit.sh
 
-# DUO-3355: direct offline characterization of the extracted pair-budget
+# issue #3355: direct offline characterization of the extracted pair-budget
 # resource lock. The lifecycle/bootstrap suite remains the broader facade
 # proof; this target keeps the crash-safe lock boundary independently loaded.
 regress-pair-budget-lock:
 	bash sandbox/tests/offline/guards/regress_pair_budget_lock.sh
 
-# DUO-3355: direct offline characterization of the extracted pair-compose
+# issue #3355: direct offline characterization of the extracted pair-compose
 # discovery filter (the `docker compose ls` jq query deciding which rows are
-# a Duo pair at all) -- fed synthetic compose ls JSON via a fake docker, no
+# a WPrism pair at all) -- fed synthetic compose ls JSON via a fake docker, no
 # real docker or pair lifecycle involved. pair_compose_configure() itself
 # (the docker-compose-argv/canonical-source half of this library) is already
 # exercised for real by the bootstrap/candidate-source suites, which run the
 # shipped pair.sh's own subcommands against a fake
 # docker; this target covers the filter edge cases those runs don't reach
-# (the legacy duo-sandbox project's exclusion, malformed/empty compose ls
+# (the legacy wprism-sandbox project's exclusion, malformed/empty compose ls
 # output refusing rather than reporting zero pairs, and the Status/
 # ConfigFiles/Name guards).
 regress-pair-compose-unit:
 	bash sandbox/tests/offline/guards/regress_pair_compose_unit.sh
 
-# The MySQL 8.x evidence lane's engine selection (DUO_DB_ENGINE ->
-# DB_CONTAINER/DB_CLIENT/DB_COMPOSE/DB_LABEL, pair.yml's DUO_DB_HOST default,
+# The MySQL 8.x evidence lane's engine selection (WPRISM_DB_ENGINE ->
+# DB_CONTAINER/DB_CLIENT/DB_COMPOSE/DB_LABEL, pair.yml's WPRISM_DB_HOST default,
 # and the .env line that carries it across the subprocess boundary every
 # conformance/regress caller crosses). Offline like its siblings above: a fake
 # docker records every invocation, so "the unknown-engine refusal precedes any
 # container work" is asserted, not assumed. The load-bearing case is the
-# DEFAULT one -- an unset DUO_DB_ENGINE must reproduce the four values pair.sh
+# DEFAULT one -- an unset WPRISM_DB_ENGINE must reproduce the four values pair.sh
 # hard-coded and pair_db_sql's argv byte-for-byte.
 regress-pair-db-engine:
 	bash sandbox/tests/offline/guards/regress_pair_db_engine.sh
 
-# DUO-3355: offline contract for the narrow shared primitives used by the
+# issue #3355: offline contract for the narrow shared primitives used by the
 # legacy R1 proof harnesses. A fake docker captures the public compose/wp
 # commands and rewrite-file bytes; it does not need Docker or WordPress.
 regress-proof-legacy-pair:
 	bash sandbox/tests/offline/guards/regress_proof_legacy_pair.sh
 
-# DUO-3377: the exact-source gate. Offline like its bootstrap sibling above --
+# issue #3377: the exact-source gate. Offline like its bootstrap sibling above --
 # a real scratch canonical checkout plus a real linked worktree (the trap's
 # own shape) and a fake docker; genuine git is the mechanism under test, so it
 # is deliberately NOT faked here.
 regress-pair-candidate-source:
 	bash sandbox/tests/offline/guards/regress_pair_candidate_source.sh
 
-# DUO-3343: a production refresh is an observation boundary, not a capture
+# issue #3343: a production refresh is an observation boundary, not a capture
 # variant. This focused no-WordPress harness proves the exporter's
 # SELECT-only ledger validation, mutation prohibition, and semantic-record
 # envelope without needing a sandbox database.
@@ -2537,7 +2557,7 @@ regress-repository-compiler-integration:
 regress-scope-gate:
 	bash sandbox/tests/live/regress_scope_gate.sh
 
-# DUO-3344: offline, no docker — a scope resolved from explicit roots closes
+# issue #3344: offline, no docker — a scope resolved from explicit roots closes
 # over declared edges only, every inclusion names the edge that pulled it in,
 # and an unresolvable root is refused. Also pins the two defects that folding
 # the compiler's reference walk and the closure walk into one enumeration
@@ -2547,90 +2567,90 @@ regress-scope-gate:
 regress-scope-closure:
 	php sandbox/tests/offline/reference-scope/regress_scope_closure.php
 
-# DUO-3344: immutable, self-verifying scope evidence. This is distinct from
+# issue #3344: immutable, self-verifying scope evidence. This is distinct from
 # the legacy closure preview suite: it covers normalized tombstone selectors,
 # artifact/policy association, scoped upload/media/action/provider/effect
 # filtering, and the no-target-contact contract.
 regress-scope-contract:
 	bash sandbox/tests/offline/reference-scope/regress_scope_contract.sh
 
-# DUO-3344 slice 4: target-bound scoped apply authority/session protocol.
+# issue #3344 slice 4: target-bound scoped apply authority/session protocol.
 # Pure PHP with an injected byte-CAS store; no WordPress or target contact.
 regress-scoped-apply-session:
 	php sandbox/tests/offline/reference-scope/regress_scoped_apply_session.php
 
-# DUO-3344: offline source contract for the scoped live harness itself. It
+# issue #3344: offline source contract for the scoped live harness itself. It
 # proves a failed pair teardown retains its exact evidence rather than
 # deleting roots and printing a pre-cleanup green verdict.
 regress-scoped-apply-live-cleanup:
 	php sandbox/tests/offline/guards/regress_scoped_apply_live_cleanup.php
 
-# DUO-3344: offline scoped authored-boundary and response-loss recovery matrix.
+# issue #3344: offline scoped authored-boundary and response-loss recovery matrix.
 # The harness drives the public scoped session/observation/effect seams with
 # injected CAS and target stubs; no Docker or WordPress target is required.
 regress-scoped-apply-recovery:
 	php sandbox/tests/offline/reference-scope/regress_scoped_apply_recovery.php
 
-# DUO-3344/DUO-3338: offline operation-bound provider/native effect recovery.
+# issue #3344/issue #3338: offline operation-bound provider/native effect recovery.
 regress-scoped-effect-reconciliation:
 	php sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php
 
-# DUO-3344 slice 5: target session/profile/receipt binding and the bounded
+# issue #3344 slice 5: target session/profile/receipt binding and the bounded
 # checkpoint-only selection gate. Pure fake-ledger/DB PHP; no target contact.
 regress-scoped-promotion-target:
 	php sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 
-# DUO-3344 slice 5: public SSH host sequencing against fake SSH/SCP/WP plus a
+# issue #3344 slice 5: public SSH host sequencing against fake SSH/SCP/WP plus a
 # real isolated rollback-control root. No Docker, pair, or live target.
 regress-scoped-promote-unit:
 	bash sandbox/tests/offline/reference-scope/regress_scoped_promote_unit.sh
 
-# DUO-3344: the SSH live harness keeps its exact controlled-promotion failure
+# issue #3344: the SSH live harness keeps its exact controlled-promotion failure
 # evidence in a private non-secret directory, while unconditionally erasing
 # the SSH/config/credential scratch tree. Source-only: no Docker or SSH host.
 regress-ssh-adopt-evidence-retention:
 	php sandbox/tests/offline/guards/regress_ssh_adopt_evidence_retention.php
 
-# DUO-3344: host/agent scope transport boundary — canonical compact request
+# issue #3344: host/agent scope transport boundary — canonical compact request
 # forwarding, refusal before target contact, and ordinary unscoped passthrough.
 regress-scope-wire:
 	php sandbox/tests/offline/reference-scope/regress_scope_wire.php
 
-# DUO-3344 slice 4 live proof: public host CLI -> DockerTransport -> scoped
+# issue #3344 slice 4 live proof: public host CLI -> DockerTransport -> scoped
 # target plan/apply/verification.  It requires an explicitly allocated,
 # disposable pair and a clean exact-source SHA; unlike offline regressions it
 # is intentionally absent from regress-offline-all.
 #
 #   make regress-scoped-apply-live \
-#     SCOPED_APPLY_LIVE_PAIR=codexmacb3344 \
+#     SCOPED_APPLY_LIVE_PAIR=wprismscopedapply \
 #     SCOPED_APPLY_LIVE_PORT1=8900 SCOPED_APPLY_LIVE_PORT2=8901 \
-#     DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
+#     WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
 regress-scoped-apply-live:
 	@test -n "$(SCOPED_APPLY_LIVE_PAIR)" || { echo 'SCOPED_APPLY_LIVE_PAIR is required; use an unused disposable pair name' >&2; exit 2; }
 	@test -n "$(SCOPED_APPLY_LIVE_PORT1)" || { echo 'SCOPED_APPLY_LIVE_PORT1 is required; choose a free even port >= 8900' >&2; exit 2; }
 	@test -n "$(SCOPED_APPLY_LIVE_PORT2)" || { echo 'SCOPED_APPLY_LIVE_PORT2 is required; use PORT1 + 1' >&2; exit 2; }
-	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
-	SCOPED_APPLY_LIVE_PAIR="$(SCOPED_APPLY_LIVE_PAIR)" SCOPED_APPLY_LIVE_PORT1="$(SCOPED_APPLY_LIVE_PORT1)" SCOPED_APPLY_LIVE_PORT2="$(SCOPED_APPLY_LIVE_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_scoped_apply_live.sh
+	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	SCOPED_APPLY_LIVE_PAIR="$(SCOPED_APPLY_LIVE_PAIR)" SCOPED_APPLY_LIVE_PORT1="$(SCOPED_APPLY_LIVE_PORT1)" SCOPED_APPLY_LIVE_PORT2="$(SCOPED_APPLY_LIVE_PORT2)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_scoped_apply_live.sh
 
-# DUO-3344 slice 6 live proof: the SAME scope contract's selected-identity
+# issue #3344 slice 6 live proof: the SAME scope contract's selected-identity
 # set flows unchanged through scope -> capture -> refresh-export -> plan ->
 # apply, then an independently-recomputed scope on the TARGET after
 # mutation reproduces the SOURCE's original closure byte-for-byte. Explicit
 # disposable-pair inputs, absent from regress-offline-all, same rationale as
 # regress-scoped-apply-live above. Deliberately does not cover scoped
-# promote/rollback: cli/duo refuses scoped promotion outright over anything
+# promote/rollback: cli/wprism refuses scoped promotion outright over anything
 # but SshTransport, an entirely different live harness than this one.
 #
 #   make regress-scope-chain-stability \
-#     SCOPE_CHAIN_PAIR=claudemaca3344 \
+#     SCOPE_CHAIN_PAIR=wprismscopechain \
 #     SCOPE_CHAIN_PORT1=8900 SCOPE_CHAIN_PORT2=8901 \
-#     DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
+#     WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
 regress-scope-chain-stability:
 	@test -n "$(SCOPE_CHAIN_PAIR)" || { echo 'SCOPE_CHAIN_PAIR is required; use an unused disposable pair name' >&2; exit 2; }
 	@test -n "$(SCOPE_CHAIN_PORT1)" || { echo 'SCOPE_CHAIN_PORT1 is required; choose a free even port >= 8900' >&2; exit 2; }
 	@test -n "$(SCOPE_CHAIN_PORT2)" || { echo 'SCOPE_CHAIN_PORT2 is required; use PORT1 + 1' >&2; exit 2; }
-	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
-	SCOPE_CHAIN_PAIR="$(SCOPE_CHAIN_PAIR)" SCOPE_CHAIN_PORT1="$(SCOPE_CHAIN_PORT1)" SCOPE_CHAIN_PORT2="$(SCOPE_CHAIN_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_scope_chain_stability.sh
+	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	SCOPE_CHAIN_PAIR="$(SCOPE_CHAIN_PAIR)" SCOPE_CHAIN_PORT1="$(SCOPE_CHAIN_PORT1)" SCOPE_CHAIN_PORT2="$(SCOPE_CHAIN_PORT2)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_scope_chain_stability.sh
 
 regress-snapshot-meta:
 	bash sandbox/tests/live/regress_snapshot_meta.sh
@@ -2638,15 +2658,15 @@ regress-snapshot-meta:
 regress-generic-reference-shapes:
 	bash sandbox/tests/live/regress_generic_reference_shapes.sh
 
-# DUO-3344 live SSH adoption/scoped-promotion evidence must be allocated by
+# issue #3344 live SSH adoption/scoped-promotion evidence must be allocated by
 # its operator and bind a clean standalone clone's exact candidate commit:
 #   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
-#     DUO_EXPECTED_SOURCE_SHA=$$(git rev-parse HEAD)
+#     WPRISM_EXPECTED_SOURCE_SHA=$$(git rev-parse HEAD)
 regress-ssh-adopt:
 	@test -n "$(ADOPT_FIXTURE)" || { echo 'ADOPT_FIXTURE is required; choose an unused lowercase fixture name' >&2; exit 2; }
 	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
-	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
-	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_ssh_adopt.sh
+	@test -n "$(WPRISM_EXPECTED_SOURCE_SHA)" || { echo 'WPRISM_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
+	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" WPRISM_EXPECTED_SOURCE_SHA="$(WPRISM_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_ssh_adopt.sh
 
 certify-ssh-adoption-roundtrip:
 	bash sandbox/tests/certify/certify_ssh_adoption_roundtrip.sh
@@ -2657,7 +2677,7 @@ certify-ssh-rollback:
 regress-user-meta:
 	bash sandbox/tests/live/regress_user_meta.sh
 
-# DUO-3285: one target bundling every offline (no-docker) regress suite --
+# issue #3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
 # disabled for this repository, so this local bundle plus independent review
 # is the merge gate. Live suites are deliberately NOT here -- see
@@ -2666,8 +2686,8 @@ regress-user-meta:
 # local close-gate wants (no point burning minutes on suite 21 when suite 3
 # already broke).
 #
-# DUO-3285 fast-follow and recovery closure: regress-coverage-offline
-# (DUO-3290's own suite, asub's PR #82) had a real Makefile target the whole
+# issue #3285 fast-follow and recovery closure: regress-coverage-offline
+# (issue #3290's own suite, asub's PR #82) had a real Makefile target the whole
 # time but landed after this bundle's own survey was authored, so it slipped
 # in unbundled exactly the way this target exists to prevent -- team-lead
 # caught it by inspection. Re-running that survey the same day turned up two
@@ -2679,7 +2699,7 @@ regress-user-meta:
 # under sandbox/tests/offline/ that no other suite runs, mapped to the target
 # whose recipe runs it -- and emits tools/offline-corpus.mk, which
 # `make release-gate` byte-compares exactly the way it already byte-compares
-# agent/duo-classmap.php and the capability document. The two integers that
+# agent/wprism-classmap.php and the capability document. The two integers that
 # used to live on the two echo lines had drifted apart (294 against 293,
 # though both were 207 when they were introduced together in 1ef9577c) --
 # which is what a number nothing computes eventually does. Adding a suite is
@@ -2690,7 +2710,7 @@ include tools/offline-corpus.mk
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh
 
-# DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
+# issue #3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
 # own "2 pairs per docker core" budget discipline) -- enumerable instead, so
 # a claim touching a mechanism can find its own suite without grepping this
@@ -2708,53 +2728,53 @@ regress-live-list:
 	@echo "  regress-option-reconciliation             pair codexmac3211"
 	@echo "  regress-discovery-completeness            pair codexmac3205 8900/8901"
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
-	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.3 -> 7.1 -> rollback/reinstall)"
-	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline core per run: CORE_DATA_BOUNDARY_WORDPRESS/_IMAGE, default 7.1; re-run per exercised series)"
-	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 x PHP 8.3/8.4 matrix, a below-range 6.8.3 refusal and a past-the-maximum PHP 8.5 refusal)"
-	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
+	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.3 -> 7.1 -> rollback/reinstall)"
+	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact offline core per run: CORE_DATA_BOUNDARY_WORDPRESS/_IMAGE, default 7.1; re-run per exercised series)"
+	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact claimed WordPress 6.9.2/7.0.2/7.0.3/7.1 x PHP 8.3/8.4 matrix, a below-range 6.8.3 refusal and a past-the-maximum PHP 8.5 refusal)"
+	@echo "  regress-core-scope-database               own disposable pair (parameterized: CORE_SCOPE_DATABASE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; one round trip per CLAIMED engine on sandbox/db.yml + sandbox/db.mysql.yml, carrying docs/mysql-dialect-audit.md's five probe groups)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-polylang-multisite-refusal        own disposable pair (parameterized: POLYLANG_MULTISITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 populated multisite refusal)"
-	@echo "  regress-woocommerce-multisite-refusal     own disposable pair (parameterized: WOO_MULTISITE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact WooCommerce 11.0.1 HPOS populated multisite refusal)"
+	@echo "  regress-woocommerce-multisite-refusal     own disposable pair (parameterized: WOO_MULTISITE_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact WooCommerce 11.0.1 HPOS populated multisite refusal)"
 	@echo "  regress-polylang-tec-rewrite-coinstall    own disposable pair (parameterized: POLYLANG_TEC_REWRITE_PAIR/PORT1/PORT2; exact Polylang 3.8.6 + TEC 6.17.2 child-process/topology sweep)"
-	@echo "  regress-the-events-calendar-multisite-refusal own disposable pair (parameterized: TEC_MULTISITE_PAIR/TEC_MULTISITE_PORT1/TEC_MULTISITE_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact TEC 6.17.2/6.17.3 populated multisite refusal)"
+	@echo "  regress-the-events-calendar-multisite-refusal own disposable pair (parameterized: TEC_MULTISITE_PAIR/TEC_MULTISITE_PORT1/TEC_MULTISITE_PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; exact TEC 6.17.2/6.17.3 populated multisite refusal)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-adapter-plugin-range              pair a3487pr 8988/8989 (parameterized: PLUGIN_RANGE_PAIR/PLUGIN_RANGE_PORT1/PLUGIN_RANGE_PORT2)"
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
-	@echo "  regress-adapter-authoring-live            own disposable pair (required: ADAPTER_AUTHORING_PAIR/ADAPTER_AUTHORING_PORT1/ADAPTER_AUTHORING_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate)"
+	@echo "  regress-adapter-authoring-live            own disposable pair (required: ADAPTER_AUTHORING_PAIR/ADAPTER_AUTHORING_PORT1/ADAPTER_AUTHORING_PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate)"
 	@echo "  regress-local-bootstrap-live              own disposable pair (parameterized: LOCAL_BOOTSTRAP_PAIR/LOCAL_BOOTSTRAP_PORT1/LOCAL_BOOTSTRAP_PORT2; exact candidate gate)"
 	@echo "  regress-local-verified-rollback-live      own disposable pair (parameterized: LOCAL_VERIFIED_PAIR/LOCAL_VERIFIED_PORT1/LOCAL_VERIFIED_PORT2; exact candidate gate; signed verified rollback on a local target)"
 	@echo "  regress-plan-category-summary-live        pair codexsma3345 9060/9061 (parameterized: PLAN_CATEGORY_SUMMARY_PAIR/PLAN_CATEGORY_SUMMARY_PORT1/PLAN_CATEGORY_SUMMARY_PORT2)"
 	@echo "  regress-provider-requirements-live        pair claudemacb3317 8930/8931 (parameterized: PROVIDER_REQUIREMENTS_PAIR/PROVIDER_REQUIREMENTS_PORT1/PROVIDER_REQUIREMENTS_PORT2)"
-	@echo "  regress-scoped-apply-live                 explicit SCOPED_APPLY_LIVE_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (public scoped plan/apply exact-source proof)"
-	@echo "  regress-scope-chain-stability              explicit SCOPE_CHAIN_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (scope->capture->refresh-export->plan->apply identity-set stability)"
+	@echo "  regress-scoped-apply-live                 explicit SCOPED_APPLY_LIVE_PAIR/PORT1/PORT2 + WPRISM_EXPECTED_SOURCE_SHA (public scoped plan/apply exact-source proof)"
+	@echo "  regress-scope-chain-stability              explicit SCOPE_CHAIN_PAIR/PORT1/PORT2 + WPRISM_EXPECTED_SOURCE_SHA (scope->capture->refresh-export->plan->apply identity-set stability)"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
 	@echo "  regress-promotion-lock                    pair codexmac3217 8900/... (runs in CI: code-half-live-lock)"
-	@echo "  regress-capture-concurrency               own disposable pair (required: CONCURRENCY_PAIR/CONCURRENCY_PORT1/CONCURRENCY_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate)"
+	@echo "  regress-capture-concurrency               own disposable pair (required: CONCURRENCY_PAIR/CONCURRENCY_PORT1/CONCURRENCY_PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate)"
 	@echo "  regress-acf-term-options-fields           pair asub3263 (parameterized: PAIR/PORT1/PORT2)"
 	@echo "  regress-collision                         legacy docker-compose.yml --profile fx"
 	@echo "  regress-entity-type-width                 pair amergety"
 	@echo "  regress-env-set                           pair asnapenvset"
 	@echo "  regress-option-ref-scope                  legacy docker-compose.yml --profile r1b"
 	@echo "  regress-pmpro-composite-ref               pair asnaprt"
-	@echo "  regress-woocommerce-rewrite-coinstall     own disposable pair (parameterized: WOO_REWRITE_COINSTALL_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; Woo 11.0.1 + Yoast 28.3 + Polylang 3.8.6 + TEC 6.17.2 product routes and refusal/retry)"
+	@echo "  regress-woocommerce-rewrite-coinstall     own disposable pair (parameterized: WOO_REWRITE_COINSTALL_PAIR/PORT1/PORT2; WPRISM_EXPECTED_SOURCE_SHA exact candidate gate; Woo 11.0.1 + Yoast 28.3 + Polylang 3.8.6 + TEC 6.17.2 product routes and refusal/retry)"
 	@echo "  regress-repository-authorization          pair conf 8806/8807"
 	@echo "  regress-repository-compiler-integration   pair conf 8806/8807"
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
 	@echo "  regress-snapshot-meta                     pair w1a"
 	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
-	@echo "  regress-ssh-adopt                         explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/DUO_EXPECTED_SOURCE_SHA standalone SSH scoped-promotion path"
+	@echo "  regress-ssh-adopt                         explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/WPRISM_EXPECTED_SOURCE_SHA standalone SSH scoped-promotion path"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
-	@echo "  regress-environment-materializer-live     pair codexmacb3324 9100/9101 (public env materialize/reap; user-authorized)"
-	@echo "  regress-env-provider-conformance-live     pair envprovcheck 9200/9201 (duo env provider-check vs tools/reference-env-provider.php)"
-	@echo "  regress-duo-init                         pair codexmaca3336 9300/9301 (parameterized: DUO_INIT_PAIR/DUO_INIT_PORT1/DUO_INIT_PORT2)"
-	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
+	@echo "  regress-environment-materializer-live     pair wprismenvmaterialize 9100/9101 (public env materialize/reap; user-authorized)"
+	@echo "  regress-env-provider-conformance-live     pair envprovcheck 9200/9201 (wprism env provider-check vs tools/reference-env-provider.php)"
+	@echo "  regress-wprism-init                         pair codexmaca3336 9300/9301 (parameterized: WPRISM_INIT_PAIR/WPRISM_INIT_PORT1/WPRISM_INIT_PORT2)"
+	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: WPRISM_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
 	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
 	@echo "  grind-mup                                 pair mup 9400/9401 (MUP_PAIR/PORT1/PORT2; MUP_STEP11=required|record-gap) -- the MUP end-to-end loop, docs/grind/mup.md"
@@ -2763,7 +2783,7 @@ regress-live-list:
 	@echo ""
 	@echo "Other grind-*/certify-* targets are a separate, already-governed category (see this target's comment)."
 
-# DUO-3285 fast-follow: the drift guard. Runs the same "every regress_*
+# issue #3285 fast-follow: the drift guard. Runs the same "every regress_*
 # file needs a bundle or live-list entry" survey that built regress-
 # offline-all/regress-live-list in the first place, every time this runs --
 # see the suite's own header for why the one-off fix wasn't enough.
@@ -2780,7 +2800,7 @@ regress-bundle-coverage:
 regress-suite-wiring:
 	php sandbox/tests/offline/guards/regress_suite_wiring.php
 
-# DUO-3483: a third drift direction the two above cannot see. The generated
+# issue #3483: a third drift direction the two above cannot see. The generated
 # fixtures under sandbox/tests/fixtures/{adapter-walk,mup}/ are wired and their
 # files exist, and both makers had still stopped reproducing them -- mup's died
 # partway on a builder signature change, adapter-walk's produced four documents
@@ -2789,7 +2809,7 @@ regress-fixture-makers:
 	bash sandbox/tests/offline/guards/regress_fixture_makers.sh
 
 # The one guard in this directory aimed at the PRODUCT rather than the estate.
-# AGENTS.md rule 2 names one refusal a manifests/ byte trips
+# AGENTS.md rule 2 names one refusal a shipped package byte trips
 # (compiled_artifact_manifest_mismatch) and rule 8 names one more; the tree
 # actually carries 44 gates across 76 sites on the platform/manifest/authority
 # axes. This re-derives that candidate set from the tree on every run and
@@ -2809,20 +2829,21 @@ regress-adapter-package-current-paths:
 # flat identity spaces, and the CLOSED grandfather list under it. At
 # spec_version 3 an out-of-tree adapter name is <vendor>-<name> and its provider
 # ids sit in that same namespace, which is what gives an authority's
-# `adapter_names: ["<vendor>-*"]` scope (WP-4.8) something to bind; the 16
-# shipped names and 18 id_kinds are enumerated in agent/src, never under
-# manifests/ where rule 2 would make them an adapter-digest input. The suite
-# proves the rule is inert below v3 (DUO_SPEC_VERSION is still 2), that
-# `acme-cache` and `zeta-cache` coexist in one pin set while all 16 shipped
+# `adapter_names: ["<vendor>-*"]` scope (WP-4.8) something to bind; the 17
+# shipped names and 20 id_kinds are enumerated in agent/src, never under an
+# adapter package or platform-library package where rule 2 would make them an
+# adapter-digest input. The suite
+# proves the rule is inert below v3 while the current spec-3 engine enforces it, that
+# `acme-cache` and `zeta-cache` coexist in one pin set while all 17 shipped
 # names load unchanged, that the uniqueness and case-folding refusals did not
 # move, and -- by driving `tools/wire-surface.php --check` against a fixture
-# library carrying a seventeenth unprefixed name -- that the release gate
+# library carrying an eighteenth unprefixed name -- that the release gate
 # refuses one. `id_kind` gets no rule at all: R-17 forbids it.
 regress-identity-namespaces:
 	php sandbox/tests/offline/guards/regress_identity_namespaces.php
 
 # WP-5.5: two pinned manifests claiming one plugin (or one theme) stop refusing
-# when site.duo.json's `policy.adapter_claims` says which claim is in force,
+# when site.wprism.json's `policy.adapter_claims` says which claim is in force,
 # and the displaced claimant is REPORTED as `displaced_by_resolution` instead
 # of vanishing. Measures the far larger unchanged half at the same time: the
 # unresolved refusal asserted against a LITERAL sentence in both arms, the
@@ -2866,5 +2887,5 @@ regress-init-contract:
 regress-bound-helper:
 	php sandbox/tests/offline/capture/regress_bound_helper.php
 
-regress-duo-init:
-	bash sandbox/tests/live/regress_duo_init.sh
+regress-wprism-init:
+	bash sandbox/tests/live/regress_wprism_init.sh

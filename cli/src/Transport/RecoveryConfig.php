@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/Transport.php';
 
@@ -136,7 +136,7 @@ final class RecoveryConfig {
         return $this->verified;
     }
 
-    /** The ` rollback_key_id=… rollback_recovery=… verified_rollback=…` tail of `duo envs`. */
+    /** The ` rollback_key_id=… rollback_recovery=… verified_rollback=…` tail of `wprism envs`. */
     public function describeSuffix(): string {
         $rollback = $this->keyId !== null ? " rollback_key_id={$this->keyId}" : '';
         $recovery = $this->recovery !== null ? ' rollback_recovery=configured' : '';
@@ -191,7 +191,7 @@ final class RecoveryConfig {
         $normalized = [
             'adapters' => $validated,
             'exclusion_provider' => $provider,
-            'format' => 'duo-recovery-config/v1',
+            'format' => 'wprism-recovery-config/v1',
             'timeout_seconds' => $timeout,
         ];
         if (array_key_exists('checkpoint_provider', $config)) {

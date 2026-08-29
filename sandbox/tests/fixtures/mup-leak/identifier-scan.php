@@ -6,9 +6,9 @@
  *
  * §5.2's rule is one sentence — *a human view may print an internal
  * identifier only when a documented command consumes it* — with an allowlist
- * of exactly three: `duo explain`'s `<bucket>:<uuid>` selector, the receipt
- * ids `duo recover --list` prints for `--restore=<id>`, and the `plan_digest`
- * `duo release` prints for `duo verify --plan=<digest>`. Everything else
+ * of exactly three: `wprism explain`'s `<bucket>:<uuid>` selector, the receipt
+ * ids `wprism recover --list` prints for `--restore=<id>`, and the `plan_digest`
+ * `wprism release` prints for `wprism verify --plan=<digest>`. Everything else
  * (artifact hashes, lease owners, operation ids, session ids) is
  * `--format=json` only.
  *
@@ -40,16 +40,16 @@
  * ## What counts as an internal-identifier SHAPE
  *
  *  - a canonical UUID, the 36-character form `agent/src/Kernel/Uuid.php`
- *    validates and `duo explain <bucket>:<uuid>` selects with;
+ *    validates and `wprism explain <bucket>:<uuid>` selects with;
  *  - a 64-hex digest, with or without a `sha256:` prefix;
- *  - a bare 32-hex token — `cli/duo`'s `orchestrator_run_id()` suffix and
+ *  - a bare 32-hex token — `cli/wprism`'s `orchestrator_run_id()` suffix and
  *    `PromotionLease::owner()`'s `direct-<32 hex>` fallback;
  *  - an operation id, `<8 digits>-<6 digits>-<32 hex>`.
  *
  * ## Two shapes deliberately NOT flagged, stated so the silence is not read
  * ## as an oversight
  *
- *  - **A 40-hex git revision.** `duo release` prints
+ *  - **A 40-hex git revision.** `wprism release` prints
  *    `releasing code revision <sha>` in full, and that is correct: a git
  *    revision is the operator's own vocabulary, it is what `--from=<ref>`
  *    takes, and every git command they already run consumes it. The 32- and
@@ -118,7 +118,7 @@ function mup_leak_walk(mixed $node, string $path, array &$into): void {
  * The same rule scan 2 already applies to shapes, applied to values: a token
  * that is *part of* an allowlisted identifier is that identifier being
  * printed, not a second one leaking. The case that needs it is a consumable
- * id that embeds an internal one by construction — `duo recover --list`'s
+ * id that embeds an internal one by construction — `wprism recover --list`'s
  * retained checkpoint id is `promote-<lease owner>`, because that is the
  * file name promote wrote and the name `--restore=<id>` takes; the owner
  * itself is never printed on its own. An occurrence of the owner anywhere
@@ -227,12 +227,12 @@ foreach ($values as $path => $value) {
         $leaked[] = "$path = $value";
     }
 }
-duo_check(
+wprism_check(
     $leaked === [],
     "$label: no internal-identifier field value reaches the human view"
 );
 foreach ($leaked as $line) {
-    duo_check_detail("leaked verbatim: $line");
+    wprism_check_detail("leaked verbatim: $line");
 }
 
 // ------------------------------------------------------------- 2. the shapes
@@ -250,12 +250,12 @@ foreach (MUP_LEAK_SHAPE_RE as $kind => $pattern) {
         $shaped[] = "$kind '$token'";
     }
 }
-duo_check(
+wprism_check(
     $shaped === [],
     "$label: the human view carries no internal-identifier shape a documented command does not consume"
 );
 foreach ($shaped as $line) {
-    duo_check_detail("unconsumed identifier in the human view: $line");
+    wprism_check_detail("unconsumed identifier in the human view: $line");
 }
 
 // The allowlist has to be REACHED, not merely declared: a suite that allowed
@@ -269,7 +269,7 @@ foreach ($allowKeys as $key) {
             break;
         }
     }
-    duo_check($found, "$label: the allowlisted key '$key' exists in this document");
+    wprism_check($found, "$label: the allowlisted key '$key' exists in this document");
 }
 
-duo_check_summary('mup_leak_identifier_scan');
+wprism_check_summary('mup_leak_identifier_scan');

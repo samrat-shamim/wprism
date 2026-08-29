@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3318: ownership rules for the engine's closed manifest vocabularies,
+ * issue #3318: ownership rules for the engine's closed manifest vocabularies,
  * the safe extension points around them, and the parent-scoped multi-column
  * natural key those rules had to be written down for.
  *
@@ -18,9 +18,9 @@
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Ledger,Tokens,
  * Snapshot,IdentityNotes}.php against manifest fixture files this test writes
  * into an explicit scratch AdapterLibrary — the same idiom as
- * sandbox/tests/offline/adapter/regress_adapter_contract.php (DUO-3222/DUO-3243).
+ * sandbox/tests/offline/adapter/regress_adapter_contract.php (issue #3222/issue #3243).
  *
- * Most of the file needs no database at all, which is itself the DUO-3318
+ * Most of the file needs no database at all, which is itself the issue #3318
  * grammar-split claim being demonstrated: a declaration is refusable with no
  * database in the process. The last two groups do need one, because the two
  * DIRECTIONS of the parent-scoped key — deriving identity off a live row, and
@@ -29,7 +29,7 @@
  * target: same "real engine code, fake database" approach as
  * regress_composite_ref.php / regress_block_refs.php, and a deliberately
  * smaller stand-in than either (this file's paths issue six query shapes and
- * mutate nothing but duo_map).
+ * mutate nothing but wprism_map).
  *
  * What this file does NOT cover, because it genuinely needs a live target:
  * apply of a parent-scoped natural key end to end, cross-environment UUID
@@ -44,9 +44,9 @@
 // WordPress supplies this in production. The offline harness exposes a
 // switchable equivalent so Policy::load()'s real v1 single-site gate is
 // exercised without bootstrapping WordPress or replacing the product path.
-$GLOBALS['duo_test_is_multisite'] = false;
+$GLOBALS['wprism_test_is_multisite'] = false;
 function is_multisite(): bool {
-    return (bool) $GLOBALS['duo_test_is_multisite'];
+    return (bool) $GLOBALS['wprism_test_is_multisite'];
 }
 
 // ---------------------------------------------------------------- WP stubs
@@ -58,7 +58,7 @@ function get_option($name, $default = false) {
     return ['home' => 'http://example.test'][$name] ?? $default;
 }
 function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false) {
-    return ['baseurl' => 'http://example.test/wp-content/uploads', 'basedir' => sys_get_temp_dir() . '/duo-uploads'];
+    return ['baseurl' => 'http://example.test/wp-content/uploads', 'basedir' => sys_get_temp_dir() . '/wprism-uploads'];
 }
 function untrailingslashit($string) {
     return rtrim((string) $string, '/\\');
@@ -72,7 +72,7 @@ function sanitize_title($s) {
  * this file issue — read by reading agent/src/{Ledger,Snapshot}.php directly,
  * the discipline regress_block_refs.php's own FakeWpdb docblock states, NOT a
  * general SQL engine. Rows are read-only here (nothing in this file inserts or
- * updates an authored row); duo_map is the only thing that changes, because
+ * updates an authored row); wprism_map is the only thing that changes, because
  * capture mints identity as a side effect of the derivation being tested.
  */
 final class FakeWpdb {
@@ -98,7 +98,7 @@ final class FakeWpdb {
             $unprefixed = $this->strip_prefix((string) $args[0]);
             return isset($this->tables[$unprefixed]) ? (string) $args[0] : null;
         }
-        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'wprism_map')) {
             [$uuid, $kind] = $args;
             foreach ($this->identity[$kind] ?? [] as $localId => $u) {
                 if ($u === $uuid) {
@@ -107,7 +107,7 @@ final class FakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'wprism_map')) {
             [$kind, $localId] = $args;
             return $this->identity[$kind][(int) $localId] ?? null;
         }
@@ -136,7 +136,7 @@ final class FakeWpdb {
 
     public function get_row($prepared, $output = ARRAY_A) {
         [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'wprism_map')) {
             [$uuid, $kind] = $args;
             foreach ($this->identity[$kind] ?? [] as $localId => $candidate) {
                 if ($candidate === $uuid) {
@@ -145,7 +145,7 @@ final class FakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'wprism_map')) {
             [$kind, $localId] = $args;
             $localId = (int) $localId;
             return isset($this->identity[$kind][$localId])
@@ -176,7 +176,7 @@ final class FakeWpdb {
 
     public function query($prepared) {
         [$sql, $args] = $this->unwrap($prepared);
-        if (str_starts_with(trim($sql), 'INSERT INTO') && str_contains($sql, 'duo_map')) {
+        if (str_starts_with(trim($sql), 'INSERT INTO') && str_contains($sql, 'wprism_map')) {
             [$uuid, $entityType, $kind, $localId] = $args;
             $this->identity[$kind][(int) $localId] = $uuid;
             $this->identityType[$kind][(int) $localId] = $entityType;
@@ -212,17 +212,17 @@ require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/IdentityNotes.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Canon;
-use Duo\IdentityNotes;
-use Duo\Policy;
-use Duo\SidebarState;
-use Duo\Snapshot;
-use Duo\Tokens;
-use Duo\Uuid;
-use DuoTest\FrozenPolicy;
+use WPrism\Canon;
+use WPrism\IdentityNotes;
+use WPrism\Policy;
+use WPrism\SidebarState;
+use WPrism\Snapshot;
+use WPrism\Tokens;
+use WPrism\Uuid;
+use WPrismTest\FrozenPolicy;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 $failures = 0;
@@ -248,24 +248,24 @@ function expect_throw(callable $fn, string $needle, string $msg): void {
     }
 }
 
-/** @var ?\Duo\AdapterLibrary the explicit scratch library for the current check */
-$GLOBALS['duo_test_adapter_library'] = null;
+/** @var ?\WPrism\AdapterLibrary the explicit scratch library for the current check */
+$GLOBALS['wprism_test_adapter_library'] = null;
 
 /** Fresh scratch adapter library for one check; auto-removed at exit. */
-function fresh_manifests_dir(array $files): \Duo\AdapterLibrary {
-    $root = sys_get_temp_dir() . '/duo_regress_vocab_ownership_' . bin2hex(random_bytes(4));
+function fresh_manifests_dir(array $files): \WPrism\AdapterLibrary {
+    $root = sys_get_temp_dir() . '/wprism_regress_vocab_ownership_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     foreach ($files as $name => $content) {
         Canon::write_file("$root/$name.json", Canon::encode($content));
     }
     register_shutdown_function(static fn() => manifest_fixture_remove_tree($root));
-    return $GLOBALS['duo_test_adapter_library'] = manifest_fixture_adapter_library($root);
+    return $GLOBALS['wprism_test_adapter_library'] = manifest_fixture_adapter_library($root);
 }
 
 /** Load through the fixture selected by fresh_manifests_dir(). */
 function load_current_policy(?string $repo, ?array $manifestNames = null): Policy {
-    $library = $GLOBALS['duo_test_adapter_library'] ?? null;
-    if (!$library instanceof \Duo\AdapterLibrary) {
+    $library = $GLOBALS['wprism_test_adapter_library'] ?? null;
+    if (!$library instanceof \WPrism\AdapterLibrary) {
         throw new \RuntimeException('no explicit vocabulary-ownership fixture library is selected');
     }
     return Policy::load($repo, $manifestNames, adapterLibrary: $library);
@@ -273,15 +273,15 @@ function load_current_policy(?string $repo, ?array $manifestNames = null): Polic
 
 /** Site repo carrying only the policy under test; pins are supplied by the caller. */
 function fresh_site_repo(array $manifests, array $policy = []): string {
-    $root = sys_get_temp_dir() . '/duo_regress_vocab_site_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_vocab_site_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
-    Canon::write_file("$root/site.duo.json", Canon::encode([
+    Canon::write_file("$root/site.wprism.json", Canon::encode([
         'manifests' => $manifests,
         'policy' => $policy === [] ? new \stdClass() : $policy,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     register_shutdown_function(function () use ($root) {
-        @unlink("$root/site.duo.json");
+        @unlink("$root/site.wprism.json");
         @rmdir($root);
     });
     return $root;
@@ -289,7 +289,7 @@ function fresh_site_repo(array $manifests, array $policy = []): string {
 
 /**
  * The frozen-snapshot entry point, built from the same manifest bytes.
- * Present in almost every check below on purpose: DUO-3318's first latent bug
+ * Present in almost every check below on purpose: issue #3318's first latent bug
  * was a validator wired into load() and silently missing here, which made a
  * verification process reach a verdict the process that froze the policy
  * could not have reached.
@@ -299,14 +299,14 @@ function load_frozen(array $manifests): Policy {
     // already a PHP array by the time from_snapshot() sees it.
     return manifest_fixture_policy_from_snapshot(FrozenPolicy::envelope(
         $manifests,
-        FrozenPolicy::site($manifests, DUO_SPEC_VERSION)
+        FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION)
     ));
 }
 
 // ---------------------------------------------------------------- fixtures
 
 // manifest_a()/manifest_b() were established here and now live in
-// sandbox/tests/offline/policy/manifest_fixtures.php, so DUO-3327's offline authoring aid
+// sandbox/tests/offline/policy/manifest_fixtures.php, so issue #3327's offline authoring aid
 // exercises the identical declarations rather than a second copy of them.
 // See that file's header for why it is not named regress_*.
 require __DIR__ . '/manifest_fixtures.php';
@@ -441,7 +441,7 @@ expect_throw(
     function (): void {
         // load_pair() takes B first, then A (its signature), and both of these
         // arrived reversed: A's declarations were written to b.json and B's to
-        // a.json. Harmless while nothing checked, but DUO-3371 refuses a
+        // a.json. Harmless while nothing checked, but issue #3371 refuses a
         // manifest whose declared name is not its file name, so a fixture that
         // crosses the two now refuses on identity instead of on the ownership
         // collision it exists to prove.
@@ -459,7 +459,7 @@ load_pair(
 );
 check(true, 'a byte-identical taxonomy restatement is allowed through, on the same terms');
 
-// core is deliberately NOT exempt: the DUO-3249 core-yields-to-plugin layer
+// core is deliberately NOT exempt: the issue #3249 core-yields-to-plugin layer
 // is an option/meta RULE mechanism, and no lookup on these three surfaces
 // implements it, so exempting core would reintroduce the coin flip.
 expect_throw(
@@ -468,7 +468,7 @@ expect_throw(
             'a' => manifest_a(),
             'core' => [
                 'name' => 'core',
-                'spec_version' => DUO_SPEC_VERSION,
+                'spec_version' => WPRISM_SPEC_VERSION,
                 'tables' => ['acme_a_rooms' => ['class' => 'runtime']],
             ],
         ]);
@@ -484,7 +484,7 @@ load_current_policy(fresh_site_repo(['a'], ['tables' => [
         'columns' => ['room_code' => ['class' => 'authored'], 'room_label' => ['class' => 'authored']],
     ]),
 ]]));
-check(true, "site.duo.json's own policy.tables override is EXEMPT — the site's wholesale last word over its own state is not a second adapter reaching into the first");
+check(true, "site.wprism.json's own policy.tables override is EXEMPT — the site's wholesale last word over its own state is not a second adapter reaching into the first");
 
 $namespaceGrab = load_pair(manifest_b(['option_namespaces' => [['match' => '^acme_a_']]]));
 expect_throw(
@@ -561,7 +561,7 @@ refuse_pair(
     'a structured-value ref kind is checked with the same vocabulary, and the refusal names its exact path'
 );
 load_pair(manifest_b(['options' => ['acme_b_user' => ['class' => 'authored', 'autoload' => 'yes', 'ref' => 'user']]]));
-check(true, "the classification vocabulary keeps 'user' as a login-serialized reference even though duo_map has no user keyspace");
+check(true, "the classification vocabulary keeps 'user' as a login-serialized reference even though wprism_map has no user keyspace");
 load_pair(manifest_b(['block_attrs' => ['acme/b' => [['kind' => 'user', 'path' => 'id', 'type' => 'int']]]]));
 check(true, "block_attrs alone also accepts 'user' because Blocks owns the same id/login codec needed by core/avatar");
 refuse_pair(
@@ -624,7 +624,7 @@ refuse_pair(
     'an option_pattern with no {id} is refused — without it every row names the same one option row'
 );
 
-echo "\n== S1: a fuzzed declaration produces a duo: refusal, never PHP coercion or a TypeError ==\n";
+echo "\n== S1: a fuzzed declaration produces a wprism: refusal, never PHP coercion or a TypeError ==\n";
 
 // Every case below used to be answered by PHP rather than by this engine:
 // `??` swallowing an illegal string offset, array_column() returning [] for a
@@ -678,12 +678,12 @@ refuse_pair(
     'an array identity.column is refused, pointing at identity.columns as the multi-component spelling'
 );
 
-echo "\n== N4/S6: the duo_map keyspace — unique per table, and closed where a manifest names one ==\n";
+echo "\n== N4/S6: the wprism_map keyspace — unique per table, and closed where a manifest names one ==\n";
 
 refuse_pair(
     $mangled(['id_kind' => 'acme_room']),
     "id_kind 'acme_room' is declared by both",
-    'two tables may not share one id_kind — duo_map is keyed by (id_kind, local_id), so they would resolve each other\'s rows (refused at LOAD, offline, not at the first capture)'
+    'two tables may not share one id_kind — wprism_map is keyed by (id_kind, local_id), so they would resolve each other\'s rows (refused at LOAD, offline, not at the first capture)'
 );
 $optionNameRef = static fn(string $idKind): array => manifest_b(['option_name_refs' => [[
     'autoload' => 'yes',
@@ -708,7 +708,7 @@ $guarded = static fn(array $guard): array => manifest_b(['deletions' => ['table:
     'guards' => [array_merge(['table' => 'acme_b_cache', 'column' => 'slot_id'], $guard)],
 ]]]);
 load_pair($guarded(['id_kind' => 'term_taxonomy']));
-check(true, "a deletion guard may name the ledger's own long spellings (post/term/term_taxonomy) — Apply looks the value up in duo_map verbatim");
+check(true, "a deletion guard may name the ledger's own long spellings (post/term/term_taxonomy) — Apply looks the value up in wprism_map verbatim");
 load_pair($guarded(['id_kind' => 'acme_slot', 'source_id_kind' => 'acme_room', 'source_pk' => 'room_id']));
 check(true, 'and any id_kind a pinned manifest declared for a table it owns, on both the guard and its source half');
 refuse_pair(
@@ -779,8 +779,8 @@ expect_throw(
 
 echo "\n== the parent-scoped natural key: derivation ==\n";
 
-$roomUuid = Uuid::v5(Uuid::NAMESPACE_DUO, 'acme_a_rooms:studio-one');
-$otherRoomUuid = Uuid::v5(Uuid::NAMESPACE_DUO, 'acme_a_rooms:studio-two');
+$roomUuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'acme_a_rooms:studio-one');
+$otherRoomUuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'acme_a_rooms:studio-two');
 $slotTable = manifest_b()['tables']['acme_b_slots'];
 $roomTable = manifest_a()['tables']['acme_a_rooms'];
 
@@ -813,8 +813,8 @@ $sameSlotOtherRoom = Snapshot::natural_key_components_from_front($slotTable, [
     'slot_code' => 'morning',
 ]);
 check(
-    Uuid::v5(Uuid::NAMESPACE_DUO, Snapshot::natural_key_name('acme_b_slots', $slotTable, $components))
-        !== Uuid::v5(Uuid::NAMESPACE_DUO, Snapshot::natural_key_name('acme_b_slots', $slotTable, $sameSlotOtherRoom)),
+    Uuid::v5(Uuid::NAMESPACE_WPRISM, Snapshot::natural_key_name('acme_b_slots', $slotTable, $components))
+        !== Uuid::v5(Uuid::NAMESPACE_WPRISM, Snapshot::natural_key_name('acme_b_slots', $slotTable, $sameSlotOtherRoom)),
     'the SAME slot code under a DIFFERENT room is a different identity — which is the entire reason a parent-scoped key cannot be a single column'
 );
 check(
@@ -822,7 +822,7 @@ check(
     'a file missing a component derives nothing rather than deriving something wrong'
 );
 
-$derivedUuid = Uuid::v5(Uuid::NAMESPACE_DUO, Snapshot::natural_key_name('acme_b_slots', $slotTable, $components));
+$derivedUuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, Snapshot::natural_key_name('acme_b_slots', $slotTable, $components));
 check(
     IdentityNotes::natural_key_continuity($derivedUuid, 'acme_b_slots', $slotTable, [
         'room_id' => '{{acme_room:' . $roomUuid . '}}',
@@ -936,7 +936,7 @@ expect_throw(
     fn() => SidebarState::assert_policy($widgetPolicy([str_repeat('m', 58) => ['settings' => [
         'title' => ['class' => 'authored'],
     ]]])),
-    'exceeds duo_map.id_kind',
+    'exceeds wprism_map.id_kind',
     "the derived-kind WIDTH budget stays SidebarState's own — it is Ledger's schema, not the manifest's grammar, which is why Policy's copy cannot make it"
 );
 SidebarState::assert_policy($widgetPolicy(['text' => ['settings' => [
@@ -983,7 +983,7 @@ refuse_pair(
 
 echo "\n== the frozen-snapshot entry point validates exactly what load() does ==\n";
 
-// DUO-3318 latent bug L1: validate_dynamic_options() ran in load() and not in
+// issue #3318 latent bug L1: validate_dynamic_options() ran in load() and not in
 // from_snapshot(), so a manifest the live path refused would verify clean in
 // the fresh verification process — the one place the two verdicts must agree.
 $badResolver = manifest_b(['dynamic_options' => ['theme_mods' => [
@@ -1000,7 +1000,7 @@ expect_throw(
 expect_throw(
     fn() => load_frozen([manifest_a(), $badResolver]),
     'only active_stylesheet is supported in v1',
-    'the SAME manifest is refused by from_snapshot() — the two entry points reach the same verdict (DUO-3318 L1)'
+    'the SAME manifest is refused by from_snapshot() — the two entry points reach the same verdict (issue #3318 L1)'
 );
 foreach ([
     'table class' => manifest_b(['tables' => ['acme_b_slots' => ['class' => 'authored_snaphot', 'pk' => 'x', 'id_kind' => 'y']]]),
@@ -1009,12 +1009,12 @@ foreach ([
 ] as $label => $bad) {
     expect_throw(
         fn() => load_frozen([manifest_a(), $bad]),
-        'duo: ',
+        'wprism: ',
         "from_snapshot() also refuses a bad $label declaration"
     );
 }
 
-echo "\n== site.duo.json's own policy.tables override is held to the same grammar ==\n";
+echo "\n== site.wprism.json's own policy.tables override is held to the same grammar ==\n";
 
 fresh_manifests_dir(['a' => manifest_a()]);
 expect_throw(
@@ -1065,8 +1065,8 @@ function capture_agency(Policy $policy): array {
 }
 
 $policy = load_pair(manifest_b());
-$roomUuid = Uuid::v5(Uuid::NAMESPACE_DUO, 'acme_a_rooms:studio-one');
-$expectedSlotUuid = Uuid::v5(Uuid::NAMESPACE_DUO, "acme_b_slots:room_id=$roomUuid:slot_code=morning");
+$roomUuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'acme_a_rooms:studio-one');
+$expectedSlotUuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, "acme_b_slots:room_id=$roomUuid:slot_code=morning");
 
 seed_agency($wpdb, 7, 3);
 $captured = capture_agency($policy);
@@ -1162,7 +1162,7 @@ check(
     'a child whose parent exists NOWHERE on the target is not adopted — there is nothing for it to be scoped within, so an ordinary create is the correct outcome'
 );
 
-// N2: the same lookup for a `tt` ref. The manifest spelling and the duo_map
+// N2: the same lookup for a `tt` ref. The manifest spelling and the wprism_map
 // spelling differ for exactly this one kind, so a raw lookup finds a keyspace
 // with no rows and silently answers "no collision" for every row in it.
 $ttUuid = '01980000-3318-7000-8000-00000000ab12';
@@ -1186,7 +1186,7 @@ check(
         'type' => 'acme_b_links',
         'data' => ['columns' => ['tt_id' => "{{tt:$ttUuid}}", 'code' => 'x'], 'uuid' => $ttUuid],
     ], [], $ttCache) === 1,
-    "a `tt` ref component is resolved through duo_map's own spelling (term_taxonomy) — passing the manifest's `tt` verbatim looks up a keyspace with no rows and answers \"no collision\" for every term relationship there is"
+    "a `tt` ref component is resolved through wprism_map's own spelling (term_taxonomy) — passing the manifest's `tt` verbatim looks up a keyspace with no rows and answers \"no collision\" for every term relationship there is"
 );
 
 echo "\n== N3: a corrupt ref token — fail-closed where identity is decided, silent where it is only observed ==\n";

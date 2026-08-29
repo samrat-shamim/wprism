@@ -1,5 +1,5 @@
 <?php
-// Regression — DUO-3254: Doctor's tracked env-values branch must be a real
+// Regression — issue #3254: Doctor's tracked env-values branch must be a real
 // blocking failure even though the stock sandbox image can only exercise the
 // no-git advisory branch. This fake stops at the existing Transport boundary;
 // Doctor::run() and its exact shell-probe interpretation remain production code.
@@ -9,13 +9,13 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Transport/Transport.php';
 require_once __DIR__ . '/../../../../cli/src/Onboarding/Doctor.php';
 
-use Duo\Orchestrator\Doctor;
-use Duo\Orchestrator\Transport;
+use WPrism\Orchestrator\Doctor;
+use WPrism\Orchestrator\Transport;
 
 final class DoctorTransport extends Transport {
     public array $rawScripts = [];
 
-    /** @param array{exit:int, stdout:string, stderr:string}|null $gitOverride raw result for the composed repo/git probe, overriding the exit:0/stdout:"duo-repo-ok\n$gitResult" default (DUO-3512: simulates a transport/shell failure the sentinel-only fake below couldn't express; DUO-3511: one script answers both rows, so an override carries BOTH lines) */
+    /** @param array{exit:int, stdout:string, stderr:string}|null $gitOverride raw result for the composed repo/git probe, overriding the exit:0/stdout:"wprism-repo-ok\n$gitResult" default (issue #3512: simulates a transport/shell failure the sentinel-only fake below couldn't express; issue #3511: one script answers both rows, so an override carries BOTH lines) */
     public function __construct(private string $gitResult, private ?array $gitOverride = null) {
         parent::__construct('doctor-regression', ['repo_path' => '/srv/site-repo']);
     }
@@ -34,19 +34,19 @@ final class DoctorTransport extends Transport {
 
     public function captureRaw(string $script): array {
         $this->rawScripts[] = $script;
-        if ($script === 'echo duo-reachable') {
-            return self::result('duo-reachable');
+        if ($script === 'echo wprism-reachable') {
+            return self::result('wprism-reachable');
         }
-        // DUO-3511: the repo-path answer and the tracked-status answer travel
+        // issue #3511: the repo-path answer and the tracked-status answer travel
         // as line 1 and line 2 of ONE script, so this seam injects the git
         // outcome where Doctor now reads it — as line 2, under a line 1 that
         // says the repo is fine. The tracked-status branches under test are
         // unchanged: they still decide from this exact token. $gitOverride
-        // (DUO-3512) therefore overrides the WHOLE composed result, and the
+        // (issue #3512) therefore overrides the WHOLE composed result, and the
         // suite below builds its two-line payloads accordingly.
-        if (str_contains($script, 'site.duo.json')
-            && str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
-            return $this->gitOverride ?? self::result("duo-repo-ok\n" . $this->gitResult);
+        if (str_contains($script, 'site.wprism.json')
+            && str_contains($script, 'git ls-files --error-unmatch .wprism-env-values.json')) {
+            return $this->gitOverride ?? self::result("wprism-repo-ok\n" . $this->gitResult);
         }
         return ['exit' => 97, 'stdout' => '', 'stderr' => "unexpected raw command: $script"];
     }
@@ -60,8 +60,8 @@ final class DoctorTransport extends Transport {
             && str_contains($snippet, 'DISALLOW_FILE_MODS')
             && str_contains($snippet, 'db_server_info')) {
             return self::result((string) json_encode([
-                'agent' => 'duo-ok',
-                'file_mods' => 'duo-set',
+                'agent' => 'wprism-ok',
+                'file_mods' => 'wprism-set',
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
@@ -119,9 +119,9 @@ function pass(string $message): void {
     echo "ok: $message\n";
 }
 
-$label = '.duo-env-values.json not git-tracked';
+$label = '.wprism-env-values.json not git-tracked';
 
-$trackedTransport = new DoctorTransport('duo-tracked');
+$trackedTransport = new DoctorTransport('wprism-tracked');
 $tracked = Doctor::run($trackedTransport);
 $trackedCheck = check($tracked, $label);
 if ($tracked['ok'] !== false || $trackedCheck['ok'] !== false || !empty($trackedCheck['advisory'])) {
@@ -133,20 +133,20 @@ if (!str_contains($trackedCheck['detail'], 'is committed to this repo')
 }
 if (count(array_filter(
     $trackedTransport->rawScripts,
-    fn(string $script): bool => str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')
+    fn(string $script): bool => str_contains($script, 'git ls-files --error-unmatch .wprism-env-values.json')
 )) !== 1) {
     fail('Doctor did not execute the production git tracked-status probe exactly once');
 }
-pass('git-tracked .duo-env-values.json is a non-advisory failure with remediation');
+pass('git-tracked .wprism-env-values.json is a non-advisory failure with remediation');
 
-$untracked = Doctor::run(new DoctorTransport('duo-untracked'));
+$untracked = Doctor::run(new DoctorTransport('wprism-untracked'));
 $untrackedCheck = check($untracked, $label);
 if ($untracked['ok'] !== true || $untrackedCheck['ok'] !== true || !empty($untrackedCheck['advisory'])) {
     fail('untracked/absent env-values file did not remain a clean pass');
 }
-pass('untracked or absent .duo-env-values.json remains clean');
+pass('untracked or absent .wprism-env-values.json remains clean');
 
-$noGit = Doctor::run(new DoctorTransport('duo-nogit'));
+$noGit = Doctor::run(new DoctorTransport('wprism-nogit'));
 $noGitCheck = check($noGit, $label);
 if ($noGit['ok'] !== true || $noGitCheck['ok'] !== false || empty($noGitCheck['advisory'])
     || !str_contains($noGitCheck['detail'], 'could not verify')) {
@@ -154,19 +154,19 @@ if ($noGit['ok'] !== true || $noGitCheck['ok'] !== false || empty($noGitCheck['a
 }
 pass('missing git remains an explicit advisory rather than a false pass');
 
-// DUO-3512: a transport/shell failure produces neither sentinel Doctor
-// otherwise switches on. Before this fix, $out === 'duo-tracked' read that
+// issue #3512: a transport/shell failure produces neither sentinel Doctor
+// otherwise switches on. Before this fix, $out === 'wprism-tracked' read that
 // as false and the check rendered a clean, non-advisory [PASS] — a false
 // clean bill of health from a probe that never actually ran.
 //
-// DUO-3511 composed the repo-path probe and this one into a single script, so
+// issue #3511 composed the repo-path probe and this one into a single script, so
 // the shape of "the tracked-status half did not answer" changed while the
 // defect class did not: the script prints line 1, then dies or is truncated
 // before line 2. That is what these two payloads are — a line 1 that says the
 // repo is fine, and a line 2 that is missing or garbage. A non-zero exit is a
 // THIRD case now, asserted separately below, because under composition it
 // sinks the repo row instead of reaching this branch.
-$erroredExit = new DoctorTransport('unused', ['exit' => 0, 'stdout' => "duo-repo-ok\n", 'stderr' => 'connection reset by peer']);
+$erroredExit = new DoctorTransport('unused', ['exit' => 0, 'stdout' => "wprism-repo-ok\n", 'stderr' => 'connection reset by peer']);
 $errored = Doctor::run($erroredExit);
 $erroredCheck = check($errored, $label);
 if ($errored['ok'] !== true || $erroredCheck['ok'] !== false || empty($erroredCheck['advisory'])) {
@@ -179,7 +179,7 @@ if (!str_contains($erroredCheck['detail'], 'could not verify')
 }
 pass('a missing tracked-status line is a WARN naming the reason, never a silent PASS');
 
-$garbledExit = new DoctorTransport('unused', ['exit' => 0, 'stdout' => "duo-repo-ok\ngarbled\n", 'stderr' => '']);
+$garbledExit = new DoctorTransport('unused', ['exit' => 0, 'stdout' => "wprism-repo-ok\ngarbled\n", 'stderr' => '']);
 $garbled = Doctor::run($garbledExit);
 $garbledCheck = check($garbled, $label);
 if ($garbled['ok'] !== true || $garbledCheck['ok'] !== false || empty($garbledCheck['advisory'])) {
@@ -192,25 +192,25 @@ if (!str_contains($garbledCheck['detail'], 'could not verify')
 }
 pass('a tracked-status line outside the three known sentinels is a WARN, never a silent PASS');
 
-// DUO-3511: the reason must be the git half's OWN answer, not the whole
+// issue #3511: the reason must be the git half's OWN answer, not the whole
 // composed payload. This is the case that bites: with stderr empty,
 // self::reason() falls through to stdout, and self::reason($r) on the
-// composed result would fold `duo-repo-ok` — and the newline between the two
-// answers — into this one-line detail, where DUO-3512 rendered `garbled`
+// composed result would fold `wprism-repo-ok` — and the newline between the two
+// answers — into this one-line detail, where issue #3512 rendered `garbled`
 // alone.
-if (str_contains($garbledCheck['detail'], 'duo-repo-ok') || str_contains($garbledCheck['detail'], "\n")) {
+if (str_contains($garbledCheck['detail'], 'wprism-repo-ok') || str_contains($garbledCheck['detail'], "\n")) {
     fail('unexpected-stdout WARN folded the composed script\'s repo-half answer into its one-line reason');
 }
 pass('the WARN names the tracked-status answer alone, never the composed payload');
 
-// DUO-3511 + DUO-3512 together: under composition a non-zero exit is the ONE
-// failure DUO-3512's branch cannot reach, because it sinks $repoOk first. The
-// invariant DUO-3512 exists for still holds, and holds harder — the row is a
+// issue #3511 + issue #3512 together: under composition a non-zero exit is the ONE
+// failure issue #3512's branch cannot reach, because it sinks $repoOk first. The
+// invariant issue #3512 exists for still holds, and holds harder — the row is a
 // BLOCKING failure, not an advisory WARN, and the repo row fails beside it
 // naming the transport reason. This is also byte-identical to what a failed
 // repo probe rendered before either issue, which is why it is not a
 // regression of the WARN: it is the louder answer taking precedence.
-$repoLabel = 'repo path has site.duo.json (/srv/site-repo)';
+$repoLabel = 'repo path has site.wprism.json (/srv/site-repo)';
 $deadTransport = new DoctorTransport('unused', ['exit' => 7, 'stdout' => '', 'stderr' => 'connection reset by peer']);
 $dead = Doctor::run($deadTransport);
 $deadGit = check($dead, $repoLabel);

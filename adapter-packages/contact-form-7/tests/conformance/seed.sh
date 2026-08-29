@@ -16,16 +16,16 @@ if (!$admin) {
 }
 wp_set_current_user((int) $admin->ID);
 
-function duo_cf7_create(string $title, string $profile): WPCF7_ContactForm {
+function wprism_cf7_create(string $title, string $profile): WPCF7_ContactForm {
     $form = WPCF7_ContactForm::get_template(['title' => $title]);
     $home = home_url('/');
     $mail = $form->prop('mail');
     $mail['recipient'] = "$profile-recipient@example.test";
-    $mail['sender'] = "Duo CF7 <$profile-sender@example.test>";
+    $mail['sender'] = "WPrism CF7 <$profile-sender@example.test>";
     $mail['subject'] = "[$profile 東京 🚀] [your-subject]";
     $mail['body'] = str_repeat("$profile mail 東京 🚀 | $home\n", 700)
         . "Name: [your-name]\nEmail: [your-email]\nMessage: [your-message]";
-    $mail['additional_headers'] = "Reply-To: [your-email]\nX-Duo-Profile: $profile";
+    $mail['additional_headers'] = "Reply-To: [your-email]\nX-WPrism-Profile: $profile";
     $mail['attachments'] = '';
     $mail['use_html'] = false;
     $mail['exclude_blank'] = false;
@@ -33,7 +33,7 @@ function duo_cf7_create(string $title, string $profile): WPCF7_ContactForm {
     $mail2 = $form->prop('mail_2');
     $mail2['active'] = true;
     $mail2['recipient'] = '[your-email]';
-    $mail2['sender'] = "Duo CF7 <$profile-sender@example.test>";
+    $mail2['sender'] = "WPrism CF7 <$profile-sender@example.test>";
     $mail2['subject'] = "[$profile autoresponse 東京 🚀]";
     $mail2['body'] = "Second mail $profile 東京 🚀\n$home";
     $mail2['additional_headers'] = '';
@@ -50,7 +50,7 @@ function duo_cf7_create(string $title, string $profile): WPCF7_ContactForm {
             . "<label>Email [email* your-email]</label>\n"
             . "<label>Subject [text your-subject]</label>\n"
             . "<label>Message [textarea your-message]</label>\n"
-            . "[duo-unknown raw=\"$profile-literal\"]\n[submit \"Send 東京 🚀\"]",
+            . "[wprism-unknown raw=\"$profile-literal\"]\n[submit \"Send 東京 🚀\"]",
         'mail' => $mail,
         'mail_2' => $mail2,
         'messages' => $messages,
@@ -68,9 +68,9 @@ function duo_cf7_create(string $title, string $profile): WPCF7_ContactForm {
     return $saved;
 }
 
-$main = duo_cf7_create('Conformance Contact Form', 'main');
-$legacy = duo_cf7_create('Conformance Legacy Storage', 'legacy');
-$deleteProbe = duo_cf7_create('Conformance Delete Probe', 'delete');
+$main = wprism_cf7_create('Conformance Contact Form', 'main');
+$legacy = wprism_cf7_create('Conformance Legacy Storage', 'legacy');
+$deleteProbe = wprism_cf7_create('Conformance Delete Probe', 'delete');
 
 $mainOldId = 3199001;
 $legacyOldId = 3199002;
@@ -98,7 +98,7 @@ update_post_meta($main->id(), '_flamingo', ['channel' => 7001]);
 update_post_meta($main->id(), '_constant_contact', ['list' => 'source-environment-list']);
 update_post_meta($main->id(), '_sendinblue', ['list' => 'source-environment-list']);
 $sourceOption = (array) get_option('wpcf7', []);
-$sourceOption['duo_source_only'] = 'must-not-cross';
+$sourceOption['wprism_source_only'] = 'must-not-cross';
 $sourceOption['recaptcha'] = ['source-site-key' => 'source-secret-key'];
 update_option('wpcf7', $sourceOption);
 

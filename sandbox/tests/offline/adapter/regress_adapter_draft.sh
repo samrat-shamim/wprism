@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3325: `duo adapter-draft`, the safe adapter-DRAFT generator
+# Regression — issue #3325: `wprism adapter-draft`, the safe adapter-DRAFT generator
 # (offline slice). It reuses policy-to-manifest's facts core (Policy::export_manifest)
 # and adds OFFLINE proposers over a site repo's captured state/**, emitting inert
 # `_draft` candidates a human ratifies by hand.
@@ -28,7 +28,7 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check (harness, the verb, and everything it exercises)"
 php -l regress_adapter_draft.php >/dev/null || fail "regress_adapter_draft.php has a syntax error"
-php -l ../../../../cli/duo >/dev/null || fail "cli/duo has a syntax error"
+php -l ../../../../cli/wprism >/dev/null || fail "cli/wprism has a syntax error"
 php -l ../../../../cli/src/Adapter/AdapterDraft.php >/dev/null || fail "cli/src/Adapter/AdapterDraft.php has a syntax error"
 php -l ../../../../cli/src/Adapter/ManifestValidate.php >/dev/null || fail "cli/src/Adapter/ManifestValidate.php has a syntax error"
 php -l ../../../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
@@ -65,8 +65,8 @@ scan_wp ../../../../agent/src/Kernel/Secrets.php ../../../../agent/src/Kernel/Co
 pass "no WordPress reach in the handler or the files it adds to the load set"
 
 say "proposal checks select their throwaway package library explicitly"
-if grep -q 'DUO_MANIFESTS_DIR' ../../../../cli/src/Adapter/AdapterDraft.php; then
-  fail "AdapterDraft still selects its proposal-check library through process-global DUO_MANIFESTS_DIR"
+if grep -q 'WPRISM_MANIFESTS_DIR' ../../../../cli/src/Adapter/AdapterDraft.php; then
+  fail "AdapterDraft still selects its proposal-check library through process-global WPRISM_MANIFESTS_DIR"
 fi
 grep -q 'AdapterLibrary::fromSourceTree' ../../../../cli/src/Adapter/AdapterDraft.php \
   || fail "AdapterDraft does not close its throwaway adapter package source through AdapterLibrary"

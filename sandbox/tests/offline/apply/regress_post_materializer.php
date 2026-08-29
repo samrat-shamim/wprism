@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for PostMaterializer (DUO-3347 slices 10-11: the post
+ * Offline regression for PostMaterializer (issue #3347 slices 10-11: the post
  * entity materializer). Deliberately narrow, the same wiring/shape idiom the
  * earlier materializer extractions in this series established: this file
  * does not re-implement or re-assert row-creation/finalization behavior --
@@ -35,13 +35,13 @@ require_once __DIR__ . '/../../../../agent/src/Repository/CompiledArtifact.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/AttachmentMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/PostMaterializer.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\AttachmentMaterializer;
-use Duo\CompiledRepository;
-use Duo\Policy;
-use Duo\PostMaterializer;
-use Duo\RelationshipMaterializer;
-use Duo\Tokens;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\AttachmentMaterializer;
+use WPrism\CompiledRepository;
+use WPrism\Policy;
+use WPrism\PostMaterializer;
+use WPrism\RelationshipMaterializer;
+use WPrism\Tokens;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -76,7 +76,7 @@ foreach (['ensure_post_row', 'finalize_post', 'resolve_login'] as $method) {
 $constructorParams = (new ReflectionClass(PostMaterializer::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams) === [
-        'Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer', 'Duo\\RelationshipMaterializer', 'Duo\\AttachmentMaterializer',
+        'WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ApplyFieldMaterializer', 'WPrism\\RelationshipMaterializer', 'WPrism\\AttachmentMaterializer',
     ],
     'constructor depends on exactly Policy, Tokens, ApplyFieldMaterializer, RelationshipMaterializer, AttachmentMaterializer -- no Apply instance'
 );

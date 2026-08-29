@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/EnvironmentValues.php';
 
@@ -58,7 +58,7 @@ require_once __DIR__ . '/../Rebuild/RebuildRequest.php';
 /**
  * Plan + apply: repo state tree -> environment DB.
  *
- * Plan is a three-way comparison per entity: file (target), duo_state ledger
+ * Plan is a three-way comparison per entity: file (target), wprism_state ledger
  * hash (base = last sync), env snapshot (actual). Apply is two-phase — insert
  * rows with placeholder refs, then resolve refs through the ledger — inside a
  * transaction, with the side-effect canary armed; the rebuild pass (recounts,
@@ -89,10 +89,10 @@ final class ApplyRequestCoordinator {
     /** @var list<array<string,mixed>> structured rebuild-action receipts for this run's summary */
     private array $actionReceipts = [];
     /**
-     * Whether this run found DUO-3206's apply_in_progress marker still set,
+     * Whether this run found issue #3206's apply_in_progress marker still set,
      * i.e. it is retrying an apply that committed something and then failed.
      * run() already reads that marker to widen the rebuild surface set with
-     * already-absent tombstones; DUO-3369's `retry` batch channel hands the
+     * already-absent tombstones; issue #3369's `retry` batch channel hands the
      * same fact to a provider capability that declared it, so an adapter can
      * re-verify rather than assume the previous pass got that far.
      */
@@ -200,7 +200,7 @@ final class ApplyRequestCoordinator {
     private static function policy(string $repo, array $opts): Policy {
         $library = $opts['adapter_library'] ?? null;
         if ($library !== null && !$library instanceof AdapterLibrary) {
-            throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+            throw new \InvalidArgumentException('adapter_library must be a WPrism\\AdapterLibrary');
         }
         return Policy::load($repo, adapterLibrary: $library);
     }
@@ -237,7 +237,7 @@ final class ApplyRequestCoordinator {
                 if (!hash_equals((string) $authority['scope_hash'], (string) $a->scopedWorkflow->scopeContract['scope_hash'])
                     || !hash_equals((string) $authority['source']['artifact_hash'], $compiled->artifact_hash())) {
                     throw new \RuntimeException(
-                        'duo: scoped plan refused — a different scoped mutation authority is nonterminal on this target'
+                        'wprism: scoped plan refused — a different scoped mutation authority is nonterminal on this target'
                     );
                 }
                 $a->scopedWorkflow->session = $activeScoped;
@@ -278,7 +278,7 @@ final class ApplyRequestCoordinator {
             foreach ($selectedActions as $action) {
                 if (!array_key_exists('triggers', $action)) {
                     throw new \RuntimeException(
-                        'duo: scoped plan refused an untriggered global action; bounded execution requires explicit canonical triggers'
+                        'wprism: scoped plan refused an untriggered global action; bounded execution requires explicit canonical triggers'
                     );
                 }
             }
@@ -329,10 +329,10 @@ final class ApplyRequestCoordinator {
         $activeScoped = ScopedApplySession::open(new LedgerScopedApplySessionStorage());
         if ($activeScoped !== null && !$activeScoped->is_terminal()) {
             throw new \RuntimeException(
-                'duo: full plan refused — a scoped apply session is nonterminal; recover that exact scoped authority first'
+                'wprism: full plan refused — a scoped apply session is nonterminal; recover that exact scoped authority first'
             );
         }
-        Snapshot::repair_truncated_entity_types($policy); // DUO-3246
+        Snapshot::repair_truncated_entity_types($policy); // issue #3246
         $plan = $a->build_plan($opts, $compiled);
         if (Ledger::kv_get('apply_in_progress') !== null) {
             $a->warnings[] = 'previous apply did not complete required rebuilds; canonical entities require retry';
@@ -344,7 +344,7 @@ final class ApplyRequestCoordinator {
         // change or apply's 'plan' => array_map('count', $plan) count block
         // would grow a spurious 'warnings' => N entry.
         $plan['warnings'] = $a->warnings;
-        // DUO-3339, closing spec/repo-format.md's bound (4) ("negotiation
+        // issue #3339, closing spec/repo-format.md's bound (4) ("negotiation
         // currently runs at apply only — plan/status do not yet surface
         // missing/incompatible providers"). Attached HERE, on the plan-only
         // entry point, for the same reason `warnings` is: it is a report
@@ -360,12 +360,12 @@ final class ApplyRequestCoordinator {
         //
         // The plan's own adapter_dispositions are handed over so the two
         // provider diagnoses do not report one fact twice: build_plan() has
-        // already merged DUO-3314's NARROWED, gating rows
+        // already merged issue #3314's NARROWED, gating rows
         // (Policy::provider_readiness_blockers($selectedActions)) into that
         // bucket, and what belongs here is only the remainder this revision's
         // work never reaches.
         $plan['provider_problems'] = Providers::problems($policy, $plan['adapter_dispositions'] ?? []);
-        // DUO-3345 slice 5: additive, value-free category projection. Keep
+        // issue #3345 slice 5: additive, value-free category projection. Keep
         // every detailed bucket above unchanged. Counts are derived from
         // those rows plus the compiled identity/action provenance and the
         // same-snapshot nested-deletion observations saved by build_plan().
@@ -379,7 +379,7 @@ final class ApplyRequestCoordinator {
         if ($categorySummary !== null) {
             $plan['category_summary'] = $categorySummary;
         }
-        // DUO-3345 slice 6: an explicit filter asks for a bounded
+        // issue #3345 slice 6: an explicit filter asks for a bounded
         // observation-only index from this SAME full plan snapshot.  It is
         // intentionally attached only by the plan entry point; apply/run and
         // their mutation/readiness authority do not consume or emit it.
@@ -391,7 +391,7 @@ final class ApplyRequestCoordinator {
                     'the requested plan view is unavailable for this plan',
                     'rerun the complete plan without view filters or repair the plan identity/provenance inconsistency before retrying',
                     [],
-                    'duo: requested plan view unavailable'
+                    'wprism: requested plan view unavailable'
                 );
             }
             // A category request promises both row facets and the matching
@@ -405,7 +405,7 @@ final class ApplyRequestCoordinator {
                     'the requested plan view is unavailable for this plan',
                     'rerun the complete plan without category filters or repair the plan identity/provenance inconsistency before retrying',
                     [],
-                    'duo: category-filtered plan view unavailable'
+                    'wprism: category-filtered plan view unavailable'
                 );
             }
             $plan['plan_view'] = PlanView::build(
@@ -509,7 +509,7 @@ final class ApplyRequestCoordinator {
 
     /**
      * Write a single manifest-declared `class: "env"` option value directly
-     * into wp_options — `wp duo env-set`'s implementation. Deliberately NOT
+     * into wp_options — `wp wprism env-set`'s implementation. Deliberately NOT
      * part of the ordinary authored capture/apply pipeline: env values are
      * never captured (Policy::env_options()'s own docblock), so there is no
      * canonical record to reconcile against here, no ledger/token rewriting
@@ -537,7 +537,7 @@ final class ApplyRequestCoordinator {
      *     never meant to be hand-provisioned this way.
      *   - an empty string — build_plan()'s env_missing bucket (above)
      *     treats an empty value as equivalent to absent, so accepting one
-     *     here would let env-set report success while `duo plan`
+     *     here would let env-set report success while `wprism plan`
      *     immediately calls the same option still missing.
      *
      * Autoload is resolved the same way Policy::env_options() resolves
@@ -548,7 +548,7 @@ final class ApplyRequestCoordinator {
      * on THIS target. update_option()'s own native $autoload=null contract
      * already means exactly that (keep the existing row's autoload if
      * updating; apply WordPress's own 6.6+ 'auto' heuristic if inserting
-     * fresh), so 'preserve'/unset both map to null here rather than Duo
+     * fresh), so 'preserve'/unset both map to null here rather than WPrism
      * re-inventing that decision.
      *
      * update_option()'s own return value cannot distinguish "write failed"
@@ -565,23 +565,23 @@ final class ApplyRequestCoordinator {
         $envOptions = $policy->env_options();
         if (!isset($envOptions[$name])) {
             throw new \RuntimeException(
-                "duo: env-set: '$name' is not declared class=\"env\" in any loaded manifest or "
-                . 'site.duo.json — env-set only provisions a value the policy already named (see '
-                . '`wp duo plan` for the current env_missing checklist)'
+                "wprism: env-set: '$name' is not declared class=\"env\" in any loaded manifest or "
+                . 'site.wprism.json — env-set only provisions a value the policy already named (see '
+                . '`wp wprism plan` for the current env_missing checklist)'
             );
         }
         $rule = $envOptions[$name];
         if (!empty($rule['sub_keys'])) {
             throw new \RuntimeException(
-                "duo: env-set: '$name' declares sub_keys — it is a structured, plugin-managed option "
+                "wprism: env-set: '$name' declares sub_keys — it is a structured, plugin-managed option "
                 . 'blob, not a plain scalar value env-set can safely overwrite (the plugin populates it '
                 . "itself; see this manifest's own notes for '$name')"
             );
         }
         if ($value === '') {
             throw new \RuntimeException(
-                "duo: env-set: refusing to set '$name' to an empty string — that would still read as "
-                . "env_missing on the next 'duo plan' (missing means absent OR empty), so it can never "
+                "wprism: env-set: refusing to set '$name' to an empty string — that would still read as "
+                . "env_missing on the next 'wprism plan' (missing means absent OR empty), so it can never "
                 . 'satisfy provisioning'
             );
         }
@@ -607,7 +607,7 @@ final class ApplyRequestCoordinator {
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
         ));
         if ($confirm !== $value) {
-            throw new \RuntimeException("duo: env-set: wrote '$name' but the stored value does not match afterward");
+            throw new \RuntimeException("wprism: env-set: wrote '$name' but the stored value does not match afterward");
         }
 
         return ['name' => $name, 'previously_set' => $previouslySet];
@@ -636,7 +636,7 @@ final class ApplyRequestCoordinator {
                 throw CommandRefusalException::applyRefused(
                     'scoped apply refused because its scope evidence is stale or invalid for the current source artifact',
                     'rebuild the scope contract and scoped plan from the current source artifact, then retry apply',
-                    'duo: scoped apply source evidence is stale or invalid; rebuild the scope contract and plan before retrying',
+                    'wprism: scoped apply source evidence is stale or invalid; rebuild the scope contract and plan before retrying',
                     $failure
                 );
             }
@@ -649,7 +649,7 @@ final class ApplyRequestCoordinator {
         $terminalScopedSessionToArchive = null;
         if (!$scoped && $existingScopedSession !== null && !$existingScopedSession->is_terminal()) {
             throw new \RuntimeException(
-                'duo: full apply refused — a scoped apply session is nonterminal; recover that exact scoped authority first'
+                'wprism: full apply refused — a scoped apply session is nonterminal; recover that exact scoped authority first'
             );
         }
         $terminalReplaySession = null;
@@ -678,7 +678,7 @@ final class ApplyRequestCoordinator {
                                 throw CommandRefusalException::applyRefused(
                                     'the promoting scoped terminal belongs to a different target handoff generation',
                                     'retain the exclusion and recover the exact original ps-* target handoff before retrying',
-                                    'duo: external scoped terminal lease generation changed'
+                                    'wprism: external scoped terminal lease generation changed'
                                 );
                             }
                             $terminalReplaySession = $existingScopedSession;
@@ -697,7 +697,7 @@ final class ApplyRequestCoordinator {
                                 throw CommandRefusalException::applyRefused(
                                     'the prior scoped terminal lacks the exact current external generation binding',
                                     'retain the exclusion and reconcile the legacy or corrupted terminal authority before retrying',
-                                    'duo: external scoped terminal generation binding mismatch'
+                                    'wprism: external scoped terminal generation binding mismatch'
                                 );
                             }
                             // A prior terminal for this scope/artifact is not
@@ -740,7 +740,7 @@ final class ApplyRequestCoordinator {
                         )
                     )) {
                         throw new \RuntimeException(
-                            'duo: scoped terminal authority does not match the current target handoff generation'
+                            'wprism: scoped terminal authority does not match the current target handoff generation'
                         );
                     }
                 }
@@ -777,7 +777,7 @@ final class ApplyRequestCoordinator {
                     throw CommandRefusalException::applyRefused(
                         'terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted',
                         'inspect the changed selected/protected target state and reconcile it before retrying this scoped authority',
-                        'duo: terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
+                        'wprism: terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
                     );
                 }
                 return self::scoped_terminal_summary($terminalReplaySession);
@@ -787,7 +787,7 @@ final class ApplyRequestCoordinator {
             throw CommandRefusalException::applyRefused(
                 'the external scoped promotion is already committed but no exact target terminal receipt can be replayed',
                 'retain the exclusion and reconcile the missing target terminal archive before retrying completion',
-                'duo: committed scoped promotion has no replayable target terminal receipt'
+                'wprism: committed scoped promotion has no replayable target terminal receipt'
             );
         }
         if ($scoped && $existingScopedSession !== null && $existingScopedSession->is_terminal()) {
@@ -796,7 +796,7 @@ final class ApplyRequestCoordinator {
             // an abandoned progress marker.
             if (!method_exists($existingScopedSession, 'archive_terminal')) {
                 throw new \RuntimeException(
-                    'duo: a prior scoped apply terminal receipt must be archived before starting a different scoped authority'
+                    'wprism: a prior scoped apply terminal receipt must be archived before starting a different scoped authority'
                 );
             }
             $terminalScopedSessionToArchive = $existingScopedSession;
@@ -855,7 +855,7 @@ final class ApplyRequestCoordinator {
             $lockedPolicy = self::policy($repo, $opts);
             $lockedCompiled = self::compiled($repo, $lockedPolicy, $opts);
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
-                throw new \RuntimeException('duo: compiled artifact changed before locked apply');
+                throw new \RuntimeException('wprism: compiled artifact changed before locked apply');
             }
             if ($continuation) {
                 PromotionLock::assert_no_lifecycle_attempt(
@@ -875,7 +875,7 @@ final class ApplyRequestCoordinator {
                 ->load_pending_filesystem(!$scoped);
             if ($scoped && $pendingAttachmentIntent) {
                 throw new \RuntimeException(
-                    'duo: scoped apply cannot resume a pending full attachment filesystem transaction'
+                    'wprism: scoped apply cannot resume a pending full attachment filesystem transaction'
                 );
             }
             // A prior authored transaction may have committed immediately
@@ -894,11 +894,11 @@ final class ApplyRequestCoordinator {
                     $lockedPolicy
                 );
             } else {
-                Snapshot::repair_truncated_entity_types($lockedPolicy); // DUO-3246
+                Snapshot::repair_truncated_entity_types($lockedPolicy); // issue #3246
             }
             PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'artifact-validated');
-            if (getenv('DUO_TEST_MODE') === '1') {
-                $pauseMs = (int) (getenv('DUO_TEST_PROMOTION_LOCKED_PAUSE_MS') ?: 0);
+            if (getenv('WPRISM_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('WPRISM_TEST_PROMOTION_LOCKED_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
                     usleep($pauseMs * 1000);
                 }
@@ -928,7 +928,7 @@ final class ApplyRequestCoordinator {
             return $summary;
         } catch (\Throwable $t) {
             try {
-                // Preserve DUO-3253's independent-connection cleanup when a
+                // Preserve issue #3253's independent-connection cleanup when a
                 // failed rollback leaves the global wpdb transaction open,
                 // while using the always-initialized exact continuation
                 // identity from this invocation.
@@ -945,10 +945,10 @@ final class ApplyRequestCoordinator {
     private static function scoped_terminal_summary(ScopedApplySession $session): array {
         $terminal = $session->terminal_receipt();
         if (!is_array($terminal)) {
-            throw new \RuntimeException('duo: terminal scoped apply session has no valid terminal receipt');
+            throw new \RuntimeException('wprism: terminal scoped apply session has no valid terminal receipt');
         }
         return [
-            'format' => 'duo-scoped-apply-result/v1',
+            'format' => 'wprism-scoped-apply-result/v1',
             'replayed' => true,
             'applied' => 0,
             'plan' => [],
@@ -1010,7 +1010,7 @@ final class ApplyRequestCoordinator {
     }
 
     /**
-     * Fresh-process side of DUO-3220's convergence gate. The mutating apply
+     * Fresh-process side of issue #3220's convergence gate. The mutating apply
      * process launches this through WpCliChildProcess's bounded concurrent
      * transport; keeping canonical recapture in a newly-booted WordPress
      * runtime matters because plugins may retain pre-apply models and persist
@@ -1020,14 +1020,14 @@ final class ApplyRequestCoordinator {
         $expectedArtifact = (string) ($opts['expected_artifact'] ?? '');
         if (!preg_match('/^[a-f0-9]{64}$/', $expectedArtifact)) {
             throw new \RuntimeException(
-                'duo: canonical verification requires the parent apply expected artifact sha256'
+                'wprism: canonical verification requires the parent apply expected artifact sha256'
             );
         }
         $policySnapshot = (string) ($opts['policy_snapshot'] ?? '');
         $compiledPath = (string) ($opts['compiled'] ?? '');
         if ($policySnapshot === '' || $compiledPath === '') {
             throw new \RuntimeException(
-                'duo: canonical verification requires the parent apply frozen policy snapshot and compiled artifact'
+                'wprism: canonical verification requires the parent apply frozen policy snapshot and compiled artifact'
             );
         }
         try {
@@ -1037,12 +1037,12 @@ final class ApplyRequestCoordinator {
             }
             $policy = Policy::from_snapshot($decodedPolicy);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: canonical verification frozen policy is invalid: ' . $t->getMessage(), 0, $t);
+            throw new \RuntimeException('wprism: canonical verification frozen policy is invalid: ' . $t->getMessage(), 0, $t);
         }
         $compiled = RepositoryCompiler::read_artifact($compiledPath, $policy);
         if (!hash_equals($expectedArtifact, $compiled->artifact_hash())) {
             throw new \RuntimeException(
-                'duo: post-apply convergence verification refused a different compiled artifact'
+                'wprism: post-apply convergence verification refused a different compiled artifact'
             );
         }
         Canary::suppress_cron_spawn();
@@ -1080,7 +1080,7 @@ final class ApplyRequestCoordinator {
         $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
         if ($scoped && $retryingIncompleteApply) {
             throw new \RuntimeException(
-                'duo: scoped apply refused — a full apply recovery marker is active; complete or recover that exact full apply first'
+                'wprism: scoped apply refused — a full apply recovery marker is active; complete or recover that exact full apply first'
             );
         }
         $this->retryingIncompleteApply = $retryingIncompleteApply;
@@ -1089,12 +1089,12 @@ final class ApplyRequestCoordinator {
             $plan = ScopedApply::project_plan($plan, $this->scopedWorkflow->scopeContract);
             if ($plan['incomplete_lifecycle'] ?? []) {
                 throw new \RuntimeException(
-                    'duo: scoped apply refused — unresolved lifecycle recovery is active; scoped state authority cannot consume it'
+                    'wprism: scoped apply refused — unresolved lifecycle recovery is active; scoped state authority cannot consume it'
                 );
             }
             if (($plan['regen_pending'] ?? []) !== [] || ($plan['regen_context'] ?? []) !== []) {
                 throw new \RuntimeException(
-                    'duo: scoped apply refused — global derived-state recovery debt exists; recover it through the original full apply before bounded mutation'
+                    'wprism: scoped apply refused — global derived-state recovery debt exists; recover it through the original full apply before bounded mutation'
                 );
             }
             $observed = $this->scopedWorkflow->recheck_target_observation(function () use (
@@ -1188,7 +1188,7 @@ final class ApplyRequestCoordinator {
                     (string) ($authority['lease']['session_id'] ?? ''),
                     PromotionLock::session_id($this->promotionOwner, $this->promotionArtifact)
                 )) {
-                throw new \RuntimeException('duo: scoped apply recovery authority no longer matches the frozen source and live lease');
+                throw new \RuntimeException('wprism: scoped apply recovery authority no longer matches the frozen source and live lease');
             }
             if ($this->scopedWorkflow->promotionWitness !== null) {
                 ScopedApplySession::assert_external_promotion(
@@ -1202,10 +1202,10 @@ final class ApplyRequestCoordinator {
                 ScopedApply::code_witness_hash($freshPlan, $compiled)
             )) {
                 if ($this->scopedWorkflow->session !== null && !$this->scopedWorkflow->session->is_recovery_required()) {
-                    $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-code-witness-changed'));
+                    $this->scopedWorkflow->session->recover(hash('sha256', 'wprism:scoped-code-witness-changed'));
                 }
                 throw new \RuntimeException(
-                    'duo: scoped apply recovery code/lifecycle witness changed; no target effect was replayed'
+                    'wprism: scoped apply recovery code/lifecycle witness changed; no target effect was replayed'
                 );
             }
             if (!hash_equals(
@@ -1216,10 +1216,10 @@ final class ApplyRequestCoordinator {
                 (string) $this->scopedWorkflow->observation['protected_ledger_map_root']
             )) {
                 if ($this->scopedWorkflow->session !== null && !$this->scopedWorkflow->session->is_recovery_required()) {
-                    $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-protected-target-drift'));
+                    $this->scopedWorkflow->session->recover(hash('sha256', 'wprism:scoped-protected-target-drift'));
                 }
                 throw new \RuntimeException(
-                    'duo: scoped apply recovery refused protected out-of-scope target drift'
+                    'wprism: scoped apply recovery refused protected out-of-scope target drift'
                 );
             }
             if ($this->scopedWorkflow->terminalSessionToArchive !== null) {
@@ -1236,7 +1236,7 @@ final class ApplyRequestCoordinator {
             );
             $authorIntent = $this->scopedWorkflow->intent(
                 1,
-                'duo-scoped-authored-transaction/v2',
+                'wprism-scoped-authored-transaction/v2',
                 'author-' . substr($this->scopedWorkflow->session->authority_hash_value(), 0, 32),
                 hash('sha256', Canon::encode([
                     'plan' => $authority['plan'],
@@ -1307,7 +1307,7 @@ final class ApplyRequestCoordinator {
                         (string) $mapRoots['protected_ledger_map_root']
                     )) {
                         throw new \RuntimeException(
-                            'duo: scoped authored transaction changed a protected identity-map row before commit'
+                            'wprism: scoped authored transaction changed a protected identity-map row before commit'
                         );
                     }
                     $session->commit_authored_receipt(ScopedApplyCoordinator::receipt(
@@ -1338,12 +1338,12 @@ final class ApplyRequestCoordinator {
         // succeed. It is failure state, never convergence state:
         // applied_revision and base hashes still advance afterward.
         //
-        // DUO-3489: the value carries the identities this run classified as
+        // issue #3489: the value carries the identities this run classified as
         // environment drift and therefore will NOT write (rebuild_work()
         // excludes `drift` outside a scoped promotion). A bare marker cannot
         // tell a row this run wrote from a row it deliberately preserved, and
         // the next plan's retry widening clobbered the second kind silently.
-        // DUO-3491: $work is that same locked plan's authored write set — the
+        // issue #3491: $work is that same locked plan's authored write set — the
         // exact create/adopt/update/conflict rows this run is authorized to
         // touch — and it is the only thing that can tell the next retry's
         // three-way conflicts apart from a stale-base artifact of this one.
@@ -1424,8 +1424,8 @@ final class ApplyRequestCoordinator {
                 (string) $this->scopedWorkflow->session->authority()['target']['selected_before_hash']
             ) !== 'desired' || Canon::encode((array) $this->scopedWorkflow->receipt_at(1))
                 !== Canon::encode($expectedAuthorReceipt)) {
-                $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-authored-commit-readback-mismatch'));
-                throw new \RuntimeException('duo: scoped authored transaction committed without exact bounded readback');
+                $this->scopedWorkflow->session->recover(hash('sha256', 'wprism:scoped-authored-commit-readback-mismatch'));
+                throw new \RuntimeException('wprism: scoped authored transaction committed without exact bounded readback');
             }
             $this->scopedWorkflow->observation = $afterObservation;
             if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED) {
@@ -1450,7 +1450,7 @@ final class ApplyRequestCoordinator {
             ]));
             $coreIntent = $this->scopedWorkflow->intent(
                 2,
-                'duo-scoped-engine-derived-effects/v1',
+                'wprism-scoped-engine-derived-effects/v1',
                 'effects-core-' . substr($this->scopedWorkflow->session->authority_hash_value(), 0, 24),
                 $coreInputHash,
                 hash('sha256', Canon::encode([
@@ -1465,13 +1465,13 @@ final class ApplyRequestCoordinator {
             if (!$hasCoreWork && $this->scopedWorkflow->receipt_at(2) === null) {
                 $this->scopedWorkflow->session->append_receipt($this->scopedWorkflow->receipt(
                     $coreIntent,
-                    hash('sha256', 'duo:scoped-engine-effects-bounded-noop')
+                    hash('sha256', 'wprism:scoped-engine-effects-bounded-noop')
                 ));
             }
             if ($this->scopedWorkflow->receipt_at(2) !== null) {
                 $coreReadbackHash = $hasCoreWork
                     ? $this->scopedWorkflow->core_readback_hash($this->policy, $work, $tree)
-                    : hash('sha256', 'duo:scoped-engine-effects-bounded-noop');
+                    : hash('sha256', 'wprism:scoped-engine-effects-bounded-noop');
                 ScopedApplySession::require_effect_receipt_hash(
                     $this->scopedWorkflow->receipt_at(2),
                     $coreReadbackHash
@@ -1493,7 +1493,7 @@ final class ApplyRequestCoordinator {
         // commit (their WP-CLI subprocesses need to observe those writes) but
         // before ANY convergence metadata advances. A failure therefore
         // leaves the target truthfully unapplied and retryable instead of
-        // recording a false-green revision. $work/$tree (DUO-3234) let the
+        // recording a false-green revision. $work/$tree (issue #3234) let the
         // regen_dependencies() pass inside rebuild() see this run's changed
         // posts alongside any regen_pending:<uuid> markers left by a prior
         // failed run — see that method's own docblock for why plan's content
@@ -1546,15 +1546,15 @@ final class ApplyRequestCoordinator {
 
         if ($scoped && $this->scopedWorkflow->session !== null) {
             if ($this->scopedWorkflow->receipt_at(2) === null) {
-                $this->scopedWorkflow->session->recover(hash('sha256', 'duo:scoped-core-effect-receipt-missing'));
-                throw new \RuntimeException('duo: scoped engine effects completed without a durable readback receipt');
+                $this->scopedWorkflow->session->recover(hash('sha256', 'wprism:scoped-core-effect-receipt-missing'));
+                throw new \RuntimeException('wprism: scoped engine effects completed without a durable readback receipt');
             }
             if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_EFFECTS_PENDING) {
                 $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_VERIFYING);
             }
         }
 
-        // DUO-3220: never infer convergence from the absence of a thrown
+        // issue #3220: never infer convergence from the absence of a thrown
         // mutation/rebuild error. Re-capture the target through the same
         // canonical reader used by plan/capture and prove that every entity
         // in the immutable compiled tree landed byte-semantically (same
@@ -1565,7 +1565,7 @@ final class ApplyRequestCoordinator {
         // ledger transaction below, retaining apply_in_progress and every
         // prior base hash/revision for a truthful retry.
         //
-        // DUO-3489: the gate proves the WHOLE compiled tree, while this run
+        // issue #3489: the gate proves the WHOLE compiled tree, while this run
         // deliberately did not write `drift` — so a drifted target makes this
         // failure structural, not incidental. Hand the preserved rows over so
         // the refusal names the cause instead of leaving the operator with a
@@ -1607,7 +1607,7 @@ final class ApplyRequestCoordinator {
             'applied' => count($work) + ($executeDeletes ? count($deleteWork) : 0),
             'drift' => array_column($plan['drift'], 'path'),
             'warnings' => array_merge($this->warnings, $this->tokens->warnings),
-            // DUO-3338 receipts: what each selected rebuild action observed,
+            // issue #3338 receipts: what each selected rebuild action observed,
             // not merely that it ran. The warnings above stay the human line;
             // this is the machine-readable evidence a recovery controller can
             // correlate with the compiled effects inventory through `source`.
@@ -1617,9 +1617,9 @@ final class ApplyRequestCoordinator {
         ];
         if ($scoped) {
             if ($this->scopedWorkflow->session === null || !$this->scopedWorkflow->session->is_terminal()) {
-                throw new \RuntimeException('duo: scoped apply completed without a durable terminal receipt');
+                throw new \RuntimeException('wprism: scoped apply completed without a durable terminal receipt');
             }
-            $summary['format'] = 'duo-scoped-apply-result/v1';
+            $summary['format'] = 'wprism-scoped-apply-result/v1';
             $summary['scoped_receipt'] = $this->scopedWorkflow->session->terminal_receipt();
         }
         return $summary;
@@ -1629,7 +1629,7 @@ final class ApplyRequestCoordinator {
         $expected = (string) ($opts['artifact_hash'] ?? '');
         if (($required && $expected === '')
             || ($expected !== '' && (!preg_match('/^[0-9a-f]{64}$/', $expected) || !hash_equals($expected, $actual)))) {
-            throw new \RuntimeException('duo: apply artifact does not match the host-compiled artifact hash');
+            throw new \RuntimeException('wprism: apply artifact does not match the host-compiled artifact hash');
         }
     }
 
@@ -1663,8 +1663,8 @@ final class ApplyRequestCoordinator {
             || preg_match('/^[a-f0-9]{64}$/D', $receipt) !== 1) {
             throw CommandRefusalException::applyRefused(
                 'scoped promotion requires one compact scope request, exact host continuation, and signed receipt hash',
-                'retry through SSH host `duo promote --scope-contract=<local-path>`',
-                'duo: invalid scoped promotion continuation'
+                'retry through SSH host `wprism promote --scope-contract=<local-path>`',
+                'wprism: invalid scoped promotion continuation'
             );
         }
         foreach ([
@@ -1675,7 +1675,7 @@ final class ApplyRequestCoordinator {
                 throw CommandRefusalException::applyRefused(
                     'scoped promotion does not permit force flags',
                     'remove force flags and reconcile the exact scoped preconditions before retrying',
-                    'duo: scoped promotion force override refused'
+                    'wprism: scoped promotion force override refused'
                 );
             }
         }
@@ -1692,7 +1692,7 @@ final class ApplyRequestCoordinator {
             throw CommandRefusalException::applyRefused(
                 'scoped promotion deletion authority does not match the signed checkpoint generation',
                 'retry with the same --with-deletes intent used when the scoped checkpoint was claimed',
-                'duo: scoped promotion deletion authority mismatch'
+                'wprism: scoped promotion deletion authority mismatch'
             );
         }
         PromotionLock::assert_scoped_promotion_session(

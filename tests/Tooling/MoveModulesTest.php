@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -10,7 +10,7 @@ use RuntimeException;
 /**
  * Pins tools/codemod/move-modules.php — the ROUND 3 TRAIN 1 codemod that moves
  * the flat agent/src and cli/src trees into module directories while leaving
- * every `namespace Duo;` declaration alone.
+ * every `namespace WPrism;` declaration alone.
  *
  * Two levels, for two different reasons.
  *
@@ -25,7 +25,7 @@ use RuntimeException;
  * CLI-level assertion against the real tree could only say "something changed".
  *
  * The real-repo case runs --plan against this checkout with a five-file map and
- * asserts the plan names the cross-references it must find (agent/duo.php's
+ * asserts the plan names the cross-references it must find (agent/wprism.php's
  * loader lines, sandbox/tests requires) while changing nothing: `git status
  * --porcelain` is captured either side and compared. It uses --allow-partial,
  * because a five-file map is deliberately not total and the totality guard —
@@ -43,7 +43,7 @@ final class MoveModulesTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -97,16 +97,16 @@ final class MoveModulesTest extends TestCase
      */
     private function makeSyntheticRepo(): string
     {
-        $root = (string) tempnam(sys_get_temp_dir(), 'duo-mm-');
+        $root = (string) tempnam(sys_get_temp_dir(), 'wprism-mm-');
         unlink($root);
         mkdir($root, 0777, true);
         self::$tempRoot = $root;
 
-        self::write($root . '/agent/duo.php', <<<'PHP'
+        self::write($root . '/agent/wprism.php', <<<'PHP'
 <?php
 
-define('DUO_AGENT_VERSION', '0.5.0');
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_AGENT_VERSION', '0.5.0');
+define('WPRISM_SPEC_VERSION', 2);
 
 require_once __DIR__ . '/src/Alpha.php';
 require_once __DIR__ . '/src/Beta.php';
@@ -118,7 +118,7 @@ PHP);
         self::write($root . '/agent/src/Alpha.php', <<<'PHP'
 <?php
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/Beta.php';
 require_once __DIR__ . '/Gamma.php';
@@ -136,7 +136,7 @@ PHP);
         self::write($root . '/agent/src/Beta.php', <<<'PHP'
 <?php
 
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Gamma::class, false)) {
     require_once __DIR__ . '/Gamma.php';
@@ -148,8 +148,8 @@ class Beta
 
 PHP);
 
-        self::write($root . '/agent/src/Gamma.php', "<?php\n\nnamespace Duo;\n\nclass Gamma\n{\n}\n");
-        self::write($root . '/agent/src/Stays.php', "<?php\n\nnamespace Duo;\n\nclass Stays\n{\n}\n");
+        self::write($root . '/agent/src/Gamma.php', "<?php\n\nnamespace WPrism;\n\nclass Gamma\n{\n}\n");
+        self::write($root . '/agent/src/Stays.php', "<?php\n\nnamespace WPrism;\n\nclass Stays\n{\n}\n");
 
         self::write($root . '/sandbox/tests/regress_demo.php', <<<'PHP'
 <?php
@@ -313,12 +313,12 @@ SH);
 
         // 5. The loader's root-relative requires follow, and the define lines
         //    every certification bundle binds are untouched.
-        $loader = (string) file_get_contents($root . '/agent/duo.php');
+        $loader = (string) file_get_contents($root . '/agent/wprism.php');
         self::assertStringContainsString("require_once __DIR__ . '/src/Engine/Alpha.php';", $loader);
         self::assertStringContainsString("require_once __DIR__ . '/src/Kernel/Gamma.php';", $loader);
         self::assertStringContainsString("require_once __DIR__ . '/src/Stays.php';", $loader);
-        self::assertStringContainsString("define('DUO_AGENT_VERSION', '0.5.0');", $loader);
-        self::assertStringContainsString("define('DUO_SPEC_VERSION', 2);", $loader);
+        self::assertStringContainsString("define('WPRISM_AGENT_VERSION', '0.5.0');", $loader);
+        self::assertStringContainsString("define('WPRISM_SPEC_VERSION', 2);", $loader);
 
         // 6. A suite's own require follows, and so does the source-text needle
         //    it asserts Beta.php contains.
@@ -459,6 +459,23 @@ SH);
         self::assertSame('../../../manifests', mm_relpath('agent/src/Engine', 'manifests'));
         self::assertSame('agent/src', mm_norm('agent/./src/Engine/..'));
         self::assertSame('/a/b', mm_norm('/a/c/../b'));
+    }
+
+    public function testClosureTracksCurrentProductAndAdoptionInputs(): void
+    {
+        foreach ([
+            'adapter-packages/acf/package/manifest.json',
+            'agent/src/Kernel/Canon.php',
+            'cli/src/Onboarding/Adopt.php',
+            'platform/adapter-library/capabilities/platform.json',
+            'recovery/CanonicalJson.php',
+            'sandbox/bin/pair.sh',
+        ] as $relative) {
+            self::assertTrue(mm_is_closure($relative), "$relative must be labelled as shipped surface");
+        }
+
+        self::assertFalse(mm_is_closure('manifests/core.json'), 'the retired flat manifest root is not shipped');
+        self::assertFalse(mm_is_closure('docs/dev-setup.md'), 'ordinary documentation is not shipped surface');
     }
 
     public function testLiteralRewriteIgnoresANonMatchingPrefix(): void

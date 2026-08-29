@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline DUO-3261 regression. Drives the real private capture/apply termmeta
+ * Offline issue #3261 regression. Drives the real private capture/apply termmeta
  * product paths against a deterministic fake wpdb: WooCommerce's real
  * product_cat thumbnail_id captures as a post token, applies to a different
  * local attachment id, deletes a missing still-authored key, preserves every
@@ -9,11 +9,11 @@
  */
 
 define('ARRAY_A', 'ARRAY_A');
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 
-$duo_test_home = 'https://source.example.test';
-function get_option(string $name) { global $duo_test_home; return $name === 'home' ? $duo_test_home : null; }
-function wp_upload_dir($time = null, bool $create = false): array { global $duo_test_home; return ['baseurl' => $duo_test_home . '/wp-content/uploads']; }
+$wprism_test_home = 'https://source.example.test';
+function get_option(string $name) { global $wprism_test_home; return $name === 'home' ? $wprism_test_home : null; }
+function wp_upload_dir($time = null, bool $create = false): array { global $wprism_test_home; return ['baseurl' => $wprism_test_home . '/wp-content/uploads']; }
 function untrailingslashit(string $value): string { return rtrim($value, '/\\'); }
 function is_serialized($value, $strict = true): bool {
     if (!is_string($value)) return false;
@@ -52,10 +52,10 @@ require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
 require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
-use Duo\Apply;
-use Duo\EntityMetaCapture;
-use Duo\Policy;
-use Duo\Tokens;
+use WPrism\Apply;
+use WPrism\EntityMetaCapture;
+use WPrism\Policy;
+use WPrism\Tokens;
 
 final class TermMetaFakeWpdb {
     public string $prefix = 'wp_';
@@ -132,11 +132,11 @@ final class TermMetaFakeWpdb {
         if ($sql === 'SELECT 1 FROM `wp_termmeta` LIMIT 1') {
             return '1';
         }
-        if (str_contains($sql, 'SELECT uuid FROM wp_duo_map')) {
+        if (str_contains($sql, 'SELECT uuid FROM wp_wprism_map')) {
             preg_match("/local_id = ([0-9]+)/", $sql, $m);
             return $this->uuidById[(int) ($m[1] ?? 0)] ?? null;
         }
-        if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM wp_wprism_map')) {
             preg_match("/uuid = '([^']+)'/", $sql, $m);
             return $this->idByUuid[$m[1] ?? ''] ?? null;
         }
@@ -241,7 +241,7 @@ $capture = capture_instance($policy, $sourceTokens);
 );
 assertion($store && $canonical === '{{post:' . $uuid . '}}', 'capture tokenizes WooCommerce thumbnail_id as a canonical post ref');
 
-$duo_test_home = 'https://target.example.test';
+$wprism_test_home = 'https://target.example.test';
 $targetTokens = new Tokens();
 $wpdb->uuidById = [88 => $uuid];
 $wpdb->idByUuid = [$uuid => 88];
@@ -251,8 +251,8 @@ $wpdb->rows = [
     ['meta_id' => 12, 'term_id' => 9, 'meta_key' => 'runtime_counter', 'meta_value' => 'runtime-bytes'],
     ['meta_id' => 13, 'term_id' => 9, 'meta_key' => 'undeclared_plugin_key', 'meta_value' => "opaque\0bytes"],
 ];
-$apply = new \Duo\ApplyFieldMaterializer($policy, $targetTokens);
-$cache = \Duo\CacheInvalidationTransaction::class;
+$apply = new \WPrism\ApplyFieldMaterializer($policy, $targetTokens);
+$cache = \WPrism\CacheInvalidationTransaction::class;
 $cache::begin();
 $apply->begin_authored_transaction();
 $apply->reconcile_authored_term_meta(9, ['thumbnail_id' => $canonical]);

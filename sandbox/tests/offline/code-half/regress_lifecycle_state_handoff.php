@@ -13,10 +13,10 @@ require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Promotion/Deploy.php';
 require_once $root . '/agent/src/Apply/ApplyPlanner.php';
 
-use Duo\ApplyPlanner;
-use Duo\Canon;
-use Duo\Deploy;
-use Duo\OptionState;
+use WPrism\ApplyPlanner;
+use WPrism\Canon;
+use WPrism\Deploy;
+use WPrism\OptionState;
 
 $check = static function (bool $ok, string $message): void {
     if (!$ok) {

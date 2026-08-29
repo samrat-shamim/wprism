@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Certify the cross-branch plugin-version-skew workflow (DUO-3228, rebuilt at
-# DUO-3487).
+# Certify the cross-branch plugin-version-skew workflow (issue #3228, rebuilt at
+# issue #3487).
 #
 # DESIGN.md §3.4 requires an integration branch to merge plugin code first,
 # run that version's migrations, re-capture the migrated canonical shape,
@@ -18,8 +18,8 @@
 # editorial value. Both environments then materialize the resolved revision
 # and must re-capture byte-identically.
 #
-# WHY THIS FILE EXISTS TWICE OVER. The original (DUO-3228) was built on the
-# duo-loop-demo demo manifest and its fixture plugin, and #478 deleted both;
+# WHY THIS FILE EXISTS TWICE OVER. The original (issue #3228) was built on the
+# wprism-loop-demo demo manifest and its fixture plugin, and #478 deleted both;
 # certify_merge.sh:56 recorded the scope as UNCOVERED with that reason, and
 # this file is what retires that note. Every assertion of the deleted script
 # is carried over — the ordering, the migration receipt, the reported (not
@@ -28,16 +28,16 @@
 #
 # WHAT CHANGED IN THE REBUILD, and why each substitution is not a weakening:
 #
-#   - The plugin is duo-agency-cpt, the sandbox's one retained fixture plugin
-#     (sandbox/fixtures/duo-agency-cpt/), shipped through the site repo's own
-#     code/ tree exactly as duo-loop-demo was. The fixture file on disk is
+#   - The plugin is wprism-agency-cpt, the sandbox's one retained fixture plugin
+#     (sandbox/fixtures/wprism-agency-cpt/), shipped through the site repo's own
+#     code/ tree exactly as wprism-loop-demo was. The fixture file on disk is
 #     never edited: the pair's disposable site-repo COPY carries the version
 #     bump and the migration command, so the committed fixture and
-#     manifests/duo-agency-cpt.json keep their bytes (AGENTS.md #2 — manifest
+#     manifests/wprism-agency-cpt.json keep their bytes (AGENTS.md #2 — manifest
 #     bytes are adapter identity, and six live suites pin this one).
 #
 #   - The migrated option is classified by this repository's OWN
-#     site.duo.json `policy.options`, not by a manifest. duo-agency-cpt.json
+#     site.wprism.json `policy.options`, not by a manifest. wprism-agency-cpt.json
 #     declares only an `env` key and a `derived` projection, neither of which
 #     can carry authored editorial state, and no shipped manifest may gain a
 #     key for a test's convenience. Site policy is the supported route for
@@ -52,7 +52,7 @@
 #     compares each active plugin's live header against the ledger baseline
 #     the last capture/deploy recorded. It is manifest-independent by
 #     construction (LifecyclePlanner.php:367 reads the ledger, not
-#     version_ranges()), so dropping the deleted duo-loop-demo-versioned pin
+#     version_ranges()), so dropping the deleted wprism-loop-demo-versioned pin
 #     costs this scenario nothing. The version_range half of the same area is
 #     covered on its own by sandbox/tests/live/regress_adapter_plugin_range.sh.
 #
@@ -71,18 +71,18 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${MERGESKEW_PAIR:-a3487sk}"
 PORT1="${MERGESKEW_PORT1:-8986}"
 PORT2="${MERGESKEW_PORT2:-8987}"
-PLUGIN_DIR=duo-agency-cpt
+PLUGIN_DIR=wprism-agency-cpt
 PLUGIN_BASENAME="$PLUGIN_DIR/$PLUGIN_DIR.php"
 PLUGIN_FILE="code/wp-content/plugins/$PLUGIN_DIR/$PLUGIN_DIR.php"
-OPTION=duo_agency_color
+OPTION=wprism_agency_color
 V1=1.0.0
 V2=2.0.0
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN="$PLUGIN_DIR"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.codebind.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CODEBIND_PLUGIN="$PLUGIN_DIR"
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.codebind.yml)
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-v2 -c user.email=v2@example.test)
-GIT2=(git -C "siterepo/${PAIR}2" -c user.name=duo-v1 -c user.email=v1@example.test)
+GIT1=(git -C "siterepo/${PAIR}1" -c user.name=wprism-v2 -c user.email=v2@example.test)
+GIT2=(git -C "siterepo/${PAIR}2" -c user.name=wprism-v1 -c user.email=v1@example.test)
 
 GREEN=0
 cleanup() {
@@ -131,10 +131,10 @@ set_plugin_version "siterepo/${PAIR}1/$PLUGIN_FILE" "$V1"
 # `autoload: preserve` is not optional decoration — OptionGrammar::
 # validate_option_storage() refuses an authored option that does not say how
 # its wp_options row is stored ("insertion may never guess"), and the deleted
-# duo-loop-demo manifest carried the same declaration as a manifest-level
+# wprism-loop-demo manifest carried the same declaration as a manifest-level
 # `option_autoload`. Per-rule here, because site policy classifies exactly
 # one name.
-cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "$PLUGIN_DIR"],
   "policy": {
@@ -165,13 +165,13 @@ wp1 plugin activate "$PLUGIN_DIR" >/dev/null
 wp2 plugin activate "$PLUGIN_DIR" >/dev/null
 wp1 option update "$OPTION" blue >/dev/null
 wp2 option update "$OPTION" blue >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "baseline state: v1 scalar color blue"
 "${GIT1[@]}" push -q origin main
 "${GIT2[@]}" pull -q origin main
-wp2 duo deploy --repo=/siterepo --format=json >/dev/null
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --format=json >/dev/null
+wp2 wprism deploy --repo=/siterepo --format=json >/dev/null
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --format=json >/dev/null
 BASELINE_SETTINGS_1=$(read_settings 1)
 require_observed_nonempty "env1 baseline settings" "$BASELINE_SETTINGS_1"
 [ "$(jq -r . <<<"$BASELINE_SETTINGS_1")" = blue ] || fail "env1 baseline is not scalar blue"
@@ -183,7 +183,7 @@ pass "baseline: both environments run v$V1 and canonical $OPTION is the scalar '
 say "state-v1 branch: env2 authors green while still running v1"
 "${GIT2[@]}" checkout -qb state-v1 main
 wp2 option update "$OPTION" green >/dev/null
-wp2 duo capture --repo=/siterepo >/dev/null
+wp2 wprism capture --repo=/siterepo >/dev/null
 jq -e --arg k "$OPTION" '.records[$k].value == "green"' "siterepo/${PAIR}2/state/options/core.json" >/dev/null \
   || fail "state-v1 capture did not preserve the v1 scalar schema"
 "${GIT2[@]}" add -A
@@ -196,11 +196,11 @@ say "code-v2 branch: add a v2-only explicit migration, without capturing state"
 set_plugin_version "siterepo/${PAIR}1/$PLUGIN_FILE" "$V2"
 cat >> "siterepo/${PAIR}1/$PLUGIN_FILE" <<PHP
 
-// DUO-3228/DUO-3487 version-skew fixture: v2 migrates the authored color
+// issue #3228/issue #3487 version-skew fixture: v2 migrates the authored color
 // from the v1 scalar shape into an explicitly versioned object. Kept as an
 // explicit command so the certification can prove migration ordering.
 if (defined('WP_CLI') && WP_CLI) {
-    WP_CLI::add_command('duo-agency migrate', function () {
+    WP_CLI::add_command('wprism-agency migrate', function () {
         \$current = get_option('$OPTION', null);
         if (is_array(\$current) && (int) (\$current['schema'] ?? 0) === 2) {
             WP_CLI::line(wp_json_encode(['migrated' => false, 'settings' => \$current]));
@@ -235,19 +235,19 @@ require_observed_nonempty "env1 settings before explicit migration" "$PRE_MIGRAT
 pass "code merged independently; database is still visibly in the v1 scalar shape"
 
 say "integration ordering step 2: run the merged code's migration, then reconcile/re-baseline code"
-MIG1=$(wp1 duo-agency migrate 2>&1 | tail -1)
-require_duo_answered "env1 v2 migration" json "$MIG1"
+MIG1=$(wp1 wprism-agency migrate 2>&1 | tail -1)
+require_wprism_answered "env1 v2 migration" json "$MIG1"
 echo "$MIG1" | jq -e '.migrated == true and .settings == {"label":"blue","schema":2}' >/dev/null \
   || fail "env1 v2 migration did not produce the expected object: $MIG1"
-DEPLOY1=$(wp1 duo deploy --repo=/siterepo --force-code-drift --format=json | tail -1)
-require_duo_answered "env1 v2 deploy" json "$DEPLOY1"
+DEPLOY1=$(wp1 wprism deploy --repo=/siterepo --force-code-drift --format=json | tail -1)
+require_wprism_answered "env1 v2 deploy" json "$DEPLOY1"
 echo "$DEPLOY1" | jq -e --arg p "$PLUGIN_BASENAME" --arg old "$V1" --arg new "$V2" \
   '.code_drift | any(.plugin == $p and .recorded_version == $old and .installed_version == $new)' >/dev/null \
   || fail "deploy did not report the accepted v1-to-v2 code transition: $DEPLOY1"
 pass "migration ran under v2; deploy reported (not hid) the accepted code-version transition"
 
 say "integration ordering step 3: re-capture the migrated v2 canonical shape BEFORE state merge"
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 jq -e --arg k "$OPTION" '.records[$k].value == {"label":"blue","schema":2}' \
   "siterepo/${PAIR}1/state/options/core.json" >/dev/null \
   || fail "post-migration capture is not the v2 object shape"
@@ -284,8 +284,8 @@ pass "integration revision contains v2 code plus green expressed in v2 state"
 
 say "materialize the resolved integration revision on env1"
 REV=$("${GIT1[@]}" rev-parse HEAD)
-APPLY1=$(wp1 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --format=json | tail -1)
-require_duo_answered "env1 v2 apply" json "$APPLY1"
+APPLY1=$(wp1 wprism apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --format=json | tail -1)
+require_wprism_answered "env1 v2 apply" json "$APPLY1"
 echo "$APPLY1" | jq -e '.canary == "clean"' >/dev/null || fail "env1 apply canary was not clean: $APPLY1"
 FINAL_SETTINGS_1=$(read_settings 1)
 require_observed_nonempty "env1 settings after v2 apply" "$FINAL_SETTINGS_1"
@@ -300,21 +300,21 @@ say "env2 follows the same code-first boundary: checkout merged code, migrate v1
 LIVE_V2=$(live_plugin_version 2)
 require_observed_nonempty "env2 live v2 plugin version" "$LIVE_V2"
 [ "$LIVE_V2" = "$V2" ] || fail "env2 did not see merged v2 code (got '$LIVE_V2')"
-MIG2=$(wp2 duo-agency migrate 2>&1 | tail -1)
-require_duo_answered "env2 v2 migration" json "$MIG2"
+MIG2=$(wp2 wprism-agency migrate 2>&1 | tail -1)
+require_wprism_answered "env2 v2 migration" json "$MIG2"
 echo "$MIG2" | jq -e '.migrated == true and .settings == {"label":"green","schema":2}' >/dev/null \
   || fail "env2 migration did not carry its v1 green value into v2: $MIG2"
-DEPLOY2=$(wp2 duo deploy --repo=/siterepo --force-code-drift --format=json | tail -1)
-require_duo_answered "env2 v2 deploy" json "$DEPLOY2"
+DEPLOY2=$(wp2 wprism deploy --repo=/siterepo --force-code-drift --format=json | tail -1)
+require_wprism_answered "env2 v2 deploy" json "$DEPLOY2"
 echo "$DEPLOY2" | jq -e --arg p "$PLUGIN_BASENAME" --arg old "$V1" --arg new "$V2" \
   '.code_drift | any(.plugin == $p and .recorded_version == $old and .installed_version == $new)' >/dev/null \
   || fail "env2 deploy did not report the accepted v1-to-v2 transition: $DEPLOY2"
-wp2 duo capture --repo=/siterepo >/dev/null
+wp2 wprism capture --repo=/siterepo >/dev/null
 [ -z "$("${GIT2[@]}" status --porcelain)" ] \
   || fail "env2's required post-migration re-capture differs from the resolved integration revision: $("${GIT2[@]}" status --short)"
 pass "env2 post-migration re-capture matches the resolved integration revision byte-for-byte"
-APPLY2=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --format=json | tail -1)
-require_duo_answered "env2 v2 apply" json "$APPLY2"
+APPLY2=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --format=json | tail -1)
+require_wprism_answered "env2 v2 apply" json "$APPLY2"
 echo "$APPLY2" | jq -e '.canary == "clean"' >/dev/null || fail "env2 apply canary was not clean: $APPLY2"
 FINAL_SETTINGS_2=$(read_settings 2)
 require_observed_nonempty "env2 settings after v2 apply" "$FINAL_SETTINGS_2"
@@ -323,14 +323,14 @@ jq -e '. == {"label":"green","schema":2}' <<<"$FINAL_SETTINGS_2" >/dev/null \
 pass "env2 migrated before state apply and reached the same resolved value"
 
 say "final convergence and lint: canonical(env1) == canonical(env2)"
-wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-skew1 >/dev/null
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-skew2 >/dev/null
+wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-skew1 >/dev/null
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-skew2 >/dev/null
 diff -r "siterepo/${PAIR}1/.tmp-skew1" "siterepo/${PAIR}2/.tmp-skew2" \
   || fail "post-version-skew environments did not re-capture byte-identically"
-LINT1=$(wp1 duo lint --repo=/siterepo --format=json | tail -1)
-LINT2=$(wp2 duo lint --repo=/siterepo --format=json | tail -1)
-require_duo_answered "env1 final lint" json "$LINT1"
-require_duo_answered "env2 final lint" json "$LINT2"
+LINT1=$(wp1 wprism lint --repo=/siterepo --format=json | tail -1)
+LINT2=$(wp2 wprism lint --repo=/siterepo --format=json | tail -1)
+require_wprism_answered "env1 final lint" json "$LINT1"
+require_wprism_answered "env2 final lint" json "$LINT2"
 echo "$LINT1" | jq -e 'length == 0' >/dev/null || fail "env1 lint findings: $LINT1"
 echo "$LINT2" | jq -e 'length == 0' >/dev/null || fail "env2 lint findings: $LINT2"
 rm -rf "siterepo/${PAIR}1/.tmp-skew1" "siterepo/${PAIR}2/.tmp-skew2"

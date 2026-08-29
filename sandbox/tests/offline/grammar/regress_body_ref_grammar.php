@@ -27,7 +27,7 @@
  * fixture has no confirmations, no page reference and no sentinel — which is
  * exactly why the three facts group D turns on were never seen before. The
  * content is synthetic exercise state (form titles "Recon …", `{admin_email}`
- * smart tags, a `localhost:9620` pair URL, the pair's own site name "Duo
+ * smart tags, a `localhost:9620` pair URL, the pair's own site name "WPrism
  * wpfrecon1"); it carries no real user data.
  *
  * THE THREE MEASUREMENTS THE GRAMMAR IS SHAPED BY, each asserted below against
@@ -62,7 +62,7 @@ require_once __DIR__ . '/../../lib/agent_version.php';
 require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
 $root = dirname(__DIR__, 4);
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Policy/Policy.php';
@@ -73,16 +73,16 @@ require_once $root . '/agent/src/Capture/EntityMetaCapture.php';
 require_once $root . '/agent/src/Capture/MediaCapture.php';
 require_once $root . '/agent/src/Capture/PostCapture.php';
 
-use Duo\BodyRefGrammar;
-use Duo\Canon;
-use Duo\EntityMetaCapture;
-use Duo\MediaCapture;
-use Duo\Policy;
-use Duo\PostCapture;
-use Duo\PostTypeGrammar;
-use Duo\Tokens;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\BodyRefGrammar;
+use WPrism\Canon;
+use WPrism\EntityMetaCapture;
+use WPrism\MediaCapture;
+use WPrism\Policy;
+use WPrism\PostCapture;
+use WPrism\PostTypeGrammar;
+use WPrism\Tokens;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 $fixtures = $root . '/sandbox/tests/fixtures/wpforms-body';
 $capture = static fn(string $name): string => rtrim(
@@ -134,7 +134,7 @@ $wpforms = [
  * @param array<string,array<string,mixed>> $files
  */
 $load = static function (array $files): Policy {
-    $dir = sys_get_temp_dir() . '/duo_body_ref_' . bin2hex(random_bytes(8));
+    $dir = sys_get_temp_dir() . '/wprism_body_ref_' . bin2hex(random_bytes(8));
     if (!mkdir($dir, 0700, true) && !is_dir($dir)) {
         throw new RuntimeException("could not create manifest library $dir");
     }
@@ -158,29 +158,29 @@ $variant = static fn(array $overlay): array => array_replace($wpforms, $overlay)
 // A. The `engine_features` staging channel (spec/repo-format.md § v3.2, § v3.3)
 // ===========================================================================
 
-duo_check_same(
+wprism_check_same(
     3,
-    DUO_SPEC_VERSION,
-    'DUO_SPEC_VERSION is still 3 — `body_refs` and the `json` body mode shipped through engine_features, not a bump'
+    WPRISM_SPEC_VERSION,
+    'WPRISM_SPEC_VERSION is still 3 — `body_refs` and the `json` body mode shipped through engine_features, not a bump'
 );
 
 $policy = $load(['wpforms' => $wpforms]);
-duo_check_same(
+wprism_check_same(
     ['wpforms'],
     array_column($policy->manifests, 'name'),
     'A1: a spec_version 3 manifest declaring the feature, the mode AND the section loads through the real loader'
 );
-duo_check_same('json', $policy->body_mode('wpforms'), 'A1: the loaded policy reports the json body mode for the declaring type');
-duo_check_same(
+wprism_check_same('json', $policy->body_mode('wpforms'), 'A1: the loaded policy reports the json body mode for the declaring type');
+wprism_check_same(
     // Key order is Canon::encode()'s, not the author's — the loader reads the
     // canonical bytes it wrote, so the assertion compares the same normal form.
-    duo_check_ksort_recursive($wpforms['body_refs']['wpforms']),
-    duo_check_ksort_recursive($policy->body_ref_rule('wpforms')),
+    wprism_check_ksort_recursive($wpforms['body_refs']['wpforms']),
+    wprism_check_ksort_recursive($policy->body_ref_rule('wpforms')),
     'A1: and projects the declared paths and sentinels for that type'
 );
-duo_check_same(null, $policy->body_ref_rule('page'), 'A1: and projects nothing for a type the manifest says nothing about');
+wprism_check_same(null, $policy->body_ref_rule('page'), 'A1: and projects nothing for a type the manifest says nothing about');
 
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['wpforms' => $variant(['spec_version' => 2, 'engine_features' => null])]),
     RuntimeException::class,
     'A2: a spec_version 2 manifest declaring the section is refused BY SECTION, naming the version that has it',
@@ -189,14 +189,14 @@ duo_check_throws(
 
 $noFeature = $wpforms;
 unset($noFeature['engine_features']);
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['wpforms' => $noFeature]),
     RuntimeException::class,
     'A3: at spec_version 3 the key set is CLOSED, so the section without its feature is refused BY KEY',
     "the top-level key 'body_refs', which this engine does not recognise"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['wpforms' => $variant([
         'engine_features' => ['spec-window/v1', 'structured-body-refs/v2'],
     ])]),
@@ -205,7 +205,7 @@ duo_check_throws(
     "declares engine feature 'structured-body-refs/v2'"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['wpforms' => $variant(['engine_features' => ['structured-body-refs/v1']])]),
     RuntimeException::class,
     'A5: declaring only the section\'s own feature refuses — `engine_features` is itself claimed by `spec-window/v1`',
@@ -225,13 +225,13 @@ duo_check_throws(
 // declaring the mode and NO section reaches no § v3.2 verdict at all.
 $modeOnly = $wpforms;
 unset($modeOnly['engine_features'], $modeOnly['body_refs']);
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['wpforms' => $modeOnly]),
     RuntimeException::class,
     'A6: `body: "json"` without the feature is refused BY FEATURE NAME, not as a misspelling',
     "declares post_types.wpforms.body='json', which the engine feature 'structured-body-refs/v1' gates"
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['wpforms' => $modeOnly]),
     RuntimeException::class,
     'A6: and the remedy names the list to declare it in, and that the list needs spec_version 3',
@@ -239,10 +239,10 @@ duo_check_throws(
 );
 
 // A7 — the base three are byte for byte what they were for a manifest that
-// declares no feature, which is all 16 shipped adapters. The pinned refusal in
+// declares no feature. The pinned refusal in
 // regress_vocabulary_ownership.php reads this exact sentence.
 $typo = ['name' => 'fixture', 'post_types' => ['acme_widget' => ['body' => 'verbatm']]];
-duo_check_throws(
+wprism_check_throws(
     static function () use ($typo): void { PostTypeGrammar::validate_post_type_contracts($typo); },
     RuntimeException::class,
     'A7: a manifest declaring no feature still sees exactly the three ungated modes in its refusal',
@@ -253,19 +253,19 @@ $typoWithFeature = [
     'engine_features' => ['spec-window/v1', 'structured-body-refs/v1'],
     'post_types' => ['acme_widget' => ['body' => 'jsn']],
 ];
-duo_check_throws(
+wprism_check_throws(
     static function () use ($typoWithFeature): void { PostTypeGrammar::validate_post_type_contracts($typoWithFeature); },
     RuntimeException::class,
     'A7: and a manifest that DID declare the feature sees four — the vocabulary a refusal prints is the one that refused',
     "the vocabulary is closed (blocks, verbatim, serialized, json)"
 );
 
-duo_check_same(
+wprism_check_same(
     ['blocks', 'verbatim', 'serialized'],
     Policy::closed_vocabularies()['post_type_body_modes'],
     'A8: the published ungated body vocabulary is unchanged — no shipped manifest\'s bytes move'
 );
-duo_check_same(
+wprism_check_same(
     ['structured-body-refs/v1' => ['json']],
     Policy::closed_vocabularies()['feature_gated_post_type_body_modes'],
     'A8: and the gated member is published BESIDE it, keyed by the feature that admits it, never folded in'
@@ -277,7 +277,7 @@ duo_check_same(
 
 /** @param array<string,mixed> $overlay */
 $refuse = static function (array $overlay, string $fragment, string $message) use ($load, $variant): void {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): Policy => $load(['wpforms' => $variant($overlay)]),
         RuntimeException::class,
         $message,
@@ -363,7 +363,7 @@ $refuse(
 // a live site rather than at load.
 $modeNoPaths = $wpforms;
 unset($modeNoPaths['body_refs']);
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['wpforms' => $modeNoPaths]),
     RuntimeException::class,
     'B11: body=json with no declared paths is refused — that is `verbatim` with an extra refusal surface',
@@ -378,7 +378,7 @@ WpStore::reset()->seedOptions(['home' => 'https://source.example']);
 $wpdb = FakeWpdb::install();
 $pageUuid = '019200cc-0000-7000-8000-0000000000a4';
 $seedMap = static function (int $localId) use ($wpdb, $pageUuid): void {
-    $wpdb->seedTable('wp_duo_map', [[
+    $wpdb->seedTable('wp_wprism_map', [[
         'id' => 1,
         'uuid' => $pageUuid,
         'entity_type' => 'post',
@@ -400,12 +400,12 @@ $tokenToId = static fn(Tokens $t): callable => static fn(string $token): int => 
 // to their exact input bytes, which is the property the whole mode rests on.
 foreach (['form-a', 'form-b', 'form-pathb', 'form-pathc'] as $name) {
     $raw = $capture($name);
-    duo_check_same(
+    wprism_check_same(
         json_decode($raw, true),
         json_decode(json_encode(json_decode($raw, true), 0) ?: '', true),
         "C1: the real $name capture decodes and re-encodes to an identical document"
     );
-    duo_check_same(
+    wprism_check_same(
         $raw,
         json_encode(json_decode($raw, true), 0),
         "C1: and to identical BYTES — the precondition BodyRefGrammar::decode() asserts before substitution"
@@ -422,21 +422,21 @@ $capturedB = BodyRefGrammar::capture(
     static function (string $w) use (&$warnings): void { $warnings[] = $w; },
     "wpforms 'recon-signup-form'"
 );
-duo_check_same([], $warnings, 'C2: the page reference resolves, so nothing is dropped and nothing is warned about');
-duo_check(
+wprism_check_same([], $warnings, 'C2: the page reference resolves, so nothing is dropped and nothing is warned about');
+wprism_check(
     str_contains($capturedB, '"page":"{{post:' . $pageUuid . '}}"'),
     'C2: the STRING page id "4" becomes a STRING-typed token'
 );
-duo_check(
+wprism_check(
     !str_contains($capturedB, '"page":"4"'),
     'C2: and no environment-local page id survives into canonical state'
 );
-duo_check(
+wprism_check(
     str_contains($capturedB, '"page":"previous_page"'),
     'C2: the declared SENTINEL on the SAME key is passed through untouched'
 );
 
-duo_check_same(
+wprism_check_same(
     $formB,
     BodyRefGrammar::apply($capturedB, $rule, $tokenToId($tokensFor()), "wpforms 'recon-signup-form'"),
     'C3: apply on the SAME environment reproduces the post body byte for byte'
@@ -445,15 +445,15 @@ duo_check_same(
 // C4 — a substitution that CHANGES BYTE LENGTH, and keeps the declared type.
 $seedMap(3456);
 $onTarget = BodyRefGrammar::apply($capturedB, $rule, $tokenToId($tokensFor()), "wpforms 'recon-signup-form'");
-duo_check(
+wprism_check(
     str_contains($onTarget, '"page":"3456"'),
     'C4: a target-local id of a different length is written back as a STRING of that length'
 );
-duo_check(
+wprism_check(
     !str_contains($onTarget, '"page":3456'),
     'C4: and never as the bare integer the generic json_refs default would have written'
 );
-duo_check(
+wprism_check(
     str_contains($onTarget, '"page":"previous_page"'),
     'C4: the sentinel is still the sentinel on the target'
 );
@@ -461,7 +461,7 @@ duo_check(
 // C5 — the undeclared-literal refusal, which is what makes the sentinel a
 // DECLARATION rather than a guess.
 $undeclared = str_replace('"page":"previous_page"', '"page":"next_page"', $formB);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => BodyRefGrammar::capture(
         $undeclared,
         $rule,
@@ -473,7 +473,7 @@ duo_check_throws(
     'C5: an undeclared non-numeric literal at a declared reference path REFUSES rather than being guessed at',
     'which is neither a positive id nor a declared sentinel for this path'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => BodyRefGrammar::capture(
         $undeclared,
         $rule,
@@ -489,7 +489,7 @@ duo_check_throws(
 // C6 — the type precondition, in BOTH directions, because apply writes the
 // declared type either way.
 $asInt = str_replace('"page":"4"', '"page":4', $formB);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => BodyRefGrammar::capture(
         $asInt,
         $rule,
@@ -502,7 +502,7 @@ duo_check_throws(
     'declares cast=string, but this source stores it as int'
 );
 $intRule = ['json_refs' => [['path' => '$.settings.confirmations.*.page', 'kind' => 'post']], 'sentinels' => []];
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => BodyRefGrammar::capture(
         $formB,
         $intRule,
@@ -517,28 +517,28 @@ duo_check_throws(
 
 // C7 — the two round-trip hazards the precondition exists for, measured rather
 // than asserted from the docblock.
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => BodyRefGrammar::decode('{"0":"a","1":"b"}', 'fixture'),
     RuntimeException::class,
     'C7: an object whose keys are "0","1" decodes to a PHP list and re-encodes as a JSON ARRAY — refused',
     'does not survive a decode/re-encode round trip unchanged'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => BodyRefGrammar::decode('{"a":{}}', 'fixture'),
     RuntimeException::class,
     'C7: an empty JSON object re-encodes as [] — refused',
     'Refusing before substitution'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => BodyRefGrammar::decode('{"a":"http://x/y"}', 'fixture'),
     RuntimeException::class,
     'C7: an encoder that did not escape slashes the way wp_json_encode() does is refused, not accommodated',
     // Matched without the parentheses because the refusal is written without
-    // them: BodyRefGrammar is in `duo manifest-validate`'s boot() load set, and
+    // them: BodyRefGrammar is in `wprism manifest-validate`'s boot() load set, and
     // that command's WordPress-free guard scans non-comment lines for `wp_*(`.
     'an encoder that did not use `wp_json_encode`\'s defaults'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => BodyRefGrammar::decode('not json at all', 'fixture'),
     RuntimeException::class,
     'C7: a body the mode cannot decode names the mode rather than failing somewhere downstream',
@@ -546,7 +546,7 @@ duo_check_throws(
 );
 
 // C8 — the unset convention, decided before type and before sentinels.
-duo_check_same(
+wprism_check_same(
     '{"settings":{"confirmations":{"1":{"page":"0"},"2":{"page":""}}}}',
     BodyRefGrammar::capture(
         '{"settings":{"confirmations":{"1":{"page":"0"},"2":{"page":""}}}}',
@@ -560,7 +560,7 @@ duo_check_same(
 
 // C9 — a dangling reference is a null canonical value, never a raw id, and it
 // says so out loud.
-$wpdb->seedTable('wp_duo_map', []);
+$wpdb->seedTable('wp_wprism_map', []);
 $warnings = [];
 $dangling = BodyRefGrammar::capture(
     $formB,
@@ -569,13 +569,13 @@ $dangling = BodyRefGrammar::capture(
     static function (string $w) use (&$warnings): void { $warnings[] = $w; },
     "wpforms 'recon-signup-form'"
 );
-duo_check(str_contains($dangling, '"page":null'), 'C9: an unmapped id becomes null in canonical state, never a raw id');
-duo_check_same(1, count($warnings), 'C9: and exactly one warning is emitted for it');
-duo_check(
+wprism_check(str_contains($dangling, '"page":null'), 'C9: an unmapped id becomes null in canonical state, never a raw id');
+wprism_check_same(1, count($warnings), 'C9: and exactly one warning is emitted for it');
+wprism_check(
     str_contains($warnings[0] ?? '', "unmapped post id 4 dropped (dangling reference)"),
     'C9: naming the path, the keyspace and the id'
 );
-duo_check_same(
+wprism_check_same(
     $dangling,
     BodyRefGrammar::apply($dangling, $rule, $tokenToId($tokensFor()), 'fixture'),
     'C9: and apply leaves the null exactly where capture put it — there was never a valid id to restore'
@@ -584,7 +584,7 @@ duo_check_same(
 // C10 — canonical state that still holds a raw id at a declared path is
 // REFUSED by apply rather than cast, because casting it would bind the body to
 // whatever entity happens to hold that id on the target.
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => BodyRefGrammar::apply($formB, $rule, $tokenToId($tokensFor()), "wpforms 'x'"),
     RuntimeException::class,
     'C10: apply refuses a repository body whose declared path still carries a source-local id',
@@ -636,12 +636,12 @@ $formPost = static function (string $body, string $slug): object {
 
 $entity = $postCapture->capture($formPost($formB, 'recon-signup-form'), '019200cc-0000-7000-8000-0000000000b6', []);
 [, $productBody] = Canon::parse_post_file($entity['entity']['content']);
-duo_check_same(
+wprism_check_same(
     $capturedB,
     $productBody,
     'D1: the REAL PostCapture seam dispatches body=json to this codec — same bytes as the codec called directly'
 );
-duo_check(
+wprism_check(
     !str_contains($productBody, '"page":"4"') && str_contains($productBody, '{{post:' . $pageUuid . '}}'),
     'D1: no environment-local page id reaches canonical state through the product path'
 );
@@ -650,15 +650,15 @@ duo_check(
 // come through byte-identical. This is the "PRESERVE the variant, rewrite only
 // declared paths" rule, measured on the values the recon classified as
 // form-internal.
-duo_check(
+wprism_check(
     str_contains($productBody, '"field_id":4'),
     'D2: `$.field_id` — an allocator, not a reference — is preserved as the integer it was'
 );
-duo_check(
+wprism_check(
     str_contains($productBody, '"id":"1"') && str_contains($productBody, '"id":"3"'),
     'D2: `$.fields.<n>.id` — form-local field ids — are preserved as the strings they were'
 );
-duo_check(
+wprism_check(
     str_contains($productBody, '"replyto":"{field_id=\\"2\\"}"'),
     'D2: a field id inside smart-tag prose is untouched, escaping included'
 );
@@ -678,13 +678,13 @@ foreach ([
         $tokenToId($tokensFor()),
         'fixture'
     );
-    duo_check_same($raw, $round, "D3: $name round-trips byte for byte — `\$.id` is $shape and is preserved as found");
-    duo_check($assert(json_decode($round, true)), "D3: and the shape survives as itself ($shape)");
+    wprism_check_same($raw, $round, "D3: $name round-trips byte for byte — `\$.id` is $shape and is preserved as found");
+    wprism_check($assert(json_decode($round, true)), "D3: and the shape survives as itself ($shape)");
 }
 
 // D4 — capture is a fixed point.
 $seedMap(4);
-duo_check_same(
+wprism_check_same(
     $capturedB,
     BodyRefGrammar::capture(
         BodyRefGrammar::apply($capturedB, $rule, $tokenToId($tokensFor()), 'fixture'),
@@ -704,7 +704,7 @@ duo_check_same(
 // rewrites. It is also the case that catches a plain str_contains(): the URL is
 // on disk in wp_json_encode()'s ESCAPED form, so the verbatim arm's scan would
 // see nothing at all.
-duo_check(
+wprism_check(
     str_contains($formB, 'http:\/\/localhost:9620\/recon-thank-you\/')
         && !str_contains($formB, 'http://localhost:9620'),
     'D5: measured — the real capture carries the source site\'s absolute home URL, and ONLY in JSON-escaped form'
@@ -717,14 +717,14 @@ $homeCapture = new PostCapture(
     new MediaCapture()
 );
 $homeCapture->capture($formPost($formB, 'recon-home-url'), '019200cc-0000-7000-8000-0000000000b7', []);
-duo_check(
+wprism_check(
     str_contains(implode(' | ', $homeTokens->warnings), 'outside any declared reference path — it will NOT be re-bound on apply'),
     'D5: and capture says so — WPForms bakes get_home_url() into settings.confirmations.<n>.redirect and this mode does not rebind it'
 );
 
 // D6 — a secret in authored json configuration REFUSES, matching the
 // `serialized` arm rather than the prose-body `blocks` arm.
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => $postCapture->capture(
         $formPost('{"settings":{"key":"sk_live_1234567890ABCDEFGHIJ"}}', 'recon-secret'),
         '019200cc-0000-7000-8000-0000000000b8',
@@ -737,7 +737,7 @@ duo_check_throws(
 
 // D7 — the coordinates that stay OPEN. This fixture claims neither the
 // taxonomy nor a deletion selector.
-duo_check(
+wprism_check(
     !array_key_exists('taxonomies', $wpforms) && !array_key_exists('deletions', $wpforms),
     'D7: the fixture adapter claims no taxonomy and no deletion — WPForms\' other coordinates stay open'
 );
@@ -747,20 +747,20 @@ duo_check(
 // ===========================================================================
 
 $positions = BodyRefGrammar::reference_positions(json_decode($formB, true), $rule);
-duo_check_same(1, count($positions), 'E1: exactly one declared position in form-b is a rewrite candidate');
-duo_check_same('4', $positions[0]['value'], 'E1: and it is the page id "4" — not the sentinel, not the absent key');
-duo_check_same(
+wprism_check_same(1, count($positions), 'E1: exactly one declared position in form-b is a rewrite candidate');
+wprism_check_same('4', $positions[0]['value'], 'E1: and it is the page id "4" — not the sentinel, not the absent key');
+wprism_check_same(
     '.settings.confirmations.1.page',
     $positions[0]['locator'],
     'E1: reported at a locator that names the exact JSON position, which is what a lint finding prints'
 );
 
-duo_check_same(
+wprism_check_same(
     0,
     count(BodyRefGrammar::reference_positions(json_decode($capturedB, true), $rule)) - 1,
     'E2: the captured body still has the position — a token is a candidate the linter then judges as rewritten'
 );
-duo_check(
+wprism_check(
     str_starts_with(
         (string) BodyRefGrammar::reference_positions(json_decode($capturedB, true), $rule)[0]['value'],
         '{{post:'
@@ -773,10 +773,10 @@ duo_check(
 // real post id, and none is a reference.
 $formA = json_decode($capture('form-a'), true);
 $aPositions = BodyRefGrammar::reference_positions($formA, $rule);
-duo_check_same(
+wprism_check_same(
     0,
     count($aPositions),
     'E3: form-a has no confirmations.page at all, so the declared scan reports nothing — no field_id, no fields.<n>.id, no smart tags'
 );
 
-duo_check_summary('regress_body_ref_grammar');
+wprism_check_summary('regress_body_ref_grammar');

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
@@ -26,15 +26,15 @@ final class LifecycleSettlement {
         string $promotionOwner
     ): array {
         if (preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1) {
-            throw new \InvalidArgumentException('duo: lifecycle-settle requires a valid artifact hash');
+            throw new \InvalidArgumentException('wprism: lifecycle-settle requires a valid artifact hash');
         }
         if ($promotionOwner === '') {
-            throw new \InvalidArgumentException('duo: lifecycle-settle requires the host promotion owner');
+            throw new \InvalidArgumentException('wprism: lifecycle-settle requires the host promotion owner');
         }
         $policy = Policy::load($repo);
         $compiled = RepositoryCompiler::read_artifact($artifactPath, $policy);
         if (!hash_equals($artifactHash, $compiled->artifact_hash())) {
-            throw new \RuntimeException('duo: lifecycle-settle artifact does not match the host-compiled artifact hash');
+            throw new \RuntimeException('wprism: lifecycle-settle artifact does not match the host-compiled artifact hash');
         }
         PromotionLock::acquire($promotionOwner, $artifactHash, 'lifecycle-settle', null, true);
         try {
@@ -42,7 +42,7 @@ final class LifecycleSettlement {
             $actions = $policy->lifecycle_settle_actions();
             if ($actions === []) {
                 PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settled');
-                return ['format' => 'duo-lifecycle-settlement/v1', 'actions' => 0, 'receipts' => []];
+                return ['format' => 'wprism-lifecycle-settlement/v1', 'actions' => 0, 'receipts' => []];
             }
 
             $negotiated = Providers::negotiate($policy, $actions);
@@ -53,7 +53,7 @@ final class LifecycleSettlement {
                         . ':' . (string) ($problem['provider'] ?? '?');
                 }
                 throw new \RuntimeException(
-                    'duo: lifecycle settlement provider negotiation failed: ' . implode(', ', $codes)
+                    'wprism: lifecycle settlement provider negotiation failed: ' . implode(', ', $codes)
                 );
             }
 
@@ -65,7 +65,7 @@ final class LifecycleSettlement {
                 $declaration = $negotiated['capabilities'][$providerId][$capability] ?? null;
                 if (!is_object($provider) || !is_array($declaration)) {
                     throw new \RuntimeException(
-                        "duo: lifecycle settlement lost negotiated provider '$providerId' capability '$capability'"
+                        "wprism: lifecycle settlement lost negotiated provider '$providerId' capability '$capability'"
                     );
                 }
                 PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settle-provider');
@@ -79,7 +79,7 @@ final class LifecycleSettlement {
             PromotionLock::heartbeat($promotionOwner, $artifactHash, 'lifecycle-settled');
 
             return [
-                'format' => 'duo-lifecycle-settlement/v1',
+                'format' => 'wprism-lifecycle-settlement/v1',
                 'actions' => count($actions),
                 'receipts' => $receipts,
             ];

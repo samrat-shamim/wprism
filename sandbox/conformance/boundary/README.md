@@ -1,11 +1,11 @@
-# Package boundary fixtures — recorded inputs for `duo adapter boundary`
+# Package boundary fixtures — recorded inputs for `wprism adapter boundary`
 
 The committed files live at
 `adapter-packages/<slug>/fixtures/boundary/`; this central README defines their
 contract without recreating a cross-adapter ledger. Three kinds of file, one
 rule each.
 
-**`releases.json`** — a `duo-adapter-release-list/v1` document: every
+**`releases.json`** — a `wprism-adapter-release-list/v1` document: every
 candidate release with its exact download URL and sha256. This is the bisector's
 pin source, and the reason nothing on the search path ever reaches the network.
 `fetch_artifact()` resolves against the convention-discovered package/platform
@@ -25,19 +25,19 @@ document says where it came from. Committed lists are the durable half of a
 live run: the pair is only the recorder (`docs/agents/live-pair-budget.md`
 §Recording over repetition).
 
-**`site.duo.json`** — the site policy a probe runs under. `--site-policy`
+**`site.wprism.json`** — the site policy a probe runs under. `--site-policy`
 is required rather than derived because "green" is a claim about a policy: the
 same plugin under a wider `post_types` set is a different round-trip. These are
 byte-equal to the subject policy `../../tests/certify/certify_version_matrix.sh`
 writes for that capsule, so a bisection and a certification claim the same
 thing.
 
-**`outcomes.json`** — a `duo-adapter-boundary-outcomes/v1` record, written
+**`outcomes.json`** — a `wprism-adapter-boundary-outcomes/v1` record, written
 by `../../bin/adapter-boundary.sh` as probes complete. It accumulates; re-running
 the loop replays what is already recorded and only probes what is missing.
 
 **No file here may carry `last_verified`, `stale`, `releases_behind` or
-`freshness`.** Those are DERIVED by `duo adapter proposals`, which discovers
+`freshness`.** Those are DERIVED by `wprism adapter proposals`, which discovers
 each capsule's boundary directory and projects its newest green probe; a
 recorded input allowed to state its own freshness would let the adapter nobody
 has probed declare itself current. The command refuses such a document by name.
@@ -49,7 +49,7 @@ human edit (`agent/src/Policy/ManifestDispositions.php:632-637`).
 
 ## The second reader (WP-2.8)
 
-An outcomes record is no longer only a reviewer's sentence. `site.duo.json` may
+An outcomes record is no longer only a reviewer's sentence. `site.wprism.json` may
 carry the same rows under `adapter_version_evidence`, keyed by plugin basename,
 and `LifecyclePlanner::code_mismatch()` reads them to mint the graduated
 `version_range_graduated` verdict for an installed release that probed `green`

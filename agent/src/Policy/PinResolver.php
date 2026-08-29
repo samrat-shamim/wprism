@@ -1,18 +1,18 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 
 /**
  * Manifest-pin normalization and validation, extracted from Policy
- * (DUO-3348 slice 5: the "PinResolver" half of the issue's "ManifestLoader /
+ * (issue #3348 slice 5: the "PinResolver" half of the issue's "ManifestLoader /
  * PinResolver" target seam — `Policy::load()`/`from_snapshot()` themselves,
  * the actual manifest-loading orchestration, stay on Policy; only the
  * pin-specific normalize/validate cluster they call moves here).
  *
  * All three methods were already private STATIC on Policy with every
  * dependency passed as an explicit parameter — never `$this` — so this is a
- * pure relocation, same idiom as ManifestGrammar (DUO-3348 slice 1): no
+ * pure relocation, same idiom as ManifestGrammar (issue #3348 slice 1): no
  * external caller existed (grep-verified across the repo before moving), so
  * Policy needed no compatibility facade, unlike ManifestGrammar's
  * assert_widget_grammar() facade kept for SidebarState.php. Two mechanical
@@ -26,29 +26,29 @@ require_once __DIR__ . '/../Adapter/AdapterSources.php';
  * Deliberately does not require_once RepositoryCompiler.php, even though
  * validate_manifest_pins() calls `RepositoryCompiler::resolved_adapters()`:
  * Policy.php did not require it either before this move (grep-verified), so
- * this preserves an existing, pre-DUO-3348 gap rather than introducing a new
+ * this preserves an existing, pre-issue #3348 gap rather than introducing a new
  * one — adding the require here would make Policy.php transitively supply
  * RepositoryCompiler.php for the first time, and several existing offline
  * suites plain-`require` RepositoryCompiler.php AFTER their own Policy.php
  * require, which would turn into "Cannot redeclare class" fatals (the exact
- * shape DUO-3348 slice 4 fixed once already, DUO-3440/DUO-3441/DUO-3442's
+ * shape issue #3348 slice 4 fixed once already, issue #3440/issue #3441/issue #3442's
  * class of bug run in reverse). Fixing the pre-existing gap itself is out of
- * this slice's scope; DUO-3443's planned generic self-require scan is where
+ * this slice's scope; issue #3443's planned generic self-require scan is where
  * it belongs. Deliberately does not require_once Policy.php either, for the
- * same reason AdapterRegistry.php doesn't (DUO-3348 slice 4): every Policy
+ * same reason AdapterRegistry.php doesn't (issue #3348 slice 4): every Policy
  * reference here is the validate_manifest_pins() type hint, never a
  * `Policy::` static call.
  */
 final class PinResolver {
     /**
-     * `site.duo.json` originally accepted a flat list of manifest names. A
+     * `site.wprism.json` originally accepted a flat list of manifest names. A
      * content pin is additive, never a flag day: each entry may instead be
      * {name,digest}, while strings keep their exact historical meaning. Keep
      * the declared digest separate from the loaded manifest so it cannot
      * accidentally participate in policy precedence or the manifest's own
      * content hash.
      *
-     * DUO-3314 adds an equally optional `source`. Declaring it asserts WHICH
+     * issue #3314 adds an equally optional `source`. Declaring it asserts WHICH
      * adapter source must answer this pin, and validate_manifest_sources()
      * refuses a mismatch: without it, removing a site-installed adapter and
      * later installing a shipped one under the same name would silently swap
@@ -60,38 +60,38 @@ final class PinResolver {
      */
     public static function normalize_manifest_pins($rawPins): array {
         if (!is_array($rawPins) || !array_is_list($rawPins)) {
-            throw new \RuntimeException('duo: site.duo.json manifests must be a JSON array');
+            throw new \RuntimeException('wprism: site.wprism.json manifests must be a JSON array');
         }
         $pins = [];
         foreach ($rawPins as $i => $raw) {
             if (is_string($raw) && $raw !== '') {
-                AdapterSources::assert_name($raw, "site.duo.json manifests[$i]");
+                AdapterSources::assert_name($raw, "site.wprism.json manifests[$i]");
                 $pins[] = ['name' => $raw, 'digest' => null, 'source' => null];
                 continue;
             }
             if (!is_array($raw) || !is_string($raw['name'] ?? null) || $raw['name'] === '') {
                 throw new \RuntimeException(
-                    "duo: site.duo.json manifests[$i] must be a non-empty name string or an object with "
+                    "wprism: site.wprism.json manifests[$i] must be a non-empty name string or an object with "
                     . 'a non-empty string name and optional digest and source'
                 );
             }
-            AdapterSources::assert_name($raw['name'], "site.duo.json manifests[$i].name");
+            AdapterSources::assert_name($raw['name'], "site.wprism.json manifests[$i].name");
             $unknown = array_diff(array_keys($raw), ['name', 'digest', 'source']);
             if ($unknown !== []) {
                 throw new \RuntimeException(
-                    "duo: site.duo.json manifest '{$raw['name']}' declares unknown pin key(s) "
+                    "wprism: site.wprism.json manifest '{$raw['name']}' declares unknown pin key(s) "
                     . implode(',', $unknown) . ' — a pin accepts exactly name, digest, and source'
                 );
             }
             $digest = $raw['digest'] ?? null;
             if ($digest !== null && (!is_string($digest) || !preg_match('/^[a-f0-9]{64}$/', $digest))) {
                 throw new \RuntimeException(
-                    "duo: site.duo.json manifest '{$raw['name']}' has an invalid digest; expected 64 lowercase "
+                    "wprism: site.wprism.json manifest '{$raw['name']}' has an invalid digest; expected 64 lowercase "
                     . 'hexadecimal characters'
                 );
             }
             $source = $raw['source'] ?? null;
-            // DUO-3339 adds the third source word. It is accepted in a pin for
+            // issue #3339 adds the third source word. It is accepted in a pin for
             // the same reason the other two are: validate_manifest_sources()
             // below refuses a pin whose named source stops answering, which is
             // the only thing that makes writing one down worth anything. A
@@ -105,7 +105,7 @@ final class PinResolver {
                 true
             )) {
                 throw new \RuntimeException(
-                    "duo: site.duo.json manifest '{$raw['name']}' declares source " . var_export($source, true)
+                    "wprism: site.wprism.json manifest '{$raw['name']}' declares source " . var_export($source, true)
                     . ' — the installed adapter sources are "' . AdapterSources::SHIPPED . '", "'
                     . AdapterSources::SITE . '", and "' . AdapterSources::PLUGIN . '"'
                 );
@@ -131,7 +131,7 @@ final class PinResolver {
             // A name nothing installed has no source to disagree with, and
             // source() answers `shipped` by default. Reporting that as "you
             // pinned plugin but it resolves from the shipped source" describes
-            // a shipped adapter that does not exist, and — since DUO-3339 —
+            // a shipped adapter that does not exist, and — since issue #3339 —
             // hides the honest answer: file() below throws the plugin
             // source's own recorded refusal for exactly this name, with its
             // remediation, or a not-found naming every source searched.
@@ -141,16 +141,16 @@ final class PinResolver {
             $actual = $sources->source($pin['name']);
             if ($actual !== $pin['source']) {
                 throw new \RuntimeException(
-                    "duo: manifest '{$pin['name']}' is pinned to the {$pin['source']} adapter source but resolves "
+                    "wprism: manifest '{$pin['name']}' is pinned to the {$pin['source']} adapter source but resolves "
                     . "from the $actual source — review which adapter this site intends to run, then update the "
-                    . 'site.duo.json pin'
+                    . 'site.wprism.json pin'
                 );
             }
         }
     }
 
     /**
-     * Compare against DUO-3222's resolved_adapters() result instead of
+     * Compare against issue #3222's resolved_adapters() result instead of
      * inventing a second digest implementation. Validation happens only
      * after every manifest and cross-manifest contract has passed, so a pin
      * can never turn malformed adapter content into a trusted artifact.
@@ -177,7 +177,7 @@ final class PinResolver {
             // companion is superseded (AdapterSources routes it to uncertified)
             // and this pin is moot — the adapter already resolves as
             // uncertified support. Failing the whole load here would strand
-            // `duo assess` on an unclassified gate and block `duo adapter
+            // `wprism assess` on an unclassified gate and block `wprism adapter
             // certify --pin` from re-establishing it. A site pin on a STILL-
             // certified adapter (valid companion, operator-mistyped digest)
             // and every non-site pin still refuse: a shipped/plugin manifest
@@ -187,7 +187,7 @@ final class PinResolver {
             //
             // The source-less `{name, digest}` pin is the SAME operator in the
             // SAME state and reaches the concession on the same terms. Neither
-            // `duo adapter certify --pin` nor `wp duo manifest-pin` emits that
+            // `wprism adapter certify --pin` nor `wp wprism manifest-pin` emits that
             // shape — both always write a source (AdapterCertify.php:677-680,
             // Cli.php:2921-2923) — so it is the hand-written short form of the
             // pin, and a shorter statement of intent is not a weaker one. What
@@ -209,8 +209,8 @@ final class PinResolver {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: manifest '{$pin['name']}' digest mismatch: expected {$pin['digest']}, actual $actual — "
-                . 'review the manifest change, then update its site.duo.json pin'
+                "wprism: manifest '{$pin['name']}' digest mismatch: expected {$pin['digest']}, actual $actual — "
+                . 'review the manifest change, then update its site.wprism.json pin'
             );
         }
     }

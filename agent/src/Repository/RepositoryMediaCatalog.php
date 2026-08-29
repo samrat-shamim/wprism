@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Repository media validation reads immutable canonical files and does not
 // need the compiler's repository tree, Policy, or any target-facing API.

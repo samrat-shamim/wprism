@@ -18,12 +18,12 @@ active.
 
 The accepted run proves all of the following:
 
-1. `wp duo capture --out=...` can seed canonical repository state without
-   minting a target `duo_state` base.
+1. `wp wprism capture --out=...` can seed canonical repository state without
+   minting a target `wprism_state` base.
 2. Code stage materializes the frozen plugin/theme payload, but failed
    activation runs neither finalize nor apply and advances neither inner
    revision receipt.
-3. The authored hook write is genuinely committed despite the exception. Duo
+3. The authored hook write is genuinely committed despite the exception. WPrism
    publishes a `promotion_session.lifecycle_attempt` boundary before entering
    that hook, so the absence of a three-way base cannot turn the mutation into
    implicit adoption. WordPress has not persisted plugin membership, and public

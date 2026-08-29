@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\Recovery\RollbackControl;
+use WPrism\Recovery\RollbackControl;
 
 /**
  * Plan-to-claim and signed-state orchestration for production promotion on
@@ -68,12 +68,12 @@ final class VerifiedRollbackProfile {
         }
         if (($status['ok'] ?? false) !== true) {
             throw new \RuntimeException(
-                'duo rollback: authority status is invalid: '
+                'wprism rollback: authority status is invalid: '
                 . trim((string) ($status['error'] ?? 'verification failed'))
             );
         }
         if (($status['recovery_ready'] ?? false) !== true) {
-            throw new \RuntimeException('duo rollback: configured recovery providers did not pass preflight');
+            throw new \RuntimeException('wprism rollback: configured recovery providers did not pass preflight');
         }
         return ['automatic' => true, 'reason' => 'all verified rollback capabilities are ready', 'status' => $status];
     }
@@ -99,28 +99,28 @@ final class VerifiedRollbackProfile {
     ): array {
         $artifact = (string) ($plan['artifact_hash'] ?? '');
         if (preg_match('/^[a-f0-9]{64}$/', $artifact) !== 1) {
-            throw new \RuntimeException('duo rollback: automatic profile needs the compiled artifact hash');
+            throw new \RuntimeException('wprism rollback: automatic profile needs the compiled artifact hash');
         }
         $uploads = $plan['uploads_inventory'] ?? null;
         $effects = $plan['effects_inventory'] ?? null;
         if (!is_array($uploads) || !array_is_list($uploads)
             || !is_array($effects) || !array_is_list($effects)) {
-            throw new \RuntimeException('duo rollback: automatic profile needs compiled plan inventories');
+            throw new \RuntimeException('wprism rollback: automatic profile needs compiled plan inventories');
         }
         $code = $plan['code'] ?? null;
         if (!is_array($code)) {
-            throw new \RuntimeException('duo rollback: automatic profile needs a compiled code descriptor');
+            throw new \RuntimeException('wprism rollback: automatic profile needs a compiled code descriptor');
         }
         $revision = (string) ($codeReleaseIdentity['desired_code_revision'] ?? $code['code_revision'] ?? '');
         $descriptorHash = $codeReleaseIdentity['desired_descriptor_sha256'] ?? null;
         foreach (['desired code revision' => $revision] as $label => $hash) {
             if (preg_match('/^[a-f0-9]{64}$/', $hash) !== 1) {
-                throw new \RuntimeException("duo rollback: automatic profile $label is not a sha256 digest");
+                throw new \RuntimeException("wprism rollback: automatic profile $label is not a sha256 digest");
             }
         }
         if ($descriptorHash !== null
             && (!is_string($descriptorHash) || preg_match('/^[a-f0-9]{64}$/', $descriptorHash) !== 1)) {
-            throw new \RuntimeException('duo rollback: automatic profile desired descriptor is not a sha256 digest');
+            throw new \RuntimeException('wprism rollback: automatic profile desired descriptor is not a sha256 digest');
         }
         $created = self::timeValue($createdAt);
         $retention = $policy['retention_seconds'] ?? null;
@@ -129,7 +129,7 @@ final class VerifiedRollbackProfile {
         if (!is_int($retention) || $retention < 60
             || !is_int($ttl) || $ttl < 30 || $ttl > 3600
             || !is_string($key) || $key === '') {
-            throw new \RuntimeException('duo rollback: automatic profile policy is incomplete');
+            throw new \RuntimeException('wprism rollback: automatic profile policy is incomplete');
         }
         $resources = [
             'code' => $code,
@@ -163,7 +163,7 @@ final class VerifiedRollbackProfile {
     public function claim(array $plan, string $owner, string $claimant, ?string $timestamp = null): array {
         $policy = $this->transport->verifiedRollbackConfig();
         if ($policy === null) {
-            throw new \RuntimeException('duo rollback: verified_rollback policy is not configured');
+            throw new \RuntimeException('wprism rollback: verified_rollback policy is not configured');
         }
         if ($timestamp === null) {
             $status = RollbackAuthority::status($this->transport);
@@ -194,12 +194,12 @@ final class VerifiedRollbackProfile {
     public function selectCode(): array {
         $status = $this->status();
         $code = $status['code_release'] ?? null;
-        if (!is_array($code)) throw new \RuntimeException('duo rollback: prepared receipt has no code release evidence');
+        if (!is_array($code)) throw new \RuntimeException('wprism rollback: prepared receipt has no code release evidence');
         return $this->authority->runOperation('promoting', 'code_select', 1, [
             'artifact_hash' => (string) $status['artifact_hash'],
             'code_release_metadata_sha256' => (string) ($code['metadata_sha256'] ?? ''),
             'expected_from_pointer_sha256' => (string) ($code['prior_pointer_sha256'] ?? ''),
-            'format' => 'duo-code-release-operation/v1',
+            'format' => 'wprism-code-release-operation/v1',
             'generation' => (int) $status['generation'],
             'operation' => 'select_desired',
             'owner' => (string) $status['owner'],
@@ -212,7 +212,7 @@ final class VerifiedRollbackProfile {
     public function applyUploads(): array {
         $status = $this->status();
         $uploads = $status['uploads'] ?? null;
-        if (!is_array($uploads)) throw new \RuntimeException('duo rollback: prepared receipt has no upload evidence');
+        if (!is_array($uploads)) throw new \RuntimeException('wprism rollback: prepared receipt has no upload evidence');
         return $this->authority->runOperation(
             'promoting',
             'storage_apply',
@@ -241,11 +241,11 @@ final class VerifiedRollbackProfile {
         if ($effectsTouched) {
             $status = $this->status();
             $effect = $status['effects'] ?? null;
-            if (!is_array($effect)) throw new \RuntimeException('duo rollback: receipt has no effect evidence');
+            if (!is_array($effect)) throw new \RuntimeException('wprism rollback: receipt has no effect evidence');
             $this->authority->runOperation('rolling_back', 'effects_inverse', 1, [
                 'artifact_hash' => (string) $status['artifact_hash'],
                 'effects_inventory_sha256' => (string) ($effect['effects_inventory_sha256'] ?? ''),
-                'format' => 'duo-effect-operation/v1',
+                'format' => 'wprism-effect-operation/v1',
                 'generation' => (int) $status['generation'],
                 'lifecycle_receipts_sha256' => (string) ($effect['metadata_sha256'] ?? ''),
                 'operation' => 'restore_prior',
@@ -267,12 +267,12 @@ final class VerifiedRollbackProfile {
         if ($codeSelected) {
             $status = $this->status();
             $code = $status['code_release'] ?? null;
-            if (!is_array($code)) throw new \RuntimeException('duo rollback: receipt has no code release evidence');
+            if (!is_array($code)) throw new \RuntimeException('wprism rollback: receipt has no code release evidence');
             $this->authority->runOperation('rolling_back', 'code_restore', 1, [
                 'artifact_hash' => (string) $status['artifact_hash'],
                 'code_release_metadata_sha256' => (string) ($code['metadata_sha256'] ?? ''),
                 'expected_from_pointer_sha256' => (string) ($code['desired_pointer_sha256'] ?? ''),
-                'format' => 'duo-code-release-operation/v1',
+                'format' => 'wprism-code-release-operation/v1',
                 'generation' => (int) $status['generation'],
                 'operation' => 'restore_prior',
                 'owner' => (string) $status['owner'],
@@ -301,7 +301,7 @@ final class VerifiedRollbackProfile {
         $status = RollbackAuthority::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true) {
-            throw new \RuntimeException('duo rollback: active verified receipt is unavailable or invalid');
+            throw new \RuntimeException('wprism rollback: active verified receipt is unavailable or invalid');
         }
         return $status;
     }
@@ -323,11 +323,11 @@ final class VerifiedRollbackProfile {
     /** @param array<string,mixed> $status @return array<string,mixed> */
     private static function uploadInput(array $status, string $operation): array {
         $uploads = $status['uploads'] ?? null;
-        if (!is_array($uploads)) throw new \RuntimeException('duo rollback: receipt has no upload evidence');
+        if (!is_array($uploads)) throw new \RuntimeException('wprism rollback: receipt has no upload evidence');
         return [
             'artifact_hash' => (string) $status['artifact_hash'],
             'desired_inventory_sha256' => (string) ($uploads['desired_inventory_sha256'] ?? ''),
-            'format' => 'duo-upload-operation/v1',
+            'format' => 'wprism-upload-operation/v1',
             'generation' => (int) $status['generation'],
             'operation' => $operation,
             'owner' => (string) $status['owner'],
@@ -349,7 +349,7 @@ final class VerifiedRollbackProfile {
             new \DateTimeZone('UTC')
         );
         if (!$time || $time->format('Y-m-d\TH:i:s\Z') !== $value) {
-            throw new \RuntimeException('duo rollback: timestamp must be canonical UTC seconds');
+            throw new \RuntimeException('wprism rollback: timestamp must be canonical UTC seconds');
         }
         return $time->getTimestamp();
     }

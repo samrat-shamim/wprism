@@ -30,7 +30,7 @@ git fetch -q origin main
 
 # Header-scoped on purpose: `cat-file -p` prints the whole commit object
 # including the MESSAGE, and a squash message legitimately wraps lines that
-# begin with "parent " (DUO-3318's parent-scoped-keys close was failed live
+# begin with "parent " (issue #3318's parent-scoped-keys close was failed live
 # by exactly that — the API and rev-list both showed one parent while the
 # unscoped count exceeded it: 2 under POSIX grep on that object, and 3 as
 # printed by the live run on a host whose PATH grep is a flavor with laxer

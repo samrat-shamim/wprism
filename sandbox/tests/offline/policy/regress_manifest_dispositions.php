@@ -1,8 +1,8 @@
 <?php
-/** Offline contract for DUO-3224's external manifest ratification registry. */
+/** Offline contract for issue #3224's external manifest ratification registry. */
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 function is_multisite(): bool { return false; }
 
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -18,14 +18,14 @@ require __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 require __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require __DIR__ . '/../../../../cli/src/Transport/CodeDeploy.php';
 
-use Duo\AdapterRegistry;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\ManifestDispositions;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
-use Duo\Orchestrator\CodeDeploy;
-use Duo\Orchestrator\PlanSummary;
+use WPrism\AdapterRegistry;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\ManifestDispositions;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
+use WPrism\Orchestrator\CodeDeploy;
+use WPrism\Orchestrator\PlanSummary;
 
 final class WP_CLI {
     public static array $lines = [];
@@ -133,7 +133,7 @@ $sourceLibrary = AdapterLibrary::fromSourceTree($repo);
 $registry = ManifestDispositions::load_library($sourceLibrary);
 $data = $registry->data();
 $manifestFiles = array_map(
-    static fn(\Duo\AdapterPackage $package): string => $package->manifestPath(),
+    static fn(\WPrism\AdapterPackage $package): string => $package->manifestPath(),
     $sourceLibrary->packages()
 );
 $manifests = array_map(fn(string $path): array => Canon::decode(Canon::read_file($path)), $manifestFiles);
@@ -457,7 +457,7 @@ check(
     RepositoryCompiler::resolved_adapters($snapshotPolicy)[0]['disposition']['status'] === 'certified',
     'frozen policy snapshots retain the external disposition'
 );
-$fixture = sys_get_temp_dir() . '/duo_dispositions_' . bin2hex(random_bytes(5));
+$fixture = sys_get_temp_dir() . '/wprism_dispositions_' . bin2hex(random_bytes(5));
 mkdir($fixture, 0777, true);
 mkdir($fixture . '/capabilities', 0777, true);
 register_shutdown_function(fn() => remove_fixture_tree($fixture));
@@ -520,8 +520,8 @@ $roundTripped = Policy::from_snapshot(
     $fixtureLibrary
 );
 check(
-    \Duo\ArtifactPolicyIdentity::manifest_hash($roundTripped)
-        === \Duo\ArtifactPolicyIdentity::manifest_hash(
+    \WPrism\ArtifactPolicyIdentity::manifest_hash($roundTripped)
+        === \WPrism\ArtifactPolicyIdentity::manifest_hash(
             Policy::load(null, ['core'], adapterLibrary: $fixtureLibrary)
         ),
     'manifest_hash survives the v6 snapshot round trip byte for byte — dropping the frozen generated registry moved '
@@ -539,7 +539,7 @@ Canon::write_file(
     $fixture . '/uncovered-adapter.json',
     Canon::encode([
         'name' => 'uncovered-adapter',
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'option_autoload' => 'preserve',
         'options' => ['uncovered_adapter_layout' => ['class' => 'authored']],
     ])
@@ -554,7 +554,7 @@ check(
 );
 check(
     message_of(fn() => AdapterLibrary::fromLegacyFlatDirectory($fixture))
-        === 'duo: adapter disposition coverage disagrees with manifests; missing=[uncovered-adapter], orphaned=[]',
+        === 'wprism: adapter disposition coverage disagrees with manifests; missing=[uncovered-adapter], orphaned=[]',
     'a fresh library view refuses the unreviewed package before Policy or reporting can consume it'
 );
 unlink($fixture . '/uncovered-adapter.json');
@@ -616,38 +616,38 @@ $coreEntryVariant = function (callable $edit) use ($fixture, $fixtureLibrary, $c
 foreach ([
     'a reviewed entry that is not an object at all' => [
         fn(array $entry): array => ['not', 'an', 'object'],
-        "duo: manifest disposition 'core' must be an object",
+        "wprism: manifest disposition 'core' must be an object",
     ],
     'a blank reason — the human wrote down nothing' => [
         function (array $entry): array { $entry['reason'] = '   '; return $entry; },
-        "duo: manifest disposition 'core' has a malformed required field",
+        "wprism: manifest disposition 'core' has a malformed required field",
     ],
     'an empty unsupported list — a claim with no stated boundary' => [
         function (array $entry): array { $entry['unsupported'] = []; return $entry; },
-        "duo: manifest disposition 'core' has a malformed required field",
+        "wprism: manifest disposition 'core' has a malformed required field",
     ],
     'a capability block missing one of its five keys' => [
         function (array $entry): array { unset($entry['capabilities']['lifecycle_phases']); return $entry; },
-        "duo: manifest disposition 'core' capabilities are malformed",
+        "wprism: manifest disposition 'core' capabilities are malformed",
     ],
     'deletion semantics that name only what is supported' => [
         function (array $entry): array { unset($entry['capabilities']['deletion_semantics']['unsupported']); return $entry; },
-        "duo: manifest disposition 'core' deletion semantics are malformed",
+        "wprism: manifest disposition 'core' deletion semantics are malformed",
     ],
     'a reviewed section the manifest does not have' => [
         function (array $entry): array {
             $entry['capabilities']['entity_sections'][] = 'invented_section';
             return $entry;
         },
-        "duo: manifest disposition 'core' names absent manifest section 'invented_section'",
+        "wprism: manifest disposition 'core' names absent manifest section 'invented_section'",
     ],
     'an unsupported row with no prose reason' => [
         function (array $entry): array { $entry['unsupported'][0]['reason'] = ''; return $entry; },
-        "duo: manifest disposition 'core' unsupported[0] is malformed",
+        "wprism: manifest disposition 'core' unsupported[0] is malformed",
     ],
     'a certified claim whose evidence citation is gone' => [
         function (array $entry): array { unset($entry['evidence']); return $entry; },
-        "duo: certified manifest disposition 'core' lacks current bundle evidence",
+        "wprism: certified manifest disposition 'core' lacks current bundle evidence",
     ],
 ] as $label => [$edit, $expected]) {
     check($coreEntryVariant($edit) === $expected, "$label is refused on the pinned path ($expected)");
@@ -684,14 +684,14 @@ check(
     $tableProbe(
         ['name' => 'table-probe', 'tables' => ['probe' => ['class' => 'authored_typed_snapshot_post_v1']]],
         $probeEntry
-    ) === "duo: manifest disposition 'table-probe' must mark intent-only table 'probe' unsupported",
+    ) === "wprism: manifest disposition 'table-probe' must mark intent-only table 'probe' unsupported",
     'an intent-only typed table with no reviewed limitation is still refused'
 );
 check(
     $tableProbe(
         ['name' => 'table-probe', 'tables' => ['probe' => ['class' => 'authored_snapshot', 'default_class' => 'authored']]],
         $probeEntry
-    ) === "duo: manifest disposition 'table-probe' omits default authored keyspace 'probe'",
+    ) === "wprism: manifest disposition 'table-probe' omits default authored keyspace 'probe'",
     'a default-authored keyspace with no reviewed justification is still refused'
 );
 write_registry($fixture, $coreRegistry);
@@ -701,9 +701,9 @@ echo "\n== a reviewed entry is validated where it is PROJECTED, not only where i
 // PINNED subset, and every reader that resolves an entry by NAME was left
 // projecting reviewed bytes nothing had checked: AdapterRegistry::
 // shipped_claim() (the funnel under capability_claim() and report(), so `wp
-// duo capabilities --all` and `duo adapter inspect`) and ManifestDispositions
+// wprism capabilities --all` and `wprism adapter inspect`) and ManifestDispositions
 // ::blockers()/report(). Measured on this exact fixture before the fix, a
-// woocommerce entry tampered after review answered `wp duo capabilities --all`
+// woocommerce entry tampered after review answered `wp wprism capabilities --all`
 // with `certified`/`verified` — evidence deleted printed `evidence: []`, an
 // invented entity_section printed the invention among its surfaces, and a
 // fabricated version range printed a range woocommerce.json does not declare.
@@ -712,7 +712,7 @@ echo "\n== a reviewed entry is validated where it is PROJECTED, not only where i
 // manifest that names a `plugin`: core.json declares none, so the version
 // cross-check cannot fire on it at all and a group built on core would assert
 // three rules while claiming four.
-$tamperFixture = sys_get_temp_dir() . '/duo_dispositions_tamper_' . bin2hex(random_bytes(5));
+$tamperFixture = sys_get_temp_dir() . '/wprism_dispositions_tamper_' . bin2hex(random_bytes(5));
 mkdir($tamperFixture . '/capabilities', 0777, true);
 register_shutdown_function(fn() => remove_fixture_tree($tamperFixture));
 copy($sourceLibrary->package('woocommerce')->manifestPath(), $tamperFixture . '/woocommerce.json');
@@ -732,7 +732,7 @@ $writeTamper(fn(array $entry): array => $entry);
 $tamperLibrary = fixture_library($tamperFixture, $sourceLibrary);
 /**
  * The library view through the PRODUCT path, exactly the idiom the group above
- * uses. A refusal here is the envelope `wp duo capabilities --all` prints and
+ * uses. A refusal here is the envelope `wp wprism capabilities --all` prints and
  * halts on; anything else is a report, and a report is the defect.
  */
 $tamperedAll = function (callable $edit) use ($writeTamper, $tamperLibrary): array {
@@ -740,7 +740,7 @@ $tamperedAll = function (callable $edit) use ($writeTamper, $tamperLibrary): arr
     WP_CLI::$lines = [];
     $threw = false;
     try {
-        (new Duo\Cli())->capabilities([], [
+        (new WPrism\Cli())->capabilities([], [
             'adapter_library' => $tamperLibrary,
             'all' => true,
             'format' => 'json',
@@ -782,25 +782,25 @@ check(
 foreach ([
     'evidence deleted — a certified claim citing nothing' => [
         function (array $entry): array { unset($entry['evidence']); return $entry; },
-        "duo: certified manifest disposition 'woocommerce' lacks current bundle evidence",
+        "wprism: certified manifest disposition 'woocommerce' lacks current bundle evidence",
     ],
     'an invented entity_section — a surface no manifest carries' => [
         function (array $entry): array {
             $entry['capabilities']['entity_sections'][] = 'invented_section';
             return $entry;
         },
-        "duo: manifest disposition 'woocommerce' names absent manifest section 'invented_section'",
+        "wprism: manifest disposition 'woocommerce' names absent manifest section 'invented_section'",
     ],
     'a fabricated version range — a claim over versions nobody reviewed' => [
         function (array $entry): array {
             $entry['supported_versions']['range'] = ['max' => '99.0.0', 'min' => '1.0.0'];
             return $entry;
         },
-        "duo: certified manifest disposition 'woocommerce' versions disagree with its manifest contract",
+        "wprism: certified manifest disposition 'woocommerce' versions disagree with its manifest contract",
     ],
     'capabilities deleted outright' => [
         function (array $entry): array { unset($entry['capabilities']); return $entry; },
-        "duo: manifest disposition 'woocommerce' has a malformed required field",
+        "wprism: manifest disposition 'woocommerce' has a malformed required field",
     ],
 ] as $label => [$edit, $expected]) {
     check($tamperedAll($edit)['refused'] === true, "$label REFUSES the library view instead of projecting a claim");
@@ -818,12 +818,12 @@ foreach ([
 $writeTamper(function (array $entry): array { unset($entry['capabilities']); return $entry; });
 check(
     message_of(fn() => ManifestDispositions::load_library($tamperLibrary)->report([$wooManifest]))
-        === "duo: manifest disposition 'woocommerce' has a malformed required field",
+        === "wprism: manifest disposition 'woocommerce' has a malformed required field",
     'report() refuses that entry in the validator\'s words rather than dying inside resolve_sections()'
 );
 check(
     message_of(fn() => ManifestDispositions::load_library($tamperLibrary)->blockers([$wooManifest]))
-        === "duo: manifest disposition 'woocommerce' has a malformed required field",
+        === "wprism: manifest disposition 'woocommerce' has a malformed required field",
     'and blockers() refuses it too, so `ready` can never be computed from an entry nothing validated'
 );
 // WP-1.2 review F5. A reviewed entry authored as JSON `null` is PRESENT and
@@ -835,12 +835,12 @@ check(
 $writeTamper(fn(array $entry): ?array => null);
 check(
     message_of(fn() => Policy::load(null, ['woocommerce'], adapterLibrary: $tamperLibrary))
-        === "duo: manifest disposition 'woocommerce' must be an object",
+        === "wprism: manifest disposition 'woocommerce' must be an object",
     'a null reviewed entry is refused as malformed, not reported as missing'
 );
 echo "\n== omissions fail loud; CLI/status/promotion consume the same result ==\n";
 WP_CLI::$lines = [];
-(new Duo\Cli())->capabilities([], [
+(new WPrism\Cli())->capabilities([], [
     'adapter_library' => $sourceLibrary,
     'all' => true,
     'format' => 'json',
@@ -850,7 +850,7 @@ $cliReport = json_decode(WP_CLI::$lines[0] ?? '', true);
 // a literal here silently becomes a weaker assertion every time the shipped
 // library gains or loses a manifest (it was 15 while four demo-manifest
 // fixtures shipped), which is the opposite of "reports EVERY disposition".
-check(count($cliReport['manifests'] ?? []) === count($manifestFiles), 'wp duo capabilities --all reports every shipped disposition');
+check(count($cliReport['manifests'] ?? []) === count($manifestFiles), 'wp wprism capabilities --all reports every shipped disposition');
 check(
     ($cliReport['registry_sha256'] ?? null) === $registry->sha256()
     && ($cliReport['schema_version'] ?? null) === AdapterRegistry::REPORT_FORMAT
@@ -860,18 +860,18 @@ check(
 );
 $summary = PlanSummary::render(['adapter_dispositions' => $experimentalBlockers]);
 check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'ADAPTER_DISPOSITIONS'), 'host status is non-green and explains the experimental adapter');
-// DUO-3485: the host's section label and the agent's own plan warning report
+// issue #3485: the host's section label and the agent's own plan warning report
 // the same $plan['adapter_dispositions'] rows, so they must name the same
 // mechanism. Both used to say "capability registry" — the document the
 // teardown deleted — and nothing pinned the agent half, which is exactly how
-// `duo status` and `wp duo plan` could come to describe it in two words.
+// `wprism status` and `wp wprism plan` could come to describe it in two words.
 $agentCliSource = (string) file_get_contents("$repo/agent/src/Command/Cli.php");
 check(
     str_contains($agentCliSource, "'adapter disposition blocker(s) selected — readiness is not green and host promotion will refuse'")
     && !str_contains($agentCliSource, 'capability registry blocker'),
     "the agent's plan warning over those same rows names adapter dispositions too, never the deleted capability registry"
 );
-// No DUO_MANIFESTS_DIR juggling: the gate is handed the resolved rows of the
+// No WPRISM_MANIFESTS_DIR juggling: the gate is handed the resolved rows of the
 // already-loaded $experimentalPolicy and reads no library of its own. #561
 // wrapped this call in a putenv pair pointing at its own monolith fixture
 // directory, which is gone with that fixture.
@@ -880,11 +880,11 @@ $hostBlockers = CodeDeploy::dispositionBlockers([
 ]);
 check(($hostBlockers[0]['name'] ?? null) === 'core', 'host promotion gate refuses the same synthetic experimental disposition');
 
-// DUO-3372: an uncovered manifest must be a fail-closed BLOCKER, never a
+// issue #3372: an uncovered manifest must be a fail-closed BLOCKER, never a
 // silent skip — the file's own doctrine is "a manifest cannot certify itself
 // merely by existing beside the agent". Tested by DIRECT call because these two
 // methods take the manifests they are given: since WP-1.2 they are also
-// REACHABLE through a library-wide report (`wp duo capabilities --all` over a
+// REACHABLE through a library-wide report (`wp wprism capabilities --all` over a
 // directory holding an unreviewed file), where load() used to refuse the whole
 // command first.
 $uncovered = ['name' => 'no-such-uncovered-adapter'];
@@ -894,7 +894,7 @@ check(
         && $directBlockers[0]['name'] === 'no-such-uncovered-adapter'
         && $directBlockers[0]['status'] === ManifestDispositions::STATUS_UNCOVERED
         && str_contains($directBlockers[0]['reason'], 'cannot certify itself merely by existing'),
-    'DUO-3372: blockers() surfaces an uncovered manifest as an explicit `uncovered` blocker, never a silent skip'
+    'issue #3372: blockers() surfaces an uncovered manifest as an explicit `uncovered` blocker, never a silent skip'
 );
 $directReport = $registry->report([$uncovered]);
 check(
@@ -905,7 +905,7 @@ check(
             $directReport['manifests'],
             static fn(array $r): bool => ($r['name'] ?? null) === 'no-such-uncovered-adapter'
         )) === 1,
-    'DUO-3372: report() lists the uncovered manifest as an `uncovered` row and is never `ready` while one exists'
+    'issue #3372: report() lists the uncovered manifest as an `uncovered` row and is never `ready` while one exists'
 );
 // A CERTIFIED manifest is still not a blocker (regression guard on the surviving skip).
 $certifiedName = null;
@@ -922,7 +922,7 @@ foreach ($manifests as $m) {
 // this adapter actually ships is what the assertion meant all along.
 check(
     $certifiedName !== null && $registry->blockers([$manifestsByName[$certifiedName]]) === [],
-    'DUO-3372: a certified manifest is still not a blocker (the uncovered fix did not turn the certified skip into a row)'
+    'issue #3372: a certified manifest is still not a blocker (the uncovered fix did not turn the certified skip into a row)'
 );
 
 if ($failures) {

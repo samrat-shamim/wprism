@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/AdapterBoundary.php';
 
-use Duo\AdapterLibrary;
-use Duo\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
 
 /**
- * `duo adapter proposals` — the scheduled half of the bisector: re-run the
+ * `wprism adapter proposals` — the scheduled half of the bisector: re-run the
  * PLANNER over every pinned plugin's recorded ledger, propose the range bump
  * the evidence supports, and derive how stale each adapter's proof is.
  *
@@ -25,7 +25,7 @@ use Duo\Canon;
  * Nothing in the tree answers "which adapter's proof is furthest behind its
  * plugin's releases", because nothing derives it.
  *
- * `duo adapter boundary` already turns "try the versions" into O(log releases)
+ * `wprism adapter boundary` already turns "try the versions" into O(log releases)
  * probes over a recorded release list. What it does not do is run itself — it
  * answers about ONE slug, from flags a human typed, starting at an anchor a
  * human named. This verb is the job around it: it reads the whole ledger
@@ -113,9 +113,9 @@ use Duo\Canon;
  * It lives outside adapter payloads and it is DERIVED, and those two are the same
  * decision. A `last_verified` field stored beside a manifest would be a rule-2
  * identity input: re-verifying an adapter would move its `adapter_digest` and
- * every `site.duo.json` content pin in the fleet, turning a health signal into
+ * every `site.wprism.json` content pin in the fleet, turning a health signal into
  * a fleet-wide re-pin event. So the fact is a projection of the ledger, emitted
- * on stdout, read by `duo census --health=<doc>`, and stored nowhere this
+ * on stdout, read by `wprism census --health=<doc>`, and stored nowhere this
  * process controls.
  *
  * Because it is a projection, it can never be hand-asserted, and that is
@@ -138,10 +138,10 @@ use Duo\Canon;
  * their own `next_probe`, and the process succeeded at what it was asked to do.
  */
 final class AdapterProposals {
-    /** The one sub-verb this owner claims off `duo adapter`. */
+    /** The one sub-verb this owner claims off `wprism adapter`. */
     public const VERBS = ['proposals'];
 
-    public const FORMAT = 'duo-adapter-boundary-proposals/v1';
+    public const FORMAT = 'wprism-adapter-boundary-proposals/v1';
 
     /**
      * The ledger's two file shapes, as `sandbox/conformance/boundary/README.md`
@@ -171,7 +171,7 @@ final class AdapterProposals {
 
     private const FLAGS = ['--ledger', '--manifests', '--format'];
 
-    private const USAGE = 'run `duo adapter proposals [--ledger=<dir>] [--manifests=<dir>] [--format=json]`';
+    private const USAGE = 'run `wprism adapter proposals [--ledger=<dir>] [--manifests=<dir>] [--format=json]`';
 
     /**
      * @param list<string> $args everything after `adapter proposals`
@@ -212,7 +212,7 @@ final class AdapterProposals {
      *
      * @param list<array{name:string, plugin:string, slug:string, range:array{min:string,max:string}, supported_versions:?array<string,mixed>}> $library
      * @param array<string, array{releases:array<string,mixed>, outcomes:array<string, array{version:string,outcome:string,signature:string}>, sources:array<string,string>}> $ledger keyed by slug
-     * @return array<string,mixed> a duo-adapter-boundary-proposals/v1 document
+     * @return array<string,mixed> a wprism-adapter-boundary-proposals/v1 document
      */
     public static function project(array $library, array $ledger): array {
         $proposals = [];
@@ -451,7 +451,7 @@ final class AdapterProposals {
         // bricks the library it is applied to.
         if (Canon::encode($edits[0]['proposed']) !== Canon::encode($edits[1]['proposed']['range'])) {
             throw new \LogicException(
-                'duo: adapter proposals: the two proposed edits do not agree on canonical bytes, which is exactly '
+                'wprism: adapter proposals: the two proposed edits do not agree on canonical bytes, which is exactly '
                 . 'what ManifestDispositions.php:632-637 refuses'
             );
         }
@@ -589,7 +589,7 @@ final class AdapterProposals {
         $supported = $adapter['supported_versions'];
         if ($supported === null) {
             // No reviewed entry at all is not a disagreement: an unreviewed
-            // manifest claims nothing, and `duo manifest-validate` is where
+            // manifest claims nothing, and `wprism manifest-validate` is where
             // that is the subject.
             return null;
         }
@@ -701,7 +701,7 @@ final class AdapterProposals {
     /**
      * The manifest library, read-only and shallow: the declared range, the
      * plugin it claims, and the reviewed restatement. Nothing here loads the
-     * engine — the proposal is about two authored fields, and `duo
+     * engine — the proposal is about two authored fields, and `wprism
      * manifest-validate` is the verb that runs the real `Policy::load()` over
      * the result.
      *
@@ -997,11 +997,11 @@ final class AdapterProposals {
         }
         foreach ((array) $document['refused'] as $row) {
             $row = (array) $row;
-            fwrite(STDERR, 'duo: adapter proposals: ' . (string) $row['adapter'] . ': '
+            fwrite(STDERR, 'wprism: adapter proposals: ' . (string) $row['adapter'] . ': '
                 . (string) $row['reason'] . ': ' . (string) $row['detail'] . "\n");
             $next = $row['next_probe'] ?? null;
             if (is_array($next)) {
-                fwrite(STDERR, 'duo: adapter proposals: ' . (string) $row['adapter'] . ': next: probe '
+                fwrite(STDERR, 'wprism: adapter proposals: ' . (string) $row['adapter'] . ': next: probe '
                     . (string) $next['version'] . ' (' . (string) $next['arm'] . " arm)\n");
             }
         }
@@ -1026,8 +1026,8 @@ final class AdapterProposals {
             CommandOutput::renderRefusalJson('adapter proposals', $reason, $message, self::USAGE);
             return $code;
         }
-        fwrite(STDERR, 'duo: adapter proposals: ' . $message . "\n");
-        fwrite(STDERR, 'duo: adapter proposals: remedy: ' . self::USAGE . "\n");
+        fwrite(STDERR, 'wprism: adapter proposals: ' . $message . "\n");
+        fwrite(STDERR, 'wprism: adapter proposals: remedy: ' . self::USAGE . "\n");
         return $code;
     }
 }

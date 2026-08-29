@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\OfflineRunner;
-use Duo\Tooling\OfflineScenarioDelegation;
+use WPrism\Tooling\OfflineRunner;
+use WPrism\Tooling\OfflineScenarioDelegation;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -78,7 +78,7 @@ final class OfflineRunnerTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
 
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
@@ -113,7 +113,7 @@ final class OfflineRunnerTest extends TestCase
             // as the reason the unprefixed alternative demands a source
             // location: a shell suite's retry notice is not a PHP diagnostic.
             'shell retry warning' => ['Warning: fetch_artifact: retrying ...'],
-            'shell deprecation notice' => ['Deprecated: use duo scope instead'],
+            'shell deprecation notice' => ['Deprecated: use wprism scope instead'],
             'diagnostic-looking text mid-line' => ['ok: PHP Warning: is only mentioned here'],
             'colourised suite pass line' => ['ok: no syntax errors'],
             'json payload' => ['    "reason": "Warning: something in a value"'],
@@ -372,7 +372,7 @@ final class OfflineRunnerTest extends TestCase
     /**
      * The premise behind scriptsInRecipe() carrying NO sandbox-relative needle.
      *
-     * DUO-3482 taught the other two path-aware tools to read a suite named
+     * issue #3482 taught the other two path-aware tools to read a suite named
      * `tests/grind/x.sh` by a corpus file whose cwd is `sandbox/` (the rule is
      * stated above ms_sandbox_relative_tail() in tools/codemod/move-suites.php).
      * This tool was assessed and deliberately left alone, because its input is
@@ -426,7 +426,7 @@ final class OfflineRunnerTest extends TestCase
         // The wrapper is clean; the companion the wrapper runs is not. Scanning
         // only the named script would call this suite parallel-safe.
         file_put_contents($root . '/sandbox/tests/regress_wrapped.sh', "php regress_wrapped.php\n");
-        file_put_contents($root . '/sandbox/tests/regress_wrapped.php', "<?php \$p = '/tmp/duo-fixed-name';\n");
+        file_put_contents($root . '/sandbox/tests/regress_wrapped.php', "<?php \$p = '/tmp/wprism-fixed-name';\n");
         file_put_contents($root . '/sandbox/tests/regress_clean.sh', "d=\$(mktemp -d)\n");
 
         try {
@@ -457,7 +457,7 @@ final class OfflineRunnerTest extends TestCase
         file_put_contents($root . '/' . $wrapper, "php regress_nested_wrapped.php\n");
         file_put_contents(
             $root . '/sandbox/tests/offline/domain/regress_nested_wrapped.php',
-            "<?php \$p = '/tmp/duo-fixed-name';\n"
+            "<?php \$p = '/tmp/wprism-fixed-name';\n"
         );
         file_put_contents(
             $root . '/sandbox/tests/offline/domain/regress_nested_clean.php',
@@ -488,9 +488,9 @@ final class OfflineRunnerTest extends TestCase
         $root = self::scratchRoot();
         $cases = [
             'redirect' => "if run_it 2>/tmp/coverage_real.log; then :; fi\n",
-            'assignment' => "LOG=/tmp/duo-fixed.log\n",
-            'line start' => "/tmp/duo-fixed-helper.sh --run\n",
-            'quoted' => "cat '/tmp/duo-fixed.log'\n",
+            'assignment' => "LOG=/tmp/wprism-fixed.log\n",
+            'line start' => "/tmp/wprism-fixed-helper.sh --run\n",
+            'quoted' => "cat '/tmp/wprism-fixed.log'\n",
         ];
         $clean = [
             'mktemp dir' => "d=\$(mktemp -d)\n",
@@ -843,7 +843,7 @@ final class OfflineRunnerTest extends TestCase
 
     private static function scratchRoot(): string
     {
-        $root = (string) tempnam(sys_get_temp_dir(), 'duo-offline-test-');
+        $root = (string) tempnam(sys_get_temp_dir(), 'wprism-offline-test-');
         unlink($root);
         mkdir($root . '/sandbox/tests/offline/domain', 0o777, true);
 

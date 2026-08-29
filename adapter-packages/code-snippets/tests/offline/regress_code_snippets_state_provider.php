@@ -7,7 +7,7 @@ namespace {
 
     define('ARRAY_A', 'ARRAY_A');
     define('FS_CHMOD_FILE', 0644);
-    $scratch = sys_get_temp_dir() . '/duo_code_snippets_provider_' . bin2hex(random_bytes(8));
+    $scratch = sys_get_temp_dir() . '/wprism_code_snippets_provider_' . bin2hex(random_bytes(8));
     if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
         throw new \RuntimeException("could not create $scratch");
     }
@@ -49,18 +49,18 @@ namespace {
         public array $rows = [
             [
                 'id' => '12', 'name' => 'Portable content', 'description' => 'UTF-8 東京 🚀',
-                'code' => '<strong>portable</strong>', 'tags' => 'duo, html', 'scope' => 'content',
+                'code' => '<strong>portable</strong>', 'tags' => 'wprism, html', 'scope' => 'content',
                 'condition_id' => '0', 'priority' => '17', 'active' => '1',
             ],
             [
                 'id' => '13', 'name' => 'Runtime filter', 'description' => 'Executable PHP',
-                'code' => "add_filter('duo_runtime', fn(\$v) => \$v . '|repository-runtime');",
-                'tags' => 'duo, runtime', 'scope' => 'global', 'condition_id' => '0',
+                'code' => "add_filter('wprism_runtime', fn(\$v) => \$v . '|repository-runtime');",
+                'tags' => 'wprism, runtime', 'scope' => 'global', 'condition_id' => '0',
                 'priority' => '32767', 'active' => '1',
             ],
             [
                 'id' => '14', 'name' => 'Invalid inactive', 'description' => 'Must stay inert',
-                'code' => 'if (', 'tags' => 'duo, invalid', 'scope' => 'global',
+                'code' => 'if (', 'tags' => 'wprism, invalid', 'scope' => 'global',
                 'condition_id' => '0', 'priority' => '1', 'active' => '0',
             ],
         ];
@@ -78,11 +78,11 @@ namespace {
     $GLOBALS['wpdb'] = new CodeSnippetsWpdb();
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {}
 
     final class Providers {
-        public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
+        public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
     }
 }
 
@@ -300,9 +300,9 @@ namespace {
         512,
         JSON_THROW_ON_ERROR
     );
-    $provider = new \Duo\Providers\CodeSnippetsState($manifest['providers'][0]);
+    $provider = new \WPrism\Providers\CodeSnippetsState($manifest['providers'][0]);
     $capabilities = $provider->capabilities();
-    duo_check_same(
+    wprism_check_same(
         [
             'args' => [],
             'reads' => ['table:snippets', 'option:code_snippets_settings'],
@@ -311,7 +311,7 @@ namespace {
             'idempotent' => true,
             'timeout_seconds' => 60,
             'scoped' => [
-                'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                'operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
                 'reconcile' => true,
                 'invoke_after' => 'reconcile',
             ],
@@ -340,21 +340,21 @@ namespace {
     ])];
 
     $receipt = $provider->invoke_scoped('rebuild_snippet_state', [], $operation);
-    duo_check(($receipt['verified'] ?? false) === true, 'provider reports success only after its verified postcondition');
-    duo_check_same(3, $receipt['after']['row_count'] ?? null, 'provider receipt counts the exact DB/API row set');
-    duo_check_same(
+    wprism_check(($receipt['verified'] ?? false) === true, 'provider reports success only after its verified postcondition');
+    wprism_check_same(3, $receipt['after']['row_count'] ?? null, 'provider receipt counts the exact DB/API row set');
+    wprism_check_same(
         $receipt['after']['database_hash'] ?? null,
         $receipt['after']['api_hash'] ?? null,
         'cache invalidation forces the plugin API to agree with direct database bytes'
     );
-    duo_check_same(4, $receipt['after']['flat_file_count'] ?? null, 'provider rebuilds exactly two code files and two indexes');
-    duo_check(!is_file($directory . '/php/999.php'), 'provider purges a stale executable file omitted from the database');
-    duo_check(
+    wprism_check_same(4, $receipt['after']['flat_file_count'] ?? null, 'provider rebuilds exactly two code files and two indexes');
+    wprism_check(!is_file($directory . '/php/999.php'), 'provider purges a stale executable file omitted from the database');
+    wprism_check(
         is_file($directory . '/php/13.php') && is_file($directory . '/html/12.php'),
         'provider delegates PHP and HTML code-file reconstruction to registered plugin handlers'
     );
     $published = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    duo_check(
+    wprism_check(
         is_string($published)
             && !str_contains($published, 'repository-runtime')
             && !str_contains($published, 'portable</strong>'),
@@ -363,7 +363,7 @@ namespace {
 
     $firstAfter = $receipt['after'];
     $again = $provider->invoke_scoped('rebuild_snippet_state', [], $operation);
-    duo_check_same($firstAfter, $again['after'] ?? null, 'a second full rebuild is byte-stable and idempotent');
+    wprism_check_same($firstAfter, $again['after'] ?? null, 'a second full rebuild is byte-stable and idempotent');
 
     // A fresh recovery process may hold a stale persistent object-cache row.
     // reconcile_scoped() must invalidate that cache, but must not rebuild the
@@ -374,7 +374,7 @@ namespace {
         'condition_id' => 0, 'priority' => 1, 'active' => 1,
     ])];
     $reconciled = $provider->reconcile_scoped('rebuild_snippet_state', [], $operation);
-    duo_check_same(
+    wprism_check_same(
         $firstAfter['database_hash'],
         $reconciled['after']['api_hash'] ?? null,
         'scoped recovery clears a stale persistent cache before verifying DB/API agreement'
@@ -383,7 +383,7 @@ namespace {
     $GLOBALS['cs_settings'] = ['general' => ['enable_flat_files' => false]];
     file_put_contents($directory . '/php/unexpected.php', '<?php stale-disabled-code');
     $disabled = $provider->invoke_scoped('rebuild_snippet_state', [], $operation);
-    duo_check(
+    wprism_check(
         ($disabled['after']['flat_files_enabled'] ?? null) === false
             && ($disabled['after']['flat_file_count'] ?? null) === 0
             && !file_exists($directory)
@@ -405,7 +405,7 @@ namespace {
         $symlinkRefused = str_contains($e->getMessage(), 'symlinked')
             || str_contains($e->getMessage(), 'not a real directory');
     }
-    duo_check(
+    wprism_check(
         $symlinkRefused && file_get_contents($outside . '/sentinel') === 'preserve',
         'symlinked flat projection refuses before recursive repair and preserves the outside target'
     );
@@ -419,9 +419,9 @@ namespace {
     try {
         $provider->invoke('rebuild_snippet_state', []);
     } catch (\RuntimeException $e) {
-        $schemaRefused = $e->getMessage() === 'duo: Code Snippets verification query failed against wp_snippets';
+        $schemaRefused = $e->getMessage() === 'wprism: Code Snippets verification query failed against wp_snippets';
     }
-    duo_check(
+    wprism_check(
         $schemaRefused && is_file($directory . '/stale-before-schema-refusal'),
         'database/schema read failure refuses before any flat-file mutation and redacts DB detail'
     );
@@ -434,11 +434,11 @@ namespace {
     } catch (\RuntimeException $e) {
         $residueRefused = str_contains($e->getMessage(), 'residual multisite snippet state');
     }
-    duo_check($residueRefused, 'single-site provider refuses residual network identity state instead of touching it');
+    wprism_check($residueRefused, 'single-site provider refuses residual network identity state instead of touching it');
     $GLOBALS['cs_network_residue'] = false;
 
     $remove = new \Code_Snippets\WordPress_File_System_Adapter();
     $remove->delete(WP_CONTENT_DIR, true);
 
-    duo_check_summary('Code Snippets state provider');
+    wprism_check_summary('Code Snippets state provider');
 }

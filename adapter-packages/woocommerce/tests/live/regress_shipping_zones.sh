@@ -32,10 +32,10 @@
 # established pattern. Self-contained, re-runnable.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
-export DUO_PAIR=r3e
-COMPOSE="docker compose -p duo-r3e -f pair.yml"
+export WPRISM_PAIR=r3e
+COMPOSE="docker compose -p wprism-r3e -f pair.yml"
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 wp2() { $COMPOSE run --rm -T cli2 wp "$@"; }
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -74,10 +74,10 @@ say "(3) DANGLING option_name_refs id: no row anywhere -> warn + drop, capture s
 REPO=/siterepo/.tmp-r93-dangling
 HOST_REPO="siterepo/r3e1/.tmp-r93-dangling"
 rm -rf "$HOST_REPO"; mkdir -p "$HOST_REPO"
-cp siterepo/r3e1/site.duo.json "$HOST_REPO/site.duo.json"
+cp siterepo/r3e1/site.wprism.json "$HOST_REPO/site.wprism.json"
 wp1 option update woocommerce_flat_rate_999999_settings 'a:1:{s:5:"title";s:15:"Dangling Probe";}' >/dev/null
 set +e
-OUT3=$(wp1 duo capture --repo="$REPO" --out="$REPO/state-out" 2>&1)
+OUT3=$(wp1 wprism capture --repo="$REPO" --out="$REPO/state-out" 2>&1)
 RC3=$?
 set -e
 echo "$OUT3"
@@ -92,7 +92,7 @@ rm -rf "$HOST_REPO"
 say "(4) mapped-identity continuity: a REAL row in a declared mapped table that has never been captured must fail closed on a non-minting snapshot, naming identity-import recovery"
 # A custom table's scope is knowable from its manifest declaration, but a
 # mapped row's durable UUID is not safely reconstructible from its local id.
-# Since DUO-3209, Snapshot::capture() must refuse to invent that identity when
+# Since issue #3209, Snapshot::capture() must refuse to invent that identity when
 # mint=false and direct operators to a verified identity sidecar. This differs
 # deliberately from task #73's post/term scope check: those entity kinds have
 # independently recoverable identity rules, while mapped table rows do not.
@@ -110,11 +110,11 @@ PROBE_ZONE_ID=$(echo "$ZONE_METHOD_JSON" | jq -r .zone_id)
 PROBE_INSTANCE_ID=$(echo "$ZONE_METHOD_JSON" | jq -r .instance_id)
 
 # Capture::snapshot() directly (mint=false), against r3e1's real, unmodified
-# site.duo.json. The table is declared authored_snapshot, but the mapped row
+# site.wprism.json. The table is declared authored_snapshot, but the mapped row
 # has no durable ledger identity, so the non-minting read must fail closed.
 set +e
 OUT4=$(wp1 eval "
-try { \Duo\Capture::snapshot('/siterepo'); echo 'OK: no throw'; }
+try { \WPrism\Capture::snapshot('/siterepo'); echo 'OK: no throw'; }
 catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }
 " 2>&1 | tail -1)
 RC4=$?
@@ -127,7 +127,7 @@ grep -q 'identity-import' <<<"$OUT4" || fail "mapped-identity refusal omitted th
 pass "non-minting snapshot refuses to mint a mapped table identity and names verified identity-import recovery"
 
 say "(4b) the SAME probe, via a REAL (minting) capture: the row gets a durable identity normally"
-OUT4B=$(wp1 duo capture --repo=/siterepo 2>&1)
+OUT4B=$(wp1 wprism capture --repo=/siterepo 2>&1)
 echo "$OUT4B"
 grep -qi success <<<"$OUT4B" || fail "expected the real capture to succeed and pick up the probe row normally (got: $OUT4B)"
 FOUND=$(wp1 eval "
@@ -135,25 +135,25 @@ FOUND=$(wp1 eval "
 \$hit = false;
 foreach (\$rows as \$f) { if (str_contains(file_get_contents(\$f), 'flat_rate')) { \$c = json_decode(file_get_contents(\$f), true); } }
 global \$wpdb;
-\$uuid = \Duo\Ledger::uuid_for($PROBE_INSTANCE_ID, 'wc_zone_method');
+\$uuid = \WPrism\Ledger::uuid_for($PROBE_INSTANCE_ID, 'wc_zone_method');
 echo \$uuid ? 'MINTED' : 'MISSING';
 " 2>&1 | tail -1)
 echo "probe row ledger state after real capture: $FOUND"
-grep -q "MINTED" <<<"$FOUND" || fail "expected the probe row to be minted into duo_map by a real (mint=true) capture (got: $FOUND)"
+grep -q "MINTED" <<<"$FOUND" || fail "expected the probe row to be minted into wprism_map by a real (mint=true) capture (got: $FOUND)"
 pass "the row refused by the non-minting snapshot is assigned a durable identity by a real capture -- fail-closed planning does not block the authorized minting path"
 
-PROBE_ZONE_UUID=$(wp1 eval "echo \\Duo\\Ledger::uuid_for($PROBE_ZONE_ID, 'wc_zone');" 2>/dev/null | tail -1 | tr -d '\r')
-PROBE_METHOD_UUID=$(wp1 eval "echo \\Duo\\Ledger::uuid_for($PROBE_INSTANCE_ID, 'wc_zone_method');" 2>/dev/null | tail -1 | tr -d '\r')
+PROBE_ZONE_UUID=$(wp1 eval "echo \\WPrism\\Ledger::uuid_for($PROBE_ZONE_ID, 'wc_zone');" 2>/dev/null | tail -1 | tr -d '\r')
+PROBE_METHOD_UUID=$(wp1 eval "echo \\WPrism\\Ledger::uuid_for($PROBE_INSTANCE_ID, 'wc_zone_method');" 2>/dev/null | tail -1 | tr -d '\r')
 [[ "$PROBE_ZONE_UUID" =~ ^[0-9a-f-]{36}$ ]] || fail "could not resolve the probe zone uuid for exact cleanup (got: $PROBE_ZONE_UUID)"
 [[ "$PROBE_METHOD_UUID" =~ ^[0-9a-f-]{36}$ ]] || fail "could not resolve the probe method uuid for exact cleanup (got: $PROBE_METHOD_UUID)"
 
 say "(4c) ALIVENESS: the option itself -- not just the table row -- is captured under its TOKENIZED name, proving option_name_refs' own discovery loop actually ran"
-# DUO-3257 finding: 4b's ledger-mint check alone does NOT prove this. Table
+# issue #3257 finding: 4b's ledger-mint check alone does NOT prove this. Table
 # row minting happens unconditionally in Snapshot::capture() (runs before
 # OptionsCapture in the same build(), mints every row of every declared
 # table regardless of the options capturer's own option_name_refs loop). A
 # regression that silently zeroes out THAT loop specifically (confirmed
-# live: a stray variable-name mismatch introduced by an unrelated DUO-3263
+# live: a stray variable-name mismatch introduced by an unrelated issue #3263
 # refactor did exactly this, undetected since this file's own conformance
 # target is opt-in and wasn't part of that PR's test scope) left the table
 # row correctly minted while the OPTION's captured key stayed the raw,
@@ -186,7 +186,7 @@ rm -f "siterepo/r3e1/state/tables/woocommerce_shipping_zone_methods/${PROBE_METH
   || fail "probe cleanup left canonical state changes behind"
 
 say "(5) hard lint gate on r3e2's applied state, re-asserted"
-LINT_OUT=$(wp2 duo lint --repo=/siterepo 2>&1)
+LINT_OUT=$(wp2 wprism lint --repo=/siterepo 2>&1)
 echo "$LINT_OUT"
 grep -qi "no findings" <<<"$LINT_OUT" || fail "expected lint 0 findings on r3e2's applied state (got: $LINT_OUT)"
 pass "lint clean on r3e2's applied state"

@@ -1,12 +1,12 @@
 <?php
 /**
- * DUO-3237 offline boundary regression: natural_key is deterministic
+ * issue #3237 offline boundary regression: natural_key is deterministic
  * bootstrap identity, while a retained UUID after a rename is ordinary
  * ledger continuity. The observation remains informational in status.
  */
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
-// DUO-3318: the natural-key derivation IdentityNotes compares against is
+// issue #3318: the natural-key derivation IdentityNotes compares against is
 // Snapshot's own (Policy owns the declaration grammar it reads), so that one
 // derivation can never drift from the one capture actually used. Both are
 // required here for that reason; neither touches a database, WordPress, or
@@ -16,9 +16,9 @@ require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/IdentityNotes.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 
-use Duo\IdentityNotes;
-use Duo\Uuid;
-use Duo\Orchestrator\PlanSummary;
+use WPrism\IdentityNotes;
+use WPrism\Uuid;
+use WPrism\Orchestrator\PlanSummary;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -34,7 +34,7 @@ $decl = [
 ];
 $freshSlug = 'mergecert-size';
 $renamedSlug = 'compact-size';
-$uuid = Uuid::v5(Uuid::NAMESPACE_DUO, "$table:$freshSlug");
+$uuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, "$table:$freshSlug");
 
 $check(
     IdentityNotes::natural_key_continuity($uuid, $table, $decl, ['attribute_name' => $freshSlug]) === null,

@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/PromoteCommand.php';
 
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\PromoteCommand;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\PromoteCommand;
 
 function fail_promote_command(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -34,7 +34,7 @@ $ordinaryCalls = [];
 $scopedCalls = [];
 $ordinary = static function (EnvironmentDriver $received, array $args, ?array $frozen) use (&$ordinaryCalls): array {
     $ordinaryCalls[] = [$received, $args, $frozen];
-    return ['format' => 'duo-promotion-result/v1'];
+    return ['format' => 'wprism-promotion-result/v1'];
 };
 $scoped = static function (EnvironmentDriver $received, array $args) use (&$scopedCalls): int {
     $scopedCalls[] = [$received, $args];

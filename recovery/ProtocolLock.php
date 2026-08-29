@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Recovery;
+namespace WPrism\Recovery;
 
 /**
  * Shared exclusive lock protocol for independent recovery resources.

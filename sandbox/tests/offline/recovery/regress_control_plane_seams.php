@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3353: responsibility-focused control-plane seams.
+ * issue #3353: responsibility-focused control-plane seams.
  *
  * This is deliberately offline: it loads the new collaborators without
  * WordPress or a target database, exercises the filesystem/publication value
@@ -51,24 +51,24 @@ $throws = static function (callable $callback): bool {
 };
 
 $classes = [
-    'Duo\\AtomicTreePublisher',
-    'Duo\\DurableFilesystem',
-    'Duo\\PublicationJournal',
-    'Duo\\PublicationRecord',
-    'Duo\\PromotionLease',
-    'Duo\\PromotionLock',
-    'Duo\\PromotionSessionJournal',
-    'Duo\\PromotionLeaseRecord',
-    'Duo\\PromotionSessionRecord',
-    'Duo\\LifecycleJournal',
-    'Duo\\StateTransitionJournal',
-    'Duo\\ProcessFence',
+    'WPrism\\AtomicTreePublisher',
+    'WPrism\\DurableFilesystem',
+    'WPrism\\PublicationJournal',
+    'WPrism\\PublicationRecord',
+    'WPrism\\PromotionLease',
+    'WPrism\\PromotionLock',
+    'WPrism\\PromotionSessionJournal',
+    'WPrism\\PromotionLeaseRecord',
+    'WPrism\\PromotionSessionRecord',
+    'WPrism\\LifecycleJournal',
+    'WPrism\\StateTransitionJournal',
+    'WPrism\\ProcessFence',
 ];
 foreach ($classes as $class) {
     $check(class_exists($class), "control-plane class $class loads without WordPress");
 }
 
-$base = sys_get_temp_dir() . '/duo3353-seams-' . bin2hex(random_bytes(6));
+$base = sys_get_temp_dir() . '/control-plane-seams-' . bin2hex(random_bytes(6));
 $state = $base . '/state';
 $candidate = $base . '/candidate';
 mkdir($state, 0775, true);
@@ -91,21 +91,21 @@ $cleanup = static function () use ($base): void {
 };
 register_shutdown_function($cleanup);
 
-$manifest = \Duo\DurableFilesystem::ownershipManifest($candidate);
+$manifest = \WPrism\DurableFilesystem::ownershipManifest($candidate);
 $check(
-    \Duo\Canon::encode($manifest) === \Duo\Canon::encode(\Duo\AtomicTreePublisher::tree_ownership_manifest($candidate)),
+    \WPrism\Canon::encode($manifest) === \WPrism\Canon::encode(\WPrism\AtomicTreePublisher::tree_ownership_manifest($candidate)),
     'AtomicTreePublisher delegates ownership manifests to DurableFilesystem without changing bytes/inodes'
 );
 $check(
-    \Duo\DurableFilesystem::treeDigest($candidate) === \Duo\AtomicTreePublisher::tree_digest($candidate),
+    \WPrism\DurableFilesystem::treeDigest($candidate) === \WPrism\AtomicTreePublisher::tree_digest($candidate),
     'filesystem digest remains identical across the extracted service and legacy publication facade'
 );
 $check(
-    \Duo\DurableFilesystem::directoryIdentity($candidate) === \Duo\AtomicTreePublisher::directory_ownership_identity($candidate),
+    \WPrism\DurableFilesystem::directoryIdentity($candidate) === \WPrism\AtomicTreePublisher::directory_ownership_identity($candidate),
     'directory identity is shared by the extracted filesystem service and publisher'
 );
-\Duo\DurableFilesystem::syncFile($candidate . '/root.txt');
-\Duo\DurableFilesystem::syncDirectory($candidate);
+\WPrism\DurableFilesystem::syncFile($candidate . '/root.txt');
+\WPrism\DurableFilesystem::syncDirectory($candidate);
 $check(true, 'durable filesystem syncs the witnessed file and directory inodes as hard boundaries');
 $disabledSync = [];
 $disabledSyncStatus = 0;
@@ -113,7 +113,7 @@ exec(
     escapeshellarg(PHP_BINARY) . ' -d disable_functions=fsync -r '
         . escapeshellarg(
             'require ' . var_export($root . '/agent/src/Kernel/DurableFilesystem.php', true) . '; '
-            . 'try { \\Duo\\DurableFilesystem::syncFile(' . var_export($candidate . '/root.txt', true) . '); } '
+            . 'try { \\WPrism\\DurableFilesystem::syncFile(' . var_export($candidate . '/root.txt', true) . '); } '
             . 'catch (Throwable $failure) { exit(str_contains($failure->getMessage(), "sync is unavailable") ? 0 : 2); } '
             . 'exit(3);'
         ),
@@ -122,26 +122,26 @@ exec(
 );
 $check($disabledSyncStatus === 0, 'a process without fsync refuses the durability boundary instead of degrading silently');
 
-$journal = new \Duo\PublicationJournal($state);
+$journal = new \WPrism\PublicationJournal($state);
 $intent = $journal->begin($candidate, true);
-$check($intent instanceof \Duo\PublicationRecord, 'PublicationJournal returns a typed sealed intent');
-$check($intent->format() === 'duo-capture-intent/v1', 'typed intent preserves its wire format');
+$check($intent instanceof \WPrism\PublicationRecord, 'PublicationJournal returns a typed sealed intent');
+$check($intent->format() === 'wprism-capture-intent/v1', 'typed intent preserves its wire format');
 $check($journal->intent()?->id() === $intent->id(), 'typed readback preserves the exact intent id');
 $recoverState = $base . '/recover-state';
 mkdir($recoverState, 0775, true);
-$recoveryJournal = new \Duo\PublicationJournal($recoverState);
+$recoveryJournal = new \WPrism\PublicationJournal($recoverState);
 $check($recoveryJournal->recover() === [], 'PublicationJournal instance recovery owns its bound state directory');
-$check(\Duo\AtomicTreePublisher::recover($recoverState) === [], 'AtomicTreePublisher facade preserves static recovery calls');
+$check(\WPrism\AtomicTreePublisher::recover($recoverState) === [], 'AtomicTreePublisher facade preserves static recovery calls');
 $tampered = $intent->toArray();
 $tampered['record_sha256'] = str_repeat('0', 64);
-$check($throws(static fn() => \Duo\PublicationRecord::fromArray($tampered)), 'tampered publication seal is refused');
+$check($throws(static fn() => \WPrism\PublicationRecord::fromArray($tampered)), 'tampered publication seal is refused');
 $extra = $intent->toArray();
 $extra['unreviewed'] = true;
-$check($throws(static fn() => \Duo\PublicationRecord::fromArray($extra)), 'publication records reject untyped extra fields');
+$check($throws(static fn() => \WPrism\PublicationRecord::fromArray($extra)), 'publication records reject untyped extra fields');
 
 $artifact = str_repeat('a', 64);
-$lease = \Duo\PromotionLeaseRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$lease = \WPrism\PromotionLeaseRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'phase' => 'checkpoint',
     'acquired_at' => 1,
@@ -150,67 +150,67 @@ $lease = \Duo\PromotionLeaseRecord::fromArray([
     'session_id' => 'ps-' . str_repeat('b', 32),
 ]);
 $check($lease->artifactHash() === $artifact && $lease->sessionId() !== null, 'lease value object validates owner/artifact/generation');
-$session = \Duo\PromotionSessionRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$session = \WPrism\PromotionSessionRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 1,
     'session_id' => 'ps-' . str_repeat('b', 32),
     'lifecycle_phases' => ['retire'],
 ]);
 $check($session->sessionId() === 'ps-' . str_repeat('b', 32), 'session value object reads the durable session generation, not lease expiry');
-$check($throws(static fn() => \Duo\PromotionSessionRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$check($throws(static fn() => \WPrism\PromotionSessionRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 1,
     'session_id' => 'ps-not-a-valid-generation',
 ])), 'malformed session generations are refused');
-$check($throws(static fn() => \Duo\PromotionLeaseRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$check($throws(static fn() => \WPrism\PromotionLeaseRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => str_repeat('c', 64),
     'phase' => 'checkpoint',
     'acquired_at' => 1,
 ])), 'incomplete lease records are refused');
-$check($throws(static fn() => \Duo\PromotionLeaseRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$check($throws(static fn() => \WPrism\PromotionLeaseRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'phase' => 'checkpoint',
     'acquired_at' => 1,
     'expires_at' => 2,
     'session_id' => 'not-a-generation',
 ])), 'lease records refuse non-generation session ids');
-$check($throws(static fn() => \Duo\PromotionSessionRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$check($throws(static fn() => \WPrism\PromotionSessionRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'begun_at' => '1',
 ])), 'session records refuse string begun_at values');
-$check($throws(static fn() => \Duo\PromotionSessionRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$check($throws(static fn() => \WPrism\PromotionSessionRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 1,
     'lifecycle_attempt' => ['entity' => 'options/core', 'phase' => 'retire', 'before_hash' => 'bad'],
 ])), 'session records refuse malformed nested lifecycle attempts');
-$check($throws(static fn() => \Duo\PromotionSessionRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$check($throws(static fn() => \WPrism\PromotionSessionRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 1,
     'pending_state_transition' => null,
 ])), 'session records refuse null transition witnesses');
-$check($throws(static fn() => \Duo\PromotionSessionRecord::fromArray([
-    'owner' => 'duo3353-owner',
+$check($throws(static fn() => \WPrism\PromotionSessionRecord::fromArray([
+    'owner' => 'control-plane-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 1,
     'lifecycle_phases' => [],
 ])), 'session records refuse an explicit empty lifecycle receipt');
 $emptyTimestamp = $intent->toArray();
 $emptyTimestamp['created_at'] = '';
-$check($throws(static fn() => \Duo\PublicationRecord::fromArray($emptyTimestamp)), 'publication records refuse empty timestamps');
+$check($throws(static fn() => \WPrism\PublicationRecord::fromArray($emptyTimestamp)), 'publication records refuse empty timestamps');
 $emptyTimestamp['created_at'] = " \t";
-$check($throws(static fn() => \Duo\PublicationRecord::fromArray($emptyTimestamp)), 'publication records refuse whitespace timestamps');
+$check($throws(static fn() => \WPrism\PublicationRecord::fromArray($emptyTimestamp)), 'publication records refuse whitespace timestamps');
 
-if (!class_exists('Duo\\Ledger', false)) {
-    eval('namespace Duo; final class Ledger { public static array $rows = []; public static function kv_get(string $key): ?string { return self::$rows[$key] ?? null; } public static function kv_set(string $key, string $value): void { self::$rows[$key] = $value; } }');
+if (!class_exists('WPrism\\Ledger', false)) {
+    eval('namespace WPrism; final class Ledger { public static array $rows = []; public static function kv_get(string $key): ?string { return self::$rows[$key] ?? null; } public static function kv_set(string $key, string $value): void { self::$rows[$key] = $value; } }');
 }
-\Duo\Ledger::$rows['promotion_session'] = json_encode([
+\WPrism\Ledger::$rows['promotion_session'] = json_encode([
     'owner' => 'journal-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 1,
@@ -220,34 +220,34 @@ if (!class_exists('Duo\\Ledger', false)) {
         'after_hash' => str_repeat('c', 64),
     ],
 ], JSON_THROW_ON_ERROR);
-$expectedSession = \Duo\PromotionSessionJournal::read();
-$foreignSession = \Duo\PromotionSessionRecord::fromArray([
+$expectedSession = \WPrism\PromotionSessionJournal::read();
+$foreignSession = \WPrism\PromotionSessionRecord::fromArray([
     'owner' => 'other-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 1,
 ]);
-$sessionBytesBeforeForeignReplace = \Duo\Ledger::$rows['promotion_session'];
+$sessionBytesBeforeForeignReplace = \WPrism\Ledger::$rows['promotion_session'];
 $check(
-    $expectedSession instanceof \Duo\PromotionSessionRecord
-        && $throws(static fn() => \Duo\PromotionSessionJournal::replaceExact($expectedSession, $foreignSession))
-        && \Duo\Ledger::$rows['promotion_session'] === $sessionBytesBeforeForeignReplace,
+    $expectedSession instanceof \WPrism\PromotionSessionRecord
+        && $throws(static fn() => \WPrism\PromotionSessionJournal::replaceExact($expectedSession, $foreignSession))
+        && \WPrism\Ledger::$rows['promotion_session'] === $sessionBytesBeforeForeignReplace,
     'session journal transitions preserve owner/artifact identity and refuse foreign replacement'
 );
 $check(
-    $throws(static fn() => (new \Duo\StateTransitionJournal('other-owner', $artifact))->current('options/core')),
+    $throws(static fn() => (new \WPrism\StateTransitionJournal('other-owner', $artifact))->current('options/core')),
     'state-transition reads refuse cross-owner session inspection'
 );
-$foreignBytes = \Duo\Ledger::$rows['promotion_session'];
+$foreignBytes = \WPrism\Ledger::$rows['promotion_session'];
 $check(
-    \Duo\PromotionLease::has_pending_state_transition('other-owner', $artifact, 'options/core') === false
-        && \Duo\PromotionLease::assert_pending_state_transition_start(
+    \WPrism\PromotionLease::has_pending_state_transition('other-owner', $artifact, 'options/core') === false
+        && \WPrism\PromotionLease::assert_pending_state_transition_start(
             'other-owner', $artifact, 'options/core', str_repeat('c', 64)
         ) === false
-        && \Duo\PromotionLease::state_transition('other-owner', $artifact, 'options/core') === null
-        && \Duo\Ledger::$rows['promotion_session'] === $foreignBytes,
+        && \WPrism\PromotionLease::state_transition('other-owner', $artifact, 'options/core') === null
+        && \WPrism\Ledger::$rows['promotion_session'] === $foreignBytes,
     'legacy promotion-lock reads soft-return for a foreign session without inspecting its witnesses'
 );
-$begunAtChanged = \Duo\PromotionSessionRecord::fromArray([
+$begunAtChanged = \WPrism\PromotionSessionRecord::fromArray([
     'owner' => 'journal-owner',
     'artifact_hash' => $artifact,
     'begun_at' => 2,
@@ -258,8 +258,8 @@ $begunAtChanged = \Duo\PromotionSessionRecord::fromArray([
     ],
 ]);
 $check(
-    $throws(static fn() => \Duo\PromotionSessionJournal::replaceExact($expectedSession, $begunAtChanged))
-        && \Duo\Ledger::$rows['promotion_session'] === $foreignBytes,
+    $throws(static fn() => \WPrism\PromotionSessionJournal::replaceExact($expectedSession, $begunAtChanged))
+        && \WPrism\Ledger::$rows['promotion_session'] === $foreignBytes,
     'legacy session transitions preserve the immutable begun-at identity'
 );
 

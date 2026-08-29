@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Policy is the stable standalone entry point for the grammar collaborators
 // used below. The require cycle is intentional and safe: Policy loads this
@@ -26,7 +26,7 @@ require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 
 /**
  * Pure per-manifest validation pipeline shared by live and frozen policy
- * loading (DUO-3348 slice 28).
+ * loading (issue #3348 slice 28).
  *
  * Policy keeps the engine-owned vocabularies because runtime classification
  * and materialization also publish/read some of them. This class owns only
@@ -91,7 +91,7 @@ final class ManifestValidator {
         TaxonomyGrammar::validate_object_type_option_refs($manifest);
 
         if ($dynamicOptionsBeforeTaxonomy) {
-            // DUO-3318: preserve from_snapshot()'s established order. Frozen
+            // issue #3318: preserve from_snapshot()'s established order. Frozen
             // snapshots must reach the same verdict as the process that
             // created them, including which local refusal is reported first.
             SubKeyGrammar::validate_dynamic_options($manifest);

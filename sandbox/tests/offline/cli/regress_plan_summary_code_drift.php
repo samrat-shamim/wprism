@@ -8,7 +8,7 @@
 
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 
-use Duo\Orchestrator\PlanSummary;
+use WPrism\Orchestrator\PlanSummary;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -111,7 +111,7 @@ $staleLines = implode("\n", $staleRendered['lines']);
 $check($staleRendered['ok'] === false, 'code_revision_stale alone must make status not safe to promote');
 $check(str_contains($staleLines, 'CODE_REVISION_STALE'), 'stale code revision must have its own visible section');
 $check(str_contains($staleLines, $staleRevision), 'stale code revision must name the expected revision');
-$check(str_contains($staleLines, 'duo deploy <env>'), 'stale code revision must direct host deploy recovery');
+$check(str_contains($staleLines, 'wprism deploy <env>'), 'stale code revision must direct host deploy recovery');
 $check(str_contains($staleLines, 'cannot be bypassed by force flags'), 'stale code revision must state non-forceable ordering');
 $check(!str_contains($staleLines, '--force-code-mismatch'), 'stale-only status must not advertise a force-code-mismatch bypass');
 

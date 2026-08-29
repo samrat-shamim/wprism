@@ -1,4 +1,4 @@
-# Dispatch Loop (`LINEAR-LOOP`) — duo-wp
+# Dispatch Loop (`LINEAR-LOOP`) — wprism
 
 Applies only when the dispatch prompt contains the literal token
 `LINEAR-LOOP` (accept `LINEAR_LOOP` as the same token). Re-read this file at
@@ -7,7 +7,7 @@ dispatch prompt conflicts with this file, prompt parameters win; this
 procedure still wins over improvisation.
 
 Shipping model: branch per issue → PR → squash-merge → verified close gate,
-against `github.com/duotronic-ai/duo-wp` (squash-only merges; branches
+against `github.com/duotronic-ai/wprism` (squash-only merges; branches
 auto-delete on merge).
 
 **One checkout per actor, no exceptions:** every agent and session operates in
@@ -34,7 +34,7 @@ glance is a map, not the procedure — the sections below govern.
 - `AGENT_NAME` — title/comment prefix, e.g. `[codexmac] Original title`.
   Keep it short and alphanumeric (it also namespaces branches and sandbox
   pairs).
-- `PROJECT_URL(s)` — default when omitted: the "Duo WP Branchability —
+- `PROJECT_URL(s)` — default when omitted: the "WPrism WP Branchability —
   Correctness Closure" project.
 - Poll cadence and limit. Default: every 10 minutes, up to 60 minutes.
 - `PORT_BASE` (hosts sharing a VM) — a per-agent even port base
@@ -59,7 +59,7 @@ Ask before claiming if a required parameter is genuinely ambiguous.
 Once per host, before the first claim:
 
 ```
-git clone https://github.com/duotronic-ai/duo-wp duo-wp-<AGENT_NAME> && cd duo-wp-<AGENT_NAME>
+git clone https://github.com/duotronic-ai/wprism wprism-<AGENT_NAME> && cd wprism-<AGENT_NAME>
 bash scripts/agent-bootstrap.sh
 ```
 
@@ -68,7 +68,7 @@ host already has a clone that other sessions use, do NOT work in it — make
 your own clone. The clone's default checkout stays on `main` and is never
 edited directly: every issue is worked in its own worktree from
 `origin/main` (Work and verify step 1), living beside the clone as
-`../duo-wp-wt-<issue>` and removed after the issue closes.
+`../wprism-wt-<issue>` and removed after the issue closes.
 
 The script fail-loud-verifies host prerequisites (git, jq, php, curl, docker +
 compose v2; `gh` authenticated for the close gate), pre-pulls the sandbox
@@ -111,7 +111,7 @@ Sandbox discipline (see `docs/sandbox.md`):
   not an aggregate host guarantee), computed from
   the machine's actual resources by `pair_budget()` in `sandbox/bin/pair.sh`
   and **enforced by `pair.sh up`**: a new pair over budget refuses, with
-  `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
+  `WPRISM_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
   never set it unless the dispatch prompt explicitly says so. Check
   `pair.sh list` before every `up`; a pair with no suite actively running
   against it does not qualify — stop it (Release when idle, below).
@@ -157,8 +157,8 @@ branch or edit files before this passes.
 
    ```
    git fetch origin
-   git worktree add ../duo-wp-wt-DUO-XXXX origin/main -b {branch}
-   cd ../duo-wp-wt-DUO-XXXX
+   git worktree add ../wprism-wt-{issue-key} origin/main -b {branch}
+   cd ../wprism-wt-{issue-key}
    ```
 
    `{branch}` is the issue's own `gitBranchName` from Linear. Always from
@@ -208,7 +208,7 @@ branch or edit files before this passes.
     `tests/` directories; the fixed `regress-adapter-packages` row discovers
     their offline suites. An edit to live-only evidence therefore executes
     nowhere offline: prove its edited logic offline instead (a static pin or a
-    simulated input driving the same jq/shell logic, the DUO-3362/DUO-3406
+    simulated input driving the same jq/shell logic, the issue #3362/issue #3406
     pattern) or run the edited script's own path once.
   - **`agent/src`/`Policy.php` engine internals** → **one sweep of the
     cheapest manifest that executes the changed path** (`core` for generic
@@ -249,16 +249,16 @@ branch or edit files before this passes.
   environment still passes — so ONE representative sweep suffices instead of
   a matrix, and the proof holds even when a shared, contended docker host
   makes live runs slow or flaky.
-- **Exact-source gate: bind every live run to its commit (DUO-3377).** A
+- **Exact-source gate: bind every live run to its commit (issue #3377).** A
   pair's `agent`/`adapter-packages`/`platform` bind mounts resolve to the
   CANONICAL checkout,
-  not to whichever checkout ran `pair.sh` (DUO-3277 — a persistent pair
+  not to whichever checkout ran `pair.sh` (issue #3277 — a persistent pair
   survives its worktree's removal), so a live run launched from your issue
   worktree exercises the canonical checkout's bytes and its verdict, green or
   red, is about code you did not write (a stale-code verdict once read as a
-  candidate regression for a day — DUO-3316). `pair.sh up|reset|start` always
+  candidate regression for a day — issue #3316). `pair.sh up|reset|start` always
   prints the mounted source path and HEAD; set
-  `DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (conformance:
+  `WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (conformance:
   `CONF_EXPECTED_SOURCE_SHA=...`, which `run.sh` exports as that) and any
   other source — wrong commit, or uncommitted
   `agent`/`adapter-packages`/`platform` bytes —
@@ -284,7 +284,7 @@ branch or edit files before this passes.
   does not match active pins"
   (`agent/src/Repository/CompiledArtifactReader.php:39-42`) — and a site repo
   pinned by content stops matching until the reviewed pin is updated
-  (`wp duo manifest-pin` prints the object). Expect this before a live run
+  (`wp wprism manifest-pin` prints the object). Expect this before a live run
   against a pair whose repo was compiled earlier; it is the mechanism working,
   not a defect to route around.
 - **Cost yardstick (2026-08-19, this host):** `php tools/offline.php -j8`
@@ -300,7 +300,7 @@ branch or edit files before this passes.
 
 ## Close gate (strict order)
 
-1. Push the branch; open a PR titled `DUO-XXXX: {summary}` whose body carries
+1. Push the branch; open a PR titled `{issue-key}: {summary}` whose body carries
    the evidence: what changed (file:line), test tails (paste, don't
    paraphrase), conformance evidence for affected manifests, and anything
    re-homed or discovered.
@@ -333,7 +333,7 @@ branch or edit files before this passes.
    never hide unchecked boxes.
 7. Re-read the issue and confirm the markers. Clean up the issue's whole
    footprint: `pair.sh destroy` any pair(s) you created for it,
-   `git worktree remove ../duo-wp-wt-DUO-XXXX`, and `git branch -D {branch}`
+   `git worktree remove ../wprism-wt-{issue-key}`, and `git branch -D {branch}`
    (the remote branch auto-deletes on merge). Then re-read this file before
    selecting the next issue.
 
@@ -363,7 +363,7 @@ extend this list when you pay for a new one. **Contract for new
 notes: one bolded rule, a one-clause mechanism, and the issue ref — the full
 narrative lives in the issue; when a suite or helper later enforces the
 rule, shrink the note to a pointer.** Stories are recoverable via their
-DUO refs where given.
+WPRISM refs where given.
 
 - **Reading the process table for a running sweep:** naive
   `pgrep -f "conformance/run.sh"` matches your own watcher and every other
@@ -376,7 +376,7 @@ DUO refs where given.
   `pkill -f` can match other agents' parent and wrapper processes as well as
   yours, orphaning their runs and deleting their work. A pattern cannot prove
   ownership; record the exact child PID when launching a long test and stop
-  only that process (DUO-3382).
+  only that process (issue #3382).
 - **Posting content to any API from a shell:** never build the payload
   inside a double-quoted argument — double quotes do NOT suppress backticks
   or `$var` (backtick code spans in comment text got EXECUTED and blanked;
@@ -390,7 +390,7 @@ DUO refs where given.
   specifically its resource stanza (PAIR/ports/`reset`/`up`/`destroy`
   lines). An unread regress script from main hardcoded another actor's pair
   and an unconditional `pair.sh reset`: both DBs dropped, host siterepo
-  trees rm -rf'd (DUO-3252; near-zero real loss only by luck). `reset`
+  trees rm -rf'd (issue #3252; near-zero real loss only by luck). `reset`
   destroys more than containers; the mandate is per-run, not per-repo-trust.
 - **Partial-scope closes/returns write the scope note into the issue
   DESCRIPTION (`## Scope note`), then comment** (Close gate step 6) — a
@@ -403,7 +403,7 @@ DUO refs where given.
   bytes queued; echo dies by SIGPIPE (141) and `pipefail` fails the pipeline
   DESPITE the match. Whether it fires is scheduling — one context lost the
   race five-for-five while every standalone repro passed (a five-round
-  mystery; DUO-3267/PR #63). Structural fix: herestrings
+  mystery; issue #3267/PR #63). Structural fix: herestrings
   (`grep -qE ... <<<"$VAR"`); convert every `echo "$BIGVAR" | grep -q` on
   sight. Corollary: when an in-script check contradicts your standalone
   reproduction, suspect a race in the CHECK before a mystery in the system.
@@ -421,27 +421,27 @@ DUO refs where given.
   silently not land — read it back and assert its shape BEFORE the behavior
   assertion (`require_fixture_ids`/`require_fixture_values`/
   `require_fixture_state`, message prefix `fixture manufacture failed:`;
-  DUO-3380/DUO-3381); (b) a captured duo invocation can die at the docker layer
+  issue #3380/issue #3381); (b) a captured wprism invocation can die at the docker layer
   precisely because `|| RC=$?` / `|| fail` disables `set -e` for it (and
   RC-only variants are worse: ANY non-zero exit satisfies them, so a dead
   invocation reports GREEN) —
   assert there WAS an answer before asserting about the answer
-  (`require_duo_answered <what> <human|json> <output>`, prefix
+  (`require_wprism_answered <what> <human|json> <output>`, prefix
   `infrastructure failure:`; keep the "answered" marker BROAD — a narrow one
   would demote a real, differently-worded engine failure into an
-  infrastructure signal; DUO-3391); (c) a hashed or compared observation of
+  infrastructure signal; issue #3391); (c) a hashed or compared observation of
   live target state can be empty — assert it carried bytes before
-  hashing/comparing (`require_observed_nonempty`, same prefix; DUO-3413 —
+  hashing/comparing (`require_observed_nonempty`, same prefix; issue #3413 —
   exit-code-gated where the read exits non-zero on genuine absence, so a
-  real deletion still reaches the engine accusation; DUO-3401). All helpers
+  real deletion still reaches the engine accusation; issue #3401). All helpers
   live in `sandbox/conformance/asserts.sh`, the shared fragment BOTH
   hook-sourcing harnesses load (`conformance/run.sh`, which `export -f`s
   them to its child hooks, and `certify_version_matrix.sh` — a helper added
   to only one harness kills the other when it reaches that test with `command not
-  found`, DUO-3408); the wiring is enforced by
+  found`, issue #3408); the wiring is enforced by
   `sandbox/tests/offline/guards/regress_conformance_asserts.sh`.
-- **CLOSED (DUO-3277):** `pair.sh up` defaults to the canonical checkout but
-  accepts an exact related worktree through `DUO_SOURCE_ROOT`; the source must
-  share the Git common directory and satisfy `DUO_EXPECTED_SOURCE_SHA` before
+- **CLOSED (issue #3277):** `pair.sh up` defaults to the canonical checkout but
+  accepts an exact related worktree through `WPRISM_SOURCE_ROOT`; the source must
+  share the Git common directory and satisfy `WPRISM_EXPECTED_SOURCE_SHA` before
   any mutation. `start` still names a dead mount source with its exact
   recovery.

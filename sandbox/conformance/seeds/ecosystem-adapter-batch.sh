@@ -64,10 +64,10 @@ if (!$discarded || !Code_Snippets\delete_snippet((int) $discarded->id)) {
     throw new RuntimeException('Code Snippets could not create/delete the identity spacer through its API');
 }
 $snippet = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
-    'name' => 'Duo conformance content',
+    'name' => 'WPrism conformance content',
     'desc' => 'Portable HTML rendered by both shortcode aliases.',
-    'code' => '<strong class="duo-code-snippet-marker">portable snippet</strong>',
-    'tags' => ['duo', 'conformance'],
+    'code' => '<strong class="wprism-code-snippet-marker">portable snippet</strong>',
+    'tags' => ['wprism', 'conformance'],
     'scope' => 'content',
     'priority' => 17,
     'active' => true,
@@ -105,8 +105,8 @@ update_option('duplicate_post_title_suffix', 'Evidence');
 update_option('duplicate_post_types_enabled', ['post', 'page']);
 update_option('duplicate_post_roles', ['administrator']);
 $original_id = wp_insert_post([
-    'post_title' => 'Duo Original Article',
-    'post_name' => 'duo-original-article',
+    'post_title' => 'WPrism Original Article',
+    'post_name' => 'wprism-original-article',
     'post_status' => 'publish',
     'post_type' => 'post',
     'post_content' => 'Original body copied through the plugin API.',
@@ -121,8 +121,8 @@ if (is_wp_error($duplicate_id) || !$duplicate_id || (int) get_post_meta($duplica
 
 // WPS Hide Login's settings callback is sanitize_title_with_dashes followed
 // by a hard rewrite flush in its settings save path. Exercise both facts.
-update_option('whl_page', sanitize_title_with_dashes('Duo Login'));
-update_option('whl_redirect_admin', sanitize_title_with_dashes('Duo Missing'));
+update_option('whl_page', sanitize_title_with_dashes('WPrism Login'));
+update_option('whl_redirect_admin', sanitize_title_with_dashes('WPrism Missing'));
 flush_rewrite_rules(true);
 
 echo wp_json_encode([

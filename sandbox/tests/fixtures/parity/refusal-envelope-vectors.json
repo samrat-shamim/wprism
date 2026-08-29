@@ -1,10 +1,10 @@
 {
-    "format": "duo-parity-refusal-envelope/v1",
+    "format": "wprism-parity-refusal-envelope/v1",
     "consumed_by": "sandbox/tests/offline/guards/regress_canonical_json_parity.php",
     "fields": {
-        "agent": "exactly the one line \\Duo\\Cli::halt_json_failure() hands WP_CLI::line() for this tuple under --format=json",
-        "host": "exactly what \\Duo\\Orchestrator\\CommandOutput::renderRefusalJson() echoes, trailing newline stripped",
-        "adapter_observe": "exactly what \\Duo\\Orchestrator\\AdapterObservation::refusal(true, …) echoes, trailing newline stripped",
+        "agent": "exactly the one line \\WPrism\\Cli::halt_json_failure() hands WP_CLI::line() for this tuple under --format=json",
+        "host": "exactly what \\WPrism\\Orchestrator\\CommandOutput::renderRefusalJson() echoes, trailing newline stripped",
+        "adapter_observe": "exactly what \\WPrism\\Orchestrator\\AdapterObservation::refusal(true, …) echoes, trailing newline stripped",
         "expect_redacted": "true when CommandRefusalException::containsSensitivePublicDetail() fires in the constructor"
     },
     "tuples": [
@@ -17,9 +17,9 @@
             "remediation": "supply --repo and rerun capture",
             "diagnostics": [],
             "expect_redacted": false,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"invalid_arguments\",\"reason_code\":\"invalid_arguments\",\"message\":\"--repo is required for capture\",\"remediation\":\"supply --repo and rerun capture\"}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"invalid_arguments\",\"reason_code\":\"invalid_arguments\",\"message\":\"--repo is required for capture\",\"remediation\":\"supply --repo and rerun capture\"}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"invalid_arguments\",\"reason_code\":\"invalid_arguments\",\"message\":\"--repo is required for capture\",\"remediation\":\"supply --repo and rerun capture\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"invalid_arguments\",\"reason_code\":\"invalid_arguments\",\"message\":\"--repo is required for capture\",\"remediation\":\"supply --repo and rerun capture\"}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"invalid_arguments\",\"reason_code\":\"invalid_arguments\",\"message\":\"--repo is required for capture\",\"remediation\":\"supply --repo and rerun capture\"}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"invalid_arguments\",\"reason_code\":\"invalid_arguments\",\"message\":\"--repo is required for capture\",\"remediation\":\"supply --repo and rerun capture\",\"details_redacted\":true}"
         },
         {
             "name": "with-diagnostics",
@@ -32,7 +32,7 @@
                 {
                     "code": "code_mismatch",
                     "message": "installed code differs",
-                    "remediation": "run duo deploy"
+                    "remediation": "run wprism deploy"
                 },
                 {
                     "code": "regen_pending",
@@ -41,9 +41,9 @@
                 }
             ],
             "expect_redacted": false,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"diagnostics\":[{\"code\":\"code_mismatch\",\"message\":\"installed code differs\",\"remediation\":\"run duo deploy\"},{\"code\":\"regen_pending\",\"message\":\"derived table repair outstanding\",\"remediation\":\"rerun apply\"}]}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"diagnostics\":[{\"code\":\"code_mismatch\",\"message\":\"installed code differs\",\"remediation\":\"run duo deploy\"},{\"code\":\"regen_pending\",\"message\":\"derived table repair outstanding\",\"remediation\":\"rerun apply\"}]}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"diagnostics\":[{\"code\":\"code_mismatch\",\"message\":\"installed code differs\",\"remediation\":\"run wprism deploy\"},{\"code\":\"regen_pending\",\"message\":\"derived table repair outstanding\",\"remediation\":\"rerun apply\"}]}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"diagnostics\":[{\"code\":\"code_mismatch\",\"message\":\"installed code differs\",\"remediation\":\"run wprism deploy\"},{\"code\":\"regen_pending\",\"message\":\"derived table repair outstanding\",\"remediation\":\"rerun apply\"}]}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"details_redacted\":true}"
         },
         {
             "name": "unicode-and-slashes",
@@ -54,9 +54,9 @@
             "remediation": "read https://example.test/docs/plan and rerun",
             "diagnostics": [],
             "expect_redacted": false,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"plan\",\"error\":\"plan_refused\",\"reason_code\":\"plan_refused\",\"message\":\"plan refused: 日本語 🚀 see https://example.test/docs/plan\",\"remediation\":\"read https://example.test/docs/plan and rerun\"}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"plan\",\"error\":\"plan_refused\",\"reason_code\":\"plan_refused\",\"message\":\"plan refused: 日本語 🚀 see https://example.test/docs/plan\",\"remediation\":\"read https://example.test/docs/plan and rerun\"}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"plan_refused\",\"reason_code\":\"plan_refused\",\"message\":\"plan refused: 日本語 🚀 see https://example.test/docs/plan\",\"remediation\":\"read https://example.test/docs/plan and rerun\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"plan\",\"error\":\"plan_refused\",\"reason_code\":\"plan_refused\",\"message\":\"plan refused: 日本語 🚀 see https://example.test/docs/plan\",\"remediation\":\"read https://example.test/docs/plan and rerun\"}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"plan\",\"error\":\"plan_refused\",\"reason_code\":\"plan_refused\",\"message\":\"plan refused: 日本語 🚀 see https://example.test/docs/plan\",\"remediation\":\"read https://example.test/docs/plan and rerun\"}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"plan_refused\",\"reason_code\":\"plan_refused\",\"message\":\"plan refused: 日本語 🚀 see https://example.test/docs/plan\",\"remediation\":\"read https://example.test/docs/plan and rerun\",\"details_redacted\":true}"
         },
         {
             "name": "presigned-url-secret",
@@ -67,9 +67,9 @@
             "remediation": "reissue the presigned URL and rerun refresh",
             "diagnostics": [],
             "expect_redacted": true,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"refresh\",\"error\":\"refresh_refused\",\"reason_code\":\"refresh_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"refresh\",\"error\":\"refresh_refused\",\"reason_code\":\"refresh_refused\",\"message\":\"fetch failed for https://bucket.s3.amazonaws.com/x?X-Amz-Signature=deadbeef\",\"remediation\":\"reissue the presigned URL and rerun refresh\"}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"refresh_refused\",\"reason_code\":\"refresh_refused\",\"message\":\"fetch failed for https://bucket.s3.amazonaws.com/x?X-Amz-Signature=deadbeef\",\"remediation\":\"reissue the presigned URL and rerun refresh\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"refresh\",\"error\":\"refresh_refused\",\"reason_code\":\"refresh_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"refresh\",\"error\":\"refresh_refused\",\"reason_code\":\"refresh_refused\",\"message\":\"fetch failed for https://bucket.s3.amazonaws.com/x?X-Amz-Signature=deadbeef\",\"remediation\":\"reissue the presigned URL and rerun refresh\"}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"refresh_refused\",\"reason_code\":\"refresh_refused\",\"message\":\"fetch failed for https://bucket.s3.amazonaws.com/x?X-Amz-Signature=deadbeef\",\"remediation\":\"reissue the presigned URL and rerun refresh\",\"details_redacted\":true}"
         },
         {
             "name": "email-address-secret",
@@ -80,9 +80,9 @@
             "remediation": "create the user and rerun apply",
             "diagnostics": [],
             "expect_redacted": true,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"user admin@example.test is absent on this environment\",\"remediation\":\"create the user and rerun apply\"}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"user admin@example.test is absent on this environment\",\"remediation\":\"create the user and rerun apply\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"user admin@example.test is absent on this environment\",\"remediation\":\"create the user and rerun apply\"}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"user admin@example.test is absent on this environment\",\"remediation\":\"create the user and rerun apply\",\"details_redacted\":true}"
         },
         {
             "name": "home-directory-path-secret",
@@ -93,9 +93,9 @@
             "remediation": "inspect /Users/operator/sites/shop/wp-content and rerun capture",
             "diagnostics": [],
             "expect_redacted": true,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"capture_refused\",\"reason_code\":\"capture_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"capture_refused\",\"reason_code\":\"capture_refused\",\"message\":\"capture refused\",\"remediation\":\"inspect /Users/operator/sites/shop/wp-content and rerun capture\"}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"capture_refused\",\"reason_code\":\"capture_refused\",\"message\":\"capture refused\",\"remediation\":\"inspect /Users/operator/sites/shop/wp-content and rerun capture\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"capture_refused\",\"reason_code\":\"capture_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"capture\",\"error\":\"capture_refused\",\"reason_code\":\"capture_refused\",\"message\":\"capture refused\",\"remediation\":\"inspect /Users/operator/sites/shop/wp-content and rerun capture\"}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"capture_refused\",\"reason_code\":\"capture_refused\",\"message\":\"capture refused\",\"remediation\":\"inspect /Users/operator/sites/shop/wp-content and rerun capture\",\"details_redacted\":true}"
         },
         {
             "name": "control-byte-secret",
@@ -106,9 +106,9 @@
             "remediation": "correct the manifest and rerun lint",
             "diagnostics": [],
             "expect_redacted": true,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"lint\",\"error\":\"lint_refused\",\"reason_code\":\"lint_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"lint\",\"error\":\"lint_refused\",\"reason_code\":\"lint_refused\",\"message\":\"lint refused\\u001b[31m red\",\"remediation\":\"correct the manifest and rerun lint\"}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"lint_refused\",\"reason_code\":\"lint_refused\",\"message\":\"lint refused\\u001b[31m red\",\"remediation\":\"correct the manifest and rerun lint\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"lint\",\"error\":\"lint_refused\",\"reason_code\":\"lint_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"lint\",\"error\":\"lint_refused\",\"reason_code\":\"lint_refused\",\"message\":\"lint refused\\u001b[31m red\",\"remediation\":\"correct the manifest and rerun lint\"}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"lint_refused\",\"reason_code\":\"lint_refused\",\"message\":\"lint refused\\u001b[31m red\",\"remediation\":\"correct the manifest and rerun lint\",\"details_redacted\":true}"
         },
         {
             "name": "secret-inside-a-diagnostic",
@@ -130,9 +130,9 @@
                 }
             ],
             "expect_redacted": true,
-            "agent": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
-            "host": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"diagnostics\":[{\"code\":\"ok_row\",\"message\":\"nothing sensitive here\",\"remediation\":\"rerun apply\"},{\"code\":\"leaky_row\",\"message\":\"token for ops@example.test rejected\",\"remediation\":\"rotate it\"}]}",
-            "adapter_observe": "{\"format\":\"duo-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"details_redacted\":true}"
+            "agent": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"structured refusal details were redacted\",\"remediation\":\"inspect private operator evidence and recovery state before another attempt\",\"details_redacted\":true}",
+            "host": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"apply\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"diagnostics\":[{\"code\":\"ok_row\",\"message\":\"nothing sensitive here\",\"remediation\":\"rerun apply\"},{\"code\":\"leaky_row\",\"message\":\"token for ops@example.test rejected\",\"remediation\":\"rotate it\"}]}",
+            "adapter_observe": "{\"format\":\"wprism-command-refusal/v1\",\"ok\":false,\"command\":\"adapter-observe\",\"error\":\"apply_refused\",\"reason_code\":\"apply_refused\",\"message\":\"apply refused before target mutation\",\"remediation\":\"resolve the reported findings and rerun plan\",\"details_redacted\":true}"
         }
     ]
 }

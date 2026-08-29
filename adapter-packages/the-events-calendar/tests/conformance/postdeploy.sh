@@ -16,8 +16,8 @@ foreach ([$wpdb->posts, $wpdb->terms, $wpdb->term_taxonomy] as $table) {
     }
 }
 
-$category = wp_insert_term('Duo Readiness 東京', 'tribe_events_cat', [
-    'slug' => 'duo-readiness-category',
+$category = wp_insert_term('WPrism Readiness 東京', 'tribe_events_cat', [
+    'slug' => 'wprism-readiness-category',
     'description' => 'Target-only stale category description.',
 ]);
 if (is_wp_error($category)) {
@@ -33,7 +33,7 @@ $color->set('tec-events-cat-colors-primary', '#000000')
     ->save();
 
 $venue = tribe_venues()->set_args([
-    'venue' => 'Duo Readiness Hall 東京',
+    'venue' => 'WPrism Readiness Hall 東京',
     'address' => 'Target-only stale address',
     'city' => 'Target stale city',
     'country' => 'Target stale country',
@@ -41,9 +41,9 @@ $venue = tribe_venues()->set_args([
 ])->create();
 $organizers = [];
 foreach ([
-    ['organizer' => 'Duo Readiness Team 東京', 'email' => 'target-stale@example.test'],
-    ['organizer' => 'Duo Accessibility Guild বাংলা', 'email' => 'target-stale-accessibility@example.test'],
-    ['organizer' => 'Duo Night Crew مرحبا', 'email' => 'target-stale-night@example.test'],
+    ['organizer' => 'WPrism Readiness Team 東京', 'email' => 'target-stale@example.test'],
+    ['organizer' => 'WPrism Accessibility Guild বাংলা', 'email' => 'target-stale-accessibility@example.test'],
+    ['organizer' => 'WPrism Night Crew مرحبا', 'email' => 'target-stale-night@example.test'],
 ] as $organizer_args) {
     $organizer_args['website'] = home_url('/target-stale-organizer/');
     $organizers[] = tribe_organizers()->set_args($organizer_args)->create();
@@ -60,8 +60,8 @@ $organizer_ids = array_map(static fn($candidate): int => (int) $candidate->ID, $
 $widget_page_id = wp_insert_post([
     'post_type' => 'page',
     'post_status' => 'publish',
-    'post_title' => 'Duo TEC Legacy Widget Surface',
-    'post_name' => 'duo-tec-legacy-widget-surface',
+    'post_title' => 'WPrism TEC Legacy Widget Surface',
+    'post_name' => 'wprism-tec-legacy-widget-surface',
     'post_content' => '<!-- wp:paragraph --><p>Target-only stale widget page.</p><!-- /wp:paragraph -->',
 ], true);
 if (is_wp_error($widget_page_id) || (int) $widget_page_id < 7000000000) {
@@ -104,7 +104,7 @@ update_option('sidebars_widgets', [
 ], true);
 
 $dirty = tribe_events()->set_args([
-    'title' => 'Duo Production Readiness Event 東京',
+    'title' => 'WPrism Production Readiness Event 東京',
     'status' => 'publish',
     'description' => 'Target-only stale event body.',
     'start_date' => '2031-01-02 03:00:00',
@@ -121,7 +121,7 @@ if (!$dirty || !$dirty->ID) {
 wp_set_object_terms((int) $dirty->ID, [$category_id], 'tribe_events_cat');
 
 $dirty_all_day = tribe_events()->set_args([
-    'title' => 'Duo All Day Boundary Event',
+    'title' => 'WPrism All Day Boundary Event',
     'status' => 'publish',
     'description' => 'Target-only stale all-day body.',
     'start_date' => '2031-02-03 05:00:00',
@@ -132,7 +132,7 @@ $dirty_all_day = tribe_events()->set_args([
     'venue' => (int) $venue->ID,
 ])->create();
 $dirty_delete_probe = tribe_events()->set_args([
-    'title' => 'Duo Unsupported Delete Probe',
+    'title' => 'WPrism Unsupported Delete Probe',
     'status' => 'publish',
     'description' => 'Target-only stale scheduled-state boundary.',
     'start_date' => '2031-03-04 07:00:00',
@@ -186,7 +186,7 @@ $wpdb->update(
 $inserted = $wpdb->insert(
     $wpdb->prefix . 'tec_kv_cache',
     [
-        'cache_key' => 'duo-readiness-target-only',
+        'cache_key' => 'wprism-readiness-target-only',
         'value' => 'target-runtime-preserved',
         'expiration' => 4102444800,
     ]
@@ -222,7 +222,7 @@ foreach ([
 }
 
 $cutoff_sentinel = tribe_events()->set_args([
-    'title' => 'Duo Target Local All Day Cutoff Sentinel',
+    'title' => 'WPrism Target Local All Day Cutoff Sentinel',
     'status' => 'publish',
     'description' => 'Target-owned event must survive the hook-bypassing settings write byte-exact.',
     'start_date' => '2020-04-05 02:03:04',
@@ -243,12 +243,12 @@ foreach (['_EventAllDay', '_EventStartDate', '_EventEndDate', '_EventDuration'] 
     $cutoff_sentinel_meta[$key] = get_post_meta($cutoff_sentinel_id, $key, true);
 }
 
-// Duo's materializer does not fire TEC's wp-admin category-save hook. Keep a
+// WPrism's materializer does not fire TEC's wp-admin category-save hook. Keep a
 // hostile generated option and a primed plugin cache so the provider must run
 // both native regeneration and native cache invalidation after term-meta apply.
 update_option(
     'tec_events_category_color_css',
-    '.tribe_events_cat-duo-readiness-category{--tec-color-category-primary:#000000}',
+    '.tribe_events_cat-wprism-readiness-category{--tec-color-category-primary:#000000}',
     true
 );
 $dropdown = tribe(
@@ -256,7 +256,7 @@ $dropdown = tribe(
 )->get_dropdown_categories();
 $dirty_dropdown = array_values(array_filter(
     $dropdown,
-    static fn(array $row): bool => ($row['slug'] ?? '') === 'duo-readiness-category'
+    static fn(array $row): bool => ($row['slug'] ?? '') === 'wprism-readiness-category'
 ));
 if (count($dirty_dropdown) !== 1 || ($dirty_dropdown[0]['primary'] ?? null) !== '#000000') {
     throw new RuntimeException('TEC hostile target Category Colors cache premise did not land');
@@ -294,7 +294,7 @@ printf '%s\n' "$TARGET_JSON" | jq -e '
   .cutoff_sentinel.id >= 7000000000 and
   .cutoff_sentinel.post == {
     post_status:"publish",
-    post_title:"Duo Target Local All Day Cutoff Sentinel",
+    post_title:"WPrism Target Local All Day Cutoff Sentinel",
     post_type:"tribe_events"
   } and .cutoff_sentinel.meta._EventAllDay == "yes" and
   .venue >= 7000000000 and .organizer >= 7000000000 and

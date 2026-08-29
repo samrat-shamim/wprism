@@ -2,7 +2,7 @@
     "adapter_dispositions": [],
     "adopt": [],
     "category_summary": {
-        "format": "duo-plan-category-summary/v1",
+        "format": "wprism-plan-category-summary/v1",
         "redaction": "values_omitted",
         "facets": "overlapping",
         "vocabulary": {

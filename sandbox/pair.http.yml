@@ -2,7 +2,7 @@
 # Override: publish wp1/wp2 to the host (sandbox/pair.yml's --http mode,
 # pair.sh's default). Layered in via `docker compose -f pair.yml -f
 # pair.http.yml ...`; never applied under --headless, which leaves wp1/wp2
-# reachable only from inside the duo-shared network (wp-cli access, which
+# reachable only from inside the wprism-shared network (wp-cli access, which
 # every pair supports either way, never goes over these host ports at all —
 # see pair.sh's printed wp-cli invocation pattern).
 #
@@ -15,6 +15,6 @@
 # -----------------------------------------------------------------------------
 services:
   wp1:
-    ports: ["127.0.0.1:${DUO_PORT1}:80"]
+    ports: ["127.0.0.1:${WPRISM_PORT1}:80"]
   wp2:
-    ports: ["127.0.0.1:${DUO_PORT2}:80"]
+    ports: ["127.0.0.1:${WPRISM_PORT2}:80"]

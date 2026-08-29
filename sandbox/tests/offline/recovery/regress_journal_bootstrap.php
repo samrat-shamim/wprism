@@ -4,7 +4,7 @@
  *
  * The control-plane agent is included from WP-CLI's after_wp_config_load
  * hook, before ordinary WordPress functions exist.  This process deliberately
- * defines only the WP_CLI class surface needed by agent/duo.php; the child
+ * defines only the WP_CLI class surface needed by agent/wprism.php; the child
  * process then proves that the ordinary opt-in path still installs hooks once
  * the three WordPress journal APIs are available.
  */
@@ -24,7 +24,7 @@ define('WP_CLI', true);
 $normal = ($argv[1] ?? '') === 'normal';
 
 if ($normal) {
-    define('DUO_JOURNAL', true);
+    define('WPRISM_JOURNAL', true);
     $GLOBALS['journal_boot_calls'] = ['filters' => [], 'actions' => []];
 
     function get_option(string $key, $default = false) {
@@ -41,8 +41,8 @@ if ($normal) {
         return true;
     }
 } else {
-    define('DUO_CONTROL_PLANE', true);
-    define('DUO_JOURNAL', true);
+    define('WPRISM_CONTROL_PLANE', true);
+    define('WPRISM_JOURNAL', true);
     foreach (['get_option', 'add_filter', 'add_action'] as $wpFunction) {
         if (function_exists($wpFunction)) {
             fwrite(STDERR, "FAIL: early regression unexpectedly has WordPress function $wpFunction\n");
@@ -51,14 +51,14 @@ if ($normal) {
     }
 }
 
-require dirname(__DIR__, 4) . '/agent/duo.php';
+require dirname(__DIR__, 4) . '/agent/wprism.php';
 
-$journal = new ReflectionClass(\Duo\Journal::class);
+$journal = new ReflectionClass(\WPrism\Journal::class);
 $booted = (bool) $journal->getStaticPropertyValue('booted');
 
 if ($normal) {
     if (!$booted) {
-        fwrite(STDERR, "FAIL: ordinary DUO_JOURNAL runtime did not boot\n");
+        fwrite(STDERR, "FAIL: ordinary WPRISM_JOURNAL runtime did not boot\n");
         exit(1);
     }
     $calls = $GLOBALS['journal_boot_calls'];
@@ -71,11 +71,11 @@ if ($normal) {
 
     $GLOBALS['wpdb'] = (object) ['prefix' => 'wp_'];
     $journal->setStaticPropertyValue('buffer', []);
-    $maxTableIdentifier = \Duo\Ledger::TABLE_IDENTIFIER_WIDTH;
+    $maxTableIdentifier = \WPrism\Ledger::TABLE_IDENTIFIER_WIDTH;
     $validPhysicalTable = 'wp_' . str_repeat('v', $maxTableIdentifier - 3);
     $overlongPhysicalTable = 'wp_' . str_repeat('x', $maxTableIdentifier - 2);
-    \Duo\Journal::observe("INSERT INTO `$validPhysicalTable` (`id`) VALUES (1)");
-    \Duo\Journal::observe("INSERT INTO `$overlongPhysicalTable` (`id`) VALUES (2)");
+    \WPrism\Journal::observe("INSERT INTO `$validPhysicalTable` (`id`) VALUES (1)");
+    \WPrism\Journal::observe("INSERT INTO `$overlongPhysicalTable` (`id`) VALUES (2)");
     $buffer = $journal->getStaticPropertyValue('buffer');
     if ($maxTableIdentifier !== 64
         || strlen($validPhysicalTable) !== 64

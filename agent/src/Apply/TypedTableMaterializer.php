@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 
@@ -29,7 +29,7 @@ if (!class_exists(ColumnCodecGrammar::class, false)) {
 }
 
 /**
- * Write-side materialization boundary for authored typed tables (DUO-3349).
+ * Write-side materialization boundary for authored typed tables (issue #3349).
  *
  * This class owns the complete canonical-entity-to-live-row pipeline:
  * phase-1 placeholder creation, phase-2 reference and attached-meta
@@ -136,7 +136,7 @@ final class TypedTableMaterializer {
             ));
             if ((string) ($wpdb->last_error ?? '') !== '') {
                 throw new \RuntimeException(
-                    "duo: failed to verify retained typed-snapshot identity for {$entity['type']}"
+                    "wprism: failed to verify retained typed-snapshot identity for {$entity['type']}"
                 );
             }
             if ($existingId !== null) {
@@ -181,7 +181,7 @@ final class TypedTableMaterializer {
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $uuid = $front['uuid'];
         $localId = ($this->ledgerIdFor)($uuid, $idKind)
-            ?? throw new \RuntimeException("duo: table row $uuid ({$entity['type']}) missing from ledger after phase 1");
+            ?? throw new \RuntimeException("wprism: table row $uuid ({$entity['type']}) missing from ledger after phase 1");
         $prefixed = $wpdb->prefix . $entity['type'];
         $pk = $decl['pk'];
         $colTypes = TableSchema::live_column_types($entity['type']) ?? [];
@@ -318,7 +318,7 @@ final class TypedTableMaterializer {
         foreach ($desiredMeta as $key => $value) {
             if (!(($this->metaKeyInKeyspace)($decl, (string) $key))) {
                 throw new \RuntimeException(
-                    "duo: repository asks apply to write table_meta:$metaTable:$key outside its declared keyspace"
+                    "wprism: repository asks apply to write table_meta:$metaTable:$key outside its declared keyspace"
                 );
             }
             $rule = ReferenceRules::attached_meta_key($decl, $key);
@@ -418,7 +418,7 @@ final class TypedTableMaterializer {
                     $name,
                     'apply invalidate typed-snapshot option cache row readback'
                 ) !== null) {
-                    throw new \RuntimeException('duo: typed-snapshot option cache row remained after invalidation');
+                    throw new \RuntimeException('wprism: typed-snapshot option cache row remained after invalidation');
                 }
             } else {
                 $exists = $wpdb->get_var($wpdb->prepare(
@@ -467,7 +467,7 @@ final class TypedTableMaterializer {
         $purpose = 'apply invalidate declared object-cache entry';
         if (!function_exists('wp_cache_get')) {
             throw new \RuntimeException(
-                "duo: $purpose cannot verify the drop of '$key' in group '$group' — wp_cache_get() is absent, "
+                "wprism: $purpose cannot verify the drop of '$key' in group '$group' — wp_cache_get() is absent, "
                 . 'and an unverified cache invalidation proves nothing about the stale read it exists to prevent'
             );
         }
@@ -480,7 +480,7 @@ final class TypedTableMaterializer {
         wp_cache_get($key, $group, false, $found);
         if ($found) {
             throw new \RuntimeException(
-                "duo: $purpose left '$key' cached in group '$group'; the declared invalidation did not take, so "
+                "wprism: $purpose left '$key' cached in group '$group'; the declared invalidation did not take, so "
                 . "the plugin's own read path would still serve the pre-apply value"
             );
         }
@@ -504,7 +504,7 @@ final class TypedTableMaterializer {
         global $wpdb;
         $decl = ($this->rowTables)()[$table] ?? null;
         if ($decl === null) {
-            throw new \RuntimeException("duo: cannot delete row from undeclared table '$table'");
+            throw new \RuntimeException("wprism: cannot delete row from undeclared table '$table'");
         }
         if (TableGraph::is_composite_ref($decl)) {
             $columns = $decl['identity']['columns'];
@@ -544,11 +544,11 @@ final class TypedTableMaterializer {
         global $wpdb;
         $decl = ($this->rowTables)()[$table] ?? null;
         if ($decl === null) {
-            throw new \RuntimeException("duo: cannot reparent row in undeclared table '$table'");
+            throw new \RuntimeException("wprism: cannot reparent row in undeclared table '$table'");
         }
         if (TableGraph::is_composite_ref($decl)) {
             throw new \RuntimeException(
-                "duo: reparenting composite_ref table '$table' changes the row's identity; delete the orphaned fact instead"
+                "wprism: reparenting composite_ref table '$table' changes the row's identity; delete the orphaned fact instead"
             );
         }
         $ref = null;
@@ -559,7 +559,7 @@ final class TypedTableMaterializer {
             }
         }
         if ($ref === null) {
-            throw new \RuntimeException("duo: '$column' is not a declared structural ref column of '$table'");
+            throw new \RuntimeException("wprism: '$column' is not a declared structural ref column of '$table'");
         }
         Db::update(
             $wpdb->prefix . $table,
@@ -604,7 +604,7 @@ final class TypedTableMaterializer {
         global $wpdb;
         $decl = ($this->rowTables)()[$table] ?? null;
         if ($decl === null) {
-            throw new \RuntimeException("duo: cannot verify deletion of undeclared table '$table'");
+            throw new \RuntimeException("wprism: cannot verify deletion of undeclared table '$table'");
         }
         $prefixed = $wpdb->prefix . $table;
         if (TableGraph::is_composite_ref($decl)) {
@@ -623,7 +623,7 @@ final class TypedTableMaterializer {
             ));
         }
         if ($remaining !== 0) {
-            throw new \RuntimeException("duo: deletion verification failed for $table local id $localId");
+            throw new \RuntimeException("wprism: deletion verification failed for $table local id $localId");
         }
         foreach (($this->metaTables)() as $metaName => $metaDecl) {
             if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
@@ -640,7 +640,7 @@ final class TypedTableMaterializer {
             ));
             if ($count !== 0) {
                 throw new \RuntimeException(
-                    "duo: deletion verification failed for $table local id $localId: $count attached $metaName row(s) remain"
+                    "wprism: deletion verification failed for $table local id $localId: $count attached $metaName row(s) remain"
                 );
             }
         }

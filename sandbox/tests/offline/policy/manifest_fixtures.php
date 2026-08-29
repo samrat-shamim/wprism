@@ -3,9 +3,9 @@
  * The two-adapter manifest fixture pair, shared by every offline suite that
  * needs a well-formed manifest to break in one specific way.
  *
- * Established by sandbox/tests/offline/policy/regress_vocabulary_ownership.php (DUO-3318) and
+ * Established by sandbox/tests/offline/policy/regress_vocabulary_ownership.php (issue #3318) and
  * moved here unchanged when sandbox/tests/offline/policy/regress_manifest_validate.php
- * (DUO-3327) needed the identical shapes: the offline authoring aid and the
+ * (issue #3327) needed the identical shapes: the offline authoring aid and the
  * load-time validators must be exercised against ONE set of declarations, or
  * the two suites drift into disagreeing about what a valid manifest looks like
  * — which is the exact failure the shared-fixture requirement exists to stop.
@@ -15,7 +15,7 @@
  * regress_* file to be either a runnable suite or invoked as `php <file>` by
  * one. A require'd helper is neither.
  *
- * Both builders read DUO_SPEC_VERSION at CALL time, so a suite that defines a
+ * Both builders read WPRISM_SPEC_VERSION at CALL time, so a suite that defines a
  * different supported version before requiring this file still gets fixtures
  * its own Policy::load() will accept.
  *
@@ -31,7 +31,7 @@
  * manifest_a() declares `post_types.acme_thing.regen_dependency.regenerator =
  * "acme-a"`, and Policy::regenerators() resolves that name to
  * <manifests_dir>/regenerators/acme-a.php, requiring it to define
- * \Duo\Regenerators\AcmeA with regenerate(int $localId): void. Until DUO-3327's
+ * \WPrism\Regenerators\AcmeA with regenerate(int $localId): void. Until issue #3327's
  * offline check resolved that lazily-loaded half, a fixture could name a
  * regenerator it did not ship and nothing noticed; now it is a load-time fact,
  * so the fixture ships it.
@@ -49,7 +49,7 @@ function manifest_fixture_code(string $dir): void {
     }
     file_put_contents($regenerators . '/acme-a.php', <<<'PHP'
 <?php
-namespace Duo\Regenerators;
+namespace WPrism\Regenerators;
 
 /** Fixture regenerator for manifest_a(): the loading contract, nothing more. */
 final class AcmeA {
@@ -72,13 +72,13 @@ function manifest_fixture_code_cleanup(string $dir): void {
 /**
  * Close a deliberately flat fixture into the explicit legacy-library shape.
  *
- * Production no longer reads DUO_MANIFESTS_DIR. Tests that intentionally
+ * Production no longer reads WPRISM_MANIFESTS_DIR. Tests that intentionally
  * exercise flat authoring bytes therefore hand Policy one AdapterLibrary
  * object, including the platform-owned files and one reviewed entry per
  * manifest. Runtime placeholders close only the physical inventory; suites
  * that exercise a hook's class contract still write that hook themselves.
  */
-function manifest_fixture_adapter_library(string $dir): \Duo\AdapterLibrary {
+function manifest_fixture_adapter_library(string $dir): \WPrism\AdapterLibrary {
     $dir = rtrim($dir, '/');
     foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $relative) {
         $path = "$dir/$relative";
@@ -87,16 +87,16 @@ function manifest_fixture_adapter_library(string $dir): \Duo\AdapterLibrary {
         }
     }
 
-    $source = \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
-    $platform = \Duo\Canon::decode(\Duo\Canon::read_file($source->platformBoundaryPath()));
-    $platform['platform']['agent_version'] = defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : '0.6.0';
-    $platform['platform']['spec_version'] = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 3;
-    \Duo\Canon::write_file("$dir/capabilities/platform.json", \Duo\Canon::encode($platform));
+    $source = \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
+    $platform = \WPrism\Canon::decode(\WPrism\Canon::read_file($source->platformBoundaryPath()));
+    $platform['platform']['agent_version'] = defined('WPRISM_AGENT_VERSION') ? WPRISM_AGENT_VERSION : '0.7.0';
+    $platform['platform']['spec_version'] = defined('WPRISM_SPEC_VERSION') ? WPRISM_SPEC_VERSION : 3;
+    \WPrism\Canon::write_file("$dir/capabilities/platform.json", \WPrism\Canon::encode($platform));
     copy($source->authoritiesPath(), "$dir/capabilities/adapter-authorities.json");
     file_put_contents("$dir/dispositions/profiles.json", "{}\n");
 
     foreach (glob("$dir/*.json") ?: [] as $manifestFile) {
-        $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($manifestFile));
+        $manifest = \WPrism\Canon::decode(\WPrism\Canon::read_file($manifestFile));
         $name = (string) ($manifest['name'] ?? '');
         if ($name === '') {
             continue;
@@ -140,7 +140,7 @@ function manifest_fixture_adapter_library(string $dir): \Duo\AdapterLibrary {
             'supported_versions' => ['fixture' => true],
             'unsupported' => $unsupported,
         ];
-        \Duo\Canon::write_file("$dir/dispositions/$name.json", \Duo\Canon::encode($disposition));
+        \WPrism\Canon::write_file("$dir/dispositions/$name.json", \WPrism\Canon::encode($disposition));
 
         $interpreter = $manifest['interpreter'] ?? null;
         if (is_string($interpreter) && $interpreter !== '' && !is_file("$dir/interpreters/$interpreter.php")) {
@@ -162,7 +162,7 @@ function manifest_fixture_adapter_library(string $dir): \Duo\AdapterLibrary {
         }
     }
 
-    return \Duo\AdapterLibrary::fromLegacyFlatDirectory($dir);
+    return \WPrism\AdapterLibrary::fromLegacyFlatDirectory($dir);
 }
 
 /** Remove one caller-owned scratch tree materialized by this fixture helper. */
@@ -180,14 +180,14 @@ function manifest_fixture_remove_tree(string $path): void {
 }
 
 /** Load a FrozenPolicy envelope against the explicit library that holds it. */
-function manifest_fixture_policy_from_snapshot(array $snapshot): \Duo\Policy {
-    $library = manifest_fixture_adapter_library(\DuoTest\FrozenPolicy::library());
-    return \Duo\Policy::from_snapshot($snapshot, $library);
+function manifest_fixture_policy_from_snapshot(array $snapshot): \WPrism\Policy {
+    $library = manifest_fixture_adapter_library(\WPrismTest\FrozenPolicy::library());
+    return \WPrism\Policy::from_snapshot($snapshot, $library);
 }
 
 /** Load live policy bytes from one explicit, deliberately flat fixture. */
-function manifest_fixture_policy_load(string $dir, ?string $repo, ?array $manifestNames = null): \Duo\Policy {
-    return \Duo\Policy::load(
+function manifest_fixture_policy_load(string $dir, ?string $repo, ?array $manifestNames = null): \WPrism\Policy {
+    return \WPrism\Policy::load(
         $repo,
         $manifestNames,
         adapterLibrary: manifest_fixture_adapter_library($dir)
@@ -203,7 +203,7 @@ function manifest_fixture_policy_load(string $dir, ?string $repo, ?array $manife
 function manifest_a(array $overrides = []): array {
     return array_merge([
         'name' => 'a',
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'plugin' => 'acme-a/acme-a.php',
         'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
         'option_namespaces' => [['match' => '^acme_a_']],
@@ -251,7 +251,7 @@ function manifest_a(array $overrides = []): array {
 function manifest_b(array $overrides = []): array {
     return array_merge([
         'name' => 'b',
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'plugin' => 'acme-b/acme-b.php',
         'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
         'option_namespaces' => [['match' => '^acme_b_']],

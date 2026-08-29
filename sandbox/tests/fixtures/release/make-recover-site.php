@@ -3,14 +3,14 @@ declare(strict_types=1);
 
 /**
  * Build the offline fixture `regress_recover_ordering.sh` drives
- * `php cli/duo recover` against.
+ * `php cli/wprism recover` against.
  *
  * The signed catalog and the signed rollback exist only on an SSH-adopted
  * target, because the adopted rollback authority runtime is what every
  * action in `recovery/rollback-control.php` is reached through. This fixture
  * therefore builds a real `ssh` environment entry and puts a fake `ssh` on
  * PATH that runs the remote command locally — the same shape
- * `sandbox/tests/fixtures/duo3344-scoped-promote-unit.php` uses, kept small
+ * `sandbox/tests/fixtures/scoped-promote-unit.php` uses, kept small
  * here because the subject under test is the HOST'S ordering, not the signed
  * runtime (which `regress_scoped_promote_unit.sh` already covers end to end).
  * A second, `local` environment (`plain`) points at the same target
@@ -20,25 +20,25 @@ declare(strict_types=1);
  *
  * What it produces under `<dir>`:
  *
- *   site/           the LOCAL site repository (`site.duo.json`, a Git
+ *   site/           the LOCAL site repository (`site.wprism.json`, a Git
  *                   worktree, and optionally one frozen authorization plan)
  *   target/         the TARGET repository as the driver sees it, carrying
- *                     .duo/control/recovery-runtime/rollback-control.php
+ *                     .wprism/control/recovery-runtime/rollback-control.php
  *                       — a stub that prints whatever canonical status
- *                         document `$DUO_RECOVER_STATUS` names
- *                     .duo/checkpoints/promote-<owner>.sql.enc
+ *                         document `$WPRISM_RECOVER_STATUS` names
+ *                     .wprism/checkpoints/promote-<owner>.sql.enc
  *                       — the operator-directed checkpoint; a suite deletes
  *                         it to exercise the absent-checkpoint refusal
- *                     .duo/artifacts/promote-<owner>.json
+ *                     .wprism/artifacts/promote-<owner>.json
  *                       — the compiled artifact the same promotion retained,
  *                         whose top-level artifact_hash is the lease identity
  *                         a retained checkpoint is restored under; a suite
  *                         deletes it to exercise the no-identity refusal
- *                     .duo/checkpoints/promote-<code-owner>.sql.enc (+ artifact)
+ *                     .wprism/checkpoints/promote-<code-owner>.sql.enc (+ artifact)
  *                       — a second retained checkpoint whose frozen plan
  *                         entered a code lifecycle phase, for code-first
- *                     .duo/checkpoints/deploy-<deploy-owner>.sql.enc (+ artifact)
- *                       — the checkpoint a standalone `duo deploy` retains
+ *                     .wprism/checkpoints/deploy-<deploy-owner>.sql.enc (+ artifact)
+ *                       — the checkpoint a standalone `wprism deploy` retains
  *                         under its own lease. Same kind, same four ordered
  *                         steps; only the file-name prefix differs, which is
  *                         exactly what RetainedCheckpoints::prefixForRow()
@@ -54,20 +54,20 @@ declare(strict_types=1);
  *
  * Environment variables the generated executables honour:
  *
- *   DUO_WP_CALLS=<file>      every fake-wp invocation, one per line, in order
- *   DUO_RECOVER_STATUS=<f>   the authority status document to serve
- *   DUO_ABORT_EXIT=<n>       `duo promotion-abort` exit code (default 0)
- *   DUO_ABORT_ENVELOPE=<f>   a file whose bytes `duo promotion-abort` prints
+ *   WPRISM_WP_CALLS=<file>      every fake-wp invocation, one per line, in order
+ *   WPRISM_RECOVER_STATUS=<f>   the authority status document to serve
+ *   WPRISM_ABORT_EXIT=<n>       `wprism promotion-abort` exit code (default 0)
+ *   WPRISM_ABORT_ENVELOPE=<f>   a file whose bytes `wprism promotion-abort` prints
  *                            on STDOUT, for the refusal the agent answers a
  *                            `--format=json` abort with
- *                            (`duo-command-refusal/v1`). Set it together with
- *                            DUO_ABORT_EXIT=<non-zero>: an envelope is what a
+ *                            (`wprism-command-refusal/v1`). Set it together with
+ *                            WPRISM_ABORT_EXIT=<non-zero>: an envelope is what a
  *                            REFUSED abort returns, and the two knobs stay
  *                            separate so a suite can also prove that a
  *                            failure carrying no envelope keeps the constant
  *                            detail (RecoverCommand::STEP_FAILED_DETAIL)
- *   DUO_BEGIN_EXIT=<n>       `duo promotion-begin` exit code (default 0)
- *   DUO_IMPORT_EXIT=<n>      `wp db import` exit code (default 0) — the
+ *   WPRISM_BEGIN_EXIT=<n>       `wprism promotion-begin` exit code (default 0)
+ *   WPRISM_IMPORT_EXIT=<n>      `wp db import` exit code (default 0) — the
  *                            failed-import case the mandatory final abort is
  *                            about
  *
@@ -79,8 +79,8 @@ require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/cli/src/Release/AuthorizationPlan.php';
 require_once $root . '/cli/src/Recovery/RecoveryClaim.php';
 
-use Duo\Orchestrator\AuthorizationPlan;
-use Duo\Orchestrator\RecoveryClaim;
+use WPrism\Orchestrator\AuthorizationPlan;
+use WPrism\Orchestrator\RecoveryClaim;
 
 $dir = $argv[1] ?? null;
 if (!is_string($dir) || $dir === '') {
@@ -96,7 +96,7 @@ const RECOVER_ARTIFACT = 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
 const RECOVER_CODE_OWNER = 'recover-fixture-code';
 const RECOVER_CODE_ARTIFACT = 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2';
 /**
- * The third: a standalone `duo deploy`'s own checkpoint. It reuses
+ * The third: a standalone `wprism deploy`'s own checkpoint. It reuses
  * RECOVER_ARTIFACT so the SAME frozen plan (database-only, no lifecycle phase)
  * governs it — the subject here is the file-name prefix reaching restore, not
  * a second code-first scenario, which RECOVER_CODE_OWNER already covers.
@@ -111,7 +111,7 @@ foreach (['site', 'target', 'bin', 'wordpress', 'status'] as $child) {
 }
 
 // ------------------------------------------------------------- the site repo
-file_put_contents("$dir/site/site.duo.json", json_encode([
+file_put_contents("$dir/site/site.wprism.json", json_encode([
     'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
     'manifests' => ['core'],
     'policy' => new stdClass(),
@@ -122,7 +122,7 @@ exec('git -C ' . escapeshellarg("$dir/site") . ' config user.email fixture@examp
 exec('git -C ' . escapeshellarg("$dir/site") . ' config user.name fixture 2>/dev/null');
 
 // One frozen authorization plan whose artifact hash matches the receipt, so
-// the claim `duo recover` prints is provably the claim the operator was
+// the claim `wprism recover` prints is provably the claim the operator was
 // shown at authorization rather than a freshly-built lookalike.
 $claim = RecoveryClaim::build([
     'covered_resources' => [RecoveryClaim::RESOURCE_DATABASE_CHECKPOINT, RecoveryClaim::RESOURCE_CODE_RELEASE],
@@ -200,7 +200,7 @@ $codeDocument = AuthorizationPlan::build([
 AuthorizationPlan::freeze($codeDocument, "$dir/site");
 
 // ----------------------------------------------------------- the target repo
-file_put_contents("$dir/target/site.duo.json", json_encode([
+file_put_contents("$dir/target/site.wprism.json", json_encode([
     'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
     'manifests' => ['core'],
     'policy' => new stdClass(),
@@ -210,14 +210,14 @@ exec('git -C ' . escapeshellarg("$dir/target") . ' init -q 2>/dev/null');
 exec('git -C ' . escapeshellarg("$dir/target")
     . ' -c user.email=f@example.invalid -c user.name=f commit -q --allow-empty -m target 2>/dev/null');
 
-foreach (['.duo/control/recovery-runtime', '.duo/checkpoints', '.duo/artifacts'] as $child) {
+foreach (['.wprism/control/recovery-runtime', '.wprism/checkpoints', '.wprism/artifacts'] as $child) {
     if (!is_dir("$dir/target/$child") && !mkdir("$dir/target/$child", 0700, true)) {
         fwrite(STDERR, "make-recover-site: could not create $dir/target/$child\n");
         exit(2);
     }
 }
 file_put_contents(
-    "$dir/target/.duo/checkpoints/promote-" . RECOVER_OWNER . '.sql.enc',
+    "$dir/target/.wprism/checkpoints/promote-" . RECOVER_OWNER . '.sql.enc',
     "-- fixture checkpoint\n"
 );
 // The compiled artifact promote retained beside the checkpoint, in the
@@ -225,31 +225,31 @@ file_put_contents(
 // pretty-printed canonical form): its top-level artifact_hash is what a
 // retained checkpoint's lease identity is read from.
 file_put_contents(
-    "$dir/target/.duo/artifacts/promote-" . RECOVER_OWNER . '.json',
-    \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
+    "$dir/target/.wprism/artifacts/promote-" . RECOVER_OWNER . '.json',
+    \WPrism\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'wprism-compiled/fixture'])
 );
 // The deploy checkpoint and its sibling artifact, stem for stem: that shared
 // stem is the whole reason RetainedCheckpoints reads the lease identity out of
 // `artifacts/<basename>.json` with no second mechanism. Dated between the two
 // promote checkpoints so the merged listing order is deterministic.
 file_put_contents(
-    "$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql.enc',
+    "$dir/target/.wprism/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql.enc',
     "-- fixture checkpoint (deploy)\n"
 );
-touch("$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql.enc', 1_750_000_000);
+touch("$dir/target/.wprism/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql.enc', 1_750_000_000);
 file_put_contents(
-    "$dir/target/.duo/artifacts/" . RECOVER_DEPLOY_OWNER . '.json',
-    \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
+    "$dir/target/.wprism/artifacts/" . RECOVER_DEPLOY_OWNER . '.json',
+    \WPrism\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'wprism-compiled/fixture'])
 );
 // The code-phase release's pair, dated earlier so the listing order is fixed.
 file_put_contents(
-    "$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql.enc',
+    "$dir/target/.wprism/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql.enc',
     "-- fixture checkpoint (code phase)\n"
 );
-touch("$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql.enc', 1_700_000_000);
+touch("$dir/target/.wprism/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql.enc', 1_700_000_000);
 file_put_contents(
-    "$dir/target/.duo/artifacts/promote-" . RECOVER_CODE_OWNER . '.json',
-    \Duo\Canon::encode(['artifact_hash' => RECOVER_CODE_ARTIFACT, 'format' => 'duo-compiled/fixture'])
+    "$dir/target/.wprism/artifacts/promote-" . RECOVER_CODE_OWNER . '.json',
+    \WPrism\Canon::encode(['artifact_hash' => RECOVER_CODE_ARTIFACT, 'format' => 'wprism-compiled/fixture'])
 );
 
 // The stub runtime. It answers only the two read-only actions the checkpoint
@@ -260,10 +260,10 @@ $runtime = <<<'PHP'
 <?php
 declare(strict_types=1);
 
-require_once getenv('DUO_RECOVERY_RUNTIME_SOURCE');
+require_once getenv('WPRISM_RECOVERY_RUNTIME_SOURCE');
 
 $action = $argv[1] ?? '';
-$path = (string) getenv('DUO_RECOVER_STATUS');
+$path = (string) getenv('WPRISM_RECOVER_STATUS');
 if ($action === 'audit') {
     $document = ['event_chain_sha256' => str_repeat('cc', 32), 'ok' => true];
 } else {
@@ -274,9 +274,9 @@ if ($action === 'audit') {
     }
     $document = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 }
-echo \Duo\Recovery\CanonicalJson::encode($document) . "\n";
+echo \WPrism\Recovery\CanonicalJson::encode($document) . "\n";
 PHP;
-file_put_contents("$dir/target/.duo/control/recovery-runtime/rollback-control.php", $runtime . "\n");
+file_put_contents("$dir/target/.wprism/control/recovery-runtime/rollback-control.php", $runtime . "\n");
 
 /**
  * One authority status document.
@@ -340,30 +340,30 @@ chmod("$dir/bin/ssh", 0700);
 $wpShim = <<<'SH'
 #!/usr/bin/env bash
 set -u
-printf '%s\n' "$*" >> "$DUO_WP_CALLS"
+printf '%s\n' "$*" >> "$WPRISM_WP_CALLS"
 case " $* " in
-  *" duo promotion-abort "*)
+  *" wprism promotion-abort "*)
     # The agent answers a --format=json refusal with one
-    # `duo-command-refusal/v1` object on STDOUT and exits non-zero
+    # `wprism-command-refusal/v1` object on STDOUT and exits non-zero
     # (agent/src/Command/Cli.php:145-146). Reproduce exactly that: bytes on
     # stdout, the injected exit code, nothing on stderr.
-    if [ -n "${DUO_ABORT_ENVELOPE:-}" ] && [ -f "${DUO_ABORT_ENVELOPE}" ]; then
-      cat "${DUO_ABORT_ENVELOPE}"
+    if [ -n "${WPRISM_ABORT_ENVELOPE:-}" ] && [ -f "${WPRISM_ABORT_ENVELOPE}" ]; then
+      cat "${WPRISM_ABORT_ENVELOPE}"
     fi
-    exit "${DUO_ABORT_EXIT:-0}"
+    exit "${WPRISM_ABORT_EXIT:-0}"
     ;;
-  *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
-  *" duo checkpoint-open "*) printf '%s\n' '-- authenticated fixture checkpoint'; exit 0 ;;
-  *" db import "*) exit "${DUO_IMPORT_EXIT:-0}" ;;
+  *" wprism promotion-begin "*) exit "${WPRISM_BEGIN_EXIT:-0}" ;;
+  *" wprism checkpoint-open "*) printf '%s\n' '-- authenticated fixture checkpoint'; exit 0 ;;
+  *" db import "*) exit "${WPRISM_IMPORT_EXIT:-0}" ;;
   *" core is-installed "*) exit 0 ;;
   *is_multisite*)
     # RecoverCommand's host-side topology probe, asked before step 1.
-    # DUO_TOPOLOGY_EXIT drives the fail-closed "cannot answer" case; the
+    # WPRISM_TOPOLOGY_EXIT drives the fail-closed "cannot answer" case; the
     # answer itself is printed exactly as `wp eval` would.
-    if [ "${DUO_TOPOLOGY_EXIT:-0}" != 0 ]; then
-      exit "${DUO_TOPOLOGY_EXIT}"
+    if [ "${WPRISM_TOPOLOGY_EXIT:-0}" != 0 ]; then
+      exit "${WPRISM_TOPOLOGY_EXIT}"
     fi
-    printf '%s' "${DUO_TOPOLOGY:-single-site}"
+    printf '%s' "${WPRISM_TOPOLOGY:-single-site}"
     exit 0
     ;;
 esac

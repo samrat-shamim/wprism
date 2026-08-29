@@ -1,5 +1,5 @@
 {
-    "assess_digest": "sha256:13a3ed2697088511692cd4eb8bd63dee5a5836eb79da721c7b940a4c2f092566",
+    "assess_digest": "sha256:e74580d53b4293dc17ed9b39d06191af7dd17136c3c85b0ec59b703e0fc4252b",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
@@ -18,7 +18,7 @@
         },
         "registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },
-    "format": "duo-assess-report/v1",
+    "format": "wprism-assess-report/v1",
     "generated_at": "2026-08-17T09:14:02Z",
     "surfaces": [
         {

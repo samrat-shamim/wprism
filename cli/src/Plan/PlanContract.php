@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
- * The complete `wp duo plan --format=json` envelope.
+ * The complete `wp wprism plan --format=json` envelope.
  *
  * PlanSummary::render() is deliberately fixture-tolerant: every bucket it
  * reads is defaulted (`$plan['conflict'] ?? []`) so unit fixtures may render
@@ -17,7 +17,7 @@ namespace Duo\Orchestrator;
  * REQUIRED_BUCKETS is the exact detailed bucket set agent/src/Apply/Apply.php emits:
  * build_plan()'s own initializer plus the buckets it assigns later
  * (regen_pending, regen_context, env_missing), plus `warnings` and
- * `provider_problems`, which only the plan() entry point attaches — so a document missing it did not come from `wp duo
+ * `provider_problems`, which only the plan() entry point attaches — so a document missing it did not come from `wp wprism
  * plan` at all. Cli.php::plan() json_encode()s that array verbatim, so the
  * detailed wire envelope and the emitter's array are the same thing. The
  * additive `category_summary` and explicitly requested `plan_view` are
@@ -38,7 +38,7 @@ namespace Duo\Orchestrator;
  * different row shapes (see PlanSummary's own docblock), and `ok` is computed
  * from counts, so no field-level schema is validated here — "the bucket exists
  * and is a list" is what makes a count trustworthy. There is one cheap floor
- * BENEATH the field shapes, though (DUO-3388): every required bucket except
+ * BENEATH the field shapes, though (issue #3388): every required bucket except
  * `warnings` is a list of row OBJECTS, and PlanSummary::label() and its
  * render() peers dereference those rows as arrays, so a non-array row such as
  * `"conflict": [true]` would raise an uncaught TypeError the instant a trust
@@ -65,7 +65,7 @@ final class PlanContract {
      */
     public const GRADUATED_VERSION_RANGE = 'version_range_graduated';
 
-    private const CATEGORY_SUMMARY_FORMAT = 'duo-plan-category-summary/v1';
+    private const CATEGORY_SUMMARY_FORMAT = 'wprism-plan-category-summary/v1';
 
     /** @var list<string> */
     private const CATEGORY_SUMMARY_IDS = [
@@ -192,7 +192,7 @@ final class PlanContract {
     }
 
     /**
-     * Closed decorations on `duo-scoped-plan/v1`, never full-plan options.
+     * Closed decorations on `wprism-scoped-plan/v1`, never full-plan options.
      *
      * @return list<string>
      */
@@ -246,7 +246,7 @@ final class PlanContract {
                 return [];
             }
             if ($id === 'secrets') {
-                $lines[] = '  secrets: redacted; secret values omitted; secret-state refusals use duo-command-refusal/v1';
+                $lines[] = '  secrets: redacted; secret values omitted; secret-state refusals use wprism-command-refusal/v1';
                 continue;
             }
             /** @var array<string,mixed> $category */
@@ -296,7 +296,7 @@ final class PlanContract {
                 $violations[] = "$bucket is not a list";
                 continue;
             }
-            // DUO-3388 row-shape FLOOR. Every required bucket except the
+            // issue #3388 row-shape FLOOR. Every required bucket except the
             // non-object-row ones (warnings) is a list of row OBJECTS;
             // PlanSummary::label()/render() dereference those rows as arrays, so
             // a non-array row would TypeError the instant a trust boundary
@@ -328,7 +328,7 @@ final class PlanContract {
             $violations[] = 'has unexpected or out-of-order top-level keys';
         }
         if (($summary['format'] ?? null) !== self::CATEGORY_SUMMARY_FORMAT) {
-            $violations[] = 'format is not duo-plan-category-summary/v1';
+            $violations[] = 'format is not wprism-plan-category-summary/v1';
         }
         if (($summary['redaction'] ?? null) !== 'values_omitted') {
             $violations[] = 'redaction is not values_omitted';

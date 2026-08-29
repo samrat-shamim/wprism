@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Offline DUO-3344 scoped-apply recovery matrix.
+ * Offline issue #3344 scoped-apply recovery matrix.
  *
  * The harness deliberately uses the public protocol seams instead of a
  * WordPress fixture: a byte-CAS session store, a value-only scoped target
@@ -14,21 +14,21 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
-// WP-4.12: derived from agent/duo.php — this suite reaches the shipped
+// WP-4.12: derived from agent/wprism.php — this suite reaches the shipped
 // platform.json, which restates both defines.
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
-if (!is_array($duoAgentClassmap)) {
-    throw new \RuntimeException('regress_scoped_apply_recovery: agent/duo-classmap.php did not return a map');
+$wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
+if (!is_array($wprismAgentClassmap)) {
+    throw new \RuntimeException('regress_scoped_apply_recovery: agent/wprism-classmap.php did not return a map');
 }
-$duoAgentFiles = [];
-foreach ($duoAgentClassmap as $duoAgentPath) {
-    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+$wprismAgentFiles = [];
+foreach ($wprismAgentClassmap as $wprismAgentPath) {
+    $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
 }
 foreach ([
     'Canon', 'Uuid', 'OrderPreserved', 'OptionState', 'UserMetaState', 'Db',
@@ -44,24 +44,24 @@ foreach ([
     'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
-    $duoAgentFile = $duoAgentFiles[$file] ?? null;
-    if (!is_string($duoAgentFile)) {
-        throw new \RuntimeException('regress_scoped_apply_recovery: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
+    if (!is_string($wprismAgentFile)) {
+        throw new \RuntimeException('regress_scoped_apply_recovery: agent source ' . $file . '.php is absent from agent/wprism-classmap.php');
     }
-    require_once $root . '/agent/' . $duoAgentFile;
+    require_once $root . '/agent/' . $wprismAgentFile;
 }
 
-use Duo\Canon;
-use Duo\CanonicalLedgerMapGuard;
-use Duo\CompiledRepository;
-use Duo\NativeActions;
-use Duo\Policy;
-use Duo\PromotionLock;
-use Duo\Providers;
-use Duo\ScopeContract;
-use Duo\ScopedApply;
-use Duo\ScopedApplySession;
-use Duo\ScopedApplySessionStorage;
+use WPrism\Canon;
+use WPrism\CanonicalLedgerMapGuard;
+use WPrism\CompiledRepository;
+use WPrism\NativeActions;
+use WPrism\Policy;
+use WPrism\PromotionLock;
+use WPrism\Providers;
+use WPrism\ScopeContract;
+use WPrism\ScopedApply;
+use WPrism\ScopedApplySession;
+use WPrism\ScopedApplySessionStorage;
 
 final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
     /** @var array<string,?string> */
@@ -136,7 +136,7 @@ final class ScopedRecoveryEffectWpdb {
 
     public function get_var(string $query): string|false|null {
         $this->last_error = '';
-        if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '([^']*)'/", $query, $match) === 1) {
+        if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '([^']*)'/", $query, $match) === 1) {
             return $this->kvRows[$match[1]] ?? null;
         }
         if (preg_match("/option_name = '([^']*)'/", $query, $match) === 1) {
@@ -162,7 +162,7 @@ final class ScopedRecoveryEffectWpdb {
 
     public function get_row(string $query, mixed $output = null): array|false|null {
         $this->last_error = '';
-        if (preg_match("/FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $match) === 1) {
+        if (preg_match("/FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $match) === 1) {
             foreach ($this->mapRows as $row) {
                 if ($row['uuid'] === $match[1] && $row['id_kind'] === $match[2]) {
                     return ['entity_type' => $row['entity_type'], 'local_id' => $row['local_id']];
@@ -170,7 +170,7 @@ final class ScopedRecoveryEffectWpdb {
             }
             return null;
         }
-        if (preg_match("/FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)/", $query, $match) === 1) {
+        if (preg_match("/FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)/", $query, $match) === 1) {
             foreach ($this->mapRows as $row) {
                 if ($row['id_kind'] === $match[1] && $row['local_id'] === (int) $match[2]) {
                     return ['uuid' => $row['uuid'], 'entity_type' => $row['entity_type']];
@@ -194,7 +194,7 @@ final class ScopedRecoveryEffectWpdb {
                 'ID' => $id,
                 'post_type' => $row['post_type'],
                 'post_status' => $row['post_status'] ?? 'publish',
-                'duo_uuid' => $row['uuid'],
+                'wprism_uuid' => $row['uuid'],
             ];
         }
         if (preg_match('/WHERE t.term_id = ([0-9]+) AND tt.term_taxonomy_id = ([0-9]+)/', $query, $match) === 1) {
@@ -206,7 +206,7 @@ final class ScopedRecoveryEffectWpdb {
                 'term_id' => $termId,
                 'term_taxonomy_id' => $ttId,
                 'taxonomy' => $tt['taxonomy'],
-                'duo_uuid' => $this->termRows[$termId],
+                'wprism_uuid' => $this->termRows[$termId],
             ];
         }
         return null;
@@ -223,7 +223,7 @@ final class ScopedRecoveryEffectWpdb {
             return false;
         }
         $this->last_error = '';
-        if (str_contains($query, 'FROM wp_duo_map')) {
+        if (str_contains($query, 'FROM wp_wprism_map')) {
             return $this->mapRows;
         }
         if (str_contains($query, 'FROM wp_posts p')
@@ -238,7 +238,7 @@ final class ScopedRecoveryEffectWpdb {
                     'ID' => $id,
                     'post_type' => $row['post_type'],
                     'post_status' => $row['post_status'] ?? 'publish',
-                    'duo_uuid' => $row['uuid'],
+                    'wprism_uuid' => $row['uuid'],
                 ];
             }
             usort($rows, static fn(array $a, array $b): int => (int) $a['ID'] <=> (int) $b['ID']);
@@ -659,13 +659,13 @@ $authority = ScopedApplySession::make_authority(
 $sessionStore = new ScopedRecoveryMemoryStore();
 $session = ScopedApplySession::begin($sessionStore, $authority);
 $session->transition(ScopedApplySession::PHASE_AUTHORING);
-$recoveryPlanner = new \Duo\ApplyPlanner(
+$recoveryPlanner = new \WPrism\ApplyPlanner(
     $policy,
     [],
     static fn(string $uuid, string $kind): ?int => null,
     static fn(string $uuid, string $kind): ?int => null
 );
-$convergedRecoveryWork = \Duo\ScopedApplyWorkProjector::project(
+$convergedRecoveryWork = \WPrism\ScopedApplyWorkProjector::project(
     [
         'create' => [],
         'adopt' => [],
@@ -724,11 +724,11 @@ $desiredObservation = [
     'selected_before_root' => ScopedApply::hash_rows($desiredBeforeRows),
     'selected_ledger_map_root' => $hash('selected-map-after-authoring'),
 ];
-$authoredReadbackHash = \Duo\ScopedApplyCoordinator::authored_ledger_map_hash($desiredObservation);
+$authoredReadbackHash = \WPrism\ScopedApplyCoordinator::authored_ledger_map_hash($desiredObservation);
 $check(
     $authoredReadbackHash === hash(
         'sha256',
-        "duo-scoped-authored-map-witness/v1\0" . $desiredObservation['selected_ledger_map_root']
+        "wprism-scoped-authored-map-witness/v1\0" . $desiredObservation['selected_ledger_map_root']
     ),
     'author receipt after_hash is the physical selected map generation while its intent binds desired work'
 );
@@ -737,12 +737,12 @@ $changedDesiredObservation['selected_ledger_map_root'] = $hash('selected-map-aba
 $check(
     !hash_equals(
         $authoredReadbackHash,
-        \Duo\ScopedApplyCoordinator::authored_ledger_map_hash($changedDesiredObservation)
+        \WPrism\ScopedApplyCoordinator::authored_ledger_map_hash($changedDesiredObservation)
     ),
     'same desired content with a changed selected identity map changes the author receipt'
 );
 $expectThrow(
-    static fn() => \Duo\ScopedApplyCoordinator::authored_ledger_map_hash([
+    static fn() => \WPrism\ScopedApplyCoordinator::authored_ledger_map_hash([
         'selected_ledger_map_root' => 'malformed',
     ]),
     'malformed selected ledger-map root',
@@ -772,7 +772,7 @@ $check(
     'scoped code witness changes when the target code/lifecycle observation changes'
 );
 
-$applyForReadback = new \Duo\ScopedApplyWorkflow();
+$applyForReadback = new \WPrism\ScopedApplyWorkflow();
 $GLOBALS['wpdb']->failResults = true;
 try {
     $applyForReadback->core_readback_hash($policy, [], []);
@@ -813,7 +813,7 @@ $ambiguousAuthorStore = new ScopedRecoveryMemoryStore();
 $ambiguousAuthor = ScopedApplySession::begin($ambiguousAuthorStore, $authority);
 $ambiguousAuthor->transition(ScopedApplySession::PHASE_AUTHORING);
 $ambiguousAuthor->append_intent($authorIntent);
-$ambiguousWorkflow = new \Duo\ScopedApplyWorkflow();
+$ambiguousWorkflow = new \WPrism\ScopedApplyWorkflow();
 $ambiguousWorkflow->session = $ambiguousAuthor;
 $expectThrow(
     static fn() => $ambiguousWorkflow->assert_authored_recovery_boundary(
@@ -829,7 +829,7 @@ $expectThrow(
 
 $plannedChangedStore = new ScopedRecoveryMemoryStore();
 $plannedChangedSession = ScopedApplySession::begin($plannedChangedStore, $authority);
-$plannedChangedWorkflow = new \Duo\ScopedApplyWorkflow();
+$plannedChangedWorkflow = new \WPrism\ScopedApplyWorkflow();
 $plannedChangedWorkflow->session = $plannedChangedSession;
 $expectThrow(
     static fn() => $plannedChangedWorkflow->assert_authored_recovery_boundary(
@@ -851,11 +851,11 @@ $noopAuthorityBase['target']['selected_before_ledger_map_hash'] = $desiredObserv
 $noopAuthority = ScopedApplySession::seal_authority($noopAuthorityBase);
 $noopStore = new ScopedRecoveryMemoryStore();
 $noopSession = ScopedApplySession::begin($noopStore, $noopAuthority);
-$noopWorkflow = new \Duo\ScopedApplyWorkflow();
+$noopWorkflow = new \WPrism\ScopedApplyWorkflow();
 $noopWorkflow->session = $noopSession;
 $noopIntent = $noopWorkflow->intent(
     1,
-    'duo-scoped-authored-transaction/v2',
+    'wprism-scoped-authored-transaction/v2',
     'noop-author-operation',
     $hash('noop-input'),
     $hash('noop-effect'),
@@ -882,11 +882,11 @@ $check(
 $legacyStore = new ScopedRecoveryMemoryStore();
 $legacySession = ScopedApplySession::begin($legacyStore, $authority);
 $legacySession->transition(ScopedApplySession::PHASE_AUTHORING);
-$legacyWorkflow = new \Duo\ScopedApplyWorkflow();
+$legacyWorkflow = new \WPrism\ScopedApplyWorkflow();
 $legacyWorkflow->session = $legacySession;
 $legacyIntent = $legacyWorkflow->intent(
     1,
-    'duo-scoped-authored-transaction/v1',
+    'wprism-scoped-authored-transaction/v1',
     'legacy-author-operation',
     $hash('legacy-input'),
     $hash('legacy-effect'),
@@ -919,7 +919,7 @@ $commitReceiptCrash = ScopedApplySession::open($commitReceiptCrashStore);
 $check($commitReceiptCrash !== null, 'legacy authored_committed fixture remains structurally decodable');
 $commitReceiptCrash ??= ScopedApplySession::begin($commitReceiptCrashStore, $authority);
 $commitReceiptCrash->recover($hash('commit-receipt-crash'));
-$commitReceiptWorkflow = new \Duo\ScopedApplyWorkflow();
+$commitReceiptWorkflow = new \WPrism\ScopedApplyWorkflow();
 $commitReceiptWorkflow->session = $commitReceiptCrash;
 $expectThrow(
     static fn() => $commitReceiptWorkflow->assert_authored_recovery_boundary(
@@ -961,7 +961,7 @@ $check(
 // transaction and deletion can legitimately change them after commit.
 [, $retainedPostAuthor] = $makePostAuthorSession();
 $retainedPostAuthor->recover($hash('post-author-recovery'));
-$postAuthorWorkflow = new \Duo\ScopedApplyWorkflow();
+$postAuthorWorkflow = new \WPrism\ScopedApplyWorkflow();
 $postAuthorWorkflow->session = $retainedPostAuthor;
 $check(
     $postAuthorWorkflow->assert_authored_recovery_boundary(
@@ -980,7 +980,7 @@ $check(
     'post-author recovery resumes only after its exact receipt recheck'
 );
 
-$observationRegating = new \Duo\ScopedApplyWorkflow();
+$observationRegating = new \WPrism\ScopedApplyWorkflow();
 $observationRegating->session = $retainedPostAuthor;
 $expectThrow(
     static fn() => $observationRegating->recheck_target_observation(
@@ -1009,7 +1009,7 @@ $retainedPostAuthor->resume_recorded_recovery();
 
 // Model a crash immediately after the resume CAS: the normal nonterminal
 // phase must repeat the same composite readback check on the next request.
-$normalPostAuthor = new \Duo\ScopedApplyWorkflow();
+$normalPostAuthor = new \WPrism\ScopedApplyWorkflow();
 $normalPostAuthor->session = $retainedPostAuthor;
 $effectDispatches = 0;
 $expectThrow(
@@ -1040,7 +1040,7 @@ $check(
 [, $changedRecoveryMap] = $makePostAuthorSession();
 $changedRecoveryMap->recover($hash('retained-map-drift-cause'));
 $retainedRecoveryBytes = $changedRecoveryMap->canonical();
-$changedRecoveryWorkflow = new \Duo\ScopedApplyWorkflow();
+$changedRecoveryWorkflow = new \WPrism\ScopedApplyWorkflow();
 $changedRecoveryWorkflow->session = $changedRecoveryMap;
 $expectThrow(
     static fn() => $changedRecoveryWorkflow->assert_authored_recovery_boundary(
@@ -1063,12 +1063,12 @@ $preAuthorMenuSession = ScopedApplySession::begin($preAuthorMenuStore, $authorit
 $preAuthorMenuSession->transition(ScopedApplySession::PHASE_AUTHORING);
 $preAuthorMenuSession->recover($hash('pre-author-menu-recovery'));
 $check(
-    \Duo\ScopedApplyCoordinator::allows_target_old_menu_items(
+    \WPrism\ScopedApplyCoordinator::allows_target_old_menu_items(
         $preAuthorMenuSession,
         $contract,
         $actualBefore
     )
-        && !\Duo\ScopedApplyCoordinator::allows_target_old_menu_items(
+        && !\WPrism\ScopedApplyCoordinator::allows_target_old_menu_items(
             $preAuthorMenuSession,
             $contract,
             $actualDesired
@@ -1305,7 +1305,7 @@ array_pop($GLOBALS['wpdb']->mapRows);
 try {
     CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
     $check(false, 'full pre-prune guard must reject a partial term/taxonomy tuple');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'canonical_identity_recovery_required'
             && str_contains($failure->getMessage(), 'refusing to create or rebind'),
@@ -1323,7 +1323,7 @@ $GLOBALS['wpdb']->taxonomyRows = [];
 try {
     CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
     $check(false, 'full pre-prune guard must reject an absent canonical backing row');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'canonical_identity_recovery_required',
         'destructively absent canonical rows refuse before dead-map pruning'
@@ -1346,7 +1346,7 @@ $GLOBALS['wpdb']->optionRows = [];
 try {
     CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
     $check(false, 'full pre-prune guard must reject a missing canonical widget instance');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'canonical_identity_recovery_required',
         'missing canonical widget backing refuses through the same recovery boundary'
@@ -1371,7 +1371,7 @@ $GLOBALS['wpdb']->postRows = [
 try {
     CanonicalLedgerMapGuard::assert_pre_prune($nestedPolicy, $nestedCompiled);
     $check(false, 'full pre-prune guard must reject local-id reuse under a different UUID');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'canonical_identity_recovery_required',
         'local-id reuse cannot turn retained canonical identity into write-through authority'
@@ -1385,7 +1385,7 @@ $GLOBALS['wpdb']->optionRows = $guardOptionRows;
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual);
     $check(false, 'post-author identity derivation must not admit retained hidden menu-item maps');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'default identity derivation fails closed when an all-status target-old menu item reappears'
@@ -1439,7 +1439,7 @@ try {
         $nestedCompiled
     );
     $check(false, 'post-author strict observation must not accept retained hidden menu-item maps');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'post-author strict observation treats a reappearing draft/trash map as recovery evidence'
@@ -1519,7 +1519,7 @@ $phaseAuthority = ScopedApplySession::make_authority(
 $phaseStore = new ScopedRecoveryMemoryStore();
 $phaseSession = ScopedApplySession::begin($phaseStore, $phaseAuthority);
 $phaseSession->transition(ScopedApplySession::PHASE_AUTHORING);
-$phaseApply = new \Duo\ScopedApplyWorkflow();
+$phaseApply = new \WPrism\ScopedApplyWorkflow();
 $phaseApply->scopeContract = $phaseContract;
 $phaseApply->session = $phaseSession;
 $phaseAllowsBefore = $phaseApply->allows_target_old_menu_items($phaseBeforeActual);
@@ -1553,7 +1553,7 @@ try {
         false
     );
     $check(false, 'authoring desired readback with a reappearing hidden map must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'desired authoring recovery treats a hidden all-status map as recovery evidence before false-green transition'
@@ -1571,7 +1571,7 @@ try {
         true
     );
     $check(false, 'a same-kind selected map rebound to a different local id must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'selected map validation rebinds the exact local id to its physical sidecar and menu owner'
@@ -1658,7 +1658,7 @@ $GLOBALS['wpdb']->mapRows[] = [
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a zero-map source-owned hidden item bound to another local post map must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'a zero-map source-owned hidden item refuses before Ledger::set can collide with a local post map'
@@ -1674,7 +1674,7 @@ $GLOBALS['wpdb']->postRows[230]['term_taxonomy_ids'] = [120, 121];
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a source-owned hidden item shared with a protected menu must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'source-desired hidden reuse requires exactly one selected nav-menu relationship'
@@ -1702,7 +1702,7 @@ try {
         true
     );
     $check(false, 'a source-owned menu-item map without its physical sidecar row must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required'
             && !str_contains($failure->publicMessage, $sourceMenuItem)
@@ -1738,7 +1738,7 @@ try {
         true
     );
     $check(false, 'a compiled protected menu-item owner must not enter selected authority');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'a protected compiled owner mismatch refuses even for a published selected-target candidate'
@@ -1766,7 +1766,7 @@ try {
         true
     );
     $check(false, 'a compiled protected widget owner must not enter selected authority');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'a protected compiled widget owner mismatch refuses before nested-map union'
@@ -1789,7 +1789,7 @@ $GLOBALS['wpdb']->postRows[30] = [
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a malformed selected physical menu-item entity type must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'physical id_kind=post discovery rejects a malformed menu-item entity type'
@@ -1814,7 +1814,7 @@ $GLOBALS['wpdb']->postRows[31] = [
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a mismatched selected physical menu-item sidecar must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'physical id_kind=post discovery rejects a mismatched menu-item sidecar'
@@ -1824,7 +1824,7 @@ array_pop($GLOBALS['wpdb']->mapRows);
 unset($GLOBALS['wpdb']->postRows[31]);
 
 // finalize_menu() keys envByUuid from every nonempty physical sidecar, not
-// from duo_map. A sidecar with no exact map could make Ledger::forget() erase
+// from wprism_map. A sidecar with no exact map could make Ledger::forget() erase
 // another UUID's state, so initial observation must refuse it before a
 // session/mutation boundary exists.
 $unmappedSidecarMenuItem = $uuid(33);
@@ -1835,7 +1835,7 @@ $GLOBALS['wpdb']->postRows[33] = [
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a selected physical menu-item sidecar without a map must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'all-status sidecar discovery refuses an unmapped Ledger::forget identity before authority'
@@ -1859,7 +1859,7 @@ $GLOBALS['wpdb']->postRows[34] = [
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a selected physical menu-item sidecar rebound to another map id must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'all-status sidecar discovery refuses a local-id rebound before Ledger::forget can cross partitions'
@@ -1886,7 +1886,7 @@ $GLOBALS['wpdb']->taxonomyRows[121] = ['term_id' => 21, 'taxonomy' => 'nav_menu'
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a target-old menu item shared with a protected menu must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'target-old menu ownership requires exactly one selected nav-menu relationship'
@@ -1904,7 +1904,7 @@ $GLOBALS['wpdb']->postRows[24]['term_taxonomy_ids'] = [120, 122];
 try {
     ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
     $check(false, 'a source-absent canonical menu item with another taxonomy relationship must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'source-absent canonical deletion requires full relationship exclusivity'
@@ -1920,7 +1920,7 @@ unset($GLOBALS['wpdb']->taxonomyRows[122]);
 $tombstoneMenu = $uuid(38);
 $tombstoneItem = $uuid(39);
 $tombstoneDeletion = [
-    'format' => 'duo-deletion/v1',
+    'format' => 'wprism-deletion/v1',
     'uuid' => $tombstoneMenu,
     'kind' => 'menu',
     'type' => 'nav_menu',
@@ -2044,7 +2044,7 @@ try {
         true
     );
     $check(false, 'an unmapped tombstone item owned by a protected source menu must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'menu tombstone inventory refuses a hidden sidecar owned by a protected frozen menu'
@@ -2057,7 +2057,7 @@ $GLOBALS['wpdb']->postRows[400]['term_taxonomy_ids'] = [140, 141];
 try {
     ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
     $check(false, 'a tombstone item with another taxonomy relationship must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'menu tombstone cascade requires full relationship exclusivity before delete_entity()'
@@ -2077,7 +2077,7 @@ $GLOBALS['wpdb']->mapRows[] = [
 try {
     ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
     $check(false, 'a map-only tombstone menu item must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'menu tombstone inventory refuses a mapped item without its matching sidecar'
@@ -2095,7 +2095,7 @@ $GLOBALS['wpdb']->mapRows[] = [
 try {
     ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
     $check(false, 'a mistyped tombstone menu-item map must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'menu tombstone inventory refuses a non-menu-item post map'
@@ -2114,7 +2114,7 @@ $GLOBALS['wpdb']->mapRows[] = [
 try {
     ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
     $check(false, 'a tombstone menu-item map rebound to another local post must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'tombstone inventory refuses a sidecar whose map is bound to another local post'
@@ -2174,7 +2174,7 @@ try {
         true
     );
     $check(false, 'a stale selected top-level menu map must refuse');
-} catch (\Duo\CommandRefusalException $failure) {
+} catch (\WPrism\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required',
         'a stale selected top-level map refuses before create/finalize can trust dead term ids'
@@ -2355,7 +2355,7 @@ $makeDispatchRecovery = static function (string $label) use (
     $store = new ScopedRecoveryMemoryStore();
     $session = ScopedApplySession::begin($store, $authority);
     $session->transition(ScopedApplySession::PHASE_AUTHORING);
-    $author = \Duo\ScopedApplyCoordinator::intent(
+    $author = \WPrism\ScopedApplyCoordinator::intent(
         $session,
         1,
         'dispatch-author',
@@ -2365,15 +2365,15 @@ $makeDispatchRecovery = static function (string $label) use (
         $selectedBeforeRoot
     );
     $session->append_intent($author);
-    $session->commit_authored_receipt(\Duo\ScopedApplyCoordinator::receipt(
+    $session->commit_authored_receipt(\WPrism\ScopedApplyCoordinator::receipt(
         $author,
-        \Duo\ScopedApplyCoordinator::authored_ledger_map_hash([
+        \WPrism\ScopedApplyCoordinator::authored_ledger_map_hash([
             'selected_before_root' => $selectedBeforeRoot,
             'selected_ledger_map_root' => $hash('dispatch-selected-map-after-' . $label),
         ])
     ));
     $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
-    $core = \Duo\ScopedApplyCoordinator::intent(
+    $core = \WPrism\ScopedApplyCoordinator::intent(
         $session,
         2,
         'dispatch-core',
@@ -2383,16 +2383,16 @@ $makeDispatchRecovery = static function (string $label) use (
         $selectedBeforeRoot
     );
     $session->append_intent($core);
-    $session->append_receipt(\Duo\ScopedApplyCoordinator::receipt(
+    $session->append_receipt(\WPrism\ScopedApplyCoordinator::receipt(
         $core,
         $hash('dispatch-core-after-' . $label)
     ));
     $session->recover($hash('dispatch-recovery-cause-' . $label));
     return [$store, $authority, $session];
 };
-$dispatch = new \Duo\RebuildActionDispatcher(
+$dispatch = new \WPrism\RebuildActionDispatcher(
     $policy,
-    new \Duo\ProviderActionBatchBuilder($policy, []),
+    new \WPrism\ProviderActionBatchBuilder($policy, []),
     static function (): void {}
 );
 $driveScopedDispatch = static function (ScopedApplySession $session) use (
@@ -2428,7 +2428,7 @@ $driveScopedDispatch = static function (ScopedApplySession $session) use (
 };
 
 [$dispatchStore, $dispatchAuthority, $dispatchSession] = $makeDispatchRecovery('verified');
-\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
     $dispatchSession,
     [$dispatchAction],
     $dispatchNegotiation
@@ -2444,7 +2444,7 @@ $check(
 );
 $dispatchSession->recover($hash('dispatch-lost-response'));
 $reopenedDispatch = ScopedApplySession::begin($dispatchStore, $dispatchAuthority);
-\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
     $reopenedDispatch,
     [$dispatchAction],
     $dispatchNegotiation
@@ -2462,7 +2462,7 @@ $check(
 [, , $changedSelectionSession] = $makeDispatchRecovery('changed-selection');
 $changedAction = $dispatchAction;
 $changedAction['args'] = ['changed' => true];
-$changedSelectionWorkflow = new \Duo\ScopedApplyWorkflow();
+$changedSelectionWorkflow = new \WPrism\ScopedApplyWorkflow();
 $changedSelectionWorkflow->session = $changedSelectionSession;
 $retainedSelectionRecovery = $changedSelectionSession->canonical();
 $expectThrow(
@@ -2481,7 +2481,7 @@ $check(
 
 [, , $normalSelectionSession] = $makeDispatchRecovery('normal-selection-drift');
 $normalSelectionSession->resume_recorded_recovery();
-$normalSelectionWorkflow = new \Duo\ScopedApplyWorkflow();
+$normalSelectionWorkflow = new \WPrism\ScopedApplyWorkflow();
 $normalSelectionWorkflow->session = $normalSelectionSession;
 $expectThrow(
     static fn() => $normalSelectionWorkflow->assert_recovery_selection(
@@ -2498,14 +2498,14 @@ $check(
 );
 
 [$intentStore, $intentAuthority, $intentSession] = $makeDispatchRecovery('intent-only');
-$intentOperation = \Duo\ScopedApplyCoordinator::effect_operation(
+$intentOperation = \WPrism\ScopedApplyCoordinator::effect_operation(
     $intentSession,
     3,
     Providers::scoped_input_hash($dispatchAction, $providerDecl),
-    \Duo\ScopedApplyCoordinator::action_effect_hash($dispatchAction)
+    \WPrism\ScopedApplyCoordinator::action_effect_hash($dispatchAction)
 );
 Providers::begin_scoped_operation('scoped-recovery', 'repair', $intentOperation);
-\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
     $intentSession,
     [$dispatchAction],
     $dispatchNegotiation
@@ -2519,7 +2519,7 @@ $check(
     'product dispatcher keeps an intent-only effect recovery_required instead of invoking it'
 );
 $intentRetry = ScopedApplySession::begin($intentStore, $intentAuthority);
-\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
     $intentRetry,
     [$dispatchAction],
     $dispatchNegotiation
@@ -2710,7 +2710,7 @@ $check(
 // well. The scratch repository is compile-only; the fake ledger returns an
 // already-persisted nonterminal session, so Apply::plan() must refuse before
 // it reaches any target snapshot or mutation path.
-$interlockRepo = sys_get_temp_dir() . '/duo-scoped-apply-interlock-' . bin2hex(random_bytes(5));
+$interlockRepo = sys_get_temp_dir() . '/wprism-scoped-apply-interlock-' . bin2hex(random_bytes(5));
 if (!mkdir($interlockRepo . '/state/options', 0700, true)
     || !mkdir($interlockRepo . '/media', 0700, true)) {
     throw new RuntimeException('could not create scoped apply interlock fixture');
@@ -2728,8 +2728,8 @@ register_shutdown_function(static function () use ($interlockRepo): void {
     }
     rmdir($interlockRepo);
 });
-file_put_contents($interlockRepo . '/site.duo.json', Canon::encode([
-    'spec_version' => DUO_SPEC_VERSION,
+file_put_contents($interlockRepo . '/site.wprism.json', Canon::encode([
+    'spec_version' => WPRISM_SPEC_VERSION,
     'manifests' => ['core'],
     'policy' => [
         'options' => (object) [],
@@ -2746,15 +2746,15 @@ foreach ([
     'show_on_front', 'sticky_posts', 'stylesheet', 'template',
     'wp_page_for_privacy_policy',
 ] as $name) {
-    $requiredOptions[$name] = \Duo\OptionState::absent();
+    $requiredOptions[$name] = \WPrism\OptionState::absent();
 }
 file_put_contents(
     $interlockRepo . '/state/options/core.json',
-    Canon::encode(\Duo\OptionState::document($requiredOptions))
+    Canon::encode(\WPrism\OptionState::document($requiredOptions))
 );
 $GLOBALS['wpdb']->kvRows[ScopedApplySession::STORAGE_KEY] = $interlockSession->canonical();
 $expectThrow(
-    static fn() => \Duo\Apply::plan($interlockRepo),
+    static fn() => \WPrism\Apply::plan($interlockRepo),
     'full plan refused',
     'public full apply planning interlock refuses before target contact while scoped work is nonterminal'
 );
@@ -2763,15 +2763,15 @@ $check(
     'public full-plan interlock leaves the exact scoped session bytes untouched'
 );
 
-$executorWithoutParticipant = (new ReflectionClass(\Duo\AuthoredTransactionExecutor::class))
+$executorWithoutParticipant = (new ReflectionClass(\WPrism\AuthoredTransactionExecutor::class))
     ->newInstanceWithoutConstructor();
 $executorWarnings = [];
 $expectThrow(
     static function () use ($executorWithoutParticipant, &$executorWarnings): void {
         $executorWithoutParticipant->execute(
-            new \Duo\AuthoredTransactionRequest(
-                new \Duo\ApplyWorkset([], [], [], [], [], [], []),
-                new \Duo\DeletionAuthority(false, false, false),
+            new \WPrism\AuthoredTransactionRequest(
+                new \WPrism\ApplyWorkset([], [], [], [], [], [], []),
+                new \WPrism\DeletionAuthority(false, false, false),
                 true,
                 [],
                 true,
@@ -2829,7 +2829,7 @@ $freshActualContractAt = strpos($preparationSource, 'freshActual: $freshActual')
 $freshActualHandoffAt = strpos($applySource, '$freshActual = $prepared->freshActual;');
 $authoredStateAt = strpos($applySource, 'ScopedApply::authored_state(');
 $freshActualProbe = ['selected' => ['sentinel' => true]];
-$preparedProbe = new \Duo\PreparedApply(
+$preparedProbe = new \WPrism\PreparedApply(
     freshPlan: [],
     work: [],
     deleteWork: [],
@@ -2922,9 +2922,9 @@ $check(
         && str_contains($actionNegotiatorSource, 'durable environment-local recovery input'),
     'scoped preflight refuses provider context channels whose local-id payload cannot be reconstructed after a crash'
 );
-$codeWitnessCheckAt = strpos($applySource, "'duo:scoped-code-witness-changed'");
+$codeWitnessCheckAt = strpos($applySource, "'wprism:scoped-code-witness-changed'");
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
-$protectedTargetCheckAt = strpos($applySource, "'duo:scoped-protected-target-drift'");
+$protectedTargetCheckAt = strpos($applySource, "'wprism:scoped-protected-target-drift'");
 $authoredBoundaryCheckAt = strpos($applySource, '->assert_authored_recovery_boundary(');
 $recordedRecoveryResumeAt = strpos($applySource, '->resume_recorded_recovery();');
 $authorReceiptSealAt = strpos($applySource, '$commitScopedAuthoring = static function');
@@ -3075,16 +3075,16 @@ $check(
         && $authoredEngineBoundaryAt < $atomicParticipantAt
         && str_contains($authoredExecutorSource, '$this->snapshotRowTables as $name => $declaration')
         && str_contains($authoredExecutorSource, '->attached_meta_table_for_owner((string) $name)')
-        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_map\'')
-        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_state\'')
-        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_kv\'')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'wprism_map\'')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'wprism_state\'')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'wprism_kv\'')
         && str_contains($authoredExecutorSource, '$declaration[\'invalidate\'] ?? []'),
     'authored apply metadata-locks and proves every effective core/ledger/typed/sidecar/invalidation table before DML or session CAS'
 );
 $check(
     substr_count($applySource, '->recheck_target_observation(') === 2
         && substr_count($preparationSource, '->recheck_target_observation(') === 1
-        && str_contains($scopedWorkflowSource, "recover_once('duo:scoped-target-observation-failed')"),
+        && str_contains($scopedWorkflowSource, "recover_once('wprism:scoped-target-observation-failed')"),
     'every normal scoped target observation failure re-gates the retained phase before surfacing drift'
 );
 

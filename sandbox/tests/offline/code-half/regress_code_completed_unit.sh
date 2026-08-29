@@ -4,10 +4,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 
-DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
-$root = getenv('DUO_ROOT');
-$target = sys_get_temp_dir() . '/duo-code-completed-' . bin2hex(random_bytes(6));
+$root = getenv('WPRISM_ROOT');
+$target = sys_get_temp_dir() . '/wprism-code-completed-' . bin2hex(random_bytes(6));
 define('WP_CONTENT_DIR', $target);
 define('WP_PLUGIN_DIR', $target . '/plugins');
 define('WPMU_PLUGIN_DIR', $target . '/mu-plugins');
@@ -38,9 +38,9 @@ require_once "$root/agent/src/Code/Code.php";
 require_once "$root/agent/src/Repository/RepositoryCompiler.php";
 require_once "$root/agent/src/Repository/Ledger.php";
 
-use Duo\Canon;
-use Duo\Code;
-use Duo\CompiledRepository;
+use WPrism\Canon;
+use WPrism\Code;
+use WPrism\CompiledRepository;
 
 function fail_completed(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function remove_completed(string $path): void {
@@ -52,7 +52,7 @@ function remove_completed(string $path): void {
     @rmdir($path);
 }
 
-$source = sys_get_temp_dir() . '/duo-code-completed-source-' . bin2hex(random_bytes(6));
+$source = sys_get_temp_dir() . '/wprism-code-completed-source-' . bin2hex(random_bytes(6));
 mkdir($source . '/plugins/example', 0777, true);
 file_put_contents($source . '/plugins/example/example.php', "<?php\n/*\nPlugin Name: Example\nVersion: 1.0.0\n*/\n");
 mkdir($source . '/themes/example-theme', 0777, true);
@@ -60,7 +60,7 @@ file_put_contents($source . '/themes/example-theme/style.css', "/*\nTheme Name: 
 mkdir($source . '/mu-plugins', 0777, true);
 file_put_contents($source . '/mu-plugins/bootstrap.php', "<?php\n// bootstrap\n");
 mkdir($target, 0777, true);
-$outside = sys_get_temp_dir() . '/duo-code-completed-outside-' . bin2hex(random_bytes(6));
+$outside = sys_get_temp_dir() . '/wprism-code-completed-outside-' . bin2hex(random_bytes(6));
 mkdir($outside, 0777, true);
 register_shutdown_function(static function () use ($source, $target, $outside): void {
     remove_completed($source);
@@ -112,7 +112,7 @@ if ($stageFailure === null || !str_contains($stageFailure, 'no code_stage_descri
 }
 $GLOBALS['wpdb']->rows[Code::CODE_STAGE_DESCRIPTOR_KEY] = $savedStageDescriptor;
 
-$otherSource = sys_get_temp_dir() . '/duo-code-completed-other-' . bin2hex(random_bytes(6));
+$otherSource = sys_get_temp_dir() . '/wprism-code-completed-other-' . bin2hex(random_bytes(6));
 mkdir($otherSource . '/plugins/other', 0777, true);
 file_put_contents($otherSource . '/plugins/other/other.php', "<?php\n/*\nPlugin Name: Other\n*/\n");
 $otherDescriptor = Code::descriptor_from_source($otherSource);

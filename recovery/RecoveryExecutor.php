@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Recovery;
+namespace WPrism\Recovery;
 
 /**
  * Target-owned maintenance exclusion and WordPress-independent recovery.
@@ -12,13 +12,13 @@ namespace Duo\Recovery;
  * root; only their sha256 digest is admitted to the immutable receipt.
  */
 final class RecoveryExecutor {
-    private const CONFIG_FORMAT = 'duo-recovery-config/v1';
-    private const EXCLUSION_FORMAT = 'duo-exclusion-record/v1';
-    private const REQUEST_FORMAT = 'duo-exclusion-request/v1';
-    private const PROVIDER_REQUEST_FORMAT = 'duo-exclusion-provider-request/v2';
-    private const PROVIDER_RESPONSE_FORMAT = 'duo-exclusion-provider-response/v2';
-    private const ADAPTER_REQUEST_FORMAT = 'duo-recovery-adapter-request/v1';
-    private const ADAPTER_RESPONSE_FORMAT = 'duo-recovery-adapter-response/v1';
+    private const CONFIG_FORMAT = 'wprism-recovery-config/v1';
+    private const EXCLUSION_FORMAT = 'wprism-exclusion-record/v1';
+    private const REQUEST_FORMAT = 'wprism-exclusion-request/v1';
+    private const PROVIDER_REQUEST_FORMAT = 'wprism-exclusion-provider-request/v2';
+    private const PROVIDER_RESPONSE_FORMAT = 'wprism-exclusion-provider-response/v2';
+    private const ADAPTER_REQUEST_FORMAT = 'wprism-recovery-adapter-request/v1';
+    private const ADAPTER_RESPONSE_FORMAT = 'wprism-recovery-adapter-response/v1';
     /** @var list<string> */
     private const SCOPES = [
         'background_jobs',
@@ -33,7 +33,7 @@ final class RecoveryExecutor {
     public static function configured(string $root): bool {
         $path = self::configPath($root);
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException('duo recovery: configuration path is unsafe');
+            throw new \RuntimeException('wprism recovery: configuration path is unsafe');
         }
         return is_file($path);
     }
@@ -50,11 +50,11 @@ final class RecoveryExecutor {
         self::validateConfig($config);
         $status = RollbackControl::status($root);
         if (!empty($status['active']) && empty($status['terminal'])) {
-            throw new \RuntimeException('duo recovery: cannot replace configuration during a nonterminal generation');
+            throw new \RuntimeException('wprism recovery: cannot replace configuration during a nonterminal generation');
         }
         $record = self::readExclusion($root, false);
         if ($record !== null && ($record['state'] ?? '') === 'held') {
-            throw new \RuntimeException('duo recovery: cannot replace configuration while exclusion is held');
+            throw new \RuntimeException('wprism recovery: cannot replace configuration while exclusion is held');
         }
         self::atomicWrite(self::configPath($root), CanonicalJson::encode($config) . "\n", 0600, 'configuration');
         return ['configured' => true, 'format' => self::CONFIG_FORMAT, 'ok' => true];
@@ -149,18 +149,18 @@ final class RecoveryExecutor {
                 && (int) $record['generation'] === (int) $status['generation']) {
                 self::assertRecordIdentity($record, $status, true);
                 if (!hash_equals((string) $status['exclusion_token_sha256'], (string) $record['token_sha256'])) {
-                    throw new \RuntimeException('duo recovery: active receipt exclusion hash does not match held token');
+                    throw new \RuntimeException('wprism recovery: active receipt exclusion hash does not match held token');
                 }
             } else {
                 if ((!empty($status['active']) && empty($status['terminal']))
                     || (int) $record['generation'] !== (int) $status['generation'] + 1
                     || !hash_equals((string) $record['target_id'], (string) $status['target_id'])) {
-                    throw new \RuntimeException('duo recovery: held reservation is not for the exact next generation');
+                    throw new \RuntimeException('wprism recovery: held reservation is not for the exact next generation');
                 }
             }
             self::verifyHeld($root, $record, 'verify');
         } elseif (empty($status['active']) || empty($status['terminal'])) {
-            throw new \RuntimeException('duo recovery: released exclusion lacks a terminal signed receipt');
+            throw new \RuntimeException('wprism recovery: released exclusion lacks a terminal signed receipt');
         } else {
             self::assertRecordIdentity($record, $status, false);
         }
@@ -192,7 +192,7 @@ final class RecoveryExecutor {
                     (string) $status['code_release_metadata_sha256'],
                     (string) $decorated['code_release']['metadata_sha256']
                 )) {
-                    throw new \RuntimeException('duo recovery: active receipt code release metadata hash does not match target evidence');
+                    throw new \RuntimeException('wprism recovery: active receipt code release metadata hash does not match target evidence');
                 }
             } elseif (!empty($status['active'])) {
                 $decorated['code_recovery'] = 'manual';
@@ -207,7 +207,7 @@ final class RecoveryExecutor {
             if (!empty($status['active']) && $hasBoundUploads) {
                 $decorated['uploads'] = UploadBundle::statusEvidence($root, (string) $status['receipt_id']);
                 if (!hash_equals((string) $status['uploads_inventory_sha256'], (string) $decorated['uploads']['metadata_sha256'])) {
-                    throw new \RuntimeException('duo recovery: active receipt upload metadata hash does not match target evidence');
+                    throw new \RuntimeException('wprism recovery: active receipt upload metadata hash does not match target evidence');
                 }
             }
         } else {
@@ -222,7 +222,7 @@ final class RecoveryExecutor {
                     (string) $status['lifecycle_receipts_sha256'],
                     (string) $decorated['effects']['metadata_sha256']
                 )) {
-                    throw new \RuntimeException('duo recovery: active receipt effect metadata hash does not match target evidence');
+                    throw new \RuntimeException('wprism recovery: active receipt effect metadata hash does not match target evidence');
                 }
             } elseif (!empty($status['active'])) {
                 $decorated['effect_recovery'] = 'manual';
@@ -246,14 +246,14 @@ final class RecoveryExecutor {
         if (($status['active'] ?? false) !== true
             || ($status['ok'] ?? false) !== true
             || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
-            throw new \RuntimeException('duo recovery: no active scoped promotion authority is available');
+            throw new \RuntimeException('wprism recovery: no active scoped promotion authority is available');
         }
         $record = self::readExclusion($root, true);
         self::validateRecord($record);
         self::assertRecordIdentity($record, $status, true);
         if (($record['state'] ?? null) !== 'held'
             || !hash_equals((string) $status['exclusion_token_sha256'], (string) $record['token_sha256'])) {
-            throw new \RuntimeException('duo recovery: scoped promotion exclusion is not held by the active receipt');
+            throw new \RuntimeException('wprism recovery: scoped promotion exclusion is not held by the active receipt');
         }
         self::verifyHeld($root, $record, 'verify');
         return [
@@ -261,7 +261,7 @@ final class RecoveryExecutor {
             'allow_deletes' => (bool) $status['allow_deletes'],
             'artifact_hash' => (string) $status['artifact_hash'],
             'exclusion_state' => 'held',
-            'format' => 'duo-scoped-promotion-witness/v1',
+            'format' => 'wprism-scoped-promotion-witness/v1',
             'generation' => (int) $status['generation'],
             'ok' => true,
             'owner' => (string) $status['owner'],
@@ -287,11 +287,11 @@ final class RecoveryExecutor {
             'owner', 'receipt_id', 'target_id', 'timestamp',
         ], 'exclusion request payload');
         if (($payload['format'] ?? '') !== self::REQUEST_FORMAT) {
-            throw new \RuntimeException('duo recovery: unsupported exclusion request format');
+            throw new \RuntimeException('wprism recovery: unsupported exclusion request format');
         }
         $action = (string) ($payload['action'] ?? '');
         if (!in_array($action, ['acquire', 'adopt', 'keepalive', 'release', 'verify'], true)) {
-            throw new \RuntimeException("duo recovery: unsupported exclusion action '$action'");
+            throw new \RuntimeException("wprism recovery: unsupported exclusion action '$action'");
         }
         self::assertHash((string) ($payload['artifact_hash'] ?? ''), 'request artifact hash');
         self::assertIdentifier((string) ($payload['receipt_id'] ?? ''), 'request receipt id', 32, 64);
@@ -300,32 +300,32 @@ final class RecoveryExecutor {
         self::assertActor((string) ($payload['claimant'] ?? ''), 'request claimant');
         if (!is_int($payload['generation'] ?? null) || (int) $payload['generation'] < 1
             || !is_int($payload['claim_epoch'] ?? null) || (int) $payload['claim_epoch'] < 1) {
-            throw new \RuntimeException('duo recovery: request generation/claim_epoch must be positive integers');
+            throw new \RuntimeException('wprism recovery: request generation/claim_epoch must be positive integers');
         }
         self::assertTimestamp((string) ($payload['timestamp'] ?? ''));
 
         $status = RollbackControl::status($root);
         if ($action === 'acquire') {
             if (!empty($status['active']) && empty($status['terminal'])) {
-                throw new \RuntimeException('duo recovery: exclusion acquisition refused during a nonterminal generation');
+                throw new \RuntimeException('wprism recovery: exclusion acquisition refused during a nonterminal generation');
             }
             if ((int) $payload['generation'] !== (int) $status['generation'] + 1
                 || !hash_equals((string) $payload['target_id'], (string) $status['target_id'])
                 || (int) $payload['claim_epoch'] !== 1) {
-                throw new \RuntimeException('duo recovery: exclusion acquisition is not for the exact next generation');
+                throw new \RuntimeException('wprism recovery: exclusion acquisition is not for the exact next generation');
             }
             return self::acquire($root, $payload, $status);
         }
 
         if (empty($status['active'])) {
-            throw new \RuntimeException('duo recovery: exclusion action requires an active signed receipt');
+            throw new \RuntimeException('wprism recovery: exclusion action requires an active signed receipt');
         }
         self::assertRequestIdentity($payload, $status);
         if ($action === 'release' && empty($status['terminal'])) {
-            throw new \RuntimeException('duo recovery: exclusion release requires committed or rolled_back authority');
+            throw new \RuntimeException('wprism recovery: exclusion release requires committed or rolled_back authority');
         }
         if ($action !== 'release' && !empty($status['terminal'])) {
-            throw new \RuntimeException('duo recovery: terminal authority only permits exclusion release');
+            throw new \RuntimeException('wprism recovery: terminal authority only permits exclusion release');
         }
         return self::mutateHeld($root, $payload, $action);
     }
@@ -336,13 +336,13 @@ final class RecoveryExecutor {
             $record = self::requiredHeld($root);
             foreach (['artifact_hash', 'generation', 'owner', 'receipt_id', 'target_id'] as $key) {
                 if ((string) $record[$key] !== (string) $receipt[$key]) {
-                    throw new \RuntimeException("duo recovery: held exclusion $key does not match claim receipt");
+                    throw new \RuntimeException("wprism recovery: held exclusion $key does not match claim receipt");
                 }
             }
             if ((string) $record['claimant'] !== (string) $event['claimant']
                 || (int) $record['claim_epoch'] !== (int) $event['claim_epoch']
                 || !hash_equals((string) $record['token_sha256'], (string) $receipt['exclusion_token_sha256'])) {
-                throw new \RuntimeException('duo recovery: held exclusion is not bound to the exact claim');
+                throw new \RuntimeException('wprism recovery: held exclusion is not bound to the exact claim');
             }
             self::callProviderForRecord(self::config($root), $record, 'verify');
             return ['ok' => true];
@@ -371,42 +371,42 @@ final class RecoveryExecutor {
             $allowed[] = 'effects_inverse';
         }
         if (!in_array($adapter, $allowed, true) || $operationId !== $adapter) {
-            throw new \RuntimeException('duo recovery: executor accepts only the exact configured adapter operation id');
+            throw new \RuntimeException('wprism recovery: executor accepts only the exact configured adapter operation id');
         }
         self::assertActor($claimant, 'executor claimant');
         if ($attempt < 1 || $claimEpoch < 1) {
-            throw new \RuntimeException('duo recovery: executor attempt/claim_epoch must be positive integers');
+            throw new \RuntimeException('wprism recovery: executor attempt/claim_epoch must be positive integers');
         }
         self::assertAbsoluteRegularFile($inputPath, 'executor input');
         self::readCanonical($inputPath, 'executor input');
         $inputHash = hash_file('sha256', $inputPath);
         if (!is_string($inputHash)) {
-            throw new \RuntimeException('duo recovery: could not hash executor input');
+            throw new \RuntimeException('wprism recovery: could not hash executor input');
         }
         $evidence = RollbackControl::activeEvidence($root);
         $status = $evidence['status'];
         if (!empty($status['terminal'])
             || (string) $status['claimant'] !== $claimant
             || (int) $status['claim_epoch'] !== $claimEpoch) {
-            throw new \RuntimeException('duo recovery: executor claimant is stale, foreign, or terminal');
+            throw new \RuntimeException('wprism recovery: executor claimant is stale, foreign, or terminal');
         }
         if (($status['receipt_format'] ?? null) === RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
             && !in_array($adapter, ['database_restore', 'prior_verify'], true)) {
             throw new \RuntimeException(
-                'duo recovery: scoped promotion authority permits only database restore and prior verification'
+                'wprism recovery: scoped promotion authority permits only database restore and prior verification'
             );
         }
         $requiredState = $adapter === 'prior_verify'
             ? 'verifying_prior'
             : (in_array($adapter, ['code_select', 'storage_apply'], true) ? 'promoting' : 'rolling_back');
         if ((string) $status['state'] !== $requiredState) {
-            throw new \RuntimeException("duo recovery: $adapter may run only in $requiredState");
+            throw new \RuntimeException("wprism recovery: $adapter may run only in $requiredState");
         }
         $key = $operationId . '#' . $attempt;
         $prepared = $evidence['open_operations'][$key] ?? null;
         if (!is_array($prepared)
             || !hash_equals((string) ($prepared['input_sha256'] ?? ''), $inputHash)) {
-            throw new \RuntimeException('duo recovery: no exact signed prepared operation authorizes this input');
+            throw new \RuntimeException('wprism recovery: no exact signed prepared operation authorizes this input');
         }
         $record = self::requiredHeld($root);
         self::assertRecordIdentity($record, $status, false);
@@ -494,14 +494,14 @@ final class RecoveryExecutor {
                 }
                 self::assertRecordIdentity($existing, $status, true);
                 if (empty($status['terminal'])) {
-                    throw new \RuntimeException('duo recovery: released exclusion lacks terminal authority');
+                    throw new \RuntimeException('wprism recovery: released exclusion lacks terminal authority');
                 }
             }
             $config = self::config($root);
             $response = self::callProvider($config, self::providerRequest($payload, null, 'acquire'), 'held');
             $token = (string) $response['token'];
             if ($token === '' || strlen($token) > 4096 || str_contains($token, "\0")) {
-                throw new \RuntimeException('duo recovery: provider returned an invalid opaque token');
+                throw new \RuntimeException('wprism recovery: provider returned an invalid opaque token');
             }
             $record = [
                 'artifact_hash' => (string) $payload['artifact_hash'],
@@ -554,7 +554,7 @@ final class RecoveryExecutor {
         return self::withLock($root, function () use ($root, $record, $action): array {
             $current = self::requiredHeld($root);
             if (!hash_equals(CanonicalJson::encode($record), CanonicalJson::encode($current))) {
-                throw new \RuntimeException('duo recovery: exclusion record changed concurrently');
+                throw new \RuntimeException('wprism recovery: exclusion record changed concurrently');
             }
             return self::callProviderForRecord(self::config($root), $current, $action);
         });
@@ -567,7 +567,7 @@ final class RecoveryExecutor {
         if (!hash_equals((string) $response['provider_id'], (string) $record['provider_id'])
             || !is_string($response['token'])
             || !hash_equals((string) $record['token'], (string) $response['token'])) {
-            throw new \RuntimeException('duo recovery: provider evidence does not match the durable exclusion token');
+            throw new \RuntimeException('wprism recovery: provider evidence does not match the durable exclusion token');
         }
         return $response;
     }
@@ -585,12 +585,12 @@ final class RecoveryExecutor {
             || ($response['state'] ?? '') !== $expectedState
             || ($response['scopes'] ?? null) !== self::scopeMap()
             || !hash_equals((string) ($request['target_id'] ?? ''), (string) ($response['target_id'] ?? ''))) {
-            throw new \RuntimeException('duo recovery: provider did not attest the complete fail-closed exclusion contract');
+            throw new \RuntimeException('wprism recovery: provider did not attest the complete fail-closed exclusion contract');
         }
         self::assertActor((string) ($response['provider_id'] ?? ''), 'provider id');
         self::assertActor((string) ($response['provider_version'] ?? ''), 'provider version');
         if ($expectedState === 'ready' && $response['token'] !== null) {
-            throw new \RuntimeException('duo recovery: provider probe must not mint an exclusion token');
+            throw new \RuntimeException('wprism recovery: provider probe must not mint an exclusion token');
         }
         return $response;
     }
@@ -608,12 +608,12 @@ final class RecoveryExecutor {
             || ($response['adapter'] ?? '') !== $adapter
             || ($response['status'] ?? '') !== $expectedStatus
             || ($response['input_sha256'] ?? null) !== ($request['input_sha256'] ?? null)) {
-            throw new \RuntimeException("duo recovery: $adapter adapter did not attest the isolated executor contract");
+            throw new \RuntimeException("wprism recovery: $adapter adapter did not attest the isolated executor contract");
         }
         self::assertActor((string) ($response['adapter_version'] ?? ''), "$adapter adapter version");
         if ($expectedStatus === 'ready') {
             if ($response['result_sha256'] !== null) {
-                throw new \RuntimeException("duo recovery: $adapter probe returned a result hash");
+                throw new \RuntimeException("wprism recovery: $adapter probe returned a result hash");
             }
         } else {
             self::assertHash((string) ($response['result_sha256'] ?? ''), "$adapter result hash");
@@ -627,21 +627,21 @@ final class RecoveryExecutor {
             $command,
             $request,
             $timeout,
-            'duo recovery',
-            "duo recovery: could not start $label",
-            "duo recovery: $label timed out; exclusion remains held",
-            "duo recovery: $label output exceeded the redacted evidence limit",
-            "duo recovery: $label failed",
+            'wprism recovery',
+            "wprism recovery: could not start $label",
+            "wprism recovery: $label timed out; exclusion remains held",
+            "wprism recovery: $label output exceeded the redacted evidence limit",
+            "wprism recovery: $label failed",
             true,
-            "duo recovery: $label returned malformed JSON",
-            "duo recovery: $label returned non-canonical evidence"
+            "wprism recovery: $label returned malformed JSON",
+            "wprism recovery: $label returned non-canonical evidence"
         );
     }
 
     /** @return array<string,mixed> */
     private static function config(string $root): array {
         if (!self::configured($root)) {
-            throw new \RuntimeException('duo recovery: no recovery provider is configured');
+            throw new \RuntimeException('wprism recovery: no recovery provider is configured');
         }
         $config = self::readCanonical(self::configPath($root), 'configuration');
         self::validateConfig($config);
@@ -659,10 +659,10 @@ final class RecoveryExecutor {
         }
         sort($expected, SORT_STRING);
         if ($keys !== $expected) {
-            throw new \RuntimeException('duo recovery: configuration has missing or unknown fields');
+            throw new \RuntimeException('wprism recovery: configuration has missing or unknown fields');
         }
         if (($config['format'] ?? '') !== self::CONFIG_FORMAT) {
-            throw new \RuntimeException('duo recovery: unsupported configuration format');
+            throw new \RuntimeException('wprism recovery: unsupported configuration format');
         }
         self::validateCommand($config['exclusion_provider'] ?? null, 'exclusion provider');
         if (array_key_exists('checkpoint_provider', $config)) {
@@ -678,7 +678,7 @@ final class RecoveryExecutor {
             self::validateCommand($config['effect_provider'], 'effect provider');
         }
         if (!is_array($config['adapters'] ?? null) || array_is_list($config['adapters'])) {
-            throw new \RuntimeException('duo recovery: adapters must be an object');
+            throw new \RuntimeException('wprism recovery: adapters must be an object');
         }
         self::assertExactKeys((array) $config['adapters'], self::ADAPTERS, 'adapters');
         foreach (self::ADAPTERS as $adapter) {
@@ -687,21 +687,21 @@ final class RecoveryExecutor {
         if (!is_int($config['timeout_seconds'] ?? null)
             || (int) $config['timeout_seconds'] < 1
             || (int) $config['timeout_seconds'] > 60) {
-            throw new \RuntimeException('duo recovery: timeout_seconds must be 1..60');
+            throw new \RuntimeException('wprism recovery: timeout_seconds must be 1..60');
         }
     }
 
     private static function validateCommand(mixed $command, string $label): void {
         if (!is_array($command) || !array_is_list($command) || $command === []) {
-            throw new \RuntimeException("duo recovery: $label must be a non-empty argv array");
+            throw new \RuntimeException("wprism recovery: $label must be a non-empty argv array");
         }
         foreach ($command as $arg) {
             if (!is_string($arg) || $arg === '' || str_contains($arg, "\0")) {
-                throw new \RuntimeException("duo recovery: $label contains an invalid argv item");
+                throw new \RuntimeException("wprism recovery: $label contains an invalid argv item");
             }
         }
         if ($command[0][0] !== '/' || is_link($command[0]) || !is_file($command[0]) || !is_executable($command[0])) {
-            throw new \RuntimeException("duo recovery: $label executable is unavailable or unsafe");
+            throw new \RuntimeException("wprism recovery: $label executable is unavailable or unsafe");
         }
     }
 
@@ -730,7 +730,7 @@ final class RecoveryExecutor {
     private static function assertRequestIdentity(array $payload, array $status): void {
         foreach (['artifact_hash', 'generation', 'owner', 'receipt_id', 'target_id', 'claimant', 'claim_epoch'] as $key) {
             if ((string) $payload[$key] !== (string) $status[$key]) {
-                throw new \RuntimeException("duo recovery: exclusion request $key is stale or foreign");
+                throw new \RuntimeException("wprism recovery: exclusion request $key is stale or foreign");
             }
         }
     }
@@ -743,7 +743,7 @@ final class RecoveryExecutor {
         }
         foreach ($keys as $key) {
             if ((string) $record[$key] !== (string) $status[$key]) {
-                throw new \RuntimeException("duo recovery: exclusion record $key does not match authority");
+                throw new \RuntimeException("wprism recovery: exclusion record $key does not match authority");
             }
         }
     }
@@ -751,13 +751,13 @@ final class RecoveryExecutor {
     private static function assertPayloadRecordMatch(array $payload, array $record): void {
         foreach (['artifact_hash', 'generation', 'owner', 'receipt_id', 'target_id'] as $key) {
             if ((string) $payload[$key] !== (string) $record[$key]) {
-                throw new \RuntimeException("duo recovery: exclusion $key does not match durable reservation");
+                throw new \RuntimeException("wprism recovery: exclusion $key does not match durable reservation");
             }
         }
         if ((string) $payload['action'] !== 'adopt'
             && ((string) $payload['claimant'] !== (string) $record['claimant']
                 || (int) $payload['claim_epoch'] !== (int) $record['claim_epoch'])) {
-            throw new \RuntimeException('duo recovery: exclusion claimant is stale or foreign');
+            throw new \RuntimeException('wprism recovery: exclusion claimant is stale or foreign');
         }
         if ((string) $payload['action'] === 'adopt'
             && !(
@@ -765,7 +765,7 @@ final class RecoveryExecutor {
                 || ((int) $payload['claim_epoch'] === (int) $record['claim_epoch']
                     && (string) $payload['claimant'] === (string) $record['claimant'])
             )) {
-            throw new \RuntimeException('duo recovery: exclusion adoption must match or advance one claim epoch');
+            throw new \RuntimeException('wprism recovery: exclusion adoption must match or advance one claim epoch');
         }
     }
 
@@ -773,7 +773,7 @@ final class RecoveryExecutor {
     private static function requiredHeld(string $root): array {
         $record = self::readExclusion($root, true);
         if (($record['state'] ?? '') !== 'held') {
-            throw new \RuntimeException('duo recovery: no held exclusion exists');
+            throw new \RuntimeException('wprism recovery: no held exclusion exists');
         }
         return $record;
     }
@@ -783,7 +783,7 @@ final class RecoveryExecutor {
         $path = self::exclusionPath($root);
         if (!file_exists($path)) {
             if ($required) {
-                throw new \RuntimeException('duo recovery: exclusion record is missing');
+                throw new \RuntimeException('wprism recovery: exclusion record is missing');
             }
             return null;
         }
@@ -800,13 +800,13 @@ final class RecoveryExecutor {
         ], 'exclusion record');
         if (($record['format'] ?? '') !== self::EXCLUSION_FORMAT
             || !in_array((string) ($record['state'] ?? ''), ['held', 'released'], true)) {
-            throw new \RuntimeException('duo recovery: exclusion record format/state is invalid');
+            throw new \RuntimeException('wprism recovery: exclusion record format/state is invalid');
         }
         self::assertHash((string) $record['artifact_hash'], 'exclusion artifact hash');
         self::assertHash((string) $record['token_sha256'], 'exclusion token hash');
         if (!is_string($record['token']) || $record['token'] === '' || strlen($record['token']) > 4096
             || !hash_equals(hash('sha256', (string) $record['token']), (string) $record['token_sha256'])) {
-            throw new \RuntimeException('duo recovery: exclusion token is malformed or tampered');
+            throw new \RuntimeException('wprism recovery: exclusion token is malformed or tampered');
         }
         self::assertIdentifier((string) $record['receipt_id'], 'exclusion receipt id', 32, 64);
         self::assertIdentifier((string) $record['target_id'], 'exclusion target id', 32, 32);
@@ -815,7 +815,7 @@ final class RecoveryExecutor {
         }
         if (!is_int($record['generation']) || $record['generation'] < 1
             || !is_int($record['claim_epoch']) || $record['claim_epoch'] < 1) {
-            throw new \RuntimeException('duo recovery: exclusion generation/claim_epoch is invalid');
+            throw new \RuntimeException('wprism recovery: exclusion generation/claim_epoch is invalid');
         }
         self::assertTimestamp((string) $record['updated_at']);
     }
@@ -839,7 +839,7 @@ final class RecoveryExecutor {
 
     /** @return array<string,mixed> */
     private static function readCanonical(string $path, string $label): array {
-        return AtomicStore::readCanonical($path, $label, 'duo recovery');
+        return AtomicStore::readCanonical($path, $label, 'wprism recovery');
     }
 
     /** @return array<string,mixed> */
@@ -848,19 +848,19 @@ final class RecoveryExecutor {
         return ProtocolLock::withExclusive(
             $path,
             $callback,
-            'duo recovery: recovery lock path is unsafe',
-            'duo recovery: could not open recovery lock',
-            'duo recovery: could not acquire recovery lock',
+            'wprism recovery: recovery lock path is unsafe',
+            'wprism recovery: could not open recovery lock',
+            'wprism recovery: could not acquire recovery lock',
             0600
         );
     }
 
     private static function atomicWrite(string $path, string $bytes, int $mode, string $label): void {
-        AtomicStore::atomicWrite($path, $bytes, $mode, $label, 'duo recovery');
+        AtomicStore::atomicWrite($path, $bytes, $mode, $label, 'wprism recovery');
     }
 
     private static function assertAbsoluteRegularFile(string $path, string $label): void {
-        AtomicStore::assertAbsoluteRegularFile($path, $label, 'duo recovery');
+        AtomicStore::assertAbsoluteRegularFile($path, $label, 'wprism recovery');
     }
 
     /** @param list<string> $expected */
@@ -869,33 +869,33 @@ final class RecoveryExecutor {
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
-            throw new \RuntimeException("duo recovery: $label has missing or unknown fields");
+            throw new \RuntimeException("wprism recovery: $label has missing or unknown fields");
         }
     }
 
     private static function assertHash(string $value, string $label): void {
         if (preg_match('/^[0-9a-f]{64}$/', $value) !== 1) {
-            throw new \RuntimeException("duo recovery: $label must be a sha256 hex digest");
+            throw new \RuntimeException("wprism recovery: $label must be a sha256 hex digest");
         }
     }
 
     private static function assertIdentifier(string $value, string $label, int $min, int $max): void {
         $length = strlen($value);
         if ($length < $min || $length > $max || preg_match('/^[A-Za-z0-9._:-]+$/', $value) !== 1) {
-            throw new \RuntimeException("duo recovery: $label is malformed");
+            throw new \RuntimeException("wprism recovery: $label is malformed");
         }
     }
 
     private static function assertActor(string $value, string $label): void {
         if ($value === '' || strlen($value) > 128 || preg_match('/^[A-Za-z0-9._:@+\/-]+$/', $value) !== 1) {
-            throw new \RuntimeException("duo recovery: $label is malformed");
+            throw new \RuntimeException("wprism recovery: $label is malformed");
         }
     }
 
     private static function assertTimestamp(string $value): void {
         $time = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $value, new \DateTimeZone('UTC'));
         if (!$time || $time->format('Y-m-d\TH:i:s\Z') !== $value) {
-            throw new \RuntimeException('duo recovery: timestamp must be canonical UTC seconds');
+            throw new \RuntimeException('wprism recovery: timestamp must be canonical UTC seconds');
         }
     }
 

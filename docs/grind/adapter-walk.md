@@ -17,7 +17,7 @@ is [docs/adapter-walk-bundle.md](../adapter-walk-bundle.md).
 
 `grind_mup.sh` proves the loop works for a site whose plugins the platform
 already knows. This proves the other half of the product: an operator whose
-site runs a plugin Duo has never reviewed can **author, certify and override
+site runs a plugin WPrism has never reviewed can **author, certify and override
 adapters themselves**, and the same loop then runs around — or through — that
 plugin.
 
@@ -25,8 +25,8 @@ Four scenarios, each on a fresh `pair.sh reset` of one dedicated pair:
 
 | # | scenario | the question it answers |
 |---|---|---|
-| S1 | a published plugin with no adapter, kept deliberately unmanaged | "I run WPForms and I do not want Duo touching it. Can I still use Duo?" |
-| S2 | the same plugin, with an adapter the operator authored and certified | "Can I make Duo manage my forms without waiting for a platform adapter?" |
+| S1 | a published plugin with no adapter, kept deliberately unmanaged | "I run WPForms and I do not want WPrism touching it. Can I still use WPrism?" |
+| S2 | the same plugin, with an adapter the operator authored and certified | "Can I make WPrism manage my forms without waiting for a platform adapter?" |
 | S3 | an in-house plugin that bundles its own adapter | "My developer shipped an adapter with our plugin. What do I do with it?" |
 | S4 | a shipped adapter overridden by a certified site copy | "The platform adapter is nearly right. Can I extend it for my site?" |
 
@@ -37,7 +37,7 @@ in its own namespace, are written *after* the release checkpoint; recovery then
 has to make the printed `maximum_loss_boundary` sentence literally true for
 them, exactly as it does for a managed row. If unmanaged state survived a
 recovery whose claim said it would not, the claim would be true only about the
-state Duo happens to manage, which is not what the sentence says.
+state WPrism happens to manage, which is not what the sentence says.
 
 ---
 
@@ -53,7 +53,7 @@ produces evidence — adds the source gate `sandbox/bin/pair.sh` enforces
 *before* it drops a database:
 
 ```sh
-DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
+WPRISM_SOURCE_ROOT=$(pwd -P) WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
   make grind-adapter-walk WALK_PORT1=9500 WALK_PORT2=9501
 ```
 
@@ -76,8 +76,8 @@ WALK_SCENARIOS=S2 bash sandbox/tests/grind/grind_adapter_walk.sh
 | `WALK_WOO_VERSION` | `11.0.0` | The pinned WooCommerce artifact, installed in **every** scenario. |
 | `WALK_WPFORMS_VERSION` | `2.0.0.4` | The pinned subject plugin (§4 names WPForms Lite 2.0.0.4, `role: exercise-fixture`). |
 | `WALK_KEY_ID` | `acme-ops-2026` | The organization key id certification runs under. It is an operator-chosen label, not a secret, and it is the value the projection's `principal` must read back. |
-| `DUO_EXPECTED_SOURCE_SHA` | unset | Forwarded to `pair.sh`'s candidate-source gate. Unset means this run is **not** bound to a commit, and the driver says so. |
-| `DUO_WORDPRESS_ORG_OFFLINE` | `0` | Forwarded to `pair.sh` and `fetch-artifact.sh`. |
+| `WPRISM_EXPECTED_SOURCE_SHA` | unset | Forwarded to `pair.sh`'s candidate-source gate. Unset means this run is **not** bound to a commit, and the driver says so. |
+| `WPRISM_WORDPRESS_ORG_OFFLINE` | `0` | Forwarded to `pair.sh` and `fetch-artifact.sh`. |
 
 WooCommerce is installed in every scenario, not only in S4. The site under test
 should look like a real shop that also runs the subject plugin; one
@@ -95,8 +95,8 @@ bash sandbox/tests/grind/grind_adapter_walk.sh --dry-run      # --self-check, th
 `--self-check` runs each jq/bash helper against the PASS document in
 `sandbox/tests/fixtures/adapter-walk/` **and** against a hand-mutated FAIL
 document, because a helper that cannot fail proves nothing about the run that
-trusts it. It also writes the exact `.duo-envs.json` the run writes and pushes
-it through `\Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment()` —
+trusts it. It also writes the exact `.wprism-envs.json` the run writes and pushes
+it through `\WPrism\Orchestrator\CommandEnvironmentProvider::fromEnvironment()` —
 the real `EnvironmentLifecycle` provider-config schema — so a malformed
 provider block refuses on a laptop instead of at materialization time with a
 snapshot already taken.
@@ -104,7 +104,7 @@ snapshot already taken.
 `--dry-run` walks every selected scenario and prints the argv of every external
 command, shell-quoted, with its arguments already resolved. It is a plan, not a
 replay: there is one copy of each step body, and every external call goes
-through `run`/`run_in`/`duo_ok`/`duo_refused`, which print instead of
+through `run`/`run_in`/`wprism_ok`/`wprism_refused`, which print instead of
 executing. A dry run creates nothing — no `sandbox/tmp`, no `sandbox/siterepo`
 — and its cleanup trap removes nothing.
 
@@ -114,22 +114,22 @@ Everything the run reads is kept under a `mktemp -d` inside `sandbox/tmp/`,
 with one directory per scenario:
 
 ```
-<scratch>/.duo-envs.json                        the machine-local registry
-<scratch>/reference-env-provider.json           duo-reference-env-provider-config/v1
+<scratch>/.wprism-envs.json                        the machine-local registry
+<scratch>/reference-env-provider.json           wprism-reference-env-provider-config/v1
 <scratch>/keys/<name>.key                       the organization secret key, mode 0600, OUTSIDE both repos
 <scratch>/evidence/<S>/init*.txt                init's proposal / refusal renders
 <scratch>/evidence/<S>/capture-refused.txt      the typed capture stop
 <scratch>/evidence/<S>/classify-*.txt           the exported and applied classification batch
-<scratch>/evidence/<S>/coverage.json            duo-coverage-report/v1
-<scratch>/evidence/<S>/assess-*.json|txt        duo-assess-report/v1 and the human view the leak gate reads
-<scratch>/evidence/<S>/adapter-list-*.json|txt  duo-adapter-catalog/v2
+<scratch>/evidence/<S>/coverage.json            wprism-coverage-report/v1
+<scratch>/evidence/<S>/assess-*.json|txt        wprism-assess-report/v1 and the human view the leak gate reads
+<scratch>/evidence/<S>/adapter-list-*.json|txt  wprism-adapter-catalog/v2
 <scratch>/evidence/<S>/adapter-survey*.json     the TARGET's survey (the only place the plugin source exists)
 <scratch>/evidence/<S>/keygen.txt certify.txt   the two host verbs' receipts
 <scratch>/evidence/<S>/rehearse.txt             banner + "what a release would touch"
-<scratch>/evidence/<S>/authorization-plan.json  duo-authorization-plan/v1
+<scratch>/evidence/<S>/authorization-plan.json  wprism-authorization-plan/v1
 <scratch>/evidence/<S>/release.txt              promote's own `promote phase:` receipts
-<scratch>/evidence/<S>/verify.json              duo-verify-report/v1
-<scratch>/evidence/<S>/checkpoint-catalog.json  duo-checkpoint-catalog/v1
+<scratch>/evidence/<S>/verify.json              wprism-verify-report/v1
+<scratch>/evidence/<S>/checkpoint-catalog.json  wprism-checkpoint-catalog/v1
 <scratch>/evidence/<S>/recover.txt              the claim, printed before acting
 <scratch>/evidence/<S>/reap-{1,2}.txt
 ```
@@ -163,7 +163,7 @@ the table cannot drift apart. Its `source` column separates the two kinds:
   and `certification_trust_root` / `certification_principal` on each assess
   operation projection beside `certification_provenance` (§3.2 fixes the
   facts, not their placement); `site` as `trust_root`'s value for a site-signed adapter;
-  `key-id: <id>` as the first field of `duo adapter keygen`'s output;
+  `key-id: <id>` as the first field of `wprism adapter keygen`'s output;
   `secret_key_inside_repository` as the reason code for keygen refusing a path
   inside the site repository (§3.1 fixes the refusal, not its code); and
   `draft_output_exists` for `adapter-draft --out` refusing to overwrite (§3.5,
@@ -172,8 +172,8 @@ the table cannot drift apart. Its `source` column separates the two kinds:
 Two spellings the walk deliberately does **not** assert, because the contract
 names the effect rather than the string: the heading the init advisories print
 under (§3.4 says "an `advisories` heading"; the walk asserts only the
-`UNMANAGED PLUGIN …` row), and the prose of `duo adapter certify`'s printed pin
-object (the walk reads the pin out of `site.duo.json`, which §3.1 does fix).
+`UNMANAGED PLUGIN …` row), and the prose of `wprism adapter certify`'s printed pin
+object (the walk reads the pin out of `site.wprism.json`, which §3.1 does fix).
 
 ---
 
@@ -182,40 +182,40 @@ object (the walk reads the pin out of `site.duo.json`, which §3.1 does fix).
 | # | Command | Assertion, and why it is the assertion |
 |---|---|---|
 | 1 | `pair.sh reset` + `up --http --artifacts`; WooCommerce + theme + WPForms Lite on both sides; two forms, two products and a page on side 1 | The pair is healthy and both sides carry the **exact** pinned artifacts. Side 1 is authored (activated, set up); side 2 gets extension **files only**, so the release's own deploy phase is what reconciles activation. |
-| 2 | `duo init <env> --yes` | Refuses with `active_plugin_without_adapter`, prints `UNSUPPORTED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]`, and its remediation names **both** new remedies: `--allow-unmanaged-plugins` and `duo adapter certify` (§3.4). A refusal that names one way out teaches the operator there is one. |
-| 3 | `duo init <env> --allow-unmanaged-plugins --yes` | Proceeds; the same finding now prints `UNMANAGED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]` under advisories, and — because init's own confirmation runs the baseline capture, whose scope gate refuses any plugin-registered type with rows that no rule names — the decision carries through: `UNMANAGED SCOPE post_type:wpforms [unmanaged_scope_left_local]` and `policy.scope.post_type.wpforms.class = runtime` in `site.duo.json`. The generated `policy.post_types` must *not* have taken the plugin's post type into authored scope. |
-| 4 | `duo capture <env>` green; `duo pending <env>` holds no scope gap | The reviewed rule makes capture green. The gate is then proven live in the negative: with the rule removed from a scratch copy of `site.duo.json`, capture refuses `incomplete_policy_scope` naming `scope:post_type:wpforms`; the rule is restored and capture is green again. Loud and blocking is the product; a capture that silently skipped the plugin's entities would be the defect. |
-| 5 | `duo coverage <env> --format=json` | Every undeclared table row publishes `logical_name` (§3.7 bug 1). Without it, assess's `table:<name>` identities — which are built from `logical_name` — can never appear on a live site, so this is checked by key name rather than by counting rows. |
-| 6 | `duo assess <env> --format=json`, then `duo assess <env>` | `plugin:wpforms-lite` exists and projects `unclassified / block / Not qualified / Uncertified / unknown / unknown` with next action `install adapter`; `table:wpforms_*` rows exist; the unknown block names `option-prefix:wpforms` and counts a non-zero invisible-option total; the human view prints `N undeclared table(s)` (§3.6 / §3.7 bug 2) and its next-actions roll-up counts at least two `install adapter` findings; **no** unclassified row answers `nothing — supported`; and the human view leaks no UUID and no 32-or-more-hex identifier. |
-| 7 | `duo contract <env> propose` → jq review → `accept` | The plugin surface and its tables are decided `state_class: runtime`, `handling: preserve local`, `decided_by: operator`, with the next action removed — §3.6's ordinary operator decision, which projects `Unsupported` and puts the surface outside every release gate. The accepted contract is then checked to carry **no** remaining `unresolved` surface: a leftover is a surface this walk did not anticipate, and §4 says such a stop is the work list. |
-| 8 | `duo rehearse <pair>2 --from <env> --branch main` | Containment banner is the **first** line and appears **once**, byte for byte; "what a release would touch" is present; side 2 carries a materialized site repository. |
-| 9 | Edit the landing page on the preview; `duo capture preview` twice | Capture is deterministic: two captures of the same converged environment differ by zero bytes. |
+| 2 | `wprism init <env> --yes` | Refuses with `active_plugin_without_adapter`, prints `UNSUPPORTED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]`, and its remediation names **both** new remedies: `--allow-unmanaged-plugins` and `wprism adapter certify` (§3.4). A refusal that names one way out teaches the operator there is one. |
+| 3 | `wprism init <env> --allow-unmanaged-plugins --yes` | Proceeds; the same finding now prints `UNMANAGED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]` under advisories, and — because init's own confirmation runs the baseline capture, whose scope gate refuses any plugin-registered type with rows that no rule names — the decision carries through: `UNMANAGED SCOPE post_type:wpforms [unmanaged_scope_left_local]` and `policy.scope.post_type.wpforms.class = runtime` in `site.wprism.json`. The generated `policy.post_types` must *not* have taken the plugin's post type into authored scope. |
+| 4 | `wprism capture <env>` green; `wprism pending <env>` holds no scope gap | The reviewed rule makes capture green. The gate is then proven live in the negative: with the rule removed from a scratch copy of `site.wprism.json`, capture refuses `incomplete_policy_scope` naming `scope:post_type:wpforms`; the rule is restored and capture is green again. Loud and blocking is the product; a capture that silently skipped the plugin's entities would be the defect. |
+| 5 | `wprism coverage <env> --format=json` | Every undeclared table row publishes `logical_name` (§3.7 bug 1). Without it, assess's `table:<name>` identities — which are built from `logical_name` — can never appear on a live site, so this is checked by key name rather than by counting rows. |
+| 6 | `wprism assess <env> --format=json`, then `wprism assess <env>` | `plugin:wpforms-lite` exists and projects `unclassified / block / Not qualified / Uncertified / unknown / unknown` with next action `install adapter`; `table:wpforms_*` rows exist; the unknown block names `option-prefix:wpforms` and counts a non-zero invisible-option total; the human view prints `N undeclared table(s)` (§3.6 / §3.7 bug 2) and its next-actions roll-up counts at least two `install adapter` findings; **no** unclassified row answers `nothing — supported`; and the human view leaks no UUID and no 32-or-more-hex identifier. |
+| 7 | `wprism contract <env> propose` → jq review → `accept` | The plugin surface and its tables are decided `state_class: runtime`, `handling: preserve local`, `decided_by: operator`, with the next action removed — §3.6's ordinary operator decision, which projects `Unsupported` and puts the surface outside every release gate. The accepted contract is then checked to carry **no** remaining `unresolved` surface: a leftover is a surface this walk did not anticipate, and §4 says such a stop is the work list. |
+| 8 | `wprism rehearse <pair>2 --from <env> --branch main` | Containment banner is the **first** line and appears **once**, byte for byte; "what a release would touch" is present; side 2 carries a materialized site repository. |
+| 9 | Edit the landing page on the preview; `wprism capture preview` twice | Capture is deterministic: two captures of the same converged environment differ by zero bytes. |
 | 10 | `git commit` + `git push origin HEAD:main`; then revert the live page body on side 2 and capture once | The revert is `grind_mup.sh`'s step 7b, here for the same reason: side 2 is both the preview and the release target, so the authored edit is already live the moment it is captured, and a release with nothing to apply proves nothing. The one capture that follows the revert is what puts the target's ledger back in agreement with its live rows, which is the capture-first workflow `release_target_not_clean` names. |
-| 11 | `duo release <target> --from=<sha> --plan-only --format=json`, then `--yes` | The plan validates as `duo-authorization-plan/v1`, cites the **accepted** `contract_digest`, embeds a literal recovery claim, names the profile **with the reason it was selected**, authorizes at least one entity change, and wrote nothing to `.duo/releases/`. The release then prints `authorization frozen: <path>` and promote's own receipts in the order `promotion-begin → checkpoint → lifecycle-retire → lifecycle-activate → apply`. |
-| 12 | `duo verify <target> --format=json` | `verdict: pass`, `convergence.status: pass`, both declared journeys pass, `uncovered_surfaces` present as a list. The pre-recovery projection of every in-scope surface is recorded here. |
+| 11 | `wprism release <target> --from=<sha> --plan-only --format=json`, then `--yes` | The plan validates as `wprism-authorization-plan/v1`, cites the **accepted** `contract_digest`, embeds a literal recovery claim, names the profile **with the reason it was selected**, authorizes at least one entity change, and wrote nothing to `.wprism/releases/`. The release then prints `authorization frozen: <path>` and promote's own receipts in the order `promotion-begin → checkpoint → lifecycle-retire → lifecycle-activate → apply`. |
+| 12 | `wprism verify <target> --format=json` | `verdict: pass`, `convergence.status: pass`, both declared journeys pass, `uncovered_surfaces` present as a list. The pre-recovery projection of every in-scope surface is recorded here. |
 | 13 | Write a row into `wp_wpforms_tasks_meta` and set a `wpforms_*` option on the target, **after** the checkpoint | **The gate.** Both writes belong to the plugin the contract excluded. They are ordinary target state inside the database checkpoint's boundary. |
-| 14 | `duo recover <target> --list --format=json` → `--restore=<id> --writers-excluded` | (a) The claim is printed *before* the first driven step — asserted by line number, because a claim printed after recovery started was read too late to stop. (b) The `maximum_loss_boundary` printed at recovery is byte-identical to the frozen plan's. (c) The post-checkpoint table row **and** the post-checkpoint option are **gone**. (d) The page body is back at its pre-release value. |
-| 15 | `duo assess <target> --format=json` | The projection of every surface the frozen plan named in scope is byte-identical to the pre-release one, and `plugin:wpforms-lite` still projects `runtime / preserve local / Unsupported` — the operator's decision survived the loop it was made for. |
-| 16 | `duo rehearse <pair>2 --reap`, twice | The first receipt says `destroyed` or `detached`; the second says the same and exits 0. |
+| 14 | `wprism recover <target> --list --format=json` → `--restore=<id> --writers-excluded` | (a) The claim is printed *before* the first driven step — asserted by line number, because a claim printed after recovery started was read too late to stop. (b) The `maximum_loss_boundary` printed at recovery is byte-identical to the frozen plan's. (c) The post-checkpoint table row **and** the post-checkpoint option are **gone**. (d) The page body is back at its pre-release value. |
+| 15 | `wprism assess <target> --format=json` | The projection of every surface the frozen plan named in scope is byte-identical to the pre-release one, and `plugin:wpforms-lite` still projects `runtime / preserve local / Unsupported` — the operator's decision survived the loop it was made for. |
+| 16 | `wprism rehearse <pair>2 --reap`, twice | The first receipt says `destroyed` or `detached`; the second says the same and exits 0. |
 
 ## S2 — the operator authors and certifies an adapter
 
 | # | Command | Assertion, and why it is the assertion |
 |---|---|---|
 | 1 | Fresh pair; WooCommerce + theme + WPForms Lite; one form and a shop on side 1 | As S1. |
-| 2 | Seed `site.duo.json` by hand (the **adoption-seed** shape) | §4 orders `coverage`, `adapter-draft`, `manifest-validate`, `keygen` and `certify` *before* the init they then expect to succeed — so a repository has to exist first. The bytes written are exactly `InitPlanner::existing_config()`'s `adoption-seed` shape, which is the product's own named seam for a repository that predates init, not a way around its `existing_configuration` blocker. No capture runs before init: a ledger row would make the environment initialized in fact, which is a different blocker with a different meaning. |
-| 3 | `duo coverage <env> --format=json` | Reports an invisible option group for `wpforms_`, which is what `--seed` has to consume. |
-| 4 | `duo adapter-draft <repo> --name=wpforms --seed=<coverage.json> --out=adapters/wpforms.json` | The draft exists and carries the seed's option-prefix proposal as an `option_namespaces` entry (§3.5). Running it a second time against the same `--out` refuses (`draft_output_exists`): a draft that silently replaced a hand-finished manifest would destroy the operator's own work. |
+| 2 | Seed `site.wprism.json` by hand (the **adoption-seed** shape) | §4 orders `coverage`, `adapter-draft`, `manifest-validate`, `keygen` and `certify` *before* the init they then expect to succeed — so a repository has to exist first. The bytes written are exactly `InitPlanner::existing_config()`'s `adoption-seed` shape, which is the product's own named seam for a repository that predates init, not a way around its `existing_configuration` blocker. No capture runs before init: a ledger row would make the environment initialized in fact, which is a different blocker with a different meaning. |
+| 3 | `wprism coverage <env> --format=json` | Reports an invisible option group for `wpforms_`, which is what `--seed` has to consume. |
+| 4 | `wprism adapter-draft <repo> --name=wpforms --seed=<coverage.json> --out=adapters/wpforms.json` | The draft exists and carries the seed's option-prefix proposal as an `option_namespaces` entry (§3.5). Running it a second time against the same `--out` refuses (`draft_output_exists`): a draft that silently replaced a hand-finished manifest would destroy the operator's own work. |
 | 5 | jq: finish the draft into a flow fixture | A draft is a proposal; a manifest is a claim, but this scenario's claim is deliberately local to the trust-flow exercise. `post_types.wpforms` uses `body: "verbatim"` so the walk can drive entity bytes; `wpforms_settings` is selected and the remaining observed namespace/tables are runtime. The limitation ledger records why those declarations do **not** make the fixture a faithful cross-environment WPForms adapter: the body contains a local self id, the block reference is string-typed, and the form-tag taxonomy is omitted. |
-| 6 | `duo manifest-validate <repo>/adapters --site=<repo>` | Reports `[ok] wpforms`. `--site` matters: two of the cross-manifest guards take the site half of policy as input, so validating without it can refuse a manifest the real site accepts. |
-| 7 | `duo init <env> --yes` | Refuses with `adapter_source_uncertified`, and the blocker's remediation names `duo adapter certify` (§3.4). An installed adapter is not a certified one, and this is where that stops being a sentence. |
-| 8 | `duo adapter list --repo=<repo> --format=json` | The freshly installed adapter's row reads `site` / `uncertified`. |
-| 9 | `duo adapter keygen --out=<repo>/wpforms.key` | Refuses (`secret_key_inside_repository`). Asserted **before** the real key is generated, because a key accidentally committed is a key in a git history forever (§3.1). |
-| 10 | `duo adapter keygen --out=<scratch>/wpforms.key --key-id=<id>` | Prints `key-id: <id>`, writes the secret mode `0600`, outside both site repos. |
-| 11 | `duo adapter certify <repo> --name=wpforms --secret-key-file=… --reason=… --pin` | Registers the public key in `adapters/authorities.json` as a `duo-adapter-authorities/v1` record with scope `site_adapter_certification`, status `trusted`, and `wpforms` in its `adapters[]`; writes `adapters/certifications/wpforms.json`; and `--pin` writes the exact `{name, source: "site", digest}` object into `site.duo.json`. The secret key's own bytes are then checked not to appear in `site.duo.json` or anywhere under `adapters/`. |
-| 12 | `duo adapter list --repo=<repo>` | The row reads `site / site_signed / site / <key-id>` (§3.2) and the human view prints the word `site_signed`. |
-| 13 | `duo init <env> --yes` | Succeeds, with **no** `--allow-unmanaged-plugins`: the plugin has an owning adapter now, and needing the flag here would mean certification bought nothing. This is also §3.4's own remediation carried out — "certify it …, then rerun `duo init`" necessarily means init running on a repository whose non-seed content is exactly an adapter, its certificate and its pin. The adapter's authored post type is then in `policy.post_types`. |
-| 14 | `duo capture <env>`, `duo assess <env>` | `post_type:wpforms` projects `authored / manage / Ready / Site-certified / prevented / provider-state restorable`; the projection's certification triple reads `Site-certified / site / <key-id>`; and the human view prints, exactly once, `certified by <key-id> (site trust root); contract attestation unsigned` — the first half names the authority, the second refuses to let a site signature read as more than it is. |
+| 6 | `wprism manifest-validate <repo>/adapters --site=<repo>` | Reports `[ok] wpforms`. `--site` matters: two of the cross-manifest guards take the site half of policy as input, so validating without it can refuse a manifest the real site accepts. |
+| 7 | `wprism init <env> --yes` | Refuses with `adapter_source_uncertified`, and the blocker's remediation names `wprism adapter certify` (§3.4). An installed adapter is not a certified one, and this is where that stops being a sentence. |
+| 8 | `wprism adapter list --repo=<repo> --format=json` | The freshly installed adapter's row reads `site` / `uncertified`. |
+| 9 | `wprism adapter keygen --out=<repo>/wpforms.key` | Refuses (`secret_key_inside_repository`). Asserted **before** the real key is generated, because a key accidentally committed is a key in a git history forever (§3.1). |
+| 10 | `wprism adapter keygen --out=<scratch>/wpforms.key --key-id=<id>` | Prints `key-id: <id>`, writes the secret mode `0600`, outside both site repos. |
+| 11 | `wprism adapter certify <repo> --name=wpforms --secret-key-file=… --reason=… --pin` | Registers the public key in `adapters/authorities.json` as a `wprism-adapter-authorities/v1` record with scope `site_adapter_certification`, status `trusted`, and `wpforms` in its `adapters[]`; writes `adapters/certifications/wpforms.json`; and `--pin` writes the exact `{name, source: "site", digest}` object into `site.wprism.json`. The secret key's own bytes are then checked not to appear in `site.wprism.json` or anywhere under `adapters/`. |
+| 12 | `wprism adapter list --repo=<repo>` | The row reads `site / site_signed / site / <key-id>` (§3.2) and the human view prints the word `site_signed`. |
+| 13 | `wprism init <env> --yes` | Succeeds, with **no** `--allow-unmanaged-plugins`: the plugin has an owning adapter now, and needing the flag here would mean certification bought nothing. This is also §3.4's own remediation carried out — "certify it …, then rerun `wprism init`" necessarily means init running on a repository whose non-seed content is exactly an adapter, its certificate and its pin. The adapter's authored post type is then in `policy.post_types`. |
+| 14 | `wprism capture <env>`, `wprism assess <env>` | `post_type:wpforms` projects `authored / manage / Ready / Site-certified / prevented / provider-state restorable`; the projection's certification triple reads `Site-certified / site / <key-id>`; and the human view prints, exactly once, `certified by <key-id> (site trust root); contract attestation unsigned` — the first half names the authority, the second refuses to let a site signature read as more than it is. |
 | 15 | contract → rehearse → author a NEW form on the preview → capture ×2 → merge → revert → release → verify | The whole loop, on a surface no platform adapter governs. After the release, `wp post list --post_type=wpforms` on the target carries the authored form: the release wrote the operator's own managed state, not just bytes. |
 | 16 | recover → assess → reap ×2 | As S1, steps 16–18. |
 
@@ -223,15 +223,15 @@ object (the walk reads the pin out of `site.duo.json`, which §3.1 does fix).
 
 | # | Command | Assertion, and why it is the assertion |
 |---|---|---|
-| 1 | Fresh pair; WooCommerce + theme; `sandbox/fixtures/acme-catalog/` copied into the **live** plugin directory on both sides and activated on side 1 | The fixture is installed live rather than only into the repository's `code/` tree, for two reasons: `duo init` builds the code baseline *from* the live wp-content, so a plugin that is live before init is a plugin the code half carries afterwards; and the bundled adapter source exists only in `WP_PLUGIN_DIR`, which is the whole point of the scenario. |
-| 2 | Seed `site.duo.json`; one `acme_item` and one `acme_kind` term on side 1 | As S2 step 2. |
-| 3 | `wp duo adapter-survey --repo=/siterepo --format=json` **on the target** | The bundled adapter is discovered from the active plugin and reads `source: plugin`, `certification: uncertified`. It has to be read on the target: the host-side `duo adapter` commands are WordPress-free and cannot reach `WP_PLUGIN_DIR`, a boundary the catalog command prints on every run. |
-| 4 | `duo init <env> --yes` | Refuses `adapter_source_uncertified`, and the blocker carries the **promotion path** as its remediation: `install this adapter as a repository package at adapters/acme-catalog.json, …`. A bundled adapter cannot be certified in place — certification binds `source: "site"` and the exact `adapters/<name>.json` path inside the signed statement — so "get it signed" would be advice that wastes an afternoon proving it. |
-| 5 | `cp duo-adapter.json adapters/acme-catalog.json`; `duo manifest-validate --site` | The promotion, which is a file copy and nothing more. |
-| 6 | `duo adapter keygen` + `duo adapter certify --pin` | As S2 steps 9–11. |
-| 7 | `duo adapter list --repo` and a second `wp duo adapter-survey` | The site copy answers to the name (`site / site_signed / site / <key-id>`), and the bundled copy is reported as installed-but-not-loaded with the **site** copy as its winner. The plugin stayed active throughout and nothing had to be deactivated. |
-| 8 | `duo init <env> --yes` | Succeeds; `acme_item` reaches `policy.post_types` **and** `acme_kind` reaches `policy.taxonomies` from the promoted adapter's authored declarations. |
-| 9 | `duo capture <env>`, `duo assess <env>` | `post_type:acme_item` reads `authored / manage / Ready / Site-certified / …`, and `table:acme_catalog_index` is **still** a named finding. The fixture's own bundled manifest deliberately leaves that table undeclared; certification must not silently absorb a surface nobody declared. |
+| 1 | Fresh pair; WooCommerce + theme; `sandbox/fixtures/acme-catalog/` copied into the **live** plugin directory on both sides and activated on side 1 | The fixture is installed live rather than only into the repository's `code/` tree, for two reasons: `wprism init` builds the code baseline *from* the live wp-content, so a plugin that is live before init is a plugin the code half carries afterwards; and the bundled adapter source exists only in `WP_PLUGIN_DIR`, which is the whole point of the scenario. |
+| 2 | Seed `site.wprism.json`; one `acme_item` and one `acme_kind` term on side 1 | As S2 step 2. |
+| 3 | `wp wprism adapter-survey --repo=/siterepo --format=json` **on the target** | The bundled adapter is discovered from the active plugin and reads `source: plugin`, `certification: uncertified`. It has to be read on the target: the host-side `wprism adapter` commands are WordPress-free and cannot reach `WP_PLUGIN_DIR`, a boundary the catalog command prints on every run. |
+| 4 | `wprism init <env> --yes` | Refuses `adapter_source_uncertified`, and the blocker carries the **promotion path** as its remediation: `install this adapter as a repository package at adapters/acme-catalog.json, …`. A bundled adapter cannot be certified in place — certification binds `source: "site"` and the exact `adapters/<name>.json` path inside the signed statement — so "get it signed" would be advice that wastes an afternoon proving it. |
+| 5 | `cp wprism-adapter.json adapters/acme-catalog.json`; `wprism manifest-validate --site` | The promotion, which is a file copy and nothing more. |
+| 6 | `wprism adapter keygen` + `wprism adapter certify --pin` | As S2 steps 9–11. |
+| 7 | `wprism adapter list --repo` and a second `wp wprism adapter-survey` | The site copy answers to the name (`site / site_signed / site / <key-id>`), and the bundled copy is reported as installed-but-not-loaded with the **site** copy as its winner. The plugin stayed active throughout and nothing had to be deactivated. |
+| 8 | `wprism init <env> --yes` | Succeeds; `acme_item` reaches `policy.post_types` **and** `acme_kind` reaches `policy.taxonomies` from the promoted adapter's authored declarations. |
+| 9 | `wprism capture <env>`, `wprism assess <env>` | `post_type:acme_item` reads `authored / manage / Ready / Site-certified / …`, and `table:acme_catalog_index` is **still** a named finding. The fixture's own bundled manifest deliberately leaves that table undeclared; certification must not silently absorb a surface nobody declared. |
 | 10 | contract (three journeys, including the `acme_item` archive) → rehearse → author a second item → capture ×2 → merge → revert → release → verify | A release that writes a catalog item and cannot prove the archive renders it has verified bytes rather than behaviour, which is why S3 declares the third journey. |
 | 11 | recover → assess → reap ×2 | As S1, steps 16–18. |
 
@@ -239,13 +239,13 @@ object (the walk reads the pin out of `site.duo.json`, which §3.1 does fix).
 
 | # | Command | Assertion, and why it is the assertion |
 |---|---|---|
-| 1 | Fresh pair; WooCommerce + theme; `duo init <env> --yes` | The ordinary path, and the baseline the override is measured against: `post_type:product` reads **`Platform-certified`** before anything else happens. |
+| 1 | Fresh pair; WooCommerce + theme; `wprism init <env> --yes` | The ordinary path, and the baseline the override is measured against: `post_type:product` reads **`Platform-certified`** before anything else happens. |
 | 2 | `cp adapter-packages/woocommerce/package/manifest.json adapters/woocommerce.json` + one authored option | The added option is `woocommerce_store_address_2`, and the walk first asserts the shipped manifest does **not** already declare it — a copy that differed in nothing would make "the site copy won" unobservable. |
-| 3 | `duo adapter pin <repo> --name=woocommerce --source=site` | Writes the explicit `{name, source: "site", digest}` pin. §3.3: precedence stays `shipped > site > plugin` for name-only pins, and the explicit site pin is the override. Today this is a whole-source refusal. |
-| 4 | `duo adapter list --repo=<repo>` | The shipped copy is reported as `shadowed_by_site` with the **site** copy as its winner, in both the JSON and the human view; the loaded `woocommerce` row's source is `site`. All three facts are asserted together because any two without the third describe a different situation — `shadowed_by_site` with a *shipped* winner is precedence running the ordinary way. |
-| 5 | `duo assess <env>` with the override pinned but **not yet certified** | `post_type:product` reads `Not qualified / Uncertified`, its next action is **`certify adapter`** (§3.6's new closed-set word), and the roll-up counts it. S4 is the only scenario that can make this claim without a conditional: its repository was initialized *before* the override, so the WooCommerce surfaces are already in policy scope while the adapter governing them is uncertified. The word matters — the adapter exists, and `install adapter` here would tell the operator to redo what they just did. |
-| 6 | `duo adapter keygen` + `duo adapter certify --pin` | As S2 steps 9–11. |
-| 7 | `duo capture <env>`, `duo assess <env>` | `post_type:product` now reads `Site-certified / site / <key-id>`. A signed override is `Site-certified`, **never** `Platform-certified`: the customer organization's approval is explicitly not a Duo endorsement, and this row is where that distinction is either kept or lost. There is no second `duo init` — the override is a change to the pin set, which `duo capture` reads on its next run. |
+| 3 | `wprism adapter pin <repo> --name=woocommerce --source=site` | Writes the explicit `{name, source: "site", digest}` pin. §3.3: precedence stays `shipped > site > plugin` for name-only pins, and the explicit site pin is the override. Today this is a whole-source refusal. |
+| 4 | `wprism adapter list --repo=<repo>` | The shipped copy is reported as `shadowed_by_site` with the **site** copy as its winner, in both the JSON and the human view; the loaded `woocommerce` row's source is `site`. All three facts are asserted together because any two without the third describe a different situation — `shadowed_by_site` with a *shipped* winner is precedence running the ordinary way. |
+| 5 | `wprism assess <env>` with the override pinned but **not yet certified** | `post_type:product` reads `Not qualified / Uncertified`, its next action is **`certify adapter`** (§3.6's new closed-set word), and the roll-up counts it. S4 is the only scenario that can make this claim without a conditional: its repository was initialized *before* the override, so the WooCommerce surfaces are already in policy scope while the adapter governing them is uncertified. The word matters — the adapter exists, and `install adapter` here would tell the operator to redo what they just did. |
+| 6 | `wprism adapter keygen` + `wprism adapter certify --pin` | As S2 steps 9–11. |
+| 7 | `wprism capture <env>`, `wprism assess <env>` | `post_type:product` now reads `Site-certified / site / <key-id>`. A signed override is `Site-certified`, **never** `Platform-certified`: the customer organization's approval is explicitly not a WPrism endorsement, and this row is where that distinction is either kept or lost. There is no second `wprism init` — the override is a change to the pin set, which `wprism capture` reads on its next run. |
 | 8 | contract → rehearse → edit → capture ×2 → merge → revert → release → verify → recover → assess → reap ×2 | The ordinary loop still converges with a site-owned copy of a shipped adapter governing the catalog. |
 
 ---
@@ -265,11 +265,11 @@ Anything else is a failure, and there are exactly two shapes:
   The driver stops at the first one; the exit trap still destroys the pair and
   still verifies the destruction, so a failed run leaves no resources behind
   (use `WALK_KEEP=1` when you want the corpse).
-- **`FAIL: duo <verb> refused unexpectedly [<reason_code>]`** — a product stop
+- **`FAIL: wprism <verb> refused unexpectedly [<reason_code>]`** — a product stop
   the walk did not expect, reported **by its typed reason code**. This is §4's
   own rule mechanised: the walk is the exercise, and its stops are the work
-  list. Every command goes through `duo_ok` or `duo_refused`, so a surprise is
-  always a named bug report rather than "a command failed". `duo_refused`
+  list. Every command goes through `wprism_ok` or `wprism_refused`, so a surprise is
+  always a named bug report rather than "a command failed". `wprism_refused`
   additionally fails when a gate it expected to fire *succeeded* — an assertion
   that a gate fires is worthless if the gate quietly stopped firing.
 
@@ -338,16 +338,16 @@ no longer produce either.
 
 ## Deliberate deviations from §4
 
-1. **S2 and S3 seed the site repository instead of running `duo init` twice.**
+1. **S2 and S3 seed the site repository instead of running `wprism init` twice.**
    §4 orders `coverage` / `adapter-draft` / `manifest-validate` / `certify`
    before the init they then expect to succeed, and all four resolve a
-   directory holding `site.duo.json`. The seed is exactly
+   directory holding `site.wprism.json`. The seed is exactly
    `InitPlanner::existing_config()`'s `adoption-seed` shape — the product's own
    named case for a repository that predates init — and it is
    `MUP_BOOTSTRAP=manual` in `grind_mup.sh` for the same reason.
 
-2. **S4 runs `duo init` once, at the start.** The override is a change to the
-   pin set, which `duo capture` reads on its next run; re-initializing an
+2. **S4 runs `wprism init` once, at the start.** The override is a change to the
+   pin set, which `wprism capture` reads on its next run; re-initializing an
    already-initialized repository is a different operation with its own blocker
    (`existing_configuration`) and asserting it here would be asserting
    something the override does not need. Running init *before* the override
@@ -389,7 +389,7 @@ Wall time for all four scenarios on the reference machine (10 cores, Docker
 Desktop): ~2 h 10 min — S1 ≈ 30 min (the shop plus the unmanaged plugin's
 post-checkpoint proof), S2 ≈ 35 min, S3 ≈ 30 min, S4 ≈ 25 min; a fresh pair
 `reset` + `up` with WooCommerce and the theme installed on both sides is
-≈ 4 min of each. `duo init` on the shop (a ~10,800-file code baseline) is
+≈ 4 min of each. `wprism init` on the shop (a ~10,800-file code baseline) is
 ≈ 3–4 min of each scenario.
 
 ## Risks a machine without docker cannot retire
@@ -401,12 +401,12 @@ at rather than rediscovering it; each is annotated with what the runs found.
    every word landed and is asserted live; the run-by-run stops are the T6
    commit log.)*
 
-2. **`duo init` on a repository that carries an adapter and a pin.** *(found
+2. **`wprism init` on a repository that carries an adapter and a pin.** *(found
    exactly as feared in run 18 — `existing_configuration` — and fixed: an
    adoption seed carrying explicit `{name, source, digest}` pins is still the
    seed; init republishes them.)*
 
-3. **`duo coverage` before init.** *(passes: coverage's ledger tables do not
+3. **`wprism coverage` before init.** *(passes: coverage's ledger tables do not
    read as "already initialized"; S2 runs coverage, draft, certify and then
    init on the same seed.)*
 

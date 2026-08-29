@@ -1,15 +1,15 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Deliberately NOT require_once('Canon.php') or require_once('Code.php') here,
 // matching the pre-extraction file exactly: CompiledRepository has always
 // called Canon::encode()/write_file() and Code::assert_descriptor() without
-// requiring either file itself, relying on a caller (agent/duo.php's bootstrap,
+// requiring either file itself, relying on a caller (agent/wprism.php's bootstrap,
 // or a test's own hand-picked require list) to have loaded them first.
 // sandbox/tests/offline/cli/regress_cli_json_refusals.php depends on exactly this laxity
-// for Canon — it stubs a fake Duo\Canon and requires RepositoryCompiler.php
+// for Canon — it stubs a fake WPrism\Canon and requires RepositoryCompiler.php
 // (hence this file) without ever loading the real Canon.php; requiring it here
-// fatals that suite with "Cannot redeclare class Duo\Canon" (caught by
+// fatals that suite with "Cannot redeclare class WPrism\Canon" (caught by
 // regress-offline-all during this slice's own verification). No current caller
 // stubs Code the same way, but the risk is identical in kind, so this file
 // stays symmetric about both rather than requiring one and not the other. Any
@@ -24,7 +24,7 @@ require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
  * compiler. PHP arrays are copy-on-write, so returning tree() cannot mutate
  * the object held by another phase of the same command.
  *
- * Extracted from RepositoryCompiler.php (DUO-3348 slice 2, the "CompiledArtifact
+ * Extracted from RepositoryCompiler.php (issue #3348 slice 2, the "CompiledArtifact
  * value object" target seam) — CompiledRepository and RepositoryCompilationException
  * were already self-contained, standalone classes sharing no mutable state with
  * the RepositoryCompiler builder beyond being constructed/returned by it, so this
@@ -34,7 +34,7 @@ require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
  * expecting CompiledRepository to come along transitively) need no change.
  */
 final class CompiledRepository {
-    public const FORMAT = 'duo-compiled-repository/v1';
+    public const FORMAT = 'wprism-compiled-repository/v1';
 
     private array $artifact;
     private ?string $mediaDirectory;
@@ -50,24 +50,24 @@ final class CompiledRepository {
     public static function create(array $payload, ?string $mediaDirectory = null): self {
         if (array_key_exists('code', $payload)) {
             if (!is_array($payload['code'])) {
-                throw new \RuntimeException('duo: compiled code descriptor must be an object');
+                throw new \RuntimeException('wprism: compiled code descriptor must be an object');
             }
             Code::assert_descriptor($payload['code']);
         }
         if (!is_array($payload['tree'] ?? null)) {
-            throw new \RuntimeException('duo: compiled repository payload has no typed tree');
+            throw new \RuntimeException('wprism: compiled repository payload has no typed tree');
         }
         // Hand-built typed artifacts predate repository media. Keep their
         // state-only shape readable while every compiler-produced artifact
         // still supplies its explicit bounded map below.
         $payload['media'] ??= [];
         if (!is_array($payload['media'])) {
-            throw new \RuntimeException('duo: compiled repository payload has no typed media');
+            throw new \RuntimeException('wprism: compiled repository payload has no typed media');
         }
         $payload['effects_inventory'] ??= [];
         if (!is_array($payload['effects_inventory'])
             || !array_is_list($payload['effects_inventory'])) {
-            throw new \RuntimeException('duo: compiled repository payload has no effects inventory');
+            throw new \RuntimeException('wprism: compiled repository payload has no effects inventory');
         }
         $payload['uploads_inventory'] = self::derive_uploads_inventory($payload['tree']);
         MediaPayloadAuthority::assertArtifactMedia($payload['media'], $payload['tree'], $mediaDirectory);
@@ -78,7 +78,7 @@ final class CompiledRepository {
 
     public static function from_array(array $artifact, ?string $mediaDirectory = null): self {
         if (!is_array($artifact['tree'] ?? null) || !is_array($artifact['media'] ?? null)) {
-            throw new \RuntimeException('duo: compiled artifact has no typed tree or media');
+            throw new \RuntimeException('wprism: compiled artifact has no typed tree or media');
         }
         // Validate encoded media before Canon::encode() re-materializes the
         // whole artifact for its self-hash. This keeps a hostile base64 row
@@ -90,14 +90,14 @@ final class CompiledRepository {
         if (($artifact['format'] ?? '') !== self::FORMAT
             || !preg_match('/^[0-9a-f]{64}$/', $actual)
             || !hash_equals(self::content_hash($copy), $actual)) {
-            throw new \RuntimeException('duo: compiled artifact is malformed or its content hash does not verify');
+            throw new \RuntimeException('wprism: compiled artifact is malformed or its content hash does not verify');
         }
         if (($artifact['uploads_inventory'] ?? null) !== self::derive_uploads_inventory($artifact['tree'])) {
-            throw new \RuntimeException('duo: compiled artifact upload inventory does not match its typed tree');
+            throw new \RuntimeException('wprism: compiled artifact upload inventory does not match its typed tree');
         }
         if (array_key_exists('code', $artifact)) {
             if (!is_array($artifact['code'])) {
-                throw new \RuntimeException('duo: compiled artifact code descriptor is malformed');
+                throw new \RuntimeException('wprism: compiled artifact code descriptor is malformed');
             }
             Code::assert_descriptor($artifact['code']);
         }
@@ -142,7 +142,7 @@ final class CompiledRepository {
     }
 
     /**
-     * DUO-3222: the resolved adapter compatibility contract this artifact
+     * issue #3222: the resolved adapter compatibility contract this artifact
      * was compiled against — one row per pinned manifest (name, per-
      * manifest digest, spec_version if declared, plugin/version_range or
      * theme/theme_version_range if declared). Policy declaration validity
@@ -153,11 +153,11 @@ final class CompiledRepository {
      * live-environment match. Compilation remains target-DB-free (no $wpdb,
      * get_plugins(), or wp_get_theme() calls), while Deploy::code_mismatch()
      * remains the independent proof of what is installed on the target.
-     * DUO-3227's generated capability claim is now carried beside exactly
+     * issue #3227's generated capability claim is now carried beside exactly
      * this shape (one machine-readable row per adapter); its digest remains
      * the digest of manifest+interpreter+manifest-sourced-provider+
-     * regenerator+external disposition (DUO-3338 folded provider file bytes in
-     * beside the interpreter's, DUO-3360 the regenerator's), avoiding a
+     * regenerator+external disposition (issue #3338 folded provider file bytes in
+     * beside the interpreter's, issue #3360 the regenerator's), avoiding a
      * self-referential hash while the outer artifact binds the claim too.
      *
      * @return list<array{name:string, digest:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
@@ -173,11 +173,11 @@ final class CompiledRepository {
     public function media_content(string $name): string {
         $row = $this->artifact['media'][$name] ?? null;
         if (!is_array($row) || !is_string($row['sha256'] ?? null)) {
-            throw new \RuntimeException("duo: compiled artifact has no media payload '$name'");
+            throw new \RuntimeException("wprism: compiled artifact has no media payload '$name'");
         }
         if (($row['source'] ?? null) === 'repository') {
             if ($this->mediaDirectory === null || !is_int($row['size'] ?? null)) {
-                throw new \RuntimeException("duo: compiled external media '$name' has no repository source");
+                throw new \RuntimeException("wprism: compiled external media '$name' has no repository source");
             }
             $parsed = MediaPayloadAuthority::parseMediaName($name);
             $witness = [
@@ -203,7 +203,7 @@ final class CompiledRepository {
     public function media_size(string $name): int {
         $row = $this->artifact['media'][$name] ?? null;
         if (!is_array($row)) {
-            throw new \RuntimeException("duo: compiled artifact has no media payload '$name'");
+            throw new \RuntimeException("wprism: compiled artifact has no media payload '$name'");
         }
         if (($row['source'] ?? null) === 'repository' && is_int($row['size'] ?? null)) {
             return $row['size'];
@@ -214,13 +214,13 @@ final class CompiledRepository {
                 'compiled artifact media size'
             );
         }
-        throw new \RuntimeException("duo: compiled artifact media payload '$name' is malformed");
+        throw new \RuntimeException("wprism: compiled artifact media payload '$name' is malformed");
     }
 
     public function media_sha256(string $name): string {
         $row = $this->artifact['media'][$name] ?? null;
         if (!is_array($row) || !is_string($row['sha256'] ?? null)) {
-            throw new \RuntimeException("duo: compiled artifact has no media payload '$name'");
+            throw new \RuntimeException("wprism: compiled artifact has no media payload '$name'");
         }
         return $row['sha256'];
     }
@@ -229,11 +229,11 @@ final class CompiledRepository {
     public function copy_media_to_stream(string $name, $output): void {
         $row = $this->artifact['media'][$name] ?? null;
         if (!is_array($row) || !is_resource($output)) {
-            throw new \RuntimeException("duo: compiled artifact media transfer '$name' is malformed");
+            throw new \RuntimeException("wprism: compiled artifact media transfer '$name' is malformed");
         }
         if (($row['source'] ?? null) === 'repository') {
             if ($this->mediaDirectory === null || !is_int($row['size'] ?? null)) {
-                throw new \RuntimeException("duo: compiled external media '$name' has no repository source");
+                throw new \RuntimeException("wprism: compiled external media '$name' has no repository source");
             }
             $parsed = MediaPayloadAuthority::parseMediaName($name);
             MediaPayloadAuthority::copyFileToStream(
@@ -248,7 +248,7 @@ final class CompiledRepository {
         while ($offset < strlen($bytes)) {
             $written = fwrite($output, substr($bytes, $offset));
             if (!is_int($written) || $written <= 0) {
-                throw new \RuntimeException('duo: compiled inline media transfer failed');
+                throw new \RuntimeException('wprism: compiled inline media transfer failed');
             }
             $offset += $written;
         }
@@ -320,7 +320,7 @@ final class RepositoryCompilationException extends \RuntimeException {
             return '[' . $d['code'] . '] ' . $where . ' — ' . $d['message'];
         }, $diagnostics);
         parent::__construct(
-            'duo: repository compilation failed (' . count($diagnostics)
+            'wprism: repository compilation failed (' . count($diagnostics)
             . " blocking diagnostic(s)); no target contact or mutation attempted:\n  - "
             . implode("\n  - ", $lines)
         );

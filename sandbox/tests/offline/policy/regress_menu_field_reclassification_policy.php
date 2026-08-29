@@ -1,12 +1,12 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3272's Policy.php-side wiring: menu_field_rule_details()/
- * menu_field_class() reusing rule_details()'s DUO-3249 core-yields-to-
+ * issue #3272's Policy.php-side wiring: menu_field_rule_details()/
+ * menu_field_class() reusing rule_details()'s issue #3249 core-yields-to-
  * plugin precedence under a new 'menu_fields' section, and
  * active_menu_field_reclassifications()'s plan-visible reporting.
  * Deliberately the exact same shape as
- * regress_manifest_reclassification_policy.php (DUO-3249's own offline
+ * regress_manifest_reclassification_policy.php (issue #3249's own offline
  * test) — see that file's docblock for why: this proves the same
  * mechanism, generalized to a second section, not a new one. Uses FAKE
  * fixture manifests through an explicit flat AdapterLibrary, never the real
@@ -16,8 +16,8 @@
  * install (menu-location capture actually staying deterministic across a
  * simulated default-language flip).
  *
- * What this file deliberately does NOT re-litigate: DUO-3255 (two non-core
- * manifests colliding) — not re-proven here a second time; DUO-3249's own
+ * What this file deliberately does NOT re-litigate: issue #3255 (two non-core
+ * manifests colliding) — not re-proven here a second time; issue #3249's own
  * test already proves that case is unaffected by the shared rule_details()
  * engine, and this file's own fixtures never exercise two non-core
  * manifests declaring the same menu_fields name.
@@ -26,7 +26,7 @@
  * and the script exits 1.
  */
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_menu_reclass_policy_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_menu_reclass_policy_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0777, true);
 register_shutdown_function(function () use ($fixtureDir) {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixtureDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -40,10 +40,10 @@ require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
-use Duo\Policy;
+use WPrism\Policy;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = 0;
@@ -66,14 +66,14 @@ echo "\n== fixtures: a 'core' manifest declaring menu_fields.locations authored 
 
 write_manifest($fixtureDir, 'core', [
     'name' => 'core',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'menu_fields' => [
         'locations' => ['class' => 'authored'],
     ],
 ]);
 write_manifest($fixtureDir, 'plugin', [
     'name' => 'plugin',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'menu_fields' => [
         'locations' => ['class' => 'derived', 'note' => 'plugin manages per-language menu locations'],
     ],
@@ -124,7 +124,7 @@ echo "\n== a plugin declaring the SAME class as core (no actual override) is not
 
 write_manifest($fixtureDir, 'agree', [
     'name' => 'agree',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'menu_fields' => ['locations' => ['class' => 'authored']],
 ]);
 $agreeing = manifest_fixture_policy_load($fixtureDir, null, ['core', 'agree']);
@@ -135,7 +135,7 @@ echo "\n== validate_menu_field_classes(): loud load-time rejection of an unsuppo
 
 write_manifest($fixtureDir, 'badfield', [
     'name' => 'badfield',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'menu_fields' => ['items' => ['class' => 'derived']],
 ]);
 $threw = false;
@@ -154,7 +154,7 @@ echo "\n== validate_menu_field_classes(): loud load-time rejection of an unsuppo
 
 write_manifest($fixtureDir, 'badclass', [
     'name' => 'badclass',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'menu_fields' => ['locations' => ['class' => 'runtime']],
 ]);
 $threw = false;

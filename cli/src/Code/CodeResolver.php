@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/WpOrgReleases.php';
 require_once __DIR__ . '/ImportedArchives.php';
@@ -9,29 +9,29 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/PathSafety.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 
-use Duo\CodeSourceLock;
-use Duo\CommandRefusalException;
-use Duo\PathSafety;
+use WPrism\CodeSourceLock;
+use WPrism\CommandRefusalException;
+use WPrism\PathSafety;
 
 /**
- * Host-side materialization of the components `code/duo-code.lock.json`
- * declares (DUO-3500, phase 2 of the code-half split).
+ * Host-side materialization of the components `code/wprism-code.lock.json`
+ * declares (issue #3500, phase 2 of the code-half split).
  *
- * WHAT THIS TURNS FROM A BUILD STEP INTO A VERB. DUO-3499 made the lock a
+ * WHAT THIS TURNS FROM A BUILD STEP INTO A VERB. issue #3499 made the lock a
  * blocking, non-forceable compile precondition: a repository that declares a
  * component and carries none of its bytes refuses with
  * `code_component_unresolved` and is told to "run the materialization step
- * documented in docs/guides/code-updates.md … or duo code-resolve"
+ * documented in docs/guides/code-updates.md … or wprism code-resolve"
  * (agent/src/Code/CodeDescriptorCompiler.php:144-153). This class is that
  * step. It adds no algorithm: every byte-level decision — the content-addressed
  * cache, the refuse-don't-refetch rule, the delete-partial-and-refuse rule,
  * offline, the unpack entry check and the tree digest — already lives in
- * WpOrgReleases, where `duo init` and `duo code-classify` proved it out
+ * WpOrgReleases, where `wprism init` and `wprism code-classify` proved it out
  * against real archive bytes. An `imported-archive` origin takes the identical
  * path from the same cache's imported store (ImportedArchives) with no
  * network at all; what it cannot do is fetch, because the archive of a premium
- * component is the operator's to move between hosts (`duo code-import`), never
- * Duo's to download.
+ * component is the operator's to move between hosts (`wprism code-import`), never
+ * WPrism's to download.
  *
  * ## Two invariants worth stating outright
  *
@@ -52,14 +52,14 @@ use Duo\PathSafety;
  * ## Atomicity
  *
  * Each component is unpacked into a fresh staging directory under
- * `<repo>/.duo/code-resolve/`, verified there, and only then `rename()`d into
+ * `<repo>/.wprism/code-resolve/`, verified there, and only then `rename()`d into
  * `code/wp-content/<root>/<component>/`. The staging root is deliberately NOT
  * beside the target: `CodeDescriptorCompiler::descriptor_from_source()` walks
  * every entry under `plugins/` and `themes/` that satisfies
  * `PathSafety::safe_component()` (agent/src/Code/CodeDescriptorCompiler.php:250-256),
  * and a leading dot does not fail that predicate — so a staging directory left
  * behind by a hard kill would be inventoried as a real component and shipped.
- * `.duo/` is a repository-owned path init already writes and already ignores
+ * `.wprism/` is a repository-owned path init already writes and already ignores
  * (agent/src/Init/InitRepositoryBoundary.php:165,270), and it is inside the
  * same checkout, so the rename stays within one filesystem. A rename that
  * fails is a refusal, never a copy fallback.
@@ -77,7 +77,7 @@ final class CodeResolver {
     /** The archive could not be opened, or does not hold one component directory. */
     public const REASON_UNPACK_FAILED = 'code_resolve_unpack_failed';
 
-    /** `site.duo.json` declares code format 2 but its lock cannot be read. */
+    /** `site.wprism.json` declares code format 2 but its lock cannot be read. */
     public const REASON_LOCK_UNREADABLE = 'code_resolve_lock_unreadable';
 
     /** The component path is present but is not a directory this may replace. */
@@ -86,8 +86,8 @@ final class CodeResolver {
     /** Staging or the rename into place failed; the component was not written. */
     public const REASON_WRITE_FAILED = 'code_resolve_write_failed';
 
-    /** Repository-relative staging root. Ignored by init's own `/.duo/` line. */
-    public const STAGING = '.duo/code-resolve';
+    /** Repository-relative staging root. Ignored by init's own `/.wprism/` line. */
+    public const STAGING = '.wprism/code-resolve';
 
     private ImportedArchives $imported;
 
@@ -106,14 +106,14 @@ final class CodeResolver {
      * this verb writes only inside `code/wp-content` and runs no `git`
      * subprocess, so a worktree assertion would refuse a checkout it has no
      * need to refuse; and pulling AssessCommand into DeployCommand's load
-     * graph would cross cli/duo's plain-`require` of the same file
-     * (cli/duo:88, and the load-order note at :89-93) and fatal on
+     * graph would cross cli/wprism's plain-`require` of the same file
+     * (cli/wprism:88, and the load-order note at :89-93) and fatal on
      * redeclaration.
      */
     public static function locateSiteRepo(string $startDir): ?string {
         $cursor = realpath($startDir) ?: $startDir;
         while (true) {
-            if (is_file($cursor . '/site.duo.json')) {
+            if (is_file($cursor . '/site.wprism.json')) {
                 return $cursor;
             }
             $parent = dirname($cursor);
@@ -138,7 +138,7 @@ final class CodeResolver {
      * @return ?array{path:string,components:list<array<string,mixed>>}
      */
     public static function declaredLock(string $repo): ?array {
-        $sitePath = rtrim($repo, '/') . '/site.duo.json';
+        $sitePath = rtrim($repo, '/') . '/site.wprism.json';
         if (is_link($sitePath) || !is_file($sitePath)) {
             return null;
         }
@@ -151,20 +151,20 @@ final class CodeResolver {
         if (!is_string($relative) || !PathSafety::safe_relative($relative)) {
             throw new CommandRefusalException(
                 self::REASON_LOCK_UNREADABLE,
-                'site.duo.json declares code format 2 without naming a repository-relative lock file',
+                'site.wprism.json declares code format 2 without naming a repository-relative lock file',
                 'restore the code.lock declaration, or return the repository to code format 1',
                 [],
-                "duo: $sitePath declares code format 2 but code.lock does not name a repository-relative path"
+                "wprism: $sitePath declares code format 2 but code.lock does not name a repository-relative path"
             );
         }
         $lockPath = rtrim($repo, '/') . '/' . $relative;
         if (is_link($lockPath) || !is_file($lockPath)) {
             throw new CommandRefusalException(
                 self::REASON_LOCK_UNREADABLE,
-                'site.duo.json declares code format 2 but the declared lock is not a regular file here',
+                'site.wprism.json declares code format 2 but the declared lock is not a regular file here',
                 'restore the declared lock file from the repository, then rerun',
                 [],
-                "duo: site.duo.json code format 2 declares $relative, but it is not a regular file in $repo"
+                "wprism: site.wprism.json code format 2 declares $relative, but it is not a regular file in $repo"
             );
         }
         try {
@@ -172,10 +172,10 @@ final class CodeResolver {
         } catch (\Throwable $error) {
             throw new CommandRefusalException(
                 self::REASON_LOCK_UNREADABLE,
-                'the declared code lock is not a valid duo-code-lock/v1 document',
-                'regenerate the lock with duo code-classify, or restore the reviewed one from Git',
+                'the declared code lock is not a valid wprism-code-lock/v1 document',
+                'regenerate the lock with wprism code-classify, or restore the reviewed one from Git',
                 [],
-                "duo: $relative is not a valid " . CodeSourceLock::FORMAT . ': ' . $error->getMessage(),
+                "wprism: $relative is not a valid " . CodeSourceLock::FORMAT . ': ' . $error->getMessage(),
                 $error
             );
         }
@@ -212,10 +212,10 @@ final class CodeResolver {
                         self::REASON_DRIFTED,
                         'a locked component is present with bytes other than the ones the lock declares',
                         'remove the component directory and rerun to re-materialize the locked release, or '
-                        . 're-lock it with duo code-classify if the present bytes are the intended ones; '
+                        . 're-lock it with wprism code-classify if the present bytes are the intended ones; '
                         . 'nothing overwrites a tree Git does not carry',
                         [],
-                        "duo: $root/$component is present hashing to $present, but the lock declares $declared "
+                        "wprism: $root/$component is present hashing to $present, but the lock declares $declared "
                         . "for version $version; nothing was written"
                     );
                 }
@@ -265,7 +265,7 @@ final class CodeResolver {
                 'a locked component path exists but is not an ordinary directory',
                 'remove the link or file at the component path, then rerun',
                 [],
-                "duo: $root/$component exists at $target but is not an ordinary directory"
+                "wprism: $root/$component exists at $target but is not an ordinary directory"
             );
         }
         if (!is_dir($target)) {
@@ -279,7 +279,7 @@ final class CodeResolver {
                 'a locked component is present but cannot be hashed as a plain file tree',
                 'remove the offending entry (a symbolic link, a device node, an unreadable file) and rerun',
                 [],
-                "duo: $root/$component could not be hashed in place: " . $error->getMessage(),
+                "wprism: $root/$component could not be hashed in place: " . $error->getMessage(),
                 $error
             );
         }
@@ -311,7 +311,7 @@ final class CodeResolver {
      * digest the lock names before handing the path over
      * (ImportedArchives::archivePath()). The one refusal names the one
      * remedy — import the vendor's archive on this host — because there is
-     * nothing Duo could fetch on the operator's behalf.
+     * nothing WPrism could fetch on the operator's behalf.
      *
      * @param array<string,mixed> $origin
      * @return array{path:string,source:string}
@@ -350,7 +350,7 @@ final class CodeResolver {
                 'the host could not create a staging directory inside the site repository',
                 'restore write permission on the repository, then rerun',
                 [],
-                "duo: could not create the code-resolve staging directory $staging"
+                "wprism: could not create the code-resolve staging directory $staging"
             );
         }
         try {
@@ -380,7 +380,7 @@ final class CodeResolver {
                     'inspect the archive the lock names; a re-packaged or multi-root archive is not a component '
                     . 'tree and is refused rather than guessed at',
                     [],
-                    "duo: $root/$component could not be unpacked: " . $error->getMessage(),
+                    "wprism: $root/$component could not be unpacked: " . $error->getMessage(),
                     $error
                 );
             }
@@ -389,10 +389,10 @@ final class CodeResolver {
                 throw new CommandRefusalException(
                     self::REASON_TREE_DIGEST_MISMATCH,
                     'an unpacked release does not hash to the tree digest the lock declares',
-                    're-lock the component with duo code-classify if the release was legitimately re-packaged; '
+                    're-lock the component with wprism code-classify if the release was legitimately re-packaged; '
                     . 'nothing was written into the component tree',
                     [],
-                    "duo: $root/$component version $version unpacks to $digest, but the lock declares $declared; "
+                    "wprism: $root/$component version $version unpacks to $digest, but the lock declares $declared; "
                     . 'nothing was written'
                 );
             }
@@ -403,7 +403,7 @@ final class CodeResolver {
                     'the host could not create the component root inside code/wp-content',
                     'restore write permission on the repository, then rerun',
                     [],
-                    "duo: could not create $parent"
+                    "wprism: could not create $parent"
                 );
             }
             if (!@rename($staging . '/' . $archiveRoot, $parent . '/' . $component)) {
@@ -413,7 +413,7 @@ final class CodeResolver {
                     'the staging root and code/wp-content must be on one filesystem; nothing was copied and '
                     . 'nothing partial was left behind',
                     [],
-                    "duo: could not publish $root/$component from $staging/$archiveRoot into $parent/$component"
+                    "wprism: could not publish $root/$component from $staging/$archiveRoot into $parent/$component"
                 );
             }
         } finally {

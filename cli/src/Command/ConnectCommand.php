@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
 require_once __DIR__ . '/../Transport/Transport.php';
@@ -10,7 +10,7 @@ require_once __DIR__ . '/../Transport/DockerTransport.php';
 require_once __DIR__ . '/../Transport/SshTransport.php';
 require_once __DIR__ . '/HostProcess.php';
 
-/** Create the local half of a Duo relationship after native inspection probes. */
+/** Create the local half of a WPrism relationship after native inspection probes. */
 final class ConnectCommand {
     private const PROBE_TIMEOUT_MILLISECONDS = 120000;
     private const PROBE_OUTPUT_LIMIT_BYTES = 1048576;
@@ -39,13 +39,13 @@ final class ConnectCommand {
             self::probe($driver);
             self::createWorkspace($request['workspace'], $request['environment'], $request['config'], $processRunner);
         } catch (\Throwable $error) {
-            fwrite(STDERR, 'duo: connect: ' . $error->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: connect: ' . $error->getMessage() . "\n");
             return 1;
         }
 
-        $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
+        $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
         echo "Connected after inspection: WordPress is reachable and single-site.\n";
-        echo "Duo issued no explicit mutation, but topology inspection bootstrapped WordPress and site startup code may have run.\n";
+        echo "WPrism issued no explicit mutation, but topology inspection bootstrapped WordPress and site startup code may have run.\n";
         echo "Workspace: {$request['workspace']}\n";
         echo "Next:\n";
         echo '  cd ' . escapeshellarg($request['workspace']) . "\n";
@@ -53,7 +53,7 @@ final class ConnectCommand {
             echo "  # Docker cannot deliver the agent. Mount/install it through the container control plane first.\n";
             echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($request['environment']) . "\n";
         } elseif (($request['config']['transport'] ?? null) === 'local') {
-            echo "  # If the target already carries Duo, assess it; otherwise run the bootstrap-capable onboarding path.\n";
+            echo "  # If the target already carries WPrism, assess it; otherwise run the bootstrap-capable onboarding path.\n";
             echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($request['environment']) . "\n";
             echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($request['environment']) . "\n";
             echo "Add --git-url=<empty-remote-url> to onboard to preflight and automate the initialized repository handoff.\n";
@@ -71,7 +71,7 @@ final class ConnectCommand {
         $environment = array_shift($args);
         if (!is_string($environment)
             || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $environment) !== 1) {
-            throw new \RuntimeException('usage: duo connect <env> --workspace=<path> --transport=ssh|local|docker ...');
+            throw new \RuntimeException('usage: wprism connect <env> --workspace=<path> --transport=ssh|local|docker ...');
         }
 
         $values = [];
@@ -138,12 +138,12 @@ final class ConnectCommand {
 
     private static function probe(BoundedControlDriver $driver): void {
         $reachable = $driver->captureRawBounded(
-            'echo duo-connect-ready',
+            'echo wprism-connect-ready',
             self::PROBE_TIMEOUT_MILLISECONDS,
             self::PROBE_OUTPUT_LIMIT_BYTES,
             self::PROBE_OUTPUT_LIMIT_BYTES
         );
-        if ($reachable['exit'] !== 0 || trim($reachable['stdout']) !== 'duo-connect-ready') {
+        if ($reachable['exit'] !== 0 || trim($reachable['stdout']) !== 'wprism-connect-ready') {
             throw new \RuntimeException('target transport is not reachable; no workspace was created');
         }
         $wordpress = $driver->captureWpBounded(
@@ -187,16 +187,16 @@ final class ConnectCommand {
             throw new \RuntimeException('could not encode the machine-local environment registry');
         }
 
-        $stage = dirname($workspace) . '/.duo-connect-' . bin2hex(random_bytes(16));
+        $stage = dirname($workspace) . '/.wprism-connect-' . bin2hex(random_bytes(16));
         $claim = $stage . '.owned';
         if (!mkdir($stage, 0700) || is_link($stage)) {
             throw new \RuntimeException('could not reserve a private workspace staging directory');
         }
         $stageIdentity = self::pathIdentity($stage);
         try {
-            self::writeNew($stage . '/site.duo.json', Adopt::repositorySeedBytes(), 0644);
+            self::writeNew($stage . '/site.wprism.json', Adopt::repositorySeedBytes(), 0644);
             self::writeNew($stage . '/.gitignore', Adopt::repositoryGitignoreBytes(), 0644);
-            self::writeNew($stage . '/.duo-envs.json', $overlay . "\n", 0600);
+            self::writeNew($stage . '/.wprism-envs.json', $overlay . "\n", 0600);
             $run = $processRunner ?? HostProcess::run(...);
             $git = $run(['git', 'init', '--initial-branch=main', $stage], null);
             if ($git['exit'] !== 0 || !is_dir($stage . '/.git')) {
@@ -314,14 +314,14 @@ final class ConnectCommand {
         }
         $entries = array_values(array_diff(scandir($stage) ?: [], ['.', '..']));
         sort($entries, SORT_STRING);
-        if ($entries !== ['.duo-envs.json', '.git', '.gitignore', 'site.duo.json']
+        if ($entries !== ['.git', '.gitignore', '.wprism-envs.json', 'site.wprism.json']
             || is_link($stage . '/.git') || !is_dir($stage . '/.git')) {
             throw new \RuntimeException('workspace staging contents changed before publication');
         }
         foreach ([
-            'site.duo.json' => Adopt::repositorySeedBytes(),
+            'site.wprism.json' => Adopt::repositorySeedBytes(),
             '.gitignore' => Adopt::repositoryGitignoreBytes(),
-            '.duo-envs.json' => $overlay,
+            '.wprism-envs.json' => $overlay,
         ] as $name => $expected) {
             $path = $stage . '/' . $name;
             if (is_link($path) || !is_file($path) || file_get_contents($path) !== $expected) {

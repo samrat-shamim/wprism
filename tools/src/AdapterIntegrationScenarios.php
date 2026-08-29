@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 use JsonException;
 use RuntimeException;
@@ -24,7 +24,7 @@ use RuntimeException;
  */
 final class AdapterIntegrationScenarios
 {
-    public const FORMAT = 'duo-adapter-integration-scenario/v1';
+    public const FORMAT = 'wprism-adapter-integration-scenario/v1';
 
     /** @return Catalog */
     public static function discover(string $repoRoot, bool $validateParticipantPackages = true): array

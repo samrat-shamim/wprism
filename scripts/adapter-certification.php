@@ -33,7 +33,7 @@ declare(strict_types=1);
  *
  * The two mutation-boundary primitives -- the atomic derived-path certificate
  * write and the mode-checked secret-key read -- now live in
- * cli/src/Adapter/AdapterCertify.php, which `duo adapter certify` (round-3 T6
+ * cli/src/Adapter/AdapterCertify.php, which `wprism adapter certify` (round-3 T6
  * SS3.5) is built on.  This script keeps its own reviewer-facing argument
  * grammar and its `--bundle`/`--evidence-repo` inputs, which the operator verb
  * deliberately does not expose; it just stopped carrying a second copy of the
@@ -42,24 +42,24 @@ declare(strict_types=1);
  */
 
 $repoRoot = dirname(__DIR__);
-if (!defined('DUO_AGENT_VERSION') || !defined('DUO_SPEC_VERSION')) {
-    $agentSource = (string) file_get_contents($repoRoot . '/agent/duo.php');
-    if (!defined('DUO_AGENT_VERSION')
-        && preg_match("/define\\('DUO_AGENT_VERSION', '([^']+)'\\)/", $agentSource, $match) === 1) {
-        define('DUO_AGENT_VERSION', $match[1]);
+if (!defined('WPRISM_AGENT_VERSION') || !defined('WPRISM_SPEC_VERSION')) {
+    $agentSource = (string) file_get_contents($repoRoot . '/agent/wprism.php');
+    if (!defined('WPRISM_AGENT_VERSION')
+        && preg_match("/define\\('WPRISM_AGENT_VERSION', '([^']+)'\\)/", $agentSource, $match) === 1) {
+        define('WPRISM_AGENT_VERSION', $match[1]);
     }
-    if (!defined('DUO_SPEC_VERSION')
-        && preg_match("/define\\('DUO_SPEC_VERSION', ([0-9]+)\\)/", $agentSource, $match) === 1) {
-        define('DUO_SPEC_VERSION', (int) $match[1]);
+    if (!defined('WPRISM_SPEC_VERSION')
+        && preg_match("/define\\('WPRISM_SPEC_VERSION', ([0-9]+)\\)/", $agentSource, $match) === 1) {
+        define('WPRISM_SPEC_VERSION', (int) $match[1]);
     }
 }
 
 require_once $repoRoot . '/agent/src/Adapter/AdapterCertification.php';
 require_once $repoRoot . '/cli/src/Adapter/AdapterCertify.php';
 
-use Duo\AdapterCertification;
-use Duo\Canon;
-use Duo\Orchestrator\AdapterCertify;
+use WPrism\AdapterCertification;
+use WPrism\Canon;
+use WPrism\Orchestrator\AdapterCertify;
 
 /** @return array{0:string,1:array<string,string>} */
 function cert_cli_args(array $argv): array {
@@ -146,7 +146,7 @@ function cert_cli_canonical_object(string $path, string $label): array {
 
 /**
  * The certificate write and the secret-key read are AdapterCertify's, not this
- * script's: `duo adapter certify` performs the same two mutations under the
+ * script's: `wprism adapter certify` performs the same two mutations under the
  * same rules, and a second implementation of an atomic write or a 0600 check is
  * a second thing to get wrong.  See that class for what each one refuses.
  */
@@ -262,7 +262,7 @@ try {
             // AdapterCertification::signAuthorities(), which validates every
             // record before the private key is touched — so a registry that
             // could not be READ can never be signed. Only a
-            // duo-adapter-authorities/v2 document has an envelope at all; a v1
+            // wprism-adapter-authorities/v2 document has an envelope at all; a v1
             // one is refused by name rather than left unchanged.
             cert_cli_require($args, ['authorities', 'authority', 'secret-key-file']);
             $path = realpath($args['authorities']);
@@ -303,7 +303,7 @@ try {
         case 'revocations-sign':
             // The out-of-band revocation channel (spec § v3.8). Prints the whole
             // installable document; the operator drops it at the durable
-            // WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json path, which
+            // WPMU_PLUGIN_DIR/wprism-control/adapter-revocations.json path, which
             // live and frozen verification both read beside the embedded library.
             cert_cli_require($args, ['statement', 'authority', 'secret-key-file']);
             fwrite(STDOUT, AdapterCertification::signRevocations(

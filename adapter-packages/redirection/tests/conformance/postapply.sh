@@ -18,7 +18,7 @@ OBSERVED=$(wp_conf2 eval "
     'item' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->prefix}redirection_items WHERE id=%d AND title='Target-only redirect'\", $TARGET_ITEM_ID)),
     'logs' => (int) \$wpdb->get_var(\"SELECT COUNT(*) FROM {\$wpdb->prefix}redirection_logs\"),
     'not_found' => (int) \$wpdb->get_var(\"SELECT COUNT(*) FROM {\$wpdb->prefix}redirection_404\"),
-    'neighbor' => get_option('duo_redirection_target_neighbor'),
+    'neighbor' => get_option('wprism_redirection_target_neighbor'),
     'cache_key' => (int) Red_Options::get()['cache_key'],
   ]);
 ")

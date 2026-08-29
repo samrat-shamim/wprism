@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * Streaming authenticated encryption for operator-directed database
@@ -9,9 +9,9 @@ namespace Duo;
  * so copying the site repository never copies the key beside its ciphertext.
  */
 final class RetainedCheckpointCipher {
-    private const MAGIC = "DUOCP01\n";
+    private const MAGIC = "WPRISMCP01\n";
     private const CHUNK_BYTES = 1048576;
-    private const KEY_CONTEXT = 'duo retained checkpoint v1';
+    private const KEY_CONTEXT = 'wprism retained checkpoint v1';
 
     /** @param resource|null $input */
     public static function seal(string $repo, string $output, $input = null): void {
@@ -108,7 +108,7 @@ final class RetainedCheckpointCipher {
     }
 
     private static function assertPath(string $repo, string $path): void {
-        $root = rtrim($repo, '/') . '/.duo/checkpoints/';
+        $root = rtrim($repo, '/') . '/.wprism/checkpoints/';
         if (!str_starts_with($path, $root)
             || preg_match('/\/(?:promote|deploy|materialize)-[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.sql\.enc$/D', $path) !== 1) {
             throw new \RuntimeException('checkpoint path is outside the encrypted retained-checkpoint boundary');
@@ -120,7 +120,7 @@ final class RetainedCheckpointCipher {
         $prefixBytes = strlen(self::MAGIC) + 16;
         $prefix = self::readExact($handle, $prefixBytes);
         if (substr($prefix, 0, strlen(self::MAGIC)) !== self::MAGIC) {
-            throw new \RuntimeException('the retained checkpoint is not a Duo encrypted checkpoint');
+            throw new \RuntimeException('the retained checkpoint is not a WPrism encrypted checkpoint');
         }
         if (!hash_equals($keyId, substr($prefix, strlen(self::MAGIC)))) {
             throw new \RuntimeException('the retained checkpoint belongs to different target key material');

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure manifest projection for block and shortcode attribute registries.

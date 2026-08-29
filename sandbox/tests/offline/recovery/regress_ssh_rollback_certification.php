@@ -84,14 +84,14 @@ function src_spec(): array {
             'owned_ssh_fixture_absent'=>true, 'plaintext_checkpoint_absent'=>true,
         ],
         'created_at'=>'2026-08-08T00:00:00Z', 'format'=>SSH_ROLLBACK_INPUT_FORMAT,
-        'harness_revision'=>src_hash('harness'), 'key_id'=>'duo-3299-fixture',
+        'harness_revision'=>src_hash('harness'), 'key_id'=>'ssh-rollback-fixture',
         'negative_cases'=>$negative,
         'source'=>['database_sha256'=>src_hash('source-db'),'host_sha256'=>src_hash('source-host')],
         'target'=>['database_sha256'=>src_hash('target-db'),'host_sha256'=>src_hash('target-host')],
     ];
 }
 
-$tmp = sys_get_temp_dir() . '/duo-ssh-rollback-cert-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-ssh-rollback-cert-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0700);
 $secret = sodium_crypto_sign_keypair();
 $secretBytes = sodium_crypto_sign_secretkey($secret);

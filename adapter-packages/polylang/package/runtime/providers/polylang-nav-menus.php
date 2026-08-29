@@ -1,19 +1,19 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
-use Duo\WpCliChildProcess;
+use WPrism\ManifestProviderRuntime;
+use WPrism\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    $duoLayoutRoot = dirname(__DIR__, 5);
-    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
-        ? $duoLayoutRoot . '/agent'
-        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
-    if ($duoAgentRoot === null) {
-        throw new \RuntimeException('duo: Polylang provider cannot resolve the explicit source or embedded agent layout');
+    $wprismLayoutRoot = dirname(__DIR__, 5);
+    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
+        ? $wprismLayoutRoot . '/agent'
+        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
+    if ($wprismAgentRoot === null) {
+        throw new \RuntimeException('wprism: Polylang provider cannot resolve the explicit source or embedded agent layout');
     }
-    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($duoLayoutRoot, $duoAgentRoot);
+    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($wprismLayoutRoot, $wprismAgentRoot);
 }
 
 /**
@@ -21,7 +21,7 @@ if (!class_exists(WpCliChildProcess::class, false)) {
  *
  * Polylang 3.8 through 3.8.7 updates nav-menu locations, the translated
  * default category only from its settings save path
- * (`Model\Languages::update_default()` and `Settings\Settings_Module`). Duo
+ * (`Model\Languages::update_default()` and `Settings\Settings_Module`). WPrism
  * writes the reviewed option sub-keys without those hooks, so a target can
  * otherwise retain the previous default language's menu/category indefinitely.
  * This provider models those bounded plugin-owned effects; core's separate
@@ -37,7 +37,7 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
     private const NAV_MAX_TOTAL_BYTES = 4194304;
     private const CATALOG_MAX_ROWS = 10000;
     private const CATALOG_MAX_TOTAL_BYTES = 16777216;
-    private const CATALOG_CHILD_PREFIX = 'DUO_PLL_NATIVE:';
+    private const CATALOG_CHILD_PREFIX = 'WPRISM_PLL_NATIVE:';
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
     protected function invoke_synchronize_runtime(array $args): array {
         $this->assert_runtime();
@@ -86,7 +86,7 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
         ] as $required) {
             if (!function_exists($required)) {
                 throw new \RuntimeException(
-                    "duo: Polylang runtime synchronization requires WordPress/Polylang's $required()"
+                    "wprism: Polylang runtime synchronization requires WordPress/Polylang's $required()"
                 );
             }
         }
@@ -97,27 +97,27 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
         $polylang = get_option('polylang');
         $stylesheet = get_option('stylesheet');
         if (!is_array($polylang)) {
-            throw new \RuntimeException('duo: Polylang option is not an array; recovery_required');
+            throw new \RuntimeException('wprism: Polylang option is not an array; recovery_required');
         }
         if (!$this->valid_stylesheet($stylesheet)) {
-            throw new \RuntimeException('duo: Polylang active stylesheet is invalid; recovery_required');
+            throw new \RuntimeException('wprism: Polylang active stylesheet is invalid; recovery_required');
         }
         $defaultLang = $polylang['default_lang'] ?? null;
         if (!is_string($defaultLang)
             || strlen($defaultLang) > self::LANGUAGE_SLUG_MAX_BYTES
             || ($defaultLang !== '' && preg_match('/^[a-z][a-z0-9_-]*$/D', $defaultLang) !== 1)) {
-            throw new \RuntimeException('duo: Polylang default language is invalid; recovery_required');
+            throw new \RuntimeException('wprism: Polylang default language is invalid; recovery_required');
         }
         $allNavMenus = $polylang['nav_menus'] ?? null;
         if (!is_array($allNavMenus) || ($allNavMenus !== [] && array_is_list($allNavMenus))) {
-            throw new \RuntimeException('duo: Polylang nav_menus option is invalid; recovery_required');
+            throw new \RuntimeException('wprism: Polylang nav_menus option is invalid; recovery_required');
         }
         $activeThemeDeclared = array_key_exists($stylesheet, $allNavMenus);
         $navMenus = $activeThemeDeclared ? $allNavMenus[$stylesheet] : [];
         if (!is_array($navMenus)
             || ($navMenus !== [] && array_is_list($navMenus))
             || count($navMenus) > self::NAV_MAX_LOCATIONS) {
-            throw new \RuntimeException('duo: Polylang nav_menus theme map is invalid; recovery_required');
+            throw new \RuntimeException('wprism: Polylang nav_menus theme map is invalid; recovery_required');
         }
         $expected = [];
         $assignments = 0;
@@ -131,7 +131,7 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
                 || !is_array($byLanguage)
                 || ($byLanguage !== [] && array_is_list($byLanguage))
                 || count($byLanguage) > self::NAV_MAX_LANGUAGES_PER_LOCATION) {
-                throw new \RuntimeException('duo: Polylang nav_menus location map is invalid; recovery_required');
+                throw new \RuntimeException('wprism: Polylang nav_menus location map is invalid; recovery_required');
             }
             $bytes += strlen($location);
             foreach ($byLanguage as $language => $menuId) {
@@ -139,18 +139,18 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
                     || strlen($language) > self::LANGUAGE_SLUG_MAX_BYTES
                     || preg_match('/^[a-z][a-z0-9_-]*$/D', $language) !== 1
                     || !is_int($menuId) || $menuId < 0) {
-                    throw new \RuntimeException('duo: Polylang nav_menus language entry is invalid; recovery_required');
+                    throw new \RuntimeException('wprism: Polylang nav_menus language entry is invalid; recovery_required');
                 }
                 ++$assignments;
                 $bytes += strlen($language) + 8;
                 if ($assignments > self::NAV_MAX_ASSIGNMENTS || $bytes > self::NAV_MAX_TOTAL_BYTES) {
                     throw new \RuntimeException(
-                        'duo: Polylang nav_menus exceeds the bounded aggregate; recovery_required'
+                        'wprism: Polylang nav_menus exceeds the bounded aggregate; recovery_required'
                     );
                 }
                 if ($menuId > 0 && !is_object(wp_get_nav_menu_object($menuId))) {
                     throw new \RuntimeException(
-                        'duo: Polylang nav_menus references a missing target menu; recovery_required'
+                        'wprism: Polylang nav_menus references a missing target menu; recovery_required'
                     );
                 }
             }
@@ -163,7 +163,7 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
         $defaultCategory = get_option('default_category');
         if (!(is_int($defaultCategory)
             || (is_string($defaultCategory) && preg_match('/^[1-9][0-9]*$/D', $defaultCategory) === 1))) {
-            throw new \RuntimeException('duo: Polylang default category is invalid; recovery_required');
+            throw new \RuntimeException('wprism: Polylang default category is invalid; recovery_required');
         }
         $defaultCategory = (int) $defaultCategory;
         $expectedCategory = null;
@@ -176,7 +176,7 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
                 if (!(is_int($translated)
                     || (is_string($translated) && preg_match('/^[1-9][0-9]*$/D', $translated) === 1))) {
                     throw new \RuntimeException(
-                        'duo: Polylang default category has no target-language translation; recovery_required'
+                        'wprism: Polylang default category has no target-language translation; recovery_required'
                     );
                 }
                 $expectedCategory = (int) $translated;
@@ -230,13 +230,13 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
             if ($configuration['expected_locations'] !== null
                 && $rawLocations !== $configuration['expected_locations']) {
                 throw new \RuntimeException(
-                    'duo: Polylang raw nav_menu_locations does not match its default-language map; recovery_required'
+                    'wprism: Polylang raw nav_menu_locations does not match its default-language map; recovery_required'
                 );
             }
             if ($configuration['expected_category'] !== null
                 && $defaultCategory !== $configuration['expected_category']) {
                 throw new \RuntimeException(
-                    'duo: Polylang default category does not match the exact translated term; recovery_required'
+                    'wprism: Polylang default category does not match the exact translated term; recovery_required'
                 );
             }
         }
@@ -260,12 +260,12 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
         $locations = $themeMods['nav_menu_locations'] ?? [];
         if (!is_array($locations)) {
             throw new \RuntimeException(
-                'duo: Polylang raw nav_menu_locations storage is invalid; recovery_required'
+                'wprism: Polylang raw nav_menu_locations storage is invalid; recovery_required'
             );
         }
         if (count($locations) > self::NAV_MAX_LOCATIONS) {
             throw new \RuntimeException(
-                'duo: Polylang raw nav_menu_locations exceeds the bounded location limit; recovery_required'
+                'wprism: Polylang raw nav_menu_locations exceeds the bounded location limit; recovery_required'
             );
         }
         foreach ($locations as $location => $menuId) {
@@ -276,7 +276,7 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
                 || preg_match('/[\x00-\x1F\x7F]/', $location) === 1
                 || !is_int($menuId) || $menuId < 0) {
                 throw new \RuntimeException(
-                    'duo: Polylang raw nav_menu_locations entry is invalid; recovery_required'
+                    'wprism: Polylang raw nav_menu_locations entry is invalid; recovery_required'
                 );
             }
         }
@@ -289,7 +289,7 @@ final class PolylangNavMenus extends ManifestProviderRuntime {
         $model = is_object($runtime) ? ($runtime->model ?? null) : null;
         if (!is_object($model) || !is_callable([$model, 'clean_languages_cache'])) {
             throw new \RuntimeException(
-                'duo: Polylang runtime synchronization requires the native language-cache purge boundary'
+                'wprism: Polylang runtime synchronization requires the native language-cache purge boundary'
             );
         }
         $model->clean_languages_cache();
@@ -338,7 +338,7 @@ if (is_array($languages)) {
 if (is_array($projection)) {
     ksort($projection['catalogs'], SORT_STRING);
 }
-echo 'DUO_PLL_NATIVE:' . base64_encode(wp_json_encode($projection)) . "\n";
+echo 'WPRISM_PLL_NATIVE:' . base64_encode(wp_json_encode($projection)) . "\n";
 PHP;
         try {
             // The projection is hashes/counts for at most 512 languages, so
@@ -353,12 +353,12 @@ PHP;
             );
         } catch (\Throwable) {
             throw new \RuntimeException(
-                'duo: Polylang native registry/catalog verification child could not start; recovery_required'
+                'wprism: Polylang native registry/catalog verification child could not start; recovery_required'
             );
         }
         if ($result['return_code'] !== 0 || $result['stderr'] !== '') {
             throw new \RuntimeException(
-                'duo: Polylang native registry/catalog verification child failed; recovery_required'
+                'wprism: Polylang native registry/catalog verification child failed; recovery_required'
             );
         }
         $stdout = $result['stdout'];
@@ -366,13 +366,13 @@ PHP;
             || str_contains(substr($stdout, 0, -1), "\n")
             || str_contains($stdout, "\r")) {
             throw new \RuntimeException(
-                'duo: Polylang native registry/catalog verification child returned no exact receipt; recovery_required'
+                'wprism: Polylang native registry/catalog verification child returned no exact receipt; recovery_required'
             );
         }
         $line = substr($stdout, 0, -1);
         if (!str_starts_with($line, self::CATALOG_CHILD_PREFIX)) {
             throw new \RuntimeException(
-                'duo: Polylang native registry/catalog verification child returned no exact receipt; recovery_required'
+                'wprism: Polylang native registry/catalog verification child returned no exact receipt; recovery_required'
             );
         }
         $encoded = substr($line, strlen(self::CATALOG_CHILD_PREFIX));
@@ -382,7 +382,7 @@ PHP;
             : null;
         if (!is_array($observed) || $observed !== $expected) {
             throw new \RuntimeException(
-                'duo: Polylang fresh native registry/catalog projection disagrees with exact persisted state; '
+                'wprism: Polylang fresh native registry/catalog projection disagrees with exact persisted state; '
                 . 'recovery_required'
             );
         }
@@ -398,7 +398,7 @@ PHP;
             ? $model->get_languages_list()
             : null;
         if (!is_array($languages) || !array_is_list($languages) || count($languages) > 512) {
-            throw new \RuntimeException('duo: Polylang native catalog verification returned an invalid language list');
+            throw new \RuntimeException('wprism: Polylang native catalog verification returned an invalid language list');
         }
         $catalogs = [];
         foreach ($languages as $language) {
@@ -408,7 +408,7 @@ PHP;
                 || preg_match('/^[a-z][a-z0-9_-]*$/D', $slug) !== 1
                 || !is_int($termId)
                 || $termId <= 0) {
-                throw new \RuntimeException('duo: Polylang native catalog verification returned a malformed language');
+                throw new \RuntimeException('wprism: Polylang native catalog verification returned a malformed language');
             }
             if ($fresh) {
                 clean_term_cache($termId, 'language');
@@ -418,17 +418,17 @@ PHP;
                 $raw = [];
             }
             if (!is_array($raw) || !array_is_list($raw) || count($raw) > self::CATALOG_MAX_ROWS) {
-                throw new \RuntimeException('duo: Polylang string catalog is invalid or over the bounded frontier');
+                throw new \RuntimeException('wprism: Polylang string catalog is invalid or over the bounded frontier');
             }
             $visible = [];
             foreach ($raw as $row) {
                 if (!is_array($row) || !array_is_list($row) || count($row) !== 2
                     || !is_string($row[0] ?? null) || !is_string($row[1] ?? null)) {
-                    throw new \RuntimeException('duo: Polylang string catalog contains a malformed row');
+                    throw new \RuntimeException('wprism: Polylang string catalog contains a malformed row');
                 }
                 $bytes += strlen($row[0]) + strlen($row[1]);
                 if ($bytes > self::CATALOG_MAX_TOTAL_BYTES) {
-                    throw new \RuntimeException('duo: Polylang string catalogs exceed the bounded byte frontier');
+                    throw new \RuntimeException('wprism: Polylang string catalogs exceed the bounded byte frontier');
                 }
                 $visible[] = [$row[0], ($row[0] === '' || $row[1] === '') ? '' : $row[1]];
             }

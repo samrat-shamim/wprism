@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * Validate Duo's capability sources or render their aggregate projection.
+ * Validate WPrism's capability sources or render their aggregate projection.
  *
  * Usage:
  *   php tools/capability-doc.php render     # write the aggregate projection to stdout
@@ -24,7 +24,7 @@ declare(strict_types=1);
  *   adapter-packages/<name>/package/manifest.json     what each adapter DECLARES it covers
  *   adapter-packages/<name>/package/disposition.json  the reviewed status/reason per adapter
  *   platform/adapter-library/capabilities/platform.json the platform/environment boundary
- *   agent/duo.php                                      DUO_AGENT_VERSION / DUO_SPEC_VERSION
+ *   agent/wprism.php                                      WPRISM_AGENT_VERSION / WPRISM_SPEC_VERSION
  *
  * So a status in the rendered document now means: declared by the manifest,
  * reviewed in its package disposition by a human who wrote down why, and
@@ -57,7 +57,7 @@ declare(strict_types=1);
  *     supported deletion selectors must be exactly the manifest's declared
  *     `deletions` keys -- otherwise the document advertises an operation no
  *     manifest implements, or hides one no reviewer blessed.
- *   - platform.json's agent_version/spec_version must equal agent/duo.php's
+ *   - platform.json's agent_version/spec_version must equal agent/wprism.php's
  *     defines, and its compatibility block must equal
  *     docs/compatibility-baseline.json (which cli/src/Onboarding/Doctor.php
  *     reads at runtime for its BLOCKING PHP/database/filesystem/process checks). Those are two
@@ -65,8 +65,8 @@ declare(strict_types=1);
  *     drifting into two different truths.
  */
 
-use Duo\AdapterLibrary;
-use Duo\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
 
 $repo = dirname(__DIR__);
 
@@ -83,8 +83,8 @@ require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 
 const CAPDOC_BASELINE_FILE = '/docs/compatibility-baseline.json';
-const CAPDOC_DISPOSITIONS_FORMAT = 'duo-manifest-dispositions/v1';
-const CAPDOC_PLATFORM_FORMAT = 'duo-platform-boundary/v1';
+const CAPDOC_DISPOSITIONS_FORMAT = 'wprism-manifest-dispositions/v1';
+const CAPDOC_PLATFORM_FORMAT = 'wprism-platform-boundary/v1';
 
 /** Above this many keys a section is summarised by count alone; below it the keys are named. */
 const CAPDOC_NAME_KEYS_UPTO = 6;
@@ -111,12 +111,12 @@ function capdoc_library(string $repo): AdapterLibrary {
 
 /** @return array{agent_version:string,spec_version:int} */
 function capdoc_agent_defines(string $repo): array {
-    $source = (string) file_get_contents($repo . '/agent/duo.php');
-    if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $version) !== 1) {
-        throw new RuntimeException('could not resolve DUO_AGENT_VERSION from agent/duo.php');
+    $source = (string) file_get_contents($repo . '/agent/wprism.php');
+    if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $version) !== 1) {
+        throw new RuntimeException('could not resolve WPRISM_AGENT_VERSION from agent/wprism.php');
     }
-    if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $spec) !== 1) {
-        throw new RuntimeException('could not resolve DUO_SPEC_VERSION from agent/duo.php');
+    if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $spec) !== 1) {
+        throw new RuntimeException('could not resolve WPRISM_SPEC_VERSION from agent/wprism.php');
     }
     return ['agent_version' => $version[1], 'spec_version' => (int) $spec[1]];
 }
@@ -194,7 +194,7 @@ function capdoc_platform(string $repo, AdapterLibrary $library): array {
         || $platform['spec_version'] !== $defines['spec_version']) {
         throw new RuntimeException(
             'platform boundary declares agent ' . var_export($platform['agent_version'], true) . ' / spec '
-            . var_export($platform['spec_version'], true) . '; agent/duo.php defines '
+            . var_export($platform['spec_version'], true) . '; agent/wprism.php defines '
             . $defines['agent_version'] . ' / ' . $defines['spec_version']
         );
     }
@@ -316,7 +316,7 @@ function capdoc_cross_check(array $manifests, array $dispositions): void {
  *
  * ManifestDispositions::claim_from_disposition() synthesizes `promote` from
  * deploy+apply rather than storing it, so a document that printed only the
- * declared list would advertise a narrower operation set than `duo capability`
+ * declared list would advertise a narrower operation set than `wprism capability`
  * reports for the same manifest -- and the dispositions' own unsupported rows
  * already speak about `promote` as an operation.
  */
@@ -467,8 +467,8 @@ function capdoc_section_summary(string $section, mixed $value): string {
 }
 
 function capdoc_preamble(array $platform): string {
-    return 'Duo agent **' . $platform['agent_version'] . '** / repo spec **' . $platform['spec_version']
-        . "**. This document is the whole of what Duo claims; nothing outside it is supported.\n\n"
+    return 'WPrism agent **' . $platform['agent_version'] . '** / repo spec **' . $platform['spec_version']
+        . "**. This document is the whole of what WPrism claims; nothing outside it is supported.\n\n"
         . '**How to read a claim.** Each adapter below is *manifest-declared* — its own '
         . '`adapter-packages/<name>/package/manifest.json` states the exact surfaces it covers — '
         . '*disposition-reviewed* — the sibling `package/disposition.json` records a '
@@ -663,7 +663,7 @@ function capdoc_profiles_section(array $profiles, array $platform): string {
 
 /** @param array<string,array> $manifests */
 function capdoc_doc(array $manifests, array $dispositions, array $platform): string {
-    $out = "# Duo capability boundary\n\n";
+    $out = "# WPrism capability boundary\n\n";
     $out .= '<!-- Rendered on demand by tools/capability-doc.php from adapter-packages/*/package/{manifest,disposition}.json '
         . "+ platform/adapter-library; this aggregate is not a checked-in adapter edit point. -->\n\n";
     $out .= capdoc_preamble($platform) . "\n";

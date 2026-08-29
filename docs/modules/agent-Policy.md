@@ -1,6 +1,6 @@
 # agent: Policy
 
-**Purpose.** Loads, validates and pins the manifest and site policy that decides which WordPress state Duo owns, and answers every ownership question the engine asks.
+**Purpose.** Loads, validates and pins the manifest and site policy that decides which WordPress state WPrism owns, and answers every ownership question the engine asks.
 
 **Directory** `agent/src/Policy/` &middot; **layer** `policy` &middot; **files** 19 &middot; **status** populated
 
@@ -28,4 +28,4 @@
 - Policy god object: fan-in 96 across agent/src, 34 outbound references, 30 of them into Grammar. Splitting the load path from the query path is the prerequisite for breaking the Policy<->Grammar cycle.
 - 18 of the 38 ratified upward edges in the repo start in this module (9 into Adapter alone).
 
-**Sub-namespace plan.** Target `Duo\Policy\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.
+**Sub-namespace plan.** Target `WPrism\Policy\`. Not in this round: the move keeps `namespace WPrism;` flat so that manifest interpreters/providers can keep naming `\WPrism\Policy`, `\WPrism\ProviderSdk`, `\WPrism\Providers` and `\WPrism\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

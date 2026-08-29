@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
@@ -51,17 +51,17 @@ final class NativeRebuildExecutor {
             }
             $cleared = wp_clear_scheduled_hook('publish_future_post', [$postId]);
             if ($cleared === false) {
-                throw new \RuntimeException("duo: failed to clear prior publication schedule for post $postId");
+                throw new \RuntimeException("wprism: failed to clear prior publication schedule for post $postId");
             }
             if (($front['status'] ?? '') !== 'future') {
                 continue;
             }
             $timestamp = strtotime((string) $front['date_gmt'] . ' UTC');
             if ($timestamp === false || !wp_schedule_single_event($timestamp, 'publish_future_post', [$postId])) {
-                throw new \RuntimeException("duo: failed to schedule future post $postId at {$front['date_gmt']} UTC");
+                throw new \RuntimeException("wprism: failed to schedule future post $postId at {$front['date_gmt']} UTC");
             }
             if (wp_next_scheduled('publish_future_post', [$postId]) !== $timestamp) {
-                throw new \RuntimeException("duo: future-post schedule verification failed for post $postId");
+                throw new \RuntimeException("wprism: future-post schedule verification failed for post $postId");
             }
         }
 
@@ -84,7 +84,7 @@ final class NativeRebuildExecutor {
             $termTaxonomyIds = array_map('intval', $termTaxonomyIds);
             if (taxonomy_exists($taxonomy)) {
                 if (wp_update_term_count_now($termTaxonomyIds, $taxonomy) === false) {
-                    throw new \RuntimeException("duo: registered recount callback failed for taxonomy '$taxonomy'");
+                    throw new \RuntimeException("wprism: registered recount callback failed for taxonomy '$taxonomy'");
                 }
                 continue;
             }
@@ -93,7 +93,7 @@ final class NativeRebuildExecutor {
             $objectTypes = $this->policy->declared_object_type($taxonomy);
             if ($callback === null || $objectTypes === null || !is_callable($callback)) {
                 throw new \RuntimeException(
-                    "duo: required taxonomy '$taxonomy' is not registered during recount and has no callable manifest count contract"
+                    "wprism: required taxonomy '$taxonomy' is not registered during recount and has no callable manifest count contract"
                 );
             }
             $taxonomyObject = new \WP_Taxonomy($taxonomy, $objectTypes, [
@@ -102,13 +102,13 @@ final class NativeRebuildExecutor {
             try {
                 call_user_func($callback, $termTaxonomyIds, $taxonomyObject);
             } catch (\Throwable $t) {
-                throw new \RuntimeException("duo: manifest recount callback failed for taxonomy '$taxonomy'", 0, $t);
+                throw new \RuntimeException("wprism: manifest recount callback failed for taxonomy '$taxonomy'", 0, $t);
             }
         }
 
         if (array_filter($attachmentIds) !== []) {
             if ($this->attachmentMaterializer === null) {
-                throw new \RuntimeException('duo: attachment metadata rebuild lacks its durable materializer');
+                throw new \RuntimeException('wprism: attachment metadata rebuild lacks its durable materializer');
             }
             Db::checkpoint('rebuild attachment metadata');
             $this->attachmentMaterializer->finalize_native_metadata($attachmentIds);

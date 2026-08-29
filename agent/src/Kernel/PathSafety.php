@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
- * Generic path-safety primitives for code materialization (DUO-3350 slice
+ * Generic path-safety primitives for code materialization (issue #3350 slice
  * 1, extracted from Code): relative-path shape validation, symlink-crossing
  * detection below WP_CONTENT_DIR, and ownership/reservation membership
  * tests. Every method here is a pure predicate or a read-only filesystem
@@ -14,7 +14,7 @@ namespace Duo;
 final class PathSafety {
     public static function safe_join(string $root, string $relative): string {
         if (!self::safe_relative($relative)) {
-            throw new \RuntimeException("duo: unsafe code path '$relative'");
+            throw new \RuntimeException("wprism: unsafe code path '$relative'");
         }
         return rtrim($root, '/') . '/' . $relative;
     }
@@ -44,10 +44,10 @@ final class PathSafety {
         string $operation
     ): void {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
-            throw new \RuntimeException("duo: $operation requires WordPress WP_CONTENT_DIR");
+            throw new \RuntimeException("wprism: $operation requires WordPress WP_CONTENT_DIR");
         }
         if (!self::safe_relative($relative)) {
-            throw new \RuntimeException("duo: $operation refuses unsafe target path '$relative'");
+            throw new \RuntimeException("wprism: $operation refuses unsafe target path '$relative'");
         }
         $parts = explode('/', $relative);
         if (!$includeLeaf) {
@@ -60,7 +60,7 @@ final class PathSafety {
             $cursor .= '/' . $part;
             if (is_link($cursor)) {
                 $path = implode('/', $walked);
-                throw new \RuntimeException("duo: $operation refuses symbolic-link target path '$path'");
+                throw new \RuntimeException("wprism: $operation refuses symbolic-link target path '$path'");
             }
         }
     }
@@ -124,8 +124,8 @@ final class PathSafety {
 
     public static function reserved_path(string $path): bool {
         $lower = strtolower($path);
-        return $lower === 'mu-plugins/duo'
-            || str_starts_with($lower, 'mu-plugins/duo/')
-            || $lower === 'mu-plugins/duo-loader.php';
+        return $lower === 'mu-plugins/wprism'
+            || str_starts_with($lower, 'mu-plugins/wprism/')
+            || $lower === 'mu-plugins/wprism-loader.php';
     }
 }

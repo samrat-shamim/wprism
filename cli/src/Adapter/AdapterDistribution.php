@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Policy;
-use Duo\WithdrawnAuthoritySiteAdapterCertificate;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Policy;
+use WPrism\WithdrawnAuthoritySiteAdapterCertificate;
 
 /**
- * `duo adapter discover | install | update` — the channel that tells an
+ * `wprism adapter discover | install | update` — the channel that tells an
  * operator an adapter they do not have EXISTS, and installs or replaces it
  * from a digest-pinned index.
  *
@@ -25,7 +25,7 @@ use Duo\WithdrawnAuthoritySiteAdapterCertificate;
  * somebody else had written had no way to learn of it, and no way to install
  * it that was anything but `curl | cp` with a hand-checked digest.
  *
- * `AdapterCatalog` has modelled the destination since DUO-3339 — "an
+ * `AdapterCatalog` has modelled the destination since issue #3339 — "an
  * independently distributed adapter PACKAGE is not a fourth source: it
  * installs into the site source as `adapters/<name>.json` plus
  * `adapters/certifications/<name>.json`, which this command already surveys
@@ -36,7 +36,7 @@ use Duo\WithdrawnAuthoritySiteAdapterCertificate;
  *
  * ## The index is a POINTER document, and it carries no authority
  *
- * `duo-adapter-index/v1` is unsigned by construction and confers nothing. It
+ * `wprism-adapter-index/v1` is unsigned by construction and confers nothing. It
  * says "these bytes exist, at this URL, with this digest, certified by this
  * key". Every trust decision is re-derived from the FETCHED bytes by
  * `AdapterCertification::verifyFile()`, the same call the live policy path
@@ -67,7 +67,7 @@ use Duo\WithdrawnAuthoritySiteAdapterCertificate;
  *
  * AGENTS.md rule 1: the drop-in fetches nothing. This file lives in `cli/`,
  * runs on the operator's own machine, is WordPress-free, and is reached only
- * when a human types `duo adapter install`. `agent/` gained no reader for the
+ * when a human types `wprism adapter install`. `agent/` gained no reader for the
  * index, no network path, and not one byte: an installed package is
  * indistinguishable to the agent from an adapter an operator hand-placed,
  * which is the property that let this ship without touching the load path.
@@ -96,10 +96,10 @@ final class AdapterDistribution {
      * so a member cannot be added for anyone holding today's agent, and growth
      * is a new `format` value read beside this one.
      */
-    public const INDEX_FORMAT = 'duo-adapter-index/v1';
+    public const INDEX_FORMAT = 'wprism-adapter-index/v1';
 
     /** The report these three verbs emit; a different document from the index. */
-    public const REPORT_FORMAT = 'duo-adapter-distribution/v1';
+    public const REPORT_FORMAT = 'wprism-adapter-distribution/v1';
 
     /** Closed both ways. An index with a `signature` member is refused BY NAME — see the class docblock. */
     private const INDEX_ENVELOPE_KEYS = ['adapters', 'format'];
@@ -127,8 +127,9 @@ final class AdapterDistribution {
     /**
      * A bounded read, for the reason `fetch-artifact.sh` bounds its download:
      * a resolver that will read whatever it is handed is a memory-exhaustion
-     * surface reachable from a document nobody signed. 4 MiB is 34x the
-     * largest shipped manifest (`manifests/woocommerce.json`, 121,594 bytes),
+     * surface reachable from a document nobody signed. 4 MiB is more than 20x
+     * the largest shipped manifest
+     * (`adapter-packages/woocommerce/package/manifest.json`, 207,315 bytes),
      * so it bounds an attack without bounding an adapter.
      */
     private const MAX_PACKAGE_BYTES = 4194304;
@@ -158,7 +159,7 @@ final class AdapterDistribution {
      * lands, or the whole attempt refuses. Minting a 1 that never fires would
      * put a status in an operator's script that nothing can produce.
      *
-     * @param list<string> $args the arguments after `duo adapter`
+     * @param list<string> $args the arguments after `wprism adapter`
      * @return int 0 the verb did what it says, 2 usage/IO/refusal
      */
     public static function run(array $args): int {
@@ -186,7 +187,7 @@ final class AdapterDistribution {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter discover --index=<file> [--repo=<site-repo>] [--format=json]`
+     * `wprism adapter discover --index=<file> [--repo=<site-repo>] [--format=json]`
      *
      * Read-only, and it fetches NOTHING. Discovery is the act of reading the
      * index; every fact in the report is either in the index document or on
@@ -229,7 +230,7 @@ final class AdapterDistribution {
         $report = [
             'format' => self::REPORT_FORMAT,
             'command' => 'discover',
-            'agent_version' => DUO_AGENT_VERSION,
+            'agent_version' => WPRISM_AGENT_VERSION,
             'index' => $indexPath,
             'index_format' => $index['format'],
             'repo' => $repo,
@@ -280,7 +281,7 @@ final class AdapterDistribution {
             'agent_versions' => $entry['agent_versions'],
             'url' => $entry['url'],
             'certificate_url' => $entry['certificate_url'],
-            'in_agent_window' => self::insideWindow(DUO_AGENT_VERSION, $entry['agent_versions']),
+            'in_agent_window' => self::insideWindow(WPRISM_AGENT_VERSION, $entry['agent_versions']),
             'transport' => self::transportOf((string) $entry['url']),
             'certificate_transport' => self::transportOf((string) $entry['certificate_url']),
             'authority_enrolled' => $enrolled === null
@@ -296,8 +297,8 @@ final class AdapterDistribution {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter install <site-repo> --index=<f> --name=<n> [--version=<v>]`
-     * `duo adapter update  <site-repo> --index=<f> --name=<n> --to=<v>`
+     * `wprism adapter install <site-repo> --index=<f> --name=<n> [--version=<v>]`
+     * `wprism adapter update  <site-repo> --index=<f> --name=<n> --to=<v>`
      *
      * ONE resolution and verification path with two entry conditions, rather
      * than two commands that each fetch and verify. A second copy of the
@@ -348,7 +349,7 @@ final class AdapterDistribution {
             // publisher never agreed to. The operator names the version.
             return self::fail(
                 '--to=<version> is required: update never chooses a version for you, because '
-                . self::INDEX_FORMAT . ' defines no order over version strings — run `duo adapter discover '
+                . self::INDEX_FORMAT . ' defines no order over version strings — run `wprism adapter discover '
                 . "--index=<f> --repo=$repo` to see what is offered"
             );
         }
@@ -375,13 +376,13 @@ final class AdapterDistribution {
         if (!$isUpdate && $installed !== null) {
             return self::fail(
                 "[already_installed] $target already exists — install never overwrites an installed adapter; "
-                . "use `duo adapter update $repo --index=$indexPath --name=$name --to=<version>`"
+                . "use `wprism adapter update $repo --index=$indexPath --name=$name --to=<version>`"
             );
         }
         if ($isUpdate) {
             if ($installed === null) {
                 return self::fail(
-                    "[not_installed] there is no $target to update — use `duo adapter install $repo "
+                    "[not_installed] there is no $target to update — use `wprism adapter install $repo "
                     . "--index=$indexPath --name=$name`"
                 );
             }
@@ -466,7 +467,7 @@ final class AdapterDistribution {
             . ($verified['claim']['trust_tier'] ?? '?') . ")\n";
         echo '  authority:   ' . ($verified['claim']['certification']['principal'] ?? '(none)')
             . ' (' . ($verified['claim']['certification']['trust_root'] ?? '?') . " trust root)\n";
-        echo "\nThe adapter is INSTALLED, not PINNED. `duo adapter pin $repo --name=$name` is the separate\n"
+        echo "\nThe adapter is INSTALLED, not PINNED. `wprism adapter pin $repo --name=$name` is the separate\n"
             . "act that makes this site load it — installation and adoption are deliberately two decisions.\n";
         return 0;
     }
@@ -497,7 +498,7 @@ final class AdapterDistribution {
         }
         $inWindow = array_values(array_filter(
             $entries,
-            static fn(array $e): bool => self::insideWindow(DUO_AGENT_VERSION, $e['agent_versions'])
+            static fn(array $e): bool => self::insideWindow(WPRISM_AGENT_VERSION, $e['agent_versions'])
         ));
         if ($inWindow === []) {
             $windows = array_map(
@@ -507,14 +508,14 @@ final class AdapterDistribution {
             );
             return self::fail(
                 "[package_out_of_window] no entry for '$name' in $indexPath is offered for agent "
-                . DUO_AGENT_VERSION . '; the index publishes ' . implode(', ', $windows)
+                . WPRISM_AGENT_VERSION . '; the index publishes ' . implode(', ', $windows)
                 . ' — an out-of-window package is refused, not installed with a warning'
             );
         }
         if (count($inWindow) > 1) {
             return self::fail(
                 "[ambiguous_version] $indexPath offers " . count($inWindow) . " versions of '$name' for agent "
-                . DUO_AGENT_VERSION . ' ('
+                . WPRISM_AGENT_VERSION . ' ('
                 . implode(', ', array_map(static fn(array $e): string => (string) $e['version'], $inWindow))
                 . ') — name one with --version=<v>; this format defines no order over version strings, so '
                 . 'choosing for you would be a guess'
@@ -565,11 +566,11 @@ final class AdapterDistribution {
         string $indexPath,
         AdapterLibrary $adapterLibrary
     ): array {
-        if (!self::insideWindow(DUO_AGENT_VERSION, $entry['agent_versions'])) {
+        if (!self::insideWindow(WPRISM_AGENT_VERSION, $entry['agent_versions'])) {
             throw new \RuntimeException(
                 "[package_out_of_window] '$name' version {$entry['version']} is offered for agent ["
                 . $entry['agent_versions']['min'] . ', ' . $entry['agent_versions']['max'] . '); this agent is '
-                . DUO_AGENT_VERSION . ' — the window is the publisher\'s statement about what they exercised, '
+                . WPRISM_AGENT_VERSION . ' — the window is the publisher\'s statement about what they exercised, '
                 . 'and it is refused rather than widened here'
             );
         }
@@ -668,7 +669,7 @@ final class AdapterDistribution {
         $root = $scratch . '/repo';
         $certificates = $root . '/' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR;
         if (!mkdir($certificates, 0700, true) && !is_dir($certificates)) {
-            throw new \RuntimeException("duo: cannot create the staging root at $certificates");
+            throw new \RuntimeException("wprism: cannot create the staging root at $certificates");
         }
         $adapterPath = $root . '/' . AdapterSources::SITE_DIR . '/' . $name . '.json';
         $certificatePath = $certificates . '/' . $name . '.json';
@@ -683,7 +684,7 @@ final class AdapterDistribution {
 
         $resolved = realpath($certificatePath);
         if ($resolved === false) {
-            throw new \RuntimeException("duo: the staged certificate vanished at $certificatePath");
+            throw new \RuntimeException("wprism: the staged certificate vanished at $certificatePath");
         }
 
         return ['root' => $root, 'certificate' => $resolved, 'scratch' => $scratch];
@@ -713,13 +714,13 @@ final class AdapterDistribution {
         foreach ([$adapterPath, $certificatePath] as $path) {
             if (is_link($path)) {
                 throw new \RuntimeException(
-                    "duo: $path is a symbolic link; installation writes regular files and never follows one"
+                    "wprism: $path is a symbolic link; installation writes regular files and never follows one"
                 );
             }
         }
         $directory = dirname($certificatePath);
         if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
-            throw new \RuntimeException("duo: cannot create $directory");
+            throw new \RuntimeException("wprism: cannot create $directory");
         }
         self::atomicWrite($adapterPath, $verified['adapter']);
         self::atomicWrite($certificatePath, $verified['certificate']);
@@ -732,7 +733,7 @@ final class AdapterDistribution {
     // -----------------------------------------------------------------
 
     /**
-     * Read and validate one `duo-adapter-index/v1`, whole, before anything is
+     * Read and validate one `wprism-adapter-index/v1`, whole, before anything is
      * resolved from it.
      *
      * Whole-document-first, the posture `AdapterCertification::authorityKeys()`
@@ -1084,15 +1085,15 @@ final class AdapterDistribution {
             ],
             [
                 'surface' => 'whether an installed adapter is LOADED',
-                'check' => 'duo adapter pin / duo adapter list --repo=<site-repo>',
+                'check' => 'wprism adapter pin / wprism adapter list --repo=<site-repo>',
                 'why' => 'installation writes ' . AdapterSources::SITE_DIR . '/<name>.json and '
                     . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR
-                    . '/<name>.json and stops there. A site loads what its site.duo.json pins, which is a '
-                    . 'separate operator decision — the same split `duo adapter certify --pin` makes',
+                    . '/<name>.json and stops there. A site loads what its site.wprism.json pins, which is a '
+                    . 'separate operator decision — the same split `wprism adapter certify --pin` makes',
             ],
             [
                 'surface' => 'whether the adapter WORKS on your target',
-                'check' => 'duo capabilities <env> / duo plan <env>',
+                'check' => 'wprism capabilities <env> / wprism plan <env>',
                 'why' => 'a certificate says an organization approves these exact bytes and the engine\'s '
                     . 'validators accept the grammar. Whether the declared plugin is installed, active and '
                     . 'inside its window on one running WordPress is a fact about that environment, and this '
@@ -1102,7 +1103,7 @@ final class AdapterDistribution {
         if ($repo === null) {
             array_unshift($rows, [
                 'surface' => 'installed state',
-                'check' => 'duo adapter discover --index=<f> --repo=<site-repo>',
+                'check' => 'wprism adapter discover --index=<f> --repo=<site-repo>',
                 'why' => 'no --repo was given, so every row\'s `state` is ' . self::STATE_UNKNOWN
                     . ' and `authority_enrolled` is null: which of these packages you already have, and '
                     . 'whether their signers are enrolled, are facts about one repository',
@@ -1131,7 +1132,7 @@ final class AdapterDistribution {
         $report = [
             'format' => self::REPORT_FORMAT,
             'command' => $command,
-            'agent_version' => DUO_AGENT_VERSION,
+            'agent_version' => WPRISM_AGENT_VERSION,
             'index' => $indexPath,
             'repo' => $repo,
             'name' => $name,
@@ -1141,7 +1142,7 @@ final class AdapterDistribution {
             'authority_fingerprint' => $entry['authority_fingerprint'],
             'outcome' => $outcome,
             // The claim's own four-fact certification block, verbatim — it is
-            // what `duo assess` reads to print `Site-certified` with a
+            // what `wprism assess` reads to print `Site-certified` with a
             // principal, and a second spelling here would be a second answer
             // to "who vouched". `claim_status` and `trust_tier` sit beside it
             // rather than inside it because that is where the claim itself
@@ -1260,7 +1261,7 @@ final class AdapterDistribution {
     /** @param list<string> $positional @return string|int */
     private static function onlySiteRepo(array $positional, string $verb) {
         if ($positional === []) {
-            return self::fail("$verb needs the site repository: duo adapter $verb <site-repo> --index=<f> --name=<n>");
+            return self::fail("$verb needs the site repository: wprism adapter $verb <site-repo> --index=<f> --name=<n>");
         }
         if (count($positional) > 1) {
             return self::fail("$verb takes exactly one site repository, got " . count($positional));
@@ -1282,10 +1283,10 @@ final class AdapterDistribution {
         if ($resolved === false) {
             return self::fail("'$candidate' is not a directory");
         }
-        if (!is_file($resolved . '/site.duo.json')) {
+        if (!is_file($resolved . '/site.wprism.json')) {
             return self::fail(
-                "'$resolved' has no site.duo.json — this takes the duo SITE REPO (the directory holding "
-                . 'site.duo.json), whose ' . AdapterSources::SITE_DIR . '/ source a package installs into'
+                "'$resolved' has no site.wprism.json — this takes the wprism SITE REPO (the directory holding "
+                . 'site.wprism.json), whose ' . AdapterSources::SITE_DIR . '/ source a package installs into'
             );
         }
         return rtrim($resolved, '/');
@@ -1321,10 +1322,10 @@ final class AdapterDistribution {
         try {
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+            throw new \RuntimeException("wprism: $label is not valid JSON: " . $e->getMessage());
         }
         if (!is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException("duo: $label must be a JSON object");
+            throw new \RuntimeException("wprism: $label must be a JSON object");
         }
         return $decoded;
     }
@@ -1353,9 +1354,9 @@ final class AdapterDistribution {
     }
 
     private static function scratchDir(): string {
-        $base = sys_get_temp_dir() . '/duo-adapter-install-' . bin2hex(random_bytes(8));
+        $base = sys_get_temp_dir() . '/wprism-adapter-install-' . bin2hex(random_bytes(8));
         if (!mkdir($base, 0700, true) && !is_dir($base)) {
-            throw new \RuntimeException("duo: cannot create a staging directory at $base");
+            throw new \RuntimeException("wprism: cannot create a staging directory at $base");
         }
         return $base;
     }
@@ -1363,10 +1364,10 @@ final class AdapterDistribution {
     private static function writeExact(string $path, string $bytes): void {
         $directory = dirname($path);
         if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) {
-            throw new \RuntimeException("duo: cannot create $directory");
+            throw new \RuntimeException("wprism: cannot create $directory");
         }
         if (file_put_contents($path, $bytes) !== strlen($bytes)) {
-            throw new \RuntimeException("duo: cannot write $path");
+            throw new \RuntimeException("wprism: cannot write $path");
         }
     }
 
@@ -1379,11 +1380,11 @@ final class AdapterDistribution {
      * rename is a copy, and a copy is not atomic.
      */
     private static function atomicWrite(string $path, string $bytes): void {
-        $temporary = $path . '.duo-install-' . bin2hex(random_bytes(6));
+        $temporary = $path . '.wprism-install-' . bin2hex(random_bytes(6));
         self::writeExact($temporary, $bytes);
         if (!chmod($temporary, 0644) || !rename($temporary, $path)) {
             @unlink($temporary);
-            throw new \RuntimeException("duo: cannot publish $path");
+            throw new \RuntimeException("wprism: cannot publish $path");
         }
     }
 
@@ -1408,7 +1409,7 @@ final class AdapterDistribution {
     private static function encode(array $document): string {
         $json = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: adapter distribution could not encode its report');
+            throw new \RuntimeException('wprism: adapter distribution could not encode its report');
         }
         return $json;
     }
@@ -1423,26 +1424,26 @@ final class AdapterDistribution {
      */
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
         if (!is_file($agent)) {
             throw new \RuntimeException("adapter distribution: agent source not found at $agent");
         }
         $source = (string) file_get_contents($agent);
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter distribution: could not resolve DUO_AGENT_VERSION');
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter distribution: could not resolve WPRISM_AGENT_VERSION');
             }
-            define('DUO_AGENT_VERSION', $m[1]);
+            define('WPRISM_AGENT_VERSION', $m[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter distribution: could not resolve DUO_SPEC_VERSION');
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter distribution: could not resolve WPRISM_SPEC_VERSION');
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
-        $classmap = require $repo . '/agent/duo-classmap.php';
+        $classmap = require $repo . '/agent/wprism-classmap.php';
         if (!is_array($classmap)) {
-            throw new \RuntimeException('adapter distribution: agent/duo-classmap.php did not return a map');
+            throw new \RuntimeException('adapter distribution: agent/wprism-classmap.php did not return a map');
         }
         $files = [];
         foreach ($classmap as $path) {
@@ -1452,7 +1453,7 @@ final class AdapterDistribution {
             $file = $files[$class] ?? null;
             if (!is_string($file)) {
                 throw new \RuntimeException(
-                    'adapter distribution: agent source ' . $class . '.php is absent from agent/duo-classmap.php'
+                    'adapter distribution: agent source ' . $class . '.php is absent from agent/wprism-classmap.php'
                 );
             }
             require_once $repo . '/agent/' . $file;
@@ -1461,7 +1462,7 @@ final class AdapterDistribution {
 
     /** Fail closed, with this command family's exit-2 usage/IO contract. */
     private static function fail(string $message): int {
-        fwrite(STDERR, "duo: adapter: $message\n");
+        fwrite(STDERR, "wprism: adapter: $message\n");
         return 2;
     }
 }

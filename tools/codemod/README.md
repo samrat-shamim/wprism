@@ -6,12 +6,12 @@ working afterwards (re-running is a no-op), and is covered by a self-test in
 
 ## move-modules.php — the ROUND 3 TRAIN 1 module move
 
-Moves the flat `agent/src` (224 files) and `cli/src` (48 files) trees into the
+Originally moved the flat `agent/src` (224 files) and `cli/src` (48 files) trees into the
 module directories named by `tools/modules.json`, **keeping the flat
-`namespace Duo;` / `namespace Duo\Orchestrator;` declarations**. Directory and
-namespace are already decoupled — `agent/duo-classmap.php` and
-`cli/duo-classmap.php` map FQCN to path — so `agent/src/Kernel/Canon.php` may
-go on declaring `namespace Duo;`. Nothing about the dependency-free contract
+`namespace WPrism;` / `namespace WPrism\Orchestrator;` declarations**. Directory and
+namespace are already decoupled — `agent/wprism-classmap.php` and
+`cli/wprism-classmap.php` map FQCN to path — so `agent/src/Kernel/Canon.php` may
+go on declaring `namespace WPrism;`. Nothing about the dependency-free contract
 changes: every hand-written `require_once` survives, re-pointed at the file's
 new location.
 
@@ -53,13 +53,13 @@ a key is treated as a tree only when it carries both a string `root` and a
    `path:` lines. A negative lookbehind keeps `myagent/src/Canon.php` out.
    Directory-level mentions (`agent/src` not followed by `/<Basename>.php`) are
    left alone, so `phpstan.neon.dist`'s `paths:` entries do not grow a segment.
-4. **The two loaders**: `agent/duo.php`'s 92 `__DIR__ . '/src/X.php'` lines and
-   `cli/duo`'s equivalents. Every other byte — including the
-   `define('DUO_AGENT_VERSION', …)` / `define('DUO_SPEC_VERSION', …)` lines the
+4. **The two loaders**: `agent/wprism.php`'s 92 `__DIR__ . '/src/X.php'` lines and
+   `cli/wprism`'s equivalents. Every other byte — including the
+   `define('WPRISM_AGENT_VERSION', …)` / `define('WPRISM_SPEC_VERSION', …)` lines the
    registry and every certification bundle bind — is preserved.
 5. **Templated per-class requires** (`require_once "$root/agent/src/$file.php";`
    inside a `foreach`), which no path rewrite can reach because the filename is
-   a runtime value. They are re-pointed through `agent/duo-classmap.php`. The
+   a runtime value. They are re-pointed through `agent/wprism-classmap.php`. The
    four sites in `cli/src` (`AdapterCatalog`, `AdapterDraft`, `ManifestValidate`,
    `RefreshPlan`) are named explicitly and their absence is a hard failure.
 6. **Tree-root variables** (`$realSrc = "$repoRoot/agent/src";` then
@@ -80,7 +80,7 @@ a key is treated as a tree only when it carries both a string `root` and a
    `regress_agent_src_requires.php` asserts SORT_STRING order), and every
    non-recursive `glob()`/`scandir()` over a source tree that would otherwise
    return zero files and pass vacuously. `tools/layers.json` itself was
-   retired in DUO-3493 — `regress_agent_src_requires.php` now derives its
+   retired in issue #3493 — `regress_agent_src_requires.php` now derives its
    {path => layer} map from `tools/modules.json` directly — so `mm_rewrite_layers_json()`
    has nothing to rewrite in the real repo today; it stays for a hypothetical
    future reorganisation that recreates the file, and is exercised only

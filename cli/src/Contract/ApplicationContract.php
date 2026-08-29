@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/ProjectionVocabulary.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * Parse, validate and digest the `duo-application-contract/v2` document
+ * Parse, validate and digest the `wprism-application-contract/v2` document
  * (round-3 MUP §3.2).
  *
  * v2 narrows `evidence_pins` to the two facts that still exist: the content
@@ -24,8 +24,8 @@ use Duo\CommandRefusalException;
  * is preferable to accepting a document whose pins cannot be re-checked.
  *
  * The contract is the one place a human's reviewed declarations about a site
- * live. Everything downstream cites it: `duo release` puts `contract_digest`
- * in the frozen authorization plan, `duo verify` reads `journeys[]`, `duo
+ * live. Everything downstream cites it: `wprism release` puts `contract_digest`
+ * in the frozen authorization plan, `wprism verify` reads `journeys[]`, `wprism
  * recover` reads `external_effects[]` for its does-not-restore list. That is
  * why validation here is a **closed key set per object** rather than a
  * required-keys check: an unrecognised key in a document that authorizes
@@ -43,8 +43,8 @@ use Duo\CommandRefusalException;
  *     signature. `signed` now has exactly one door,
  *     `ContractStore::writeAttestedContract()`, and it opens only for bytes
  *     `ContractAttestation::verify()` accepts under a key the OPERATOR
- *     provisioned in `.duo/contract/authorities.json`. That file ships with no
- *     key and nothing but `duo contract <env> attest` creates it, so on every
+ *     provisioned in `.wprism/contract/authorities.json`. That file ships with no
+ *     key and nothing but `wprism contract <env> attest` creates it, so on every
  *     site that has not provisioned one the mint refuses
  *     (`contract_attestation_unsigned_anchor`) and this document's `signed`
  *     branch is reachable only by reading someone else's repository.
@@ -64,16 +64,16 @@ use Duo\CommandRefusalException;
  * inputs, identical bytes" testable at all.
  */
 final class ApplicationContract {
-    public const FORMAT = 'duo-application-contract/v2';
+    public const FORMAT = 'wprism-application-contract/v2';
 
     /**
      * The generation this build supersedes. Named so the refusal can say WHY a
      * document that parsed yesterday does not parse now, rather than making an
      * operator diff two schemas to find out.
      */
-    public const PRIOR_FORMAT = 'duo-application-contract/v1';
+    public const PRIOR_FORMAT = 'wprism-application-contract/v1';
 
-    public const ATTESTATION_FORMAT = 'duo-contract-attestation/v1';
+    public const ATTESTATION_FORMAT = 'wprism-contract-attestation/v1';
 
     /**
      * MUP §3.2: closed enum. `accept` writes `unsigned`; only the attest verb,
@@ -108,7 +108,7 @@ final class ApplicationContract {
 
     /**
      * MUP §2.1/§2.7's optional id -> operator-facing label map. It is what
-     * lets `duo status` print "products / Ceramic Mug / price" and what lets
+     * lets `wprism status` print "products / Ceramic Mug / price" and what lets
      * the surface catalog stay free of any plugin name: the label is data in
      * a reviewed document, never a branch in engine code.
      */
@@ -129,7 +129,7 @@ final class ApplicationContract {
                 throw new CommandRefusalException(
                     'contract_format_invalid',
                     'the application contract is not valid JSON',
-                    'restore .duo/contract/contract.json from git, or regenerate it with duo contract propose',
+                    'restore .wprism/contract/contract.json from git, or regenerate it with wprism contract propose',
                     [],
                     'contract JSON decode failed: ' . $e->getMessage(),
                     $e
@@ -203,7 +203,7 @@ final class ApplicationContract {
             throw new CommandRefusalException(
                 'contract_digest_mismatch',
                 'the application contract digest does not match its own content',
-                'run duo contract propose and accept the reviewed proposal instead of editing contract.json by hand',
+                'run wprism contract propose and accept the reviewed proposal instead of editing contract.json by hand',
                 [['stated' => $stated, 'computed' => $computed]]
             );
         }
@@ -497,7 +497,7 @@ final class ApplicationContract {
      * `contract_digest` does not move. In the signed branch all three are
      * required, because verification cannot be done without them —
      * `ContractAttestation::verify()` resolves the key from
-     * `.duo/contract/authorities.json` by `key_id`, refuses a root other than
+     * `.wprism/contract/authorities.json` by `key_id`, refuses a root other than
      * `site` by name, and re-binds `platform_sha256` against the live agent so
      * that a moved agent boundary reads as "re-attest", not as "someone
      * tampered with your contract".
@@ -520,7 +520,7 @@ final class ApplicationContract {
                 'attestation_state_invalid',
                 "$path.state must be one of " . implode(' | ', self::ATTESTATION_STATES),
                 'accept a freshly proposed contract; accept writes attestation.state "unsigned" and '
-                    . 'duo contract <env> attest is the only verb that writes "signed"'
+                    . 'wprism contract <env> attest is the only verb that writes "signed"'
             );
         }
         self::nonEmptyString($attestation['reason'], "$path.reason");
@@ -584,7 +584,7 @@ final class ApplicationContract {
                 throw new CommandRefusalException(
                     'contract_shape_invalid',
                     "$path carries the unrecognised key '" . (string) $key . "'",
-                    'remove the key, or upgrade duo to a build that declares it; an unrecognised '
+                    'remove the key, or upgrade wprism to a build that declares it; an unrecognised '
                         . 'declaration is silently inert and must never be treated as reviewed',
                     [['path' => $path, 'key' => (string) $key]]
                 );
@@ -669,7 +669,7 @@ final class ApplicationContract {
         return new CommandRefusalException(
             'contract_format_invalid',
             $message,
-            'regenerate the contract with duo contract propose, then review and accept it'
+            'regenerate the contract with wprism contract propose, then review and accept it'
         );
     }
 
@@ -677,7 +677,7 @@ final class ApplicationContract {
         return new CommandRefusalException(
             'contract_shape_invalid',
             $message,
-            'correct the named key in .duo/contract/contract.json, or regenerate the proposal'
+            'correct the named key in .wprism/contract/contract.json, or regenerate the proposal'
         );
     }
 }

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 require_once __DIR__ . '/AdapterIntegrationScenarios.php';
 
@@ -47,17 +47,20 @@ final class AdapterChangeScope
      * @var list<string>
      */
     private const PACKAGE_INFRASTRUCTURE_PREFIXES = [
-        'adapter-package-kit/',
-        'adapter-package-runner/',
-        'adapter-package-schema/',
-        'schemas/adapter-package',
+        // The package CLIs and their shared implementation are the only
+        // current package-test/validation topology; the retired synthetic
+        // adapter-package-{kit,runner,schema} roots do not exist in this tree.
+        'tools/adapter-package-',
+        'tools/src/AdapterPackage',
+        // adapter-kit.php and its generated inventory are one authority, and
+        // sandbox/conformance/ is the shared harness every package invokes.
+        'tools/adapter-kit.',
+        'sandbox/conformance/',
         'sandbox/bin/fetch-artifact.sh',
-        'sandbox/conformance/run.sh',
         'sandbox/tests/lib/',
         'tests/Tooling/AdapterChangeScopeTest.php',
         'tests/Tooling/AdapterChangeScopeCliTest.php',
         'tools/adapter-change-scope.php',
-        'tools/adapter-kit.php',
         'tools/src/AdapterChangeScope.php',
         'tools/src/AdapterChangeScopeCommand.php',
         'tools/src/AdapterChangeScopeDecision.php',

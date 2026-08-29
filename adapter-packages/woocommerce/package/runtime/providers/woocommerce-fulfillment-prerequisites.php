@@ -1,5 +1,5 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
 use Automattic\WooCommerce\Internal\Features\FeaturesController;
 use Automattic\WooCommerce\Internal\Utilities\DatabaseUtil;
@@ -49,7 +49,7 @@ final class WoocommerceFulfillmentPrerequisites {
         ],
     ];
 
-    public function __construct(\Duo\Policy $policy) {
+    public function __construct(\WPrism\Policy $policy) {
     }
 
     /** @return array{id:string,plugin:string,version:string} */
@@ -76,7 +76,7 @@ final class WoocommerceFulfillmentPrerequisites {
             'idempotent' => true,
             'timeout_seconds' => 30,
             'scoped' => [
-                'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                'operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
                 'reconcile' => true,
             ],
         ];
@@ -85,7 +85,7 @@ final class WoocommerceFulfillmentPrerequisites {
         // real target, capability absence is the existing pre-mutation
         // negotiation refusal; no action method is called and no repository
         // term can be materialized into an unregistered taxonomy.
-        if (\Duo\Providers::runtime_negotiation_available()) {
+        if (\WPrism\Providers::runtime_negotiation_available()) {
             try {
                 self::snapshot();
             } catch (\Throwable $failure) {
@@ -102,7 +102,7 @@ final class WoocommerceFulfillmentPrerequisites {
         $after = self::snapshot();
         if ($before !== $after) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisites changed during read-only verification; recovery_required'
+                'wprism: WooCommerce fulfillment prerequisites changed during read-only verification; recovery_required'
             );
         }
         return ['before' => $before, 'after' => $after, 'verified' => true];
@@ -133,12 +133,12 @@ final class WoocommerceFulfillmentPrerequisites {
     private static function assert_call(string $capability, array $args): void {
         if ($capability !== self::CAPABILITY) {
             throw new \RuntimeException(
-                "duo: WooCommerce fulfillment prerequisite provider does not implement capability '$capability'"
+                "wprism: WooCommerce fulfillment prerequisite provider does not implement capability '$capability'"
             );
         }
         if ($args !== []) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite verification accepts no arguments'
+                'wprism: WooCommerce fulfillment prerequisite verification accepts no arguments'
             );
         }
     }
@@ -153,7 +153,7 @@ final class WoocommerceFulfillmentPrerequisites {
             || $wpdb->options !== $wpdb->prefix . 'options'
             || preg_match(self::TABLE_IDENTIFIER_PATTERN, $wpdb->options) !== 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite verification requires the exact site database identity'
+                'wprism: WooCommerce fulfillment prerequisite verification requires the exact site database identity'
             );
         }
 
@@ -161,14 +161,14 @@ final class WoocommerceFulfillmentPrerequisites {
         $featureEffective = get_option(self::FEATURE_OPTION, null);
         if ($featureRaw !== 'yes' || $featureEffective !== 'yes') {
             throw new \RuntimeException(
-                'duo: WooCommerce custom fulfillment providers require the target fulfillments feature to be enabled'
+                'wprism: WooCommerce custom fulfillment providers require the target fulfillments feature to be enabled'
             );
         }
 
         $container = wc_get_container();
         if (!is_object($container) || !is_callable([$container, 'get'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite verification requires the native service container'
+                'wprism: WooCommerce fulfillment prerequisite verification requires the native service container'
             );
         }
         $features = $container->get(FeaturesController::class);
@@ -176,7 +176,7 @@ final class WoocommerceFulfillmentPrerequisites {
             || !is_callable([$features, 'feature_is_enabled'])
             || $features->feature_is_enabled('fulfillments') !== true) {
             throw new \RuntimeException(
-                'duo: WooCommerce native feature state disagrees with the fulfillment option'
+                'wprism: WooCommerce native feature state disagrees with the fulfillment option'
             );
         }
 
@@ -185,20 +185,20 @@ final class WoocommerceFulfillmentPrerequisites {
         $markerEffective = get_option(self::MARKER_OPTION, null);
         if ($markerRaw !== '1' || $markerEffective !== '1') {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment database lifecycle marker is absent or stale'
+                'wprism: WooCommerce fulfillment database lifecycle marker is absent or stale'
             );
         }
 
         $databaseUtil = $container->get(DatabaseUtil::class);
         if (!is_object($databaseUtil) || !is_callable([$databaseUtil, 'get_max_index_length'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite verification requires the native database utility'
+                'wprism: WooCommerce fulfillment prerequisite verification requires the native database utility'
             );
         }
         $maxIndexLength = $databaseUtil->get_max_index_length();
         if (!is_int($maxIndexLength) || $maxIndexLength < 1 || $maxIndexLength > 767) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment database index length is outside the native bound'
+                'wprism: WooCommerce fulfillment database index length is outside the native bound'
             );
         }
 
@@ -224,7 +224,7 @@ final class WoocommerceFulfillmentPrerequisites {
         // Plain equality intentionally discovers case/collation aliases; the
         // byte-exact returned name below then refuses them rather than letting
         // WordPress's default CI collation select a sibling option.
-        $witnesses = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $witnesses = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
             . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
@@ -233,14 +233,14 @@ final class WoocommerceFulfillmentPrerequisites {
         if (count($witnesses) !== 1
             || ($witnesses[0]['option_name'] ?? null) !== $name) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite option is absent, aliased, or duplicated'
+                'wprism: WooCommerce fulfillment prerequisite option is absent, aliased, or duplicated'
             );
         }
         $optionId = self::db_uint($witnesses[0]['option_id'] ?? null, 'option_id');
         $optionBytes = self::db_uint($witnesses[0]['option_bytes'] ?? null, 'option_bytes');
         if ($optionId < 1 || $optionBytes > self::MAX_OPTION_BYTES) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite option is outside the bounded byte contract'
+                'wprism: WooCommerce fulfillment prerequisite option is outside the bounded byte contract'
             );
         }
 
@@ -250,7 +250,7 @@ final class WoocommerceFulfillmentPrerequisites {
         $value = self::option_payload($name, $optionId, $optionBytes);
         if ($value === null) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite option changed during bounded readback'
+                'wprism: WooCommerce fulfillment prerequisite option changed during bounded readback'
             );
         }
         $valueHash = hash('sha256', $value);
@@ -258,7 +258,7 @@ final class WoocommerceFulfillmentPrerequisites {
         $confirmed = self::option_payload($name, $optionId, $optionBytes);
         if ($confirmed === null || !hash_equals($valueHash, hash('sha256', $confirmed))) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite option changed during bounded readback'
+                'wprism: WooCommerce fulfillment prerequisite option changed during bounded readback'
             );
         }
         return $confirmed;
@@ -266,7 +266,7 @@ final class WoocommerceFulfillmentPrerequisites {
 
     private static function option_payload(string $name, int $optionId, int $optionBytes): ?string {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
             . 'WHERE option_id = %d AND BINARY option_name = BINARY %s '
@@ -290,13 +290,13 @@ final class WoocommerceFulfillmentPrerequisites {
     private static function taxonomy_state(): array {
         if (!taxonomy_exists(self::TAXONOMY)) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment shipping-provider taxonomy is not registered by the native lifecycle'
+                'wprism: WooCommerce fulfillment shipping-provider taxonomy is not registered by the native lifecycle'
             );
         }
         $taxonomy = get_taxonomy(self::TAXONOMY);
         if (!is_object($taxonomy)) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment shipping-provider taxonomy is unreadable'
+                'wprism: WooCommerce fulfillment shipping-provider taxonomy is unreadable'
             );
         }
         $capabilities = is_object($taxonomy->cap ?? null)
@@ -370,7 +370,7 @@ final class WoocommerceFulfillmentPrerequisites {
         ];
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment shipping-provider taxonomy registration disagrees with core 11.0.x'
+                'wprism: WooCommerce fulfillment shipping-provider taxonomy registration disagrees with core 11.0.x'
             );
         }
         return $actual;
@@ -382,10 +382,10 @@ final class WoocommerceFulfillmentPrerequisites {
         $table = $wpdb->prefix . $suffix;
         if (preg_match(self::TABLE_IDENTIFIER_PATTERN, $table) !== 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table identity is outside the bounded database identifier grammar'
+                'wprism: WooCommerce fulfillment table identity is outside the bounded database identifier grammar'
             );
         }
-        $foundRows = \Duo\ProviderSdk::checked_get_results(
+        $foundRows = \WPrism\ProviderSdk::checked_get_results(
             $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)),
             'WooCommerce fulfillment table existence'
         );
@@ -393,27 +393,27 @@ final class WoocommerceFulfillmentPrerequisites {
             || count($foundRows[0]) !== 1
             || array_values($foundRows[0])[0] !== $table) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment database table is absent or outside the exact site prefix'
+                'wprism: WooCommerce fulfillment database table is absent or outside the exact site prefix'
             );
         }
 
-        $columnCount = self::db_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+        $columnCount = self::db_uint(\WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
             'SELECT COUNT(*) FROM information_schema.COLUMNS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
             $table
         ), 'WooCommerce fulfillment table schema cardinality witness'), 'column count');
         if ($columnCount > self::MAX_TABLE_COLUMNS) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table returned an oversized column inventory'
+                'wprism: WooCommerce fulfillment table returned an oversized column inventory'
             );
         }
-        $rows = \Duo\ProviderSdk::checked_get_results(
+        $rows = \WPrism\ProviderSdk::checked_get_results(
             "SHOW FULL COLUMNS FROM `$table`",
             'WooCommerce fulfillment table schema'
         );
         if (count($rows) !== $columnCount) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table schema changed after its cardinality witness'
+                'wprism: WooCommerce fulfillment table schema changed after its cardinality witness'
             );
         }
         $actual = [];
@@ -426,7 +426,7 @@ final class WoocommerceFulfillmentPrerequisites {
                 || !array_key_exists('Default', $row)
                 || !is_string($row['Extra'] ?? null)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce fulfillment table returned an unreadable or duplicate column'
+                    'wprism: WooCommerce fulfillment table returned an unreadable or duplicate column'
                 );
             }
             $actual[$field] = [
@@ -439,27 +439,27 @@ final class WoocommerceFulfillmentPrerequisites {
         $expected = self::COLUMNS[$suffix] ?? null;
         if (!is_array($expected) || $actual !== $expected) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table has unknown, missing, or incompatible columns'
+                'wprism: WooCommerce fulfillment table has unknown, missing, or incompatible columns'
             );
         }
 
-        $indexCount = self::db_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+        $indexCount = self::db_uint(\WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
             'SELECT COUNT(*) FROM information_schema.STATISTICS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
             $table
         ), 'WooCommerce fulfillment table index cardinality witness'), 'index row count');
         if ($indexCount > self::MAX_TABLE_INDEX_ROWS) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table returned an oversized index inventory'
+                'wprism: WooCommerce fulfillment table returned an oversized index inventory'
             );
         }
-        $indexRows = \Duo\ProviderSdk::checked_get_results(
+        $indexRows = \WPrism\ProviderSdk::checked_get_results(
             "SHOW INDEX FROM `$table`",
             'WooCommerce fulfillment table indexes'
         );
         if (count($indexRows) !== $indexCount) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table indexes changed after their cardinality witness'
+                'wprism: WooCommerce fulfillment table indexes changed after their cardinality witness'
             );
         }
         $indexes = [];
@@ -473,12 +473,12 @@ final class WoocommerceFulfillmentPrerequisites {
                 || !is_string($row['Index_type'] ?? null)
                 || (array_key_exists('Visible', $row) && !is_string($row['Visible']))
                 || (array_key_exists('Ignored', $row) && !is_string($row['Ignored']))) {
-                throw new \RuntimeException('duo: WooCommerce fulfillment table returned an unreadable index');
+                throw new \RuntimeException('wprism: WooCommerce fulfillment table returned an unreadable index');
             }
             if ((array_key_exists('Visible', $row) && strtoupper((string) $row['Visible']) !== 'YES')
                 || (array_key_exists('Ignored', $row) && strtoupper((string) $row['Ignored']) !== 'NO')) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce fulfillment table requires visible, non-ignored native indexes'
+                    'wprism: WooCommerce fulfillment table requires visible, non-ignored native indexes'
                 );
             }
             $nonUnique = self::db_uint($row['Non_unique'], 'Non_unique');
@@ -492,7 +492,7 @@ final class WoocommerceFulfillmentPrerequisites {
                 || ($subPart !== null && ($subPart < 1 || $subPart > 767))
                 || $indexType !== 'BTREE') {
                 throw new \RuntimeException(
-                    'duo: WooCommerce fulfillment table returned an incompatible index definition'
+                    'wprism: WooCommerce fulfillment table returned an incompatible index definition'
                 );
             }
             $indexes[] = [
@@ -512,7 +512,7 @@ final class WoocommerceFulfillmentPrerequisites {
         $expectedIndexes = self::expected_indexes($suffix, $maxIndexLength);
         if ($indexes !== $expectedIndexes) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table has unknown, missing, or incompatible indexes'
+                'wprism: WooCommerce fulfillment table has unknown, missing, or incompatible indexes'
             );
         }
         return ['columns' => $actual, 'indexes' => $indexes];
@@ -534,17 +534,17 @@ final class WoocommerceFulfillmentPrerequisites {
             $number = (int) $value;
             if ((string) $number !== $value) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce fulfillment table returned an out-of-range $field index integer"
+                    "wprism: WooCommerce fulfillment table returned an out-of-range $field index integer"
                 );
             }
         } else {
             throw new \RuntimeException(
-                "duo: WooCommerce fulfillment table returned a noncanonical $field index integer"
+                "wprism: WooCommerce fulfillment table returned a noncanonical $field index integer"
             );
         }
         if ($number < 0) {
             throw new \RuntimeException(
-                "duo: WooCommerce fulfillment table returned an out-of-range $field index integer"
+                "wprism: WooCommerce fulfillment table returned an out-of-range $field index integer"
             );
         }
         return $number;

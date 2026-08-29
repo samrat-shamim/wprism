@@ -1,10 +1,10 @@
 {
-    "format": "duo-parity-plan-summary/v1",
+    "format": "wprism-parity-plan-summary/v1",
     "consumed_by": "sandbox/tests/offline/guards/regress_canonical_json_parity.php",
-    "note": "the shape of `wp duo plan --format=json` (agent/src/Apply/Apply.php build_plan()), reduced to the buckets the five cli/src/Plan/PlanSummary.php lockstep comments name. `plan` carries ONLY the non-empty buckets; the suite fills every remaining PlanContract::requiredBuckets() entry with [] so the fixture does not have to track that list.",
+    "note": "the shape of `wp wprism plan --format=json` (agent/src/Apply/Apply.php build_plan()), reduced to the buckets the five cli/src/Plan/PlanSummary.php lockstep comments name. `plan` carries ONLY the non-empty buckets; the suite fills every remaining PlanContract::requiredBuckets() entry with [] so the fixture does not have to track that list.",
     "fields": {
         "plan": "the non-empty buckets of the plan envelope",
-        "expected_lines": "golden \\Duo\\Orchestrator\\PlanSummary::render($plan)['lines']",
+        "expected_lines": "golden \\WPrism\\Orchestrator\\PlanSummary::render($plan)['lines']",
         "expected_ok": "golden render()['ok']",
         "label_vectors": "rows fed to the three plan-row label renderers (F4)"
     },
@@ -99,14 +99,14 @@
         "  - state/posts/page/cart.md (env id 91)",
         "CODE_MISMATCH (this environment's installed code does not match what the target state declares active):",
         "  - PLUGIN_VERSION_MISMATCH woocommerce/woocommerce.php: installed 9.1.0, declared 9.0.0",
-        "code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)",
-        "CODE_DRIFT (managed code changed outside Duo since its last trusted observation):",
+        "code_mismatch findings — wprism apply will refuse until resolved (or run with --force-code-mismatch)",
+        "CODE_DRIFT (managed code changed outside WPrism since its last trusted observation):",
         "  - CODE_DRIFT acf/acf.php: installed code differs from the recorded baseline",
-        "code_drift findings — duo apply will refuse until resolved (or run with --force-code-drift)",
+        "code_drift findings — wprism apply will refuse until resolved (or run with --force-code-drift)",
         "WARNING: plan observed a stale identity mapping",
         "ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):",
         "  - outfitters_gateway_key (required)",
-        "required env value(s) missing — pipe the value to `wp duo env-set --name=<name> --stdin` before promoting",
+        "required env value(s) missing — pipe the value to `wp wprism env-set --name=<name> --stdin` before promoting",
         "ADAPTER_DISPOSITIONS (a pinned manifest or target is not certified for promotion):",
         "  - outfitters [unsupported] [source=out_of_tree tier=community certification=registry] [not_certified]: no certification evidence for this revision",
         "    remediation: certify the adapter or unpin it",
@@ -114,7 +114,7 @@
         "PROVIDER_PROBLEM (a pinned manifest declares a provider capability this environment cannot supply):",
         "  - woocommerce_regen [manifest=woocommerce plugin=woocommerce/woocommerce.php] [provider_version_unsupported]: expected >=9.0.0, found 8.4.0",
         "    remediation: upgrade WooCommerce on this environment",
-        "duo apply refuses before target mutation on any of these its own selected work reaches"
+        "wprism apply refuses before target mutation on any of these its own selected work reaches"
     ],
     "expected_ok": false,
     "label_vectors": [

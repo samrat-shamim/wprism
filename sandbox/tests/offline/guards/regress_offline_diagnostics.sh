@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DUO-3469: the offline corpus must not report green while PHP emits a
+# issue #3469: the offline corpus must not report green while PHP emits a
 # warning/deprecation/fatal/parse diagnostic. The guard deliberately allows
 # an ordinary shell retry warning, which is not a PHP diagnostic.
 set -euo pipefail

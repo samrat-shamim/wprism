@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * The `declaration_evidence` section: typed, addressed evidence for why a
@@ -11,7 +11,7 @@ namespace Duo;
  * ---------------------------------------------
  * The repository already gates the declaration-to-rationale link, by the
  * crudest mechanism available: `regress_shipped_option_declarations.php:237`
- * asserts `str_contains($text, 'DUO-3509')` over a manifest's free `notes`
+ * asserts `str_contains($text, 'issue #3509')` over a manifest's free `notes`
  * prose, and then greps each option name out of the same blob. A grep for an
  * issue id inside prose is load-bearing regression coverage today. It has to
  * be, because there is nothing else: measured across the shipped library,
@@ -19,7 +19,7 @@ namespace Duo;
  * library, validated by nothing, and polymorphic (a list in 14 manifests, an
  * object in 2), so no reader can even iterate it the same way twice.
  *
- * `duo adapter-draft` already produces the missing structure and then throws it
+ * `wprism adapter-draft` already produces the missing structure and then throws it
  * away. Every candidate it proposes carries `evidence[]` rows of
  * `{source, locator, observation}` and the `questions[]` a live target must
  * answer (`cli/src/Adapter/AdapterDraft.php:1529-1530`), nested inert under
@@ -37,7 +37,7 @@ namespace Duo;
  *
  * WHY THIS FILE EXISTS AT ALL — THE NO-BUMP DEMONSTRATION
  * ------------------------------------------------------
- * `DUO_SPEC_VERSION` is 3 and STAYS 3. This is the first grammar section to
+ * `WPRISM_SPEC_VERSION` is 3 and STAYS 3. This is the first grammar section to
  * ship after v3, and it ships through § v3.2's declaration channel: the engine
  * implements the feature `structured-evidence/v1`, that feature claims this
  * key, and the three verdicts § v3.3's growth rule promises are what an author
@@ -121,7 +121,7 @@ final class StructuredEvidence {
     private const RECORD_OPTIONAL = ['answered'];
 
     /**
-     * This section's value grammar, published for `duo manifest-validate
+     * This section's value grammar, published for `wprism manifest-validate
      * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
      *
      * The three key sets are the private constants above, published rather than
@@ -148,7 +148,7 @@ final class StructuredEvidence {
             'rows' => 'each list is non-empty, each row carries exactly its key set, and every value is a '
                 . 'non-empty string — an empty evidence[] asserts a declaration is founded and then declines '
                 . 'to say on what',
-            'validated_by' => 'Duo\\StructuredEvidence::assert_section()',
+            'validated_by' => 'WPrism\\StructuredEvidence::assert_section()',
         ];
     }
 
@@ -172,7 +172,7 @@ final class StructuredEvidence {
         $section = $manifest[self::SECTION];
         if (!is_array($section) || $section === [] || array_is_list($section)) {
             throw new \RuntimeException(
-                'duo: ' . self::prefix($name) . ' is ' . self::render($section)
+                'wprism: ' . self::prefix($name) . ' is ' . self::render($section)
                 . ' — the section is a non-empty OBJECT keyed by the declaration each record is evidence for '
                 . '(spec/repo-format.md § v3.14)'
             );
@@ -212,7 +212,7 @@ final class StructuredEvidence {
     private static function assert_target(string $name, array $manifest, string $target): void {
         if ($target === '' || trim($target) !== $target) {
             throw new \RuntimeException(
-                'duo: ' . self::prefix($name) . ' declares the target ' . self::render($target)
+                'wprism: ' . self::prefix($name) . ' declares the target ' . self::render($target)
                 . ' — a target is a non-empty string with no leading or trailing whitespace, addressing the '
                 . 'declaration the record is evidence for (spec/repo-format.md § v3.14)'
             );
@@ -221,7 +221,7 @@ final class StructuredEvidence {
         $head = explode('[', $head, 2)[0];
         if ($head === self::SECTION) {
             throw new \RuntimeException(
-                'duo: ' . self::prefix($name) . ' declares the target ' . self::render($target)
+                'wprism: ' . self::prefix($name) . ' declares the target ' . self::render($target)
                 . ' — a record may not be evidence for this section itself; evidence addresses a DECLARATION, '
                 . 'and a circular record would be the unfalsifiable prose this section replaces '
                 . '(spec/repo-format.md § v3.14)'
@@ -231,7 +231,7 @@ final class StructuredEvidence {
             $declared = array_map('strval', array_keys($manifest));
             sort($declared, SORT_STRING);
             throw new \RuntimeException(
-                'duo: ' . self::prefix($name) . ' declares the target ' . self::render($target)
+                'wprism: ' . self::prefix($name) . ' declares the target ' . self::render($target)
                 . " but this manifest declares no top-level '$head' — a record addresses a declaration this "
                 . 'manifest makes, which is what distinguishes it from a note that merely mentions one '
                 . '(spec/repo-format.md § v3.14). This manifest declares: ' . implode(', ', $declared)
@@ -252,7 +252,7 @@ final class StructuredEvidence {
         $at = self::prefix($name) . "['" . $target . "']";
         if (!is_array($record) || $record === [] || array_is_list($record)) {
             throw new \RuntimeException(
-                "duo: $at is " . self::render($record) . ' — a record is a non-empty object '
+                "wprism: $at is " . self::render($record) . ' — a record is a non-empty object '
                 . '{"evidence": [...]}, optionally with {"answered": [...]} (spec/repo-format.md § v3.14)'
             );
         }
@@ -277,7 +277,7 @@ final class StructuredEvidence {
     private static function assert_rows(string $at, mixed $rows, array $keys): void {
         if (!is_array($rows) || $rows === [] || !array_is_list($rows)) {
             throw new \RuntimeException(
-                "duo: $at is " . self::render($rows) . ' — a non-empty LIST of {'
+                "wprism: $at is " . self::render($rows) . ' — a non-empty LIST of {'
                 . implode(', ', $keys) . '} objects is required (spec/repo-format.md § v3.14)'
             );
         }
@@ -285,7 +285,7 @@ final class StructuredEvidence {
             $rowAt = "$at" . '[' . $i . ']';
             if (!is_array($row) || $row === [] || array_is_list($row)) {
                 throw new \RuntimeException(
-                    "duo: $rowAt is " . self::render($row) . ' — a row is an object with exactly {'
+                    "wprism: $rowAt is " . self::render($row) . ' — a row is an object with exactly {'
                     . implode(', ', $keys) . '} (spec/repo-format.md § v3.14)'
                 );
             }
@@ -294,7 +294,7 @@ final class StructuredEvidence {
                 $value = $row[$key];
                 if (!is_string($value) || trim($value) === '') {
                     throw new \RuntimeException(
-                        "duo: $rowAt" . ".$key is " . self::render($value)
+                        "wprism: $rowAt" . ".$key is " . self::render($value)
                         . ' — every member of a row is a non-empty string (spec/repo-format.md § v3.14)'
                     );
                 }
@@ -329,14 +329,14 @@ final class StructuredEvidence {
         sort($missing, SORT_STRING);
         if ($unknown !== []) {
             throw new \RuntimeException(
-                "duo: $at declares " . self::quoted($unknown) . ', which this section does not define — its members '
+                "wprism: $at declares " . self::quoted($unknown) . ', which this section does not define — its members '
                 . 'are exactly ' . self::quoted($legal) . ', closed in both directions so that a member no '
                 . 'checker reads cannot masquerade as reviewed rationale (spec/repo-format.md § v3.14)'
             );
         }
         if ($missing !== []) {
             throw new \RuntimeException(
-                "duo: $at is missing " . self::quoted($missing) . ' — its members are exactly ' . self::quoted($legal)
+                "wprism: $at is missing " . self::quoted($missing) . ' — its members are exactly ' . self::quoted($legal)
                 . ' (spec/repo-format.md § v3.14)'
             );
         }
@@ -344,7 +344,7 @@ final class StructuredEvidence {
 
     /**
      * `manifest '<name>' section 'declaration_evidence'`, written once. The
-     * `duo: ` prefix is added at each throw rather than here, so that every
+     * `wprism: ` prefix is added at each throw rather than here, so that every
      * nested path (`…['options.wpcf7'].evidence[0].source`) carries it exactly
      * once no matter how deep the refusal is raised.
      */

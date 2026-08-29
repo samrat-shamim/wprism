@@ -22,7 +22,7 @@ function fixture_canonical(array $value): string {
 $request = json_decode((string) stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
 $statePath = $argv[1] ?? '';
 $action = (string) ($request['action'] ?? '');
-if (($request['format'] ?? '') !== 'duo-exclusion-provider-request/v2') {
+if (($request['format'] ?? '') !== 'wprism-exclusion-provider-request/v2') {
     fwrite(STDERR, "fixture requires exclusion provider request v2\n");
     exit(42);
 }
@@ -64,7 +64,7 @@ if ($action === 'probe') {
 echo fixture_canonical([
     'available' => true,
     'disconnect_behavior' => 'remain_excluded',
-    'format' => 'duo-exclusion-provider-response/v2',
+    'format' => 'wprism-exclusion-provider-response/v2',
     'provider_id' => 'ssh-fixture-provider',
     'provider_version' => '1.0.0',
     'scopes' => [

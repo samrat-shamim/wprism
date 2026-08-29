@@ -71,7 +71,7 @@ required = (
     "run_elementor_command reset_env wp1",
     "run_elementor_command check_elementor_content",
     '--revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"',
-    'require_duo_answered "Elementor $ELEMENTOR_VERSION apply" json',
+    'require_wprism_answered "Elementor $ELEMENTOR_VERSION apply" json',
     "jq -e '.canary == \"clean\"' \"$VMATRIX_APPLY_LOG\"",
     "in-place upgrade: elementor 4.0.0 -> 4.2.3",
     "Elementor 4.0.0 to 4.2.3 upgrade apply",

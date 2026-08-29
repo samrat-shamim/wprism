@@ -19,12 +19,12 @@
 #       never a blanket widen to "every taxonomy the database happens to
 #       hold" (the #73 posture, mirrored).
 # Plus a live capture/apply/lint proof that a variable product's pa_size/
-# pa_color scope is entirely pattern-driven — site.duo.json never lists
+# pa_color scope is entirely pattern-driven — site.wprism.json never lists
 # them — and a fresh target resolves wc_get_attribute_taxonomies() and full
 # variation data with zero manual pre-provisioning.
 #
 # Runs against the existing r3e pair (already up for tasks #92/#93; own
-# WooCommerce install, own Duo Tee variable-product fixture). This script IS
+# WooCommerce install, own WPrism Tee variable-product fixture). This script IS
 # the ongoing acceptance record: each assertion below states what it pins.
 # Touches NEITHER r3e1's nor r3e2's real
 # site-repo git history: every capture below targets a throwaway scratch
@@ -34,10 +34,10 @@
 # Self-contained, re-runnable.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
-export DUO_PAIR=r3e
-COMPOSE="docker compose -p duo-r3e -f pair.yml"
+export WPRISM_PAIR=r3e
+COMPOSE="docker compose -p wprism-r3e -f pair.yml"
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -75,7 +75,7 @@ REPO=/siterepo/.tmp-r92-scope
 HOST_REPO="siterepo/r3e1/.tmp-r92-scope"
 rm -rf "$HOST_REPO"
 mkdir -p "$HOST_REPO"
-cat > "$HOST_REPO/site.duo.json" <<'EOF'
+cat > "$HOST_REPO/site.wprism.json" <<'EOF'
 {
   "spec_version": 2,
   "manifests": ["core", "woocommerce"],
@@ -113,7 +113,7 @@ echo "stray term_id=$term_id\n";
 ' > /tmp/r92-stray.txt
 STRAY_TERM_ID=$(grep -o 'stray term_id=[0-9]*' /tmp/r92-stray.txt | cut -d= -f2)
 rm -f /tmp/r92-stray.txt
-SNAP=$(wp1 eval "try { \$s = \Duo\Capture::snapshot('$REPO'); \$taxes = []; foreach (\$s as \$e) { if (\$e['type'] === 'term') { \$f = \Duo\Canon::decode(\$e['content']); \$taxes[\$f['taxonomy']] = true; } } echo 'OK ' . (isset(\$taxes['r92_not_pa_at_all']) ? 'LEAKED' : 'clean'); } catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }" 2>&1 | tail -1)
+SNAP=$(wp1 eval "try { \$s = \WPrism\Capture::snapshot('$REPO'); \$taxes = []; foreach (\$s as \$e) { if (\$e['type'] === 'term') { \$f = \WPrism\Canon::decode(\$e['content']); \$taxes[\$f['taxonomy']] = true; } } echo 'OK ' . (isset(\$taxes['r92_not_pa_at_all']) ? 'LEAKED' : 'clean'); } catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }" 2>&1 | tail -1)
 echo "$SNAP"
 wp1 db query "DELETE FROM wp_term_taxonomy WHERE term_id = $STRAY_TERM_ID"
 wp1 db query "DELETE FROM wp_terms WHERE term_id = $STRAY_TERM_ID"
@@ -121,15 +121,15 @@ grep -q "OK clean" <<<"$SNAP" || fail "an undeclared-pattern taxonomy (r92_not_p
 pass "undeclared-pattern taxonomy correctly stayed OUT of scope -- taxonomy_patterns never blanket-widens to whatever the database happens to hold"
 rm -rf "$HOST_REPO"
 
-say "(3) live end-to-end: pa_size/pa_color enter scope via pattern alone (site.duo.json never lists them)"
-[ -f "siterepo/r3e1/site.duo.json" ] || fail "expected siterepo/r3e1 to already have a real site.duo.json (see r3-eng-woo's #92/#93 work)"
-jq -e '.policy.taxonomies | index("pa_size") | not' siterepo/r3e1/site.duo.json >/dev/null \
-  || fail "expected pa_size to be ABSENT from site.duo.json's policy.taxonomies (proves the pattern, not a leftover manual entry)"
-jq -e '.policy.taxonomies | index("pa_color") | not' siterepo/r3e1/site.duo.json >/dev/null \
-  || fail "expected pa_color to be ABSENT from site.duo.json's policy.taxonomies"
-pass "site.duo.json confirmed to list neither pa_size nor pa_color explicitly"
+say "(3) live end-to-end: pa_size/pa_color enter scope via pattern alone (site.wprism.json never lists them)"
+[ -f "siterepo/r3e1/site.wprism.json" ] || fail "expected siterepo/r3e1 to already have a real site.wprism.json (see r3-eng-woo's #92/#93 work)"
+jq -e '.policy.taxonomies | index("pa_size") | not' siterepo/r3e1/site.wprism.json >/dev/null \
+  || fail "expected pa_size to be ABSENT from site.wprism.json's policy.taxonomies (proves the pattern, not a leftover manual entry)"
+jq -e '.policy.taxonomies | index("pa_color") | not' siterepo/r3e1/site.wprism.json >/dev/null \
+  || fail "expected pa_color to be ABSENT from site.wprism.json's policy.taxonomies"
+pass "site.wprism.json confirmed to list neither pa_size nor pa_color explicitly"
 
-wp1 duo capture --repo=/siterepo > /tmp/r92-capture.txt 2>&1
+wp1 wprism capture --repo=/siterepo > /tmp/r92-capture.txt 2>&1
 cat /tmp/r92-capture.txt
 grep -qi success /tmp/r92-capture.txt || fail "capture failed (see output above)"
 [ -d "siterepo/r3e1/state/terms/pa_size" ] || fail "state/terms/pa_size missing after capture -- taxonomy_patterns did not put it in scope"
@@ -138,7 +138,7 @@ grep -qi success /tmp/r92-capture.txt || fail "capture failed (see output above)
 pass "pa_size/pa_color term files + attribute_taxonomies table rows present, driven entirely by the pattern"
 
 say "(4) hard lint gate + wp_get_attribute_taxonomies() zero-provisioning proof stay green (regression, not re-litigation -- full narrative already proven live for #92)"
-LINT_OUT=$(wp1 duo lint --repo=/siterepo 2>&1)
+LINT_OUT=$(wp1 wprism lint --repo=/siterepo 2>&1)
 echo "$LINT_OUT"
 grep -qi "no findings" <<<"$LINT_OUT" || fail "expected lint 0 findings on r3e1's own captured state (got: $LINT_OUT)"
 pass "lint clean on r3e1's captured state"

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: characterize the extracted menu-item scanner without Policy,
+ * issue #3354: characterize the extracted menu-item scanner without Policy,
  * Ledger, a database, or WordPress. The live/product lint path remains
  * covered by the menu lint suites; this direct pin guards registry-ready
  * traversal, policy gates, resolver injection, and historical finding order.
@@ -17,10 +17,10 @@ function check(bool $condition, string $message): void {
 
 require __DIR__ . '/../../../../agent/src/Review/MenuReferenceScanner.php';
 
-use Duo\MenuReferenceScanner;
+use WPrism\MenuReferenceScanner;
 
-check(!class_exists(\Duo\Policy::class, false), 'menu scanner standalone load does not load Policy');
-check(!class_exists(\Duo\Ledger::class, false), 'menu scanner standalone load does not load Ledger');
+check(!class_exists(\WPrism\Policy::class, false), 'menu scanner standalone load does not load Policy');
+check(!class_exists(\WPrism\Ledger::class, false), 'menu scanner standalone load does not load Ledger');
 check(!function_exists('get_option'), 'menu scanner standalone load does not need WordPress runtime helpers');
 
 $home = 'https://example.test';

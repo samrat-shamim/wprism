@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Recovery;
+namespace WPrism\Recovery;
 
 /**
  * Receipt-owned lifecycle/rebuild effect preparation and inverse execution.
@@ -13,13 +13,13 @@ namespace Duo\Recovery;
  * is canonical, secret-free evidence bound to one target generation.
  */
 final class EffectBundle {
-    private const REQUEST_FORMAT = 'duo-effect-bundle-request/v1';
-    private const PROVIDER_REQUEST_FORMAT = 'duo-effect-provider-request/v1';
-    private const PROVIDER_RESPONSE_FORMAT = 'duo-effect-provider-response/v1';
-    private const INVENTORY_FORMAT = 'duo-effect-compile-inventory/v1';
-    private const PRIOR_FORMAT = 'duo-effect-prior-evidence/v1';
-    private const METADATA_FORMAT = 'duo-effect-bundle-metadata/v1';
-    private const OPERATION_FORMAT = 'duo-effect-operation/v1';
+    private const REQUEST_FORMAT = 'wprism-effect-bundle-request/v1';
+    private const PROVIDER_REQUEST_FORMAT = 'wprism-effect-provider-request/v1';
+    private const PROVIDER_RESPONSE_FORMAT = 'wprism-effect-provider-response/v1';
+    private const INVENTORY_FORMAT = 'wprism-effect-compile-inventory/v1';
+    private const PRIOR_FORMAT = 'wprism-effect-prior-evidence/v1';
+    private const METADATA_FORMAT = 'wprism-effect-bundle-metadata/v1';
+    private const OPERATION_FORMAT = 'wprism-effect-operation/v1';
 
     public static function configured(string $root): bool {
         return array_key_exists('effect_provider', RecoveryExecutor::configuration($root));
@@ -29,7 +29,7 @@ final class EffectBundle {
     public static function probe(string $root): array {
         $config = RecoveryExecutor::configuration($root);
         if (!array_key_exists('effect_provider', $config)) {
-            throw new \RuntimeException('duo effects: no effect provider is configured');
+            throw new \RuntimeException('wprism effects: no effect provider is configured');
         }
         $status = RollbackControl::status($root);
         $response = self::call($config, self::providerRequest([
@@ -52,7 +52,7 @@ final class EffectBundle {
             || ($response['supports_database_checkpoint'] ?? null) !== true
             || ($response['supports_external'] ?? null) !== true
             || ($response['credentials_exposed'] ?? null) !== false) {
-            throw new \RuntimeException('duo effects: provider did not attest inverse, readback, and outbox isolation');
+            throw new \RuntimeException('wprism effects: provider did not attest inverse, readback, and outbox isolation');
         }
         self::assertActor((string) ($response['provider_id'] ?? ''), 'provider id');
         self::assertActor((string) ($response['provider_version'] ?? ''), 'provider version');
@@ -71,21 +71,21 @@ final class EffectBundle {
         return self::withLock($root, function () use ($root, $payload): array {
             $status = RollbackControl::status($root);
             if (!empty($status['active']) && empty($status['terminal'])) {
-                throw new \RuntimeException('duo effects: prepare refused during a nonterminal generation');
+                throw new \RuntimeException('wprism effects: prepare refused during a nonterminal generation');
             }
             if ((int) $payload['generation'] !== (int) $status['generation'] + 1
                 || (int) $payload['claim_epoch'] !== 1
                 || !hash_equals((string) $payload['target_id'], (string) $status['target_id'])) {
-                throw new \RuntimeException('duo effects: prepare is not for the exact next target generation');
+                throw new \RuntimeException('wprism effects: prepare is not for the exact next target generation');
             }
             $recovery = RecoveryExecutor::decorateStatus($root, $status);
             $reservation = $recovery['exclusion_reservation'] ?? null;
             if (($recovery['exclusion_state'] ?? '') !== 'held' || !is_array($reservation)) {
-                throw new \RuntimeException('duo effects: prepare requires verified maintenance exclusion');
+                throw new \RuntimeException('wprism effects: prepare requires verified maintenance exclusion');
             }
             foreach (['artifact_hash', 'claim_epoch', 'claimant', 'generation', 'owner', 'receipt_id'] as $key) {
                 if ((string) $payload[$key] !== (string) ($reservation[$key] ?? '')) {
-                    throw new \RuntimeException("duo effects: exclusion reservation $key does not match prepare");
+                    throw new \RuntimeException("wprism effects: exclusion reservation $key does not match prepare");
                 }
             }
             return self::prepare($root, $payload);
@@ -101,7 +101,7 @@ final class EffectBundle {
             || !hash_equals(self::metadataHash($metadata), (string) $receipt['lifecycle_receipts_sha256'])
             || (string) $metadata['created_at'] !== (string) $receipt['created_at']
             || (string) $metadata['retention_until'] !== (string) $receipt['retention_until']) {
-            throw new \RuntimeException('duo effects: prepared bundle is not bound to the exact claim receipt');
+            throw new \RuntimeException('wprism effects: prepared bundle is not bound to the exact claim receipt');
         }
         self::verifyArtifacts($root, $metadata);
     }
@@ -116,7 +116,7 @@ final class EffectBundle {
      */
     public static function observe(string $root, array $status, array $actual): array {
         if (empty($status['active']) || !empty($status['terminal'])) {
-            throw new \RuntimeException('duo effects: observation requires active nonterminal authority');
+            throw new \RuntimeException('wprism effects: observation requires active nonterminal authority');
         }
         self::assertExactKeys($actual, ['effect_id', 'kind', 'manifest', 'phase', 'selector'], 'actual effect');
         self::rejectSecrets($actual, 'actual effect');
@@ -125,7 +125,7 @@ final class EffectBundle {
         self::verifyArtifacts($root, $metadata);
         if (!is_string($status['lifecycle_receipts_sha256'] ?? null)
             || !hash_equals(self::metadataHash($metadata), (string) $status['lifecycle_receipts_sha256'])) {
-            throw new \RuntimeException('duo effects: active receipt does not authorize this effect bundle');
+            throw new \RuntimeException('wprism effects: active receipt does not authorize this effect bundle');
         }
         $inventory = self::inventory($root, $metadata);
         $declared = null;
@@ -141,7 +141,7 @@ final class EffectBundle {
         if ($declared === null
             || (string) $declared['effect']['kind'] !== (string) $actual['kind']
             || !self::matchesDeclaredSelector($declared['effect']['selector'], $actual['selector'] ?? null)) {
-            throw new \RuntimeException('duo effects: actual effect is undeclared or exceeds its bounded selector');
+            throw new \RuntimeException('wprism effects: actual effect is undeclared or exceeds its bounded selector');
         }
         $config = RecoveryExecutor::configuration($root);
         $response = self::call($config, self::providerOperationRequest(
@@ -163,16 +163,16 @@ final class EffectBundle {
             || ($response['state'] ?? '') !== 'observed'
             || ($response['credentials_exposed'] ?? null) !== false
             || (string) ($response['mode'] ?? '') !== $mode) {
-            throw new \RuntimeException('duo effects: provider observation does not match the prepared declaration');
+            throw new \RuntimeException('wprism effects: provider observation does not match the prepared declaration');
         }
         self::assertHash((string) ($response['effect_event_sha256'] ?? ''), 'effect event hash');
         if ($mode === 'prevented') {
             if (($response['prevented'] ?? null) !== true) {
-                throw new \RuntimeException('duo effects: reporting-only observation is not prevention');
+                throw new \RuntimeException('wprism effects: reporting-only observation is not prevention');
             }
             self::assertHash((string) ($response['outbox_receipt_sha256'] ?? ''), 'outbox receipt hash');
         } elseif (($response['prevented'] ?? null) !== false || $response['outbox_receipt_sha256'] !== null) {
-            throw new \RuntimeException('duo effects: non-prevented effect returned false outbox evidence');
+            throw new \RuntimeException('wprism effects: non-prevented effect returned false outbox evidence');
         }
         return ['ok' => true] + $response;
     }
@@ -311,7 +311,7 @@ final class EffectBundle {
                 // sanitize_title()-family output, which preserves any
                 // lowercase (or case-lacking) Unicode letter/decimal-digit a
                 // plugin's own sanitizer emits -- e.g. WooCommerce >=11.0.0
-                // attribute taxonomy names such as pa_尺寸 (DUO-3437).
+                // attribute taxonomy names such as pa_尺寸 (issue #3437).
                 // \p{Ll} (lowercase letters: Latin, Cyrillic, Greek, ...) and
                 // \p{Lo} (case-lacking letters: CJK ideographs, Hangul,
                 // Arabic, Hebrew, Thai, ...) generalize that across every
@@ -358,7 +358,7 @@ final class EffectBundle {
         array $status
     ): array {
         if ($adapter !== 'effects_inverse') {
-            throw new \RuntimeException('duo effects: unsupported inverse operation');
+            throw new \RuntimeException('wprism effects: unsupported inverse operation');
         }
         $input = self::readCanonical($inputPath, 'operation input');
         self::assertExactKeys($input, [
@@ -367,7 +367,7 @@ final class EffectBundle {
             'receipt_id', 'target_id',
         ], 'operation input');
         if (($input['format'] ?? '') !== self::OPERATION_FORMAT || ($input['operation'] ?? '') !== 'restore_prior') {
-            throw new \RuntimeException('duo effects: operation input does not authorize prior restoration');
+            throw new \RuntimeException('wprism effects: operation input does not authorize prior restoration');
         }
         self::assertIdentity($input, $status, false);
         $metadata = self::metadata($root, (string) $status['receipt_id']);
@@ -375,12 +375,12 @@ final class EffectBundle {
         self::verifyArtifacts($root, $metadata);
         foreach (['effects_inventory_sha256', 'prior_evidence_sha256'] as $key) {
             if (!hash_equals((string) $metadata[$key], (string) $input[$key])) {
-                throw new \RuntimeException("duo effects: operation $key differs from prepared evidence");
+                throw new \RuntimeException("wprism effects: operation $key differs from prepared evidence");
             }
         }
         if (!hash_equals(self::metadataHash($metadata), (string) $input['lifecycle_receipts_sha256'])
             || !hash_equals(self::metadataHash($metadata), (string) $status['lifecycle_receipts_sha256'])) {
-            throw new \RuntimeException('duo effects: signed receipt does not authorize this effect bundle');
+            throw new \RuntimeException('wprism effects: signed receipt does not authorize this effect bundle');
         }
         $config = RecoveryExecutor::configuration($root);
         $request = self::providerOperationRequest($root, $metadata, $status, 'inverse', $inputPath, $inputHash);
@@ -390,7 +390,7 @@ final class EffectBundle {
         $verified = self::call($config, $request);
         self::validateRestore($metadata, $verified, 'verified');
         if (!hash_equals((string) $restored['result_sha256'], (string) $verified['result_sha256'])) {
-            throw new \RuntimeException('duo effects: restored resources changed during fresh verification');
+            throw new \RuntimeException('wprism effects: restored resources changed during fresh verification');
         }
         return [
             'adapter_version' => (string) $verified['provider_version'],
@@ -419,7 +419,7 @@ final class EffectBundle {
         foreach ($inventory['effects'] as $row) {
             if (($row['effect']['mode'] ?? '') === 'irreversible') {
                 throw new \RuntimeException(
-                    "duo effects: automatic profile blocked by irreversible effect '{$row['manifest']}:{$row['effect']['id']}'"
+                    "wprism effects: automatic profile blocked by irreversible effect '{$row['manifest']}:{$row['effect']['id']}'"
                 );
             }
             if (($row['effect']['mode'] ?? '') === 'restorable') {
@@ -428,7 +428,7 @@ final class EffectBundle {
         }
         if ($requiresCheckpoint && !CheckpointBundle::configured($root)) {
             throw new \RuntimeException(
-                'duo effects: restorable effects require a configured checkpoint provider (checkpoint_provider)'
+                'wprism effects: restorable effects require a configured checkpoint provider (checkpoint_provider)'
             );
         }
         $dir = self::receiptDirectory($root, (string) $payload['receipt_id']);
@@ -442,7 +442,7 @@ final class EffectBundle {
             self::validateMetadata($metadata);
             self::assertIdentity($payload, $metadata, true);
             if (!hash_equals($inventoryHash, (string) $metadata['effects_inventory_sha256'])) {
-                throw new \RuntimeException('duo effects: prepare retry changed the compiled inventory');
+                throw new \RuntimeException('wprism effects: prepare retry changed the compiled inventory');
             }
             self::verifyArtifacts($root, $metadata);
             return self::publicMetadata($metadata);
@@ -451,10 +451,10 @@ final class EffectBundle {
         $priorPath = $dir . '/artifacts/prior-effect-evidence.json';
         self::publishExact($inventoryPath, $inventoryBytes, 0600, 'effects inventory');
         if (is_link($priorPath) || (file_exists($priorPath) && !is_file($priorPath))) {
-            throw new \RuntimeException('duo effects: prior evidence output path is unsafe');
+            throw new \RuntimeException('wprism effects: prior evidence output path is unsafe');
         }
         if (is_file($priorPath) && !@unlink($priorPath)) {
-            throw new \RuntimeException('duo effects: could not clear interrupted prior evidence');
+            throw new \RuntimeException('wprism effects: could not clear interrupted prior evidence');
         }
         $config = RecoveryExecutor::configuration($root);
         $response = self::call($config, self::providerRequest([
@@ -479,7 +479,7 @@ final class EffectBundle {
             || ($response['credentials_exposed'] ?? null) !== false
             || ($response['unsupported_effects'] ?? null) !== []
             || !hash_equals($inventoryHash, (string) ($response['inventory_sha256'] ?? ''))) {
-            throw new \RuntimeException('duo effects: provider could not prepare every declared effect before mutation');
+            throw new \RuntimeException('wprism effects: provider could not prepare every declared effect before mutation');
         }
         self::assertAbsoluteRegularFile($priorPath, 'prior effect evidence');
         $prior = self::readCanonical($priorPath, 'prior effect evidence');
@@ -487,7 +487,7 @@ final class EffectBundle {
         $priorHash = hash_file('sha256', $priorPath);
         if (!is_string($priorHash)
             || !hash_equals($priorHash, (string) $response['prior_evidence_sha256'])) {
-            throw new \RuntimeException('duo effects: provider prior evidence does not match its artifact');
+            throw new \RuntimeException('wprism effects: provider prior evidence does not match its artifact');
         }
         self::assertHash((string) ($response['receipt_inputs_sha256'] ?? ''), 'receipt inputs hash');
         $metadata = [
@@ -513,19 +513,19 @@ final class EffectBundle {
         if (($inventory['format'] ?? '') !== self::INVENTORY_FORMAT
             || !is_array($inventory['effects'] ?? null) || !array_is_list($inventory['effects'])
             || $inventory['effects'] === []) {
-            throw new \RuntimeException('duo effects: compiled effects inventory is missing or malformed');
+            throw new \RuntimeException('wprism effects: compiled effects inventory is missing or malformed');
         }
         $seen = [];
         foreach ($inventory['effects'] as $row) {
-            if (!is_array($row) || array_is_list($row)) throw new \RuntimeException('duo effects: malformed inventory row');
+            if (!is_array($row) || array_is_list($row)) throw new \RuntimeException('wprism effects: malformed inventory row');
             self::assertExactKeys($row, ['effect', 'manifest', 'phase', 'source'], 'inventory row');
             self::assertActor((string) $row['manifest'], 'manifest');
             if (!in_array($row['phase'] ?? null, ['lifecycle', 'rebuild', 'regenerator'], true)
                 || !is_string($row['source']) || $row['source'] === '') {
-                throw new \RuntimeException('duo effects: inventory phase/source is malformed');
+                throw new \RuntimeException('wprism effects: inventory phase/source is malformed');
             }
             $effect = $row['effect'];
-            if (!is_array($effect) || array_is_list($effect)) throw new \RuntimeException('duo effects: effect declaration is malformed');
+            if (!is_array($effect) || array_is_list($effect)) throw new \RuntimeException('wprism effects: effect declaration is malformed');
             $mode = $effect['mode'] ?? null;
             $expected = ['id', 'kind', 'mode', 'selector'];
             if ($mode === 'reversible') $expected[] = 'adapter';
@@ -534,10 +534,10 @@ final class EffectBundle {
             if (!is_string($effect['id'] ?? null) || preg_match('/^[a-z][a-z0-9._:-]{0,127}$/', $effect['id']) !== 1
                 || !in_array($effect['kind'] ?? null, ['database','filesystem','schedule','cache','queue','mail','http','external'], true)
                 || !in_array($mode, ['restorable','reversible','prevented','irreversible'], true)) {
-                throw new \RuntimeException('duo effects: effect identity/kind/mode is malformed');
+                throw new \RuntimeException('wprism effects: effect identity/kind/mode is malformed');
             }
             $selector = $effect['selector'] ?? null;
-            if (!is_array($selector) || array_is_list($selector)) throw new \RuntimeException('duo effects: selector is malformed');
+            if (!is_array($selector) || array_is_list($selector)) throw new \RuntimeException('wprism effects: selector is malformed');
             $expectedSelectorKeys = ['scope', 'type', 'value'];
             if (($selector['type'] ?? null) === 'provider_resource' && array_key_exists('members', $selector)) {
                 $expectedSelectorKeys[] = 'members';
@@ -550,55 +550,55 @@ final class EffectBundle {
                 || strlen($selector['value']) > 512
                 || preg_match('/[\x00-\x1f\x7f*]/', $selector['value']) === 1
                 || preg_match('/secret|credential|password|authorization|signed.?url|access.?token|api.?key/i', $selector['value']) === 1) {
-                throw new \RuntimeException('duo effects: selector is unbounded or malformed');
+                throw new \RuntimeException('wprism effects: selector is unbounded or malformed');
             }
             if (($selector['type'] ?? null) === 'provider_resource' && array_key_exists('members', $selector)
                 && self::compileProviderResourceMembers($selector['members'], (string) $selector['value']) === null) {
-                throw new \RuntimeException('duo effects: provider-resource member grammar is malformed or unbounded');
+                throw new \RuntimeException('wprism effects: provider-resource member grammar is malformed or unbounded');
             }
             if ($selector['type'] === 'path' && (str_starts_with($selector['value'], '/')
                 || str_contains($selector['value'], '\\') || in_array('.', explode('/', $selector['value']), true)
                 || in_array('..', explode('/', $selector['value']), true))) {
-                throw new \RuntimeException('duo effects: selector path is not bounded and traversal-free');
+                throw new \RuntimeException('wprism effects: selector path is not bounded and traversal-free');
             }
             if ($selector['type'] === 'url_prefix'
                 && (!str_starts_with($selector['value'], 'https://') || str_contains($selector['value'], '?'))) {
-                throw new \RuntimeException('duo effects: URL selector is not bounded HTTPS');
+                throw new \RuntimeException('wprism effects: URL selector is not bounded HTTPS');
             }
             if ($effect['kind'] === 'database'
                 && ($selector['scope'] !== 'database_checkpoint' || !in_array($selector['type'], ['table','option'], true))) {
-                throw new \RuntimeException('duo effects: database effect lacks exact checkpoint coverage');
+                throw new \RuntimeException('wprism effects: database effect lacks exact checkpoint coverage');
             }
             if ($effect['kind'] !== 'database' && $selector['scope'] !== 'external') {
-                throw new \RuntimeException('duo effects: non-database effect is not explicitly external');
+                throw new \RuntimeException('wprism effects: non-database effect is not explicitly external');
             }
             if ($mode === 'restorable' && $selector['scope'] !== 'database_checkpoint') {
-                throw new \RuntimeException('duo effects: restorable effect lacks checkpoint coverage');
+                throw new \RuntimeException('wprism effects: restorable effect lacks checkpoint coverage');
             }
             if ($mode === 'reversible') {
                 $adapter = $effect['adapter'] ?? null;
-                if (!is_array($adapter) || array_is_list($adapter)) throw new \RuntimeException('duo effects: reversible effect lacks adapter');
+                if (!is_array($adapter) || array_is_list($adapter)) throw new \RuntimeException('wprism effects: reversible effect lacks adapter');
                 self::assertExactKeys($adapter, ['id','inverse','inverse_inputs','verifier','verifier_inputs','version'], 'effect adapter');
                 foreach (['id','inverse','verifier'] as $key) {
                     if (!is_string($adapter[$key] ?? null)
                         || preg_match('/^[A-Za-z0-9._:-]{1,128}$/', (string) $adapter[$key]) !== 1) {
-                        throw new \RuntimeException('duo effects: reversible effect adapter identity is malformed');
+                        throw new \RuntimeException('wprism effects: reversible effect adapter identity is malformed');
                     }
                 }
                 if (!is_string($adapter['version'] ?? null)
                     || preg_match('/^[0-9]+(?:\.[0-9A-Za-z-]+)+$/', $adapter['version']) !== 1) {
-                    throw new \RuntimeException('duo effects: reversible effect adapter version is not exactly pinned');
+                    throw new \RuntimeException('wprism effects: reversible effect adapter version is not exactly pinned');
                 }
                 foreach (['inverse_inputs','verifier_inputs'] as $key) {
                     $inputs = $adapter[$key] ?? null;
                     if (!is_array($inputs) || !array_is_list($inputs) || $inputs === []
                         || count(array_unique($inputs)) !== count($inputs)) {
-                        throw new \RuntimeException('duo effects: reversible effect lacks exact receipt inputs');
+                        throw new \RuntimeException('wprism effects: reversible effect lacks exact receipt inputs');
                     }
                     foreach ($inputs as $input) {
                         if (!is_string($input) || preg_match('/^[a-z][a-z0-9_]{0,63}$/', $input) !== 1
                             || preg_match('/secret|credential|password|authorization|token|api_?key/i', $input) === 1) {
-                            throw new \RuntimeException('duo effects: reversible effect receipt input is malformed');
+                            throw new \RuntimeException('wprism effects: reversible effect receipt input is malformed');
                         }
                     }
                 }
@@ -606,13 +606,13 @@ final class EffectBundle {
             if ($mode === 'prevented'
                 && (!in_array($effect['kind'], ['mail','http','queue'], true)
                     || ($effect['prevention'] ?? null) !== 'receipt_outbox')) {
-                throw new \RuntimeException('duo effects: prevented effect lacks compatible receipt-bound outbox isolation');
+                throw new \RuntimeException('wprism effects: prevented effect lacks compatible receipt-bound outbox isolation');
             }
             if ($selector['type'] === 'plugin_lifecycle' && $mode !== 'irreversible') {
-                throw new \RuntimeException('duo effects: generic plugin lifecycle cannot claim automatic reversibility');
+                throw new \RuntimeException('wprism effects: generic plugin lifecycle cannot claim automatic reversibility');
             }
             $key = $row['manifest'] . ':' . $effect['id'];
-            if (isset($seen[$key])) throw new \RuntimeException('duo effects: duplicate effect declaration');
+            if (isset($seen[$key])) throw new \RuntimeException('wprism effects: duplicate effect declaration');
             $seen[$key] = true;
             self::rejectSecrets($row, 'effects inventory');
         }
@@ -622,34 +622,34 @@ final class EffectBundle {
         self::assertExactKeys($prior, ['effects', 'format'], 'prior effect evidence');
         if (($prior['format'] ?? '') !== self::PRIOR_FORMAT
             || !is_array($prior['effects'] ?? null) || !array_is_list($prior['effects'])) {
-            throw new \RuntimeException('duo effects: prior evidence is malformed');
+            throw new \RuntimeException('wprism effects: prior evidence is malformed');
         }
         $declared = [];
         foreach ($inventory['effects'] as $row) $declared[$row['manifest'] . ':' . $row['effect']['id']] = $row;
         $seen = [];
         foreach ($prior['effects'] as $entry) {
-            if (!is_array($entry) || array_is_list($entry)) throw new \RuntimeException('duo effects: malformed prior effect row');
+            if (!is_array($entry) || array_is_list($entry)) throw new \RuntimeException('wprism effects: malformed prior effect row');
             self::assertExactKeys($entry, ['effect_id','inverse_input_sha256','manifest','mode','outbox_id','prior_sha256','verifier_input_sha256'], 'prior effect row');
             $key = (string) $entry['manifest'] . ':' . (string) $entry['effect_id'];
             if (isset($seen[$key]) || !isset($declared[$key]) || (string) $entry['mode'] !== (string) $declared[$key]['effect']['mode']) {
-                throw new \RuntimeException('duo effects: prior evidence contains a duplicate, undeclared, or mode-changed effect');
+                throw new \RuntimeException('wprism effects: prior evidence contains a duplicate, undeclared, or mode-changed effect');
             }
             $seen[$key] = true;
             $mode = (string) $entry['mode'];
             if ($mode === 'reversible') {
                 foreach (['inverse_input_sha256','prior_sha256','verifier_input_sha256'] as $hash) self::assertHash((string) $entry[$hash], "prior $hash");
-                if ($entry['outbox_id'] !== null) throw new \RuntimeException('duo effects: reversible evidence contains outbox authority');
+                if ($entry['outbox_id'] !== null) throw new \RuntimeException('wprism effects: reversible evidence contains outbox authority');
             } elseif ($mode === 'restorable') {
                 self::assertHash((string) $entry['prior_sha256'], 'checkpoint coverage hash');
-                if ($entry['inverse_input_sha256'] !== null || $entry['verifier_input_sha256'] !== null || $entry['outbox_id'] !== null) throw new \RuntimeException('duo effects: restorable evidence exceeds checkpoint authority');
+                if ($entry['inverse_input_sha256'] !== null || $entry['verifier_input_sha256'] !== null || $entry['outbox_id'] !== null) throw new \RuntimeException('wprism effects: restorable evidence exceeds checkpoint authority');
             } elseif ($mode === 'prevented') {
                 self::assertActor((string) $entry['outbox_id'], 'outbox id');
-                if ($entry['inverse_input_sha256'] !== null || $entry['prior_sha256'] !== null || $entry['verifier_input_sha256'] !== null) throw new \RuntimeException('duo effects: prevented evidence contains inverse authority');
+                if ($entry['inverse_input_sha256'] !== null || $entry['prior_sha256'] !== null || $entry['verifier_input_sha256'] !== null) throw new \RuntimeException('wprism effects: prevented evidence contains inverse authority');
             } else {
-                throw new \RuntimeException('duo effects: irreversible effect reached prepared evidence');
+                throw new \RuntimeException('wprism effects: irreversible effect reached prepared evidence');
             }
         }
-        if (count($seen) !== count($declared)) throw new \RuntimeException('duo effects: prior evidence is incomplete');
+        if (count($seen) !== count($declared)) throw new \RuntimeException('wprism effects: prior evidence is incomplete');
     }
 
     private static function validateRestore(array $metadata, array $response, string $state): void {
@@ -659,7 +659,7 @@ final class EffectBundle {
             || ($response['state'] ?? '') !== $state
             || ($response['credentials_exposed'] ?? null) !== false
             || ($response['undeclared_effects'] ?? null) !== []) {
-            throw new \RuntimeException("duo effects: provider did not return complete $state evidence");
+            throw new \RuntimeException("wprism effects: provider did not return complete $state evidence");
         }
         self::assertHash((string) ($response['result_sha256'] ?? ''), "$state result hash");
     }
@@ -677,29 +677,38 @@ final class EffectBundle {
         $priorPath = self::artifactPath($root, $metadata, (string) $metadata['prior_evidence_path']);
         if (!hash_equals((string) $metadata['effects_inventory_sha256'], (string) hash_file('sha256', $inventoryPath))
             || !hash_equals((string) $metadata['prior_evidence_sha256'], (string) hash_file('sha256', $priorPath))) {
-            throw new \RuntimeException('duo effects: prepared artifacts changed after receipt binding');
+            throw new \RuntimeException('wprism effects: prepared artifacts changed after receipt binding');
         }
-        $inventory = self::readCanonical($inventoryPath, 'effects inventory'); self::validateInventory($inventory);
-        $prior = self::readCanonical($priorPath, 'prior effect evidence'); self::validatePrior($prior, $inventory);
+        $inventory = self::readCanonical($inventoryPath, 'effects inventory');
+        self::validateInventory($inventory);
+        $prior = self::readCanonical($priorPath, 'prior effect evidence');
+        self::validatePrior($prior, $inventory);
     }
 
     private static function validateRequest(array $payload): void {
         self::assertExactKeys($payload, ['action','artifact_hash','claim_epoch','claimant','format','generation','inventory','owner','receipt_id','retention_until','target_id','timestamp'], 'request');
         if (($payload['format'] ?? '') !== self::REQUEST_FORMAT || ($payload['action'] ?? '') !== 'prepare'
-            || !is_array($payload['inventory'] ?? null)) throw new \RuntimeException('duo effects: unsupported prepare request');
-        self::assertHash((string) $payload['artifact_hash'], 'artifact hash'); self::assertActor((string) $payload['owner'], 'owner'); self::assertActor((string) $payload['claimant'], 'claimant');
-        self::assertIdentifier((string) $payload['receipt_id'], 'receipt id', 32, 64); self::assertIdentifier((string) $payload['target_id'], 'target id', 32, 32);
-        if (!is_int($payload['generation']) || $payload['generation'] < 1 || !is_int($payload['claim_epoch']) || $payload['claim_epoch'] < 1) throw new \RuntimeException('duo effects: generation/claim_epoch must be positive integers');
-        $created = self::timeValue((string) $payload['timestamp']); $retention = self::timeValue((string) $payload['retention_until']);
-        if ($retention <= $created) throw new \RuntimeException('duo effects: retention deadline must follow preparation');
+            || !is_array($payload['inventory'] ?? null)) throw new \RuntimeException('wprism effects: unsupported prepare request');
+        self::assertHash((string) $payload['artifact_hash'], 'artifact hash');
+        self::assertActor((string) $payload['owner'], 'owner');
+        self::assertActor((string) $payload['claimant'], 'claimant');
+        self::assertIdentifier((string) $payload['receipt_id'], 'receipt id', 32, 64);
+        self::assertIdentifier((string) $payload['target_id'], 'target id', 32, 32);
+        if (!is_int($payload['generation']) || $payload['generation'] < 1 || !is_int($payload['claim_epoch']) || $payload['claim_epoch'] < 1) throw new \RuntimeException('wprism effects: generation/claim_epoch must be positive integers');
+        $created = self::timeValue((string) $payload['timestamp']);
+        $retention = self::timeValue((string) $payload['retention_until']);
+        if ($retention <= $created) throw new \RuntimeException('wprism effects: retention deadline must follow preparation');
     }
 
     private static function validateMetadata(array $m): void {
         self::assertExactKeys($m, ['artifact_hash','claim_epoch','claimant','created_at','effects_inventory_path','effects_inventory_sha256','format','generation','owner','prior_evidence_path','prior_evidence_sha256','provider_id','provider_version','receipt_id','receipt_inputs_sha256','retention_until','target_id'], 'metadata');
-        if (($m['format'] ?? '') !== self::METADATA_FORMAT) throw new \RuntimeException('duo effects: malformed metadata');
+        if (($m['format'] ?? '') !== self::METADATA_FORMAT) throw new \RuntimeException('wprism effects: malformed metadata');
         foreach (['artifact_hash','effects_inventory_sha256','prior_evidence_sha256','receipt_inputs_sha256'] as $key) self::assertHash((string) $m[$key], "metadata $key");
-        self::assertActor((string) $m['provider_id'], 'provider id'); self::assertActor((string) $m['provider_version'], 'provider version');
-        self::timeValue((string) $m['created_at']); self::timeValue((string) $m['retention_until']); self::rejectSecrets($m, 'metadata');
+        self::assertActor((string) $m['provider_id'], 'provider id');
+        self::assertActor((string) $m['provider_version'], 'provider version');
+        self::timeValue((string) $m['created_at']);
+        self::timeValue((string) $m['retention_until']);
+        self::rejectSecrets($m, 'metadata');
     }
 
     /** @return array<string,mixed> */
@@ -722,46 +731,59 @@ final class EffectBundle {
     }
 
     private static function assertIdentity(array $a, array $b, bool $claimant): void {
-        foreach (['artifact_hash','generation','owner','receipt_id','target_id'] as $key) if ((string) ($a[$key] ?? '') !== (string) ($b[$key] ?? '')) throw new \RuntimeException("duo effects: identity $key mismatch");
-        if ($claimant && ((string) ($a['claimant'] ?? '') !== (string) ($b['claimant'] ?? '') || (int) ($a['claim_epoch'] ?? 0) !== (int) ($b['claim_epoch'] ?? 0))) throw new \RuntimeException('duo effects: claimant identity mismatch');
+        foreach (['artifact_hash','generation','owner','receipt_id','target_id'] as $key) if ((string) ($a[$key] ?? '') !== (string) ($b[$key] ?? '')) throw new \RuntimeException("wprism effects: identity $key mismatch");
+        if ($claimant && ((string) ($a['claimant'] ?? '') !== (string) ($b['claimant'] ?? '') || (int) ($a['claim_epoch'] ?? 0) !== (int) ($b['claim_epoch'] ?? 0))) throw new \RuntimeException('wprism effects: claimant identity mismatch');
     }
-    private static function assertProviderIdentity(array $metadata, array $response): void { if (!hash_equals((string) $metadata['provider_id'], (string) ($response['provider_id'] ?? '')) || !hash_equals((string) $metadata['provider_version'], (string) ($response['provider_version'] ?? ''))) throw new \RuntimeException('duo effects: provider identity changed after preparation'); }
-    /** @return array<string,mixed> */ private static function publicMetadata(array $m): array { return ['effects_inventory_sha256'=>$m['effects_inventory_sha256'],'lifecycle_receipts_sha256'=>self::metadataHash($m),'ok'=>true,'prior_evidence_sha256'=>$m['prior_evidence_sha256'],'provider_id'=>$m['provider_id'],'provider_version'=>$m['provider_version'],'receipt_inputs_sha256'=>$m['receipt_inputs_sha256']]; }
+    private static function assertProviderIdentity(array $metadata, array $response): void { if (!hash_equals((string) $metadata['provider_id'], (string) ($response['provider_id'] ?? '')) || !hash_equals((string) $metadata['provider_version'], (string) ($response['provider_version'] ?? ''))) throw new \RuntimeException('wprism effects: provider identity changed after preparation'); }
+    /** @return array<string,mixed> */ private static function publicMetadata(array $m): array { return ['effects_inventory_sha256' => $m['effects_inventory_sha256'],'lifecycle_receipts_sha256' => self::metadataHash($m),'ok' => true,'prior_evidence_sha256' => $m['prior_evidence_sha256'],'provider_id' => $m['provider_id'],'provider_version' => $m['provider_version'],'receipt_inputs_sha256' => $m['receipt_inputs_sha256']]; }
     private static function metadataHash(array $m): string { return hash('sha256', CanonicalJson::encode($m)); }
-    /** @return array<string,mixed> */ private static function metadata(string $root,string $id): array { $m=self::readCanonical(self::receiptDirectory($root,$id).'/effect-bundle-metadata.json','effect bundle metadata');self::validateMetadata($m);return $m; }
+    /** @return array<string,mixed> */ private static function metadata(string $root, string $id): array { $m = self::readCanonical(self::receiptDirectory($root, $id).'/effect-bundle-metadata.json', 'effect bundle metadata');
+    self::validateMetadata($m);
+    return $m; }
 
     /** @return array<string,mixed> */
     private static function call(array $config, array $request): array {
         $command = $config['effect_provider'] ?? null;
-        if (!is_array($command) || $command === []) throw new \RuntimeException('duo effects: provider is unavailable');
+        if (!is_array($command) || $command === []) throw new \RuntimeException('wprism effects: provider is unavailable');
         $decoded = ProviderClient::request(
             $command,
             $request,
             (int) $config['timeout_seconds'],
-            'duo effects',
-            'duo effects: could not start provider',
-            'duo effects: provider timed out; exclusion remains held',
-            'duo effects: provider output exceeded redacted limit',
-            'duo effects: provider failed; provider output is redacted',
+            'wprism effects',
+            'wprism effects: could not start provider',
+            'wprism effects: provider timed out; exclusion remains held',
+            'wprism effects: provider output exceeded redacted limit',
+            'wprism effects: provider failed; provider output is redacted',
             false,
-            'duo effects: provider returned malformed JSON',
-            'duo effects: provider returned noncanonical evidence'
+            'wprism effects: provider returned malformed JSON',
+            'wprism effects: provider returned noncanonical evidence'
         );
-        self::rejectSecrets($decoded,'provider response');return $decoded;
+        self::rejectSecrets($decoded, 'provider response');
+        return $decoded;
     }
 
-    private static function rejectSecrets(mixed $value,string $label,string $key=''): void { if(preg_match('/secret|credential|password|token|signed.?url|authorization/i',$key)===1&&!in_array($key,['credentials_exposed'],true))throw new \RuntimeException("duo effects: $label contains forbidden secret field");if(is_string($value)&&preg_match('#https?://[^\s]*[?&](?:X-Amz-|Signature=|token=)#i',$value)===1)throw new \RuntimeException("duo effects: $label contains a signed URL");if(is_array($value))foreach($value as $k=>$v)self::rejectSecrets($v,$label,(string)$k); }
-    private static function artifactPath(string $root,array $m,string $relative): string { if(!preg_match('#^artifacts/[A-Za-z0-9._-]+$#',$relative))throw new \RuntimeException('duo effects: unsafe artifact path');return self::receiptDirectory($root,(string)$m['receipt_id']).'/'.$relative; }
-    private static function assertHash(string $v,string $l): void { if(preg_match('/^[0-9a-f]{64}$/',$v)!==1)throw new \RuntimeException("duo effects: $l must be sha256"); }
-    private static function assertActor(string $v,string $l): void { if($v===''||strlen($v)>512||preg_match('/[\x00-\x1f\x7f]/',$v)===1)throw new \RuntimeException("duo effects: $l is malformed"); }
-    private static function assertIdentifier(string $v,string $l,int $min,int $max): void { if(strlen($v)<$min||strlen($v)>$max||preg_match('/^[A-Za-z0-9._:-]+$/',$v)!==1)throw new \RuntimeException("duo effects: $l is malformed"); }
-    /** @param list<string> $expected */ private static function assertExactKeys(array $v,array $expected,string $l): void { $a=array_keys($v);sort($a,SORT_STRING);sort($expected,SORT_STRING);if($a!==$expected)throw new \RuntimeException("duo effects: $l has missing or unknown fields"); }
-    private static function timeValue(string $v): int { $t=\DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z',$v,new \DateTimeZone('UTC'));if(!$t||$t->format('Y-m-d\TH:i:s\Z')!==$v)throw new \RuntimeException('duo effects: timestamp must be canonical UTC seconds');return $t->getTimestamp(); }
-    /** @return array<string,mixed> */ private static function readCanonical(string $p,string $l): array { return AtomicStore::readCanonical($p,$l,'duo effects'); }
-    private static function assertAbsoluteRegularFile(string $p,string $l): void { AtomicStore::assertAbsoluteRegularFile($p,$l,'duo effects'); }
-    private static function ensureDirectory(string $p,int $m): void { AtomicStore::ensureDirectory($p,$m,'duo effects'); }
-    private static function syncDirectory(string $p): void { AtomicStore::syncDirectory($p,'effects directory','duo effects'); }
-    private static function publishExact(string $p,string $b,int $m,string $l): void { AtomicStore::publishExact($p,$b,$m,$l,'duo effects',true); }
-    private static function receiptDirectory(string $root,string $id): string { self::assertIdentifier($id,'receipt id',32,64);return dirname($root).'/rollback/'.$id; }
-    /** @template T @param callable():T $callback @return T */ private static function withLock(string $root,callable $callback): mixed { $p=$root.'/effect-bundle.lock';return ProtocolLock::withExclusive($p,$callback,'duo effects: lock path is unsafe','duo effects: could not acquire lock','duo effects: could not acquire lock',0600); }
+    private static function rejectSecrets(mixed $value, string $label, string $key = ''): void { if (preg_match('/secret|credential|password|token|signed.?url|authorization/i', $key) === 1 && !in_array($key, ['credentials_exposed'], true))throw new \RuntimeException("wprism effects: $label contains forbidden secret field");
+    if (is_string($value) && preg_match('#https?://[^\s]*[?&](?:X-Amz-|Signature=|token=)#i', $value) === 1)throw new \RuntimeException("wprism effects: $label contains a signed URL");
+    if (is_array($value))foreach ($value as $k => $v)self::rejectSecrets($v, $label, (string)$k); }
+    private static function artifactPath(string $root, array $m, string $relative): string { if (!preg_match('#^artifacts/[A-Za-z0-9._-]+$#', $relative))throw new \RuntimeException('wprism effects: unsafe artifact path');
+    return self::receiptDirectory($root, (string)$m['receipt_id']).'/'.$relative; }
+    private static function assertHash(string $v, string $l): void { if (preg_match('/^[0-9a-f]{64}$/', $v) !== 1)throw new \RuntimeException("wprism effects: $l must be sha256"); }
+    private static function assertActor(string $v, string $l): void { if ($v === '' || strlen($v) > 512 || preg_match('/[\x00-\x1f\x7f]/', $v) === 1)throw new \RuntimeException("wprism effects: $l is malformed"); }
+    private static function assertIdentifier(string $v, string $l, int $min, int $max): void { if (strlen($v) < $min || strlen($v) > $max || preg_match('/^[A-Za-z0-9._:-]+$/', $v) !== 1)throw new \RuntimeException("wprism effects: $l is malformed"); }
+    /** @param list<string> $expected */ private static function assertExactKeys(array $v, array $expected, string $l): void { $a = array_keys($v);
+    sort($a, SORT_STRING);
+    sort($expected, SORT_STRING);
+    if ($a !== $expected)throw new \RuntimeException("wprism effects: $l has missing or unknown fields"); }
+    private static function timeValue(string $v): int { $t = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $v, new \DateTimeZone('UTC'));
+    if (!$t || $t->format('Y-m-d\TH:i:s\Z') !== $v)throw new \RuntimeException('wprism effects: timestamp must be canonical UTC seconds');
+    return $t->getTimestamp(); }
+    /** @return array<string,mixed> */ private static function readCanonical(string $p, string $l): array { return AtomicStore::readCanonical($p, $l, 'wprism effects'); }
+    private static function assertAbsoluteRegularFile(string $p, string $l): void { AtomicStore::assertAbsoluteRegularFile($p, $l, 'wprism effects'); }
+    private static function ensureDirectory(string $p, int $m): void { AtomicStore::ensureDirectory($p, $m, 'wprism effects'); }
+    private static function syncDirectory(string $p): void { AtomicStore::syncDirectory($p, 'effects directory', 'wprism effects'); }
+    private static function publishExact(string $p, string $b, int $m, string $l): void { AtomicStore::publishExact($p, $b, $m, $l, 'wprism effects', true); }
+    private static function receiptDirectory(string $root, string $id): string { self::assertIdentifier($id, 'receipt id', 32, 64);
+    return dirname($root).'/rollback/'.$id; }
+    /** @template T @param callable():T $callback @return T */ private static function withLock(string $root,callable $callback): mixed { $p = $root.'/effect-bundle.lock';
+    return ProtocolLock::withExclusive($p,$callback,'wprism effects: lock path is unsafe','wprism effects: could not acquire lock','wprism effects: could not acquire lock',0600); }
 }

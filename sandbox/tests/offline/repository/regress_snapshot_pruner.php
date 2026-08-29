@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3349's typed-table identity-pruning seam.
+ * Offline regression for issue #3349's typed-table identity-pruning seam.
  *
  * SnapshotPruner is directly executable without loading Snapshot or its
  * runtime graph. The fake target pins preservation and pruning scopes;
@@ -14,12 +14,12 @@ if (!defined('ARRAY_A')) {
 
 require_once __DIR__ . '/../../../../agent/src/Repository/SnapshotPruner.php';
 
-use Duo\Ledger;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\Snapshot;
-use Duo\SnapshotPruner;
-use Duo\TableGraph;
+use WPrism\Ledger;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\Snapshot;
+use WPrism\SnapshotPruner;
+use WPrism\TableGraph;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -99,7 +99,7 @@ final class SnapshotPrunerFakeWpdb {
             }
             return 'present';
         }
-        if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
+        if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
             return $this->uuidIds[$m[1] . '|' . $m[2]] ?? null;
         }
         return null;
@@ -161,7 +161,7 @@ $makePruner = static fn(): SnapshotPruner => new SnapshotPruner(
     static function (array $tables): void {
         Ledger::prune_dead_composite_table_map(
             $tables,
-            \Duo\SnapshotIdentity::compositeComponentBits()
+            \WPrism\SnapshotIdentity::compositeComponentBits()
         );
     },
     static fn(array $decl): bool => TableGraph::is_composite_ref($decl)
@@ -248,7 +248,7 @@ $noRefsPruner = new SnapshotPruner(
     static function (array $tables): void {
         Ledger::prune_dead_composite_table_map(
             $tables,
-            \Duo\SnapshotIdentity::compositeComponentBits()
+            \WPrism\SnapshotIdentity::compositeComponentBits()
         );
     },
     static fn(array $decl): bool => TableGraph::is_composite_ref($decl)

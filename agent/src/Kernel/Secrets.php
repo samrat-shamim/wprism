@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Secret guard (DESIGN.md 3.1 "Secret guard"; finding #6's minor rider:
@@ -8,16 +8,16 @@ namespace Duo;
  *
  *   - hard_match(): high-confidence vendor token shapes. A hit is a fact, not
  *     a guess — this is what ABORTS capture (Capture's authored-value guard)
- *     and what `wp duo classify --set ...=authored` refuses by default.
+ *     and what `wp wprism classify --set ...=authored` refuses by default.
  *   - suspicious(): key-name-plus-shape heuristic. A weak signal only — never
- *     blocks anything by itself; it exists purely to put a flag on `wp duo
+ *     blocks anything by itself; it exists purely to put a flag on `wp wprism
  *     pending` items so a human looks twice.
  *
- * Scope boundary (DUO-3232, stated explicitly rather than left an implicit
+ * Scope boundary (issue #3232, stated explicitly rather than left an implicit
  * gap): this class only ever scans values Capture pulls OUT of a live
  * WordPress environment on their way INTO the repo — it has no call site
- * anywhere that reads `.duo-env-values.json`, the gitignored target-local
- * intended-value authority written by `wp duo env-set`. That file is never
+ * anywhere that reads `.wprism-env-values.json`, the gitignored target-local
+ * intended-value authority written by `wp wprism env-set`. That file is never
  * captured, so a value living in it is never on a path this class inspects.
  * Its secrecy is guarded by owner-only permissions plus
  * cli/src/Onboarding/Doctor.php's git-tracked hygiene check and
@@ -49,7 +49,7 @@ final class Secrets {
         // library carries in its format check (`if (!pem.includes("-----BEGIN
         // PRIVATE KEY-----")) throw …`) and it sits inside bundled JavaScript
         // shipped by published plugins (Yoast SEO's aiFrontend.js); matching
-        // the marker alone refused `duo init` on every such site (T7 grind A4)
+        // the marker alone refused `wprism init` on every such site (T7 grind A4)
         // without a single key byte present.
         // Key material may follow a real newline, an escaped `\n` (a PEM
         // inside a JSON/JS string), or nothing at all.
@@ -86,7 +86,7 @@ final class Secrets {
      * the shape of one (>=16 chars, mixed character classes — "mixed" here
      * means at least two of {lowercase, uppercase, digit, other} are
      * present, which a plain word or sentence rarely satisfies but a
-     * generated token almost always does). Used only to flag `wp duo
+     * generated token almost always does). Used only to flag `wp wprism
      * pending` items for human triage — never to block by itself.
      */
     public static function suspicious(string $key, string $v): bool {
@@ -107,7 +107,7 @@ final class Secrets {
     /**
      * Recursive hard_match(): walk an array to any depth and hard_match()
      * every string leaf, short-circuiting on the first hit (returns that
-     * label). DUO-3214 — added for callers that hold a VALUE of unknown
+     * label). issue #3214 — added for callers that hold a VALUE of unknown
      * shape (Snapshot.php's typed-snapshot capture: a table column or
      * attached-meta value that may itself be a decoded array, not just a
      * scalar) and need the same "no secret anywhere inside this" guarantee

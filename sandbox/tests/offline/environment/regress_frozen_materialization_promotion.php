@@ -1,34 +1,34 @@
 <?php
-// DUO-3324: materialization promotes one frozen artifact/owner/checkpoint.
+// issue #3324: materialization promotes one frozen artifact/owner/checkpoint.
 declare(strict_types=1);
 
 /**
  * Load the public host shell without entering its executable main() block.
  * This keeps the fixture on the same callable contract as env materialize.
  */
-$duoSource = file_get_contents(__DIR__ . '/../../../../cli/duo');
-if (!is_string($duoSource)) {
-    fwrite(STDERR, "FAIL: could not read public duo shell\n");
+$wprismSource = file_get_contents(__DIR__ . '/../../../../cli/wprism');
+if (!is_string($wprismSource)) {
+    fwrite(STDERR, "FAIL: could not read public wprism shell\n");
     exit(1);
 }
-$duoMain = "\ntry {\n    exit(main(\$argv));";
-$duoAt = strpos($duoSource, $duoMain);
-if ($duoAt === false) {
-    fwrite(STDERR, "FAIL: public duo shell main guard moved\n");
+$wprismMain = "\ntry {\n    exit(main(\$argv));";
+$wprismAt = strpos($wprismSource, $wprismMain);
+if ($wprismAt === false) {
+    fwrite(STDERR, "FAIL: public wprism shell main guard moved\n");
     exit(1);
 }
-$duoPhp = strpos($duoSource, '<?php');
-if ($duoPhp === false || $duoPhp > $duoAt) {
-    fwrite(STDERR, "FAIL: public duo shell PHP prologue moved\n");
+$wprismPhp = strpos($wprismSource, '<?php');
+if ($wprismPhp === false || $wprismPhp > $wprismAt) {
+    fwrite(STDERR, "FAIL: public wprism shell PHP prologue moved\n");
     exit(1);
 }
-$duoSource = substr($duoSource, $duoPhp + 5, $duoAt - ($duoPhp + 5)); // strip shebang and `<?php`
-$duoSource = str_replace('__DIR__', var_export(dirname(__DIR__, 4) . '/cli', true), $duoSource);
-eval($duoSource);
+$wprismSource = substr($wprismSource, $wprismPhp + 5, $wprismAt - ($wprismPhp + 5)); // strip shebang and `<?php`
+$wprismSource = str_replace('__DIR__', var_export(dirname(__DIR__, 4) . '/cli', true), $wprismSource);
+eval($wprismSource);
 
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
 
 function fmp_fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -42,16 +42,16 @@ function fmp_ok(bool $condition, string $message): void {
 
 /** @param array<int,string> $args */
 function fmp_wp_verb(array $args): string {
-    $duoAt = array_search('duo', $args, true);
-    if (is_int($duoAt)) {
-        return (string) ($args[$duoAt + 1] ?? '');
+    $wprismAt = array_search('wprism', $args, true);
+    if (is_int($wprismAt)) {
+        return (string) ($args[$wprismAt + 1] ?? '');
     }
     return (string) ($args[1] ?? '');
 }
 
 /**
- * One complete `wp duo plan --format=json` envelope, spelled out the way the
- * agent emits it. Reconciliation only trusts a complete envelope (DUO-3384),
+ * One complete `wp wprism plan --format=json` envelope, spelled out the way the
+ * agent emits it. Reconciliation only trusts a complete envelope (issue #3384),
  * so a fixture that stops at the buckets it cares about would be refused
  * before render() ever sees it — the contract's own suite,
  * regress_plan_contract_trust.php, owns the incomplete cases.
@@ -98,7 +98,7 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
             $start = strrpos($script, $marker);
             if ($start === false) return $this->fail('malformed PHP hash fixture');
             $path = substr($script, $start + strlen($marker), -1);
-            if (str_contains($path, '/.duo/artifacts/')) {
+            if (str_contains($path, '/.wprism/artifacts/')) {
                 return $this->ok(($this->artifactHash !== '' ? $this->artifactHash : hash('sha256', 'frozen-artifact')) . "\n");
             }
             if (!isset($this->files[$path])) return $this->fail('missing file');
@@ -156,7 +156,7 @@ final class FrozenPromotionDriver implements EnvironmentDriver {
         }
         if ($verb === 'code-preflight') {
             return $this->ok(json_encode([
-                'format' => 'duo-code-runtime/v1',
+                'format' => 'wprism-code-runtime/v1',
                 'enabled' => true,
                 'change_required' => true,
                 'compatible' => true,
@@ -252,22 +252,22 @@ $summary = [
 $operation = '20260809-123456-' . str_repeat('a', 24);
 $context = [
     'operation_id' => $operation,
-    'promotion_owner' => 'duo-env-promotion-' . $operation,
-    'artifact_path' => '/target/repo/.duo/artifacts/materialize-' . $operation . '.json',
-    'checkpoint_path' => '/target/repo/.duo/checkpoints/materialize-' . $operation . '.sql.enc',
+    'promotion_owner' => 'wprism-env-promotion-' . $operation,
+    'artifact_path' => '/target/repo/.wprism/artifacts/materialize-' . $operation . '.json',
+    'checkpoint_path' => '/target/repo/.wprism/checkpoints/materialize-' . $operation . '.sql.enc',
     'compiled_summary' => $summary,
 ];
 
-// DUO-3525 — the materialize branch of print_promotion_recovery().
+// issue #3525 — the materialize branch of print_promotion_recovery().
 //
 // A frozen materialization's checkpoint is `materialize-<operation_id>.sql.enc`
-// (cli/duo:2632), and `RetainedCheckpoints::ID_PREFIXES` is a CLOSED set of
+// (cli/wprism:2632), and `RetainedCheckpoints::ID_PREFIXES` is a CLOSED set of
 // `promote-` / `deploy-` (cli/src/Recovery/RetainedCheckpoints.php:88-100)
-// that excludes it on purpose, so `duo recover --restore=<id>` would refuse
+// that excludes it on purpose, so `wprism recover --restore=<id>` would refuse
 // this id. A post-checkpoint failure here must therefore print a NAMED
 // REFUSAL identifying the required operator authority — never that verb, and
 // never the raw abort/begin/import/abort recipe the product stopped emitting
-// (regress_mup_leak_audit.sh part (c) forbids it in every guide; DUO-3525
+// (regress_mup_leak_audit.sh part (c) forbids it in every guide; issue #3525
 // removed the product's own copy).
 //
 // The guidance is written with fwrite(STDERR, ...), which no in-process
@@ -297,16 +297,16 @@ fmp_ok(
 fmp_ok(
     str_contains(
         $recoveryView,
-        'this checkpoint is not a retained release checkpoint, so no duo verb restores it; '
+        'this checkpoint is not a retained release checkpoint, so no wprism verb restores it; '
             . "recovery requires the operator authority that owns this target's database backups."
     ),
     'a materialize checkpoint gets the named operator-authority refusal, not a verb'
 );
 fmp_ok(
-    !str_contains($recoveryView, 'duo recover '),
-    'the refusal names no duo recover command for a checkpoint that verb cannot list'
+    !str_contains($recoveryView, 'wprism recover '),
+    'the refusal names no wprism recover command for a checkpoint that verb cannot list'
 );
-foreach (['wp duo promotion-abort', 'wp duo promotion-begin', 'wp db import', 'rollback-control.php'] as $retired) {
+foreach (['wp wprism promotion-abort', 'wp wprism promotion-begin', 'wp db import', 'rollback-control.php'] as $retired) {
     fmp_ok(
         !str_contains($recoveryView, $retired),
         "the failure view publishes no retired raw-recovery step ($retired)"
@@ -377,11 +377,11 @@ try {
     cmd_promote_frozen(new FrozenPromotionDriver('/target/repo'), $outside);
     fmp_fail('out-of-scope artifact path was accepted');
 } catch (InvalidArgumentException $e) {
-    echo "ok: frozen promotion rejects paths outside target /.duo\n";
+    echo "ok: frozen promotion rejects paths outside target /.wprism\n";
 }
 
 $nonCanonical = $context;
-$nonCanonical['artifact_path'] = '/target/repo/.duo/artifacts/other.json';
+$nonCanonical['artifact_path'] = '/target/repo/.wprism/artifacts/other.json';
 try {
     cmd_promote_frozen(new FrozenPromotionDriver('/target/repo'), $nonCanonical);
     fmp_fail('non-canonical artifact path was accepted');

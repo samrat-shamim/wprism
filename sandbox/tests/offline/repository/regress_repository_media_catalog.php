@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for RepositoryMediaCatalog (DUO-3348 slice 31).
+ * Offline regression for RepositoryMediaCatalog (issue #3348 slice 31).
  *
  * The catalog is deliberately a compiler-independent filesystem boundary:
  * it validates attachment references and the immutable media/ partition,
@@ -10,14 +10,14 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryMediaCatalog.php';
 
-use Duo\RepositoryMediaCatalog;
-use Duo\MediaPayloadAuthority;
+use WPrism\RepositoryMediaCatalog;
+use WPrism\MediaPayloadAuthority;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -27,7 +27,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
     }
 };
 
-$tmp = sys_get_temp_dir() . '/duo-repository-media-catalog-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-repository-media-catalog-' . bin2hex(random_bytes(6));
 if (!mkdir($tmp, 0777, true) && !is_dir($tmp)) {
     throw new RuntimeException("could not create $tmp");
 }
@@ -43,7 +43,7 @@ register_shutdown_function(static function () use ($tmp): void {
 });
 
 $check(
-    class_exists(\Duo\Canon::class, false) && !class_exists(\Duo\RepositoryCompiler::class, false),
+    class_exists(\WPrism\Canon::class, false) && !class_exists(\WPrism\RepositoryCompiler::class, false),
     'RepositoryMediaCatalog directly loads only its canonical filesystem dependency, not RepositoryCompiler'
 );
 

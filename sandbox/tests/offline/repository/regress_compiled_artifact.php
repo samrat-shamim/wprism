@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for CompiledArtifact.php (DUO-3348 slice 2: the
+ * Offline regression for CompiledArtifact.php (issue #3348 slice 2: the
  * CompiledRepository/RepositoryCompilationException value objects, moved out
  * of RepositoryCompiler.php into their own file). Pure file relocation, no
  * logic change — existing suites (regress_repository_compiler.sh,
@@ -20,8 +20,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/CompiledArtifact.php';
 
-use Duo\CompiledRepository;
-use Duo\RepositoryCompilationException;
+use WPrism\CompiledRepository;
+use WPrism\RepositoryCompilationException;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -66,7 +66,7 @@ $check(
         && $mediaCompiled->media_content($mediaName) === $mediaBytes,
     'media_content(): decodes an exact canonical payload and accounts each immutable blob only once'
 );
-$mediaTmp = tempnam(sys_get_temp_dir(), 'duo-compiled-artifact-media-');
+$mediaTmp = tempnam(sys_get_temp_dir(), 'wprism-compiled-artifact-media-');
 $mediaCompiled->write($mediaTmp);
 $mediaWritten = CompiledRepository::from_array(json_decode(file_get_contents($mediaTmp), true));
 $check(
@@ -118,7 +118,7 @@ $check(
 );
 unset($largeMediaBytes, $largeMediaBase64, $largeMediaPayload, $largeMediaCompiled, $largeMediaRoundTrip);
 
-$externalDirectory = sys_get_temp_dir() . '/duo-external-media-' . bin2hex(random_bytes(6));
+$externalDirectory = sys_get_temp_dir() . '/wprism-external-media-' . bin2hex(random_bytes(6));
 mkdir($externalDirectory, 0700);
 $externalBytes = str_repeat('large-video-chunk-', 530000);
 $externalHash = hash('sha256', $externalBytes);
@@ -144,7 +144,7 @@ $externalPayload['media'] = [$externalName => [
 $externalCompiled = CompiledRepository::create($externalPayload, $externalDirectory);
 $check(
     !array_key_exists('base64', $externalCompiled->export()['media'][$externalName])
-        && strlen(\Duo\Canon::encode($externalCompiled->export())) < 16384,
+        && strlen(\WPrism\Canon::encode($externalCompiled->export())) < 16384,
     'a media payload above the inline frontier is an external content-addressed artifact reference'
 );
 $externalOutput = fopen('php://temp', 'w+b');
@@ -197,7 +197,7 @@ $roundTripped = CompiledRepository::from_array($exported);
 $check($roundTripped->artifact_hash() === $compiled->artifact_hash(), 'from_array(): round-trips the exact same artifact_hash');
 $check($roundTripped->tree() === $compiled->tree(), 'from_array(): round-trips the exact same tree');
 
-$tmp = tempnam(sys_get_temp_dir(), 'duo-compiled-artifact-test-');
+$tmp = tempnam(sys_get_temp_dir(), 'wprism-compiled-artifact-test-');
 $compiled->write($tmp);
 $writtenRoundTrip = CompiledRepository::from_array(json_decode(file_get_contents($tmp), true));
 $check($writtenRoundTrip->artifact_hash() === $compiled->artifact_hash(), 'write(): file round-trips through from_array() with the same hash');

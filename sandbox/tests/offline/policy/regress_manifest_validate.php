@@ -1,19 +1,19 @@
 <?php
 /**
- * Offline (no docker, no WordPress bootstrap) regression harness for DUO-3327:
- * `duo manifest-validate`, the adapter author's offline grammar check, and the
+ * Offline (no docker, no WordPress bootstrap) regression harness for issue #3327:
+ * `wprism manifest-validate`, the adapter author's offline grammar check, and the
  * grammar document it emits.
  *
  * Nothing is faked. Every check below runs the REAL host CLI as a subprocess —
- * `php cli/duo manifest-validate …` — against REAL manifest fixture files this
+ * `php cli/wprism manifest-validate …` — against REAL manifest fixture files this
  * test writes to a scratch directory, and reads the real exit code and the real
  * stdout/stderr. That is the whole point: the command is WordPress-free by
- * construction (cli/duo is dependency-free PHP and the validators it drives are
+ * construction (cli/wprism is dependency-free PHP and the validators it drives are
  * the pure half of Policy::load(), the same half regress_adapter_contract.php
  * and regress_vocabulary_ownership.php already exercise in-process), so the
  * honest way to test it is to run it, not to reimplement its wiring.
  *
- * The fixtures are the two adapters DUO-3318 established, imported from
+ * The fixtures are the two adapters issue #3318 established, imported from
  * sandbox/tests/offline/policy/manifest_fixtures.php rather than copied — see that file's
  * header. Every invalid case below is one of those adapters broken in exactly
  * one way, which is what makes "the message names the precise path" a
@@ -49,26 +49,26 @@
 
 $repo = dirname(__DIR__, 4);
 
-// The command resolves DUO_SPEC_VERSION out of agent/duo.php's own source
+// The command resolves WPRISM_SPEC_VERSION out of agent/wprism.php's own source
 // (scripts/capability-registry.php's established header). Read it the same way
 // here so the fixtures below declare the version the engine actually supports,
 // and so the emitted document's claim can be checked against the shipped
 // constant rather than against a number this file made up.
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($repo . '/agent/duo.php'), $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($repo . '/agent/wprism.php'), $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_SPEC_VERSION', (int) $m[1]);
+define('WPRISM_SPEC_VERSION', (int) $m[1]);
 
 require $repo . '/agent/src/Kernel/Canon.php';
 require $repo . '/agent/src/Kernel/OptionState.php';
 require $repo . '/agent/src/Policy/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
-use Duo\Canon;
-use Duo\AdapterLibrary;
-use Duo\NativeActions;
-use Duo\Policy;
+use WPrism\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\NativeActions;
+use WPrism\Policy;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -87,9 +87,9 @@ function check(bool $cond, string $msg): void {
  * @param list<string> $args
  * @return array{exit:int, stdout:string, stderr:string}
  */
-function duo(array $args): array {
+function wprism(array $args): array {
     global $repo;
-    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/duo') . ' manifest-validate';
+    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/wprism') . ' manifest-validate';
     foreach ($args as $arg) {
         $cmd .= ' ' . escapeshellarg($arg);
     }
@@ -108,7 +108,7 @@ function duo(array $args): array {
 /** Fresh scratch source adapter library for one check; auto-removed at exit. */
 function fixtures(array $files): string {
     global $repo;
-    $root = sys_get_temp_dir() . '/duo_regress_manifest_validate_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_manifest_validate_' . bin2hex(random_bytes(4));
     mkdir($root . '/adapter-packages', 0777, true);
     mkdir($root . '/platform/adapter-library/capabilities', 0777, true);
     mkdir($root . '/platform/adapter-library/core', 0777, true);
@@ -142,7 +142,7 @@ function fixtures(array $files): string {
             $class = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $manifest['interpreter'])));
             file_put_contents(
                 $interpreters . '/' . $manifest['interpreter'] . '.php',
-                "<?php\nnamespace Duo\\Interpreters;\nfinal class $class {\n"
+                "<?php\nnamespace WPrism\\Interpreters;\nfinal class $class {\n"
                     . "    public function __construct(private object \$policy) {}\n"
                     . "    public function post_meta_rule(string \$key, array \$allMeta): ?array { return null; }\n"
                     . "}\n"
@@ -214,7 +214,7 @@ function package_payload(string $root, string $name): string {
 
 /** Materialize the strict compatibility shape for one explicit historical-flat check. */
 function legacy_fixture(string $sourceRoot): string {
-    $root = sys_get_temp_dir() . '/duo_regress_manifest_validate_legacy_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_manifest_validate_legacy_' . bin2hex(random_bytes(4));
     foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $directory) {
         mkdir("$root/$directory", 0777, true);
     }
@@ -262,21 +262,21 @@ function remove_fixture_tree(string $root): void {
 /**
  * Fresh scratch SITE repo for one check; auto-removed at exit.
  *
- * The minimum a duo site repo is: a `site.duo.json` carrying its pins and its
+ * The minimum a wprism site repo is: a `site.wprism.json` carrying its pins and its
  * policy. `--site` is validated against exactly that file's presence, and
  * Policy::load() validates the policy half of it the same way it validates a
  * manifest — so a malformed one here would surface as an ordinary refusal.
  */
 function site_repo(array $policy, array $manifests = []): string {
-    $root = sys_get_temp_dir() . '/duo_regress_manifest_validate_site_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_manifest_validate_site_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
-    Canon::write_file("$root/site.duo.json", Canon::encode([
+    Canon::write_file("$root/site.wprism.json", Canon::encode([
         'manifests' => $manifests,
         'policy' => $policy === [] ? new \stdClass() : $policy,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     register_shutdown_function(function () use ($root) {
-        @unlink("$root/site.duo.json");
+        @unlink("$root/site.wprism.json");
         @rmdir($root);
     });
     return (string) realpath($root);
@@ -286,7 +286,7 @@ function site_repo(array $policy, array $manifests = []): string {
  * Adapter B with the parent room table folded into it, so the manifest stands
  * on its own.
  *
- * DUO-3318 splits those two tables across two adapters deliberately: its whole
+ * issue #3318 splits those two tables across two adapters deliberately: its whole
  * subject is what one adapter may say about another's entities, and B's ref
  * into A's keyspace is the point. Every check in the two groups below is about
  * ONE manifest's own grammar, and a per-manifest verdict is by design an
@@ -340,7 +340,7 @@ function report(array $result): array {
  */
 function refuses(array $b, string $needle, string $msg): string {
     $dir = fixtures(['b' => $b]);
-    $result = duo([$dir, '--format=json']);
+    $result = wprism([$dir, '--format=json']);
     $report = report($result);
     $row = row($report, 'b');
     $message = (string) ($row['message'] ?? '');
@@ -357,7 +357,7 @@ function refuses(array $b, string $needle, string $msg): string {
 /** A malformed package identity/runtime declaration refuses before row validation. */
 function refuses_library(array $b, string $needle, string $msg): void {
     $dir = fixtures(['b' => $b]);
-    $result = duo([$dir, '--format=json']);
+    $result = wprism([$dir, '--format=json']);
     check(
         $result['exit'] === 2 && str_contains($result['stderr'], $needle) && $result['stdout'] === '',
         "$msg (exit {$result['exit']}, stderr: " . trim($result['stderr']) . ')'
@@ -367,7 +367,7 @@ function refuses_library(array $b, string $needle, string $msg): void {
 /** The same fixture, well-formed: exit 0, and the manifest's own row ok. */
 function accepts(array $b, string $msg): void {
     $dir = fixtures(['b' => $b]);
-    $result = duo([$dir, '--format=json']);
+    $result = wprism([$dir, '--format=json']);
     $report = report($result);
     check(
         $result['exit'] === 0
@@ -478,17 +478,17 @@ refuses(
 // ======================================================================
 echo "\n== the real-world smoke: every SHIPPED manifest validates through the command ==\n";
 
-$shipped = duo([$repo, '--format=json']);
+$shipped = wprism([$repo, '--format=json']);
 $shippedReport = report($shipped);
 check($shipped['exit'] === 0, "the repository's own adapter source tree validates clean (exit {$shipped['exit']})");
 check(
-    ($shippedReport['format'] ?? null) === 'duo-manifest-validation/v1'
+    ($shippedReport['format'] ?? null) === 'wprism-manifest-validation/v1'
         && ($shippedReport['status'] ?? null) === 'ok',
     'the JSON report carries its versioned envelope and an overall verdict'
 );
 check(
-    ($shippedReport['spec_version'] ?? null) === DUO_SPEC_VERSION,
-    'the report states the spec version it validated against, resolved from agent/duo.php rather than defaulted'
+    ($shippedReport['spec_version'] ?? null) === WPRISM_SPEC_VERSION,
+    'the report states the spec version it validated against, resolved from agent/wprism.php rather than defaulted'
 );
 $shippedNames = array_column($shippedReport['manifests'] ?? [], 'name');
 check(
@@ -527,7 +527,7 @@ check(
 // it is `ManifestDispositions::claim_from_disposition()` that expands
 // `post_types` into `post_types.<key>` from the manifest's own keys, which is
 // exactly the step a whole-type declaration could silently lose.
-$cf7Claim = \Duo\ManifestDispositions::claim_from_disposition(
+$cf7Claim = \WPrism\ManifestDispositions::claim_from_disposition(
     $cf7Manifest,
     $cf7Disposition,
     $cf7Disposition['evidence'] ?? [],
@@ -557,7 +557,7 @@ check(
     'each row carries the real file path of the manifest it judged'
 );
 
-$shippedText = duo([$repo]);
+$shippedText = wprism([$repo]);
 check(
     $shippedText['exit'] === 0
         && str_contains($shippedText['stdout'], 'per manifest')
@@ -573,7 +573,7 @@ $smokeSite = site_repo(
     ['options' => ['blogname' => ['class' => 'authored', 'autoload' => 'yes']]],
     ['core', 'woocommerce']
 );
-$shippedWithSite = duo([$repo, '--site=' . $smokeSite, '--format=json']);
+$shippedWithSite = wprism([$repo, '--site=' . $smokeSite, '--format=json']);
 $withSiteReport = report($shippedWithSite);
 check(
     $shippedWithSite['exit'] === 0
@@ -589,7 +589,7 @@ check(
 // production fallback and no loose directory-of-JSON interpretation.
 $legacySource = fixtures(['b' => solo_b()]);
 $legacy = legacy_fixture($legacySource);
-$legacyRun = duo([$legacy, '--manifest=b', '--pins=b,core', '--format=json']);
+$legacyRun = wprism([$legacy, '--manifest=b', '--pins=b,core', '--format=json']);
 $legacyReport = report($legacyRun);
 check(
     $legacyRun['exit'] === 0
@@ -601,9 +601,9 @@ check(
 // ======================================================================
 echo "\n== acceptance 1: invalid keys, shapes, ranges, exclusivity, action names, provider declarations ==\n";
 
-// --- adapter IDENTITY (DUO-3371)
+// --- adapter IDENTITY (issue #3371)
 // The source tree this command is pointed at is a SHIPPED library by every
-// definition the engine has, so the file-name/declared-name rule DUO-3314 gave
+// definition the engine has, so the file-name/declared-name rule issue #3314 gave
 // the site source applies here too — and reaches this command for free, because
 // nothing in it reimplements a validator: the refusal below is the one
 // Policy::load() throws, verbatim, so the authoring surface and the load-time
@@ -647,7 +647,7 @@ refuses(
     'providers[0] must declare exactly capabilities, id, plugin, source, version',
     'an extra provider key is refused, naming the exact declaration index'
 );
-// DUO-3317: the optional `requires` grammar, refused at the same coordinate.
+// issue #3317: the optional `requires` grammar, refused at the same coordinate.
 refuses(
     solo_b(['providers' => [[
         'id' => 'acme-b-cache', 'version' => '1.0.0', 'source' => 'manifest',
@@ -982,7 +982,7 @@ $shadowTable = manifest_b(['tables' => manifest_b()['tables'] + ['acme_a_rooms' 
     ['slug_column' => 'room_label', 'columns' => ['room_code' => ['class' => 'authored'], 'room_label' => ['class' => 'authored']]]
 )]]);
 $dir = fixtures(['a' => manifest_a(), 'b' => $shadowTable]);
-$result = duo([$dir, '--format=json']);
+$result = wprism([$dir, '--format=json']);
 $report = report($result);
 check(
     (row($report, 'a')['status'] ?? null) === 'ok' && (row($report, 'b')['status'] ?? null) === 'ok',
@@ -1003,7 +1003,7 @@ check(
     ],
     'the pin-set row carries the file path of every co-loaded manifest — a cross-manifest refusal names manifests, so the row has to be what resolves those names to files'
 );
-$pinnedText = duo([$dir]);
+$pinnedText = wprism([$dir]);
 check(
     str_contains($pinnedText['stdout'], '- a: ' . package_payload($dir, 'a') . '/manifest.json')
         && str_contains($pinnedText['stdout'], '- b: ' . package_payload($dir, 'b') . '/manifest.json')
@@ -1015,7 +1015,7 @@ $needsPin = manifest_b(['options' => ['acme_b_ref' => [
     'class' => 'authored', 'autoload' => 'yes', 'ref' => 'acme_room',
 ]]]);
 $dir = fixtures(['a' => manifest_a(), 'b' => $needsPin]);
-$result = duo([$dir, '--format=json']);
+$result = wprism([$dir, '--format=json']);
 $report = report($result);
 check(
     (row($report, 'b')['status'] ?? null) === 'error'
@@ -1028,27 +1028,27 @@ check(
     'and it is still a FAILING run (exit 1): the note explains the refusal, it does not withdraw it — the manifest genuinely does not stand alone'
 );
 
-$report = report(duo([$dir, '--manifest=a', '--pins=a,b', '--format=json']));
+$report = report(wprism([$dir, '--manifest=a', '--pins=a,b', '--format=json']));
 check(
     count($report['manifests'] ?? []) === 1 && (row($report, 'a')['status'] ?? null) === 'ok'
         && ($report['pinned_set']['names'] ?? null) === ['a', 'b'],
     '--manifest narrows what is checked individually while --pins independently chooses the co-loaded set'
 );
-$report = report(duo([$dir, '--all', '--format=json']));
+$report = report(wprism([$dir, '--all', '--format=json']));
 check(
     ($report['pinned_set']['names'] ?? null) === ['a', 'b', 'core'],
     '--all is the explicit spelling of the default pin set'
 );
 
 // ======================================================================
-echo "\n== the site half: two guards read site.duo.json as INPUT, so --site changes the verdict ==\n";
+echo "\n== the site half: two guards read site.wprism.json as INPUT, so --site changes the verdict ==\n";
 
 // Loading with a null repo does not merely check LESS. Two guards take the
 // site's own policy as input, so without it they can refuse a manifest that is
 // correct on its real site — and the second one's remediation is advice to add
 // an override the author already has. Both scenarios below are asserted in BOTH
 // directions: refused-with-annotation without --site, accepted with it.
-const SITE_NOTE = 'note: this refusal can be resolved by a site.duo.json this offline check was not given — '
+const SITE_NOTE = 'note: this refusal can be resolved by a site.wprism.json this offline check was not given — '
     . 're-run with --site=<repo> to validate against the real site policy';
 
 // --- scenario 1: a ref kind the SITE declares by declaring a table.
@@ -1066,7 +1066,7 @@ $site = site_repo(['tables' => ['site_rooms' => [
     'identity' => ['mode' => 'natural_key', 'column' => 'room_code'],
 ]]], ['b']);
 
-$result = duo([$dir, '--format=json']);
+$result = wprism([$dir, '--format=json']);
 $report = report($result);
 $row = row($report, 'b');
 check(
@@ -1087,7 +1087,7 @@ check(
     'a no-site run reports site=null rather than omitting the field, so a consumer can tell "no site" from "old format"'
 );
 
-$result = duo([$dir, '--site=' . $site, '--format=json']);
+$result = wprism([$dir, '--site=' . $site, '--format=json']);
 $report = report($result);
 $row = row($report, 'b');
 check(
@@ -1111,7 +1111,7 @@ $dir = fixtures([
 ]);
 $site = site_repo(['options' => ['acme_shared' => ['class' => 'authored', 'autoload' => 'yes']]], ['a', 'b']);
 
-$result = duo([$dir, '--format=json']);
+$result = wprism([$dir, '--format=json']);
 $report = report($result);
 $pinnedRow = $report['pinned_set'] ?? [];
 check(
@@ -1124,39 +1124,39 @@ check(
     'and the PIN-SET row carries the annotation too — this class of refusal never appears on a per-manifest row'
 );
 check(
-    str_contains((string) ($pinnedRow['message'] ?? ''), 'Add an explicit site.duo.json policy.options.acme_shared override'),
+    str_contains((string) ($pinnedRow['message'] ?? ''), 'Add an explicit site.wprism.json policy.options.acme_shared override'),
     "the engine's remediation is printed verbatim, which is precisely why the note is needed: on the real site that override already exists"
 );
-$text = duo([$dir]);
+$text = wprism([$dir]);
 check(
     str_contains($text['stdout'], SITE_NOTE) && str_contains($text['stdout'], '(none — site policy is NOT part of this check'),
     'text mode prints the annotation and says up front that no site policy was read — the human-facing output is not the quieter one'
 );
 
-$result = duo([$dir, '--site=' . $site, '--format=json']);
+$result = wprism([$dir, '--site=' . $site, '--format=json']);
 $report = report($result);
 check(
     $result['exit'] === 0 && ($report['pinned_set']['status'] ?? null) === 'ok',
     'with --site, the site rule resolves the option and the pin set loads clean'
 );
 check(
-    in_array('site.duo.json policy.tables / policy.options', array_column($report['deferred'] ?? [], 'surface'), true),
+    in_array('site.wprism.json policy.tables / policy.options', array_column($report['deferred'] ?? [], 'surface'), true),
     'the site-policy half is a PERMANENT row in the always-emitted deferred list — present even on a --site run, because that list states the boundary of the check, never the outcome of one'
 );
 
-// --- a malformed site.duo.json is ONE usage-level refusal, not a verdict about
+// --- a malformed site.wprism.json is ONE usage-level refusal, not a verdict about
 // anybody's manifest. Every phase loads that same file, so without a pre-flight
 // the site's single refusal is repeated once per manifest plus once for the pin
 // set — sixteen "your manifest is broken" rows for one broken line that is in
 // none of them.
 $badSite = site_repo(['tables' => ['site_rooms' => ['class' => 'not_a_class']]], ['a', 'b']);
-$result = duo([$repo, '--site=' . $badSite]);
+$result = wprism([$repo, '--site=' . $badSite]);
 check(
     $result['exit'] === 2
-        && str_starts_with($result['stderr'], 'duo: manifest-validate: ')
-        && str_contains($result['stderr'], 'site.duo.json this command cannot load')
-        && str_contains($result['stderr'], "table 'site_rooms' (declared by site.duo.json)"),
-    'a malformed site.duo.json is refused ONCE, as a usage error naming site.duo.json and carrying the engine\'s own reason'
+        && str_starts_with($result['stderr'], 'wprism: manifest-validate: ')
+        && str_contains($result['stderr'], 'site.wprism.json this command cannot load')
+        && str_contains($result['stderr'], "table 'site_rooms' (declared by site.wprism.json)"),
+    'a malformed site.wprism.json is refused ONCE, as a usage error naming site.wprism.json and carrying the engine\'s own reason'
 );
 check(
     $result['stdout'] === '' && substr_count($result['stderr'], 'not_a_class') === 1,
@@ -1170,16 +1170,16 @@ check(
 $dir = fixtures(['a' => manifest_a()]);
 Canon::write_file(
     package_payload($dir, 'a') . '/disposition.json',
-    Canon::encode(['format' => 'duo-dispositions/v1'])
+    Canon::encode(['format' => 'wprism-dispositions/v1'])
 );
 $goodSite = site_repo(['tables' => new \stdClass()], ['a']);
-$result = duo([$dir, '--site=' . $goodSite, '--format=json']);
+$result = wprism([$dir, '--site=' . $goodSite, '--format=json']);
 $badDispositionReport = report($result);
 check(
     $result['exit'] === 1
         && $result['stderr'] === ''
         && str_contains((string) (row($badDispositionReport, 'a')['message'] ?? ''), "manifest disposition 'a'"),
-    'a broken package disposition is reported on its adapter row — the --site headline is reserved for defects the engine attributes to site.duo.json'
+    'a broken package disposition is reported on its adapter row — the --site headline is reserved for defects the engine attributes to site.wprism.json'
 );
 
 // ======================================================================
@@ -1191,7 +1191,7 @@ echo "\n== the code half a manifest NAMES: interpreters and regenerators are res
 // Both resolutions are pure file-system + class-contract questions about the
 // very directory being checked, so both belong here.
 $dir = fixtures(['a' => manifest_a()]);
-$report = report(duo([$dir, '--format=json']));
+$report = report(wprism([$dir, '--format=json']));
 check(
     (row($report, 'a')['status'] ?? null) === 'ok',
     'a manifest whose declared regenerator file is present, and defines the contract class, still loads clean'
@@ -1199,48 +1199,48 @@ check(
 
 $regenerator = package_payload($dir, 'a') . '/runtime/regenerators/acme-a.php';
 unlink($regenerator);
-$result = duo([$dir, '--format=json']);
+$result = wprism([$dir, '--format=json']);
 check(
     $result['exit'] === 2
         && str_contains($result['stderr'], 'runtime coverage disagrees in regenerators; missing=[acme-a]'),
     'a declared regenerator with no file is a closed-package refusal before any manifest is judged'
 );
 
-file_put_contents($regenerator, "<?php\nnamespace Duo\\Regenerators;\nfinal class NotAcmeA {}\n");
-$result = duo([$dir, '--format=json']);
+file_put_contents($regenerator, "<?php\nnamespace WPrism\\Regenerators;\nfinal class NotAcmeA {}\n");
+$result = wprism([$dir, '--format=json']);
 $report = report($result);
 check(
     $result['exit'] === 1
-        && str_contains((string) (row($report, 'a')['message'] ?? ''), 'must define \\Duo\\Regenerators\\AcmeA with regenerate(int $localId): void'),
+        && str_contains((string) (row($report, 'a')['message'] ?? ''), 'must define \\WPrism\\Regenerators\\AcmeA with regenerate(int $localId): void'),
     'a regenerator file defining the wrong class is refused with the class-and-signature contract it had to satisfy'
 );
 
 $withInterpreter = fixtures(['b' => solo_b(['interpreter' => 'acme-int'])]);
 $interpreterDir = package_payload($withInterpreter, 'b') . '/runtime/interpreters';
 unlink("$interpreterDir/acme-int.php");
-$result = duo([$withInterpreter, '--format=json']);
+$result = wprism([$withInterpreter, '--format=json']);
 check(
     $result['exit'] === 2
         && str_contains($result['stderr'], 'runtime coverage disagrees in interpreters; missing=[acme-int]'),
     'the same for a declared interpreter with no file — refused by the closed package inventory'
 );
 
-file_put_contents("$interpreterDir/acme-int.php", "<?php\nnamespace Duo\\Interpreters;\nfinal class Wrong {}\n");
-$result = duo([$withInterpreter, '--format=json']);
+file_put_contents("$interpreterDir/acme-int.php", "<?php\nnamespace WPrism\\Interpreters;\nfinal class Wrong {}\n");
+$result = wprism([$withInterpreter, '--format=json']);
 $report = report($result);
 check(
     $result['exit'] === 1
-        && str_contains((string) (row($report, 'b')['message'] ?? ''), 'must define \\Duo\\Interpreters\\AcmeInt with post_meta_rule(string, array): ?array'),
+        && str_contains((string) (row($report, 'b')['message'] ?? ''), 'must define \\WPrism\\Interpreters\\AcmeInt with post_meta_rule(string, array): ?array'),
     'an interpreter file defining the wrong class is refused with the contract it had to satisfy'
 );
 
 file_put_contents(
     "$interpreterDir/acme-int.php",
-    "<?php\nnamespace Duo\\Interpreters;\nfinal class AcmeInt {\n"
+    "<?php\nnamespace WPrism\\Interpreters;\nfinal class AcmeInt {\n"
         . "    public function __construct(private object \$policy) {}\n"
         . "    public function post_meta_rule(string \$key, array \$allMeta): ?array { return null; }\n}\n"
 );
-$result = duo([$withInterpreter, '--format=json']);
+$result = wprism([$withInterpreter, '--format=json']);
 check(
     $result['exit'] === 0,
     'and a correct one loads — the check is the real loading contract, not a file-exists proxy for it'
@@ -1261,7 +1261,7 @@ $marker = $evilDir . '/EVIL_RAN';
 $evilInterpreterDir = package_payload($evilDir, 'b') . '/runtime/interpreters';
 file_put_contents(
     "$evilInterpreterDir/acme-evil.php",
-    "<?php\nnamespace Duo\\Interpreters;\n"
+    "<?php\nnamespace WPrism\\Interpreters;\n"
         . "file_put_contents('" . $marker . "', 'top level ran');\n"
         . "final class AcmeEvil {\n"
         . "    public function __construct(private object \$policy) {}\n"
@@ -1272,14 +1272,14 @@ register_shutdown_function(static function () use ($marker) {
 });
 
 @unlink($marker);
-$result = duo([$evilDir, '--format=json']);
+$result = wprism([$evilDir, '--format=json']);
 check(
     $result['exit'] === 0 && is_file($marker),
     'DEFAULT mode really does execute a declared interpreter file — the marker it writes from its own top level is on disk, which is why the trust boundary is documented rather than assumed'
 );
 
 @unlink($marker);
-$result = duo([$evilDir, '--no-code', '--format=json']);
+$result = wprism([$evilDir, '--no-code', '--format=json']);
 $report = report($result);
 check(
     !is_file($marker),
@@ -1307,7 +1307,7 @@ check(
     'naming the two engine symbols that were not run, in the same shape as every other row'
 );
 
-$noCodeText = duo([$evilDir, '--no-code']);
+$noCodeText = wprism([$evilDir, '--no-code']);
 check(
     str_contains($noCodeText['stdout'], 'manifest code: --no-code')
         && str_contains($noCodeText['stdout'], 'declared interpreter/regenerator PHP was not loaded or contract-checked'),
@@ -1315,17 +1315,17 @@ check(
 );
 
 // The counterpart: --no-code cannot hide a broken declaration, only unread code.
-$result = duo([$evilDir, '--no-code', '--manifest=b', '--format=json']);
+$result = wprism([$evilDir, '--no-code', '--manifest=b', '--format=json']);
 check($result['exit'] === 0, '--no-code composes with the ordinary selection flags');
 $missingRegen = fixtures(['a' => manifest_a()]);
 unlink(package_payload($missingRegen, 'a') . '/runtime/regenerators/acme-a.php');
-$missingNoCode = duo([$missingRegen, '--no-code', '--format=json']);
+$missingNoCode = wprism([$missingRegen, '--no-code', '--format=json']);
 check(
     $missingNoCode['exit'] === 2
         && str_contains($missingNoCode['stderr'], 'runtime coverage disagrees in regenerators'),
     '--no-code skips execution and contract checks, not the package inventory proof that declared code exists'
 );
-$missingDefault = duo([$missingRegen, '--format=json']);
+$missingDefault = wprism([$missingRegen, '--format=json']);
 check(
     $missingDefault['exit'] === 2
         && $missingDefault['stderr'] === $missingNoCode['stderr'],
@@ -1336,8 +1336,8 @@ check(
 echo "\n== acceptance 2: the deferred list is emitted on EVERY run, so silence never reads as validity ==\n";
 
 foreach ([
-    'a passing run' => duo([$repo, '--format=json']),
-    'a failing run' => duo([fixtures(['b' => manifest_b(['tables' => ['acme_b_slots' => ['class' => 'nope']]])]), '--format=json']),
+    'a passing run' => wprism([$repo, '--format=json']),
+    'a failing run' => wprism([fixtures(['b' => manifest_b(['tables' => ['acme_b_slots' => ['class' => 'nope']]])]), '--format=json']),
 ] as $label => $result) {
     $deferred = report($result)['deferred'] ?? [];
     $allDeferred = $deferred !== [];
@@ -1350,7 +1350,7 @@ foreach ([
     }
     check($allDeferred, "$label reports every deferred check with its engine symbol, its surface, and why it cannot be answered offline (" . count($deferred) . ' entries)');
 }
-$text = duo([$repo]);
+$text = wprism([$repo]);
 check(
     str_contains($text['stdout'], 'deferred — NOT checked here')
         && substr_count($text['stdout'], '[deferred]') === count($shippedReport['deferred']),
@@ -1390,13 +1390,13 @@ check(
 // ======================================================================
 echo "\n== acceptance 3, half one: the emitted schema is DERIVED, not authored ==\n";
 
-$emit = duo(['--emit-schema']);
+$emit = wprism(['--emit-schema']);
 check($emit['exit'] === 0, "--emit-schema exits 0 (exit {$emit['exit']}, stderr: " . trim($emit['stderr']) . ')');
 $schema = json_decode($emit['stdout'], true);
 check(is_array($schema), '--emit-schema writes a parseable JSON document to stdout');
 $schema = is_array($schema) ? $schema : [];
 check(
-    ($schema['schema'] ?? null) === 'duo-manifest-grammar/v2' && ($schema['spec_version'] ?? null) === DUO_SPEC_VERSION,
+    ($schema['schema'] ?? null) === 'wprism-manifest-grammar/v2' && ($schema['spec_version'] ?? null) === WPRISM_SPEC_VERSION,
     'the document is versioned and states the spec version it describes'
 );
 
@@ -1458,14 +1458,14 @@ check(
     'the coverage note is a list of exactly the four boundaries, not prose a consumer has to parse'
 );
 
-$emitWithDir = duo([$repo, '--emit-schema']);
+$emitWithDir = wprism([$repo, '--emit-schema']);
 check(
-    $emitWithDir['exit'] === 2 && str_contains($emitWithDir['stderr'], 'duo: manifest-validate:'),
+    $emitWithDir['exit'] === 2 && str_contains($emitWithDir['stderr'], 'wprism: manifest-validate:'),
     '--emit-schema refuses an adapter library rather than implying the grammar came from those files'
 );
 
 // ======================================================================
-echo "\n== WP-4.1: duo-manifest-grammar/v2's two new blocks, and a MUTATION proof that they are derived ==\n";
+echo "\n== WP-4.1: wprism-manifest-grammar/v2's two new blocks, and a MUTATION proof that they are derived ==\n";
 
 // The v1 DRIFT group above compares the emitted document with the live
 // accessors IN THIS PROCESS. That is a real check and it stays, but it cannot
@@ -1478,7 +1478,7 @@ echo "\n== WP-4.1: duo-manifest-grammar/v2's two new blocks, and a MUTATION proo
 // list fails every case below while passing every case above.
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 
-$partition = \Duo\AdapterCertification::topLevelKeyPartition();
+$partition = \WPrism\AdapterCertification::topLevelKeyPartition();
 $topLevel = $schema['top_level_keys'] ?? [];
 check(
     ($topLevel['entity_sections'] ?? null) === $partition['entity_sections']
@@ -1522,11 +1522,11 @@ echo "\n== WP-6.6 (§ v3.21): the feature roster publishes each claimed key's AR
 // against.
 $engineFeatures = $schema['engine_features'] ?? [];
 check(
-    ($engineFeatures['implemented'] ?? null) === \Duo\AdapterContractGrammar::implemented_feature_rows(),
+    ($engineFeatures['implemented'] ?? null) === \WPrism\AdapterContractGrammar::implemented_feature_rows(),
     'the emitted `engine_features.implemented` block is `implemented_feature_rows()` itself — rows, arms and section grammars alike'
 );
 check(
-    ($engineFeatures['certificate_arms'] ?? null) === \Duo\AdapterCertification::certificateArms(),
+    ($engineFeatures['certificate_arms'] ?? null) === \WPrism\AdapterCertification::certificateArms(),
     'and it publishes the closed arm vocabulary the roster is judged against, from the signer that owns it'
 );
 $emittedArms = [];
@@ -1556,18 +1556,18 @@ check(
 $bodyRefsGrammar = $engineFeatures['implemented']['structured-body-refs/v1']['sections']['body_refs']['grammar'] ?? [];
 check(
     ($bodyRefsGrammar['record'] ?? null) === [
-        'required' => \Duo\BodyRefGrammar::RECORD_REQUIRED,
-        'optional' => \Duo\BodyRefGrammar::RECORD_OPTIONAL,
+        'required' => \WPrism\BodyRefGrammar::RECORD_REQUIRED,
+        'optional' => \WPrism\BodyRefGrammar::RECORD_OPTIONAL,
     ]
     && ($bodyRefsGrammar['json_refs_entry'] ?? null) === [
-        'required' => \Duo\ReferenceRules::JSON_REF_REQUIRED,
-        'optional' => \Duo\ReferenceRules::JSON_REF_OPTIONAL,
+        'required' => \WPrism\ReferenceRules::JSON_REF_REQUIRED,
+        'optional' => \WPrism\ReferenceRules::JSON_REF_OPTIONAL,
     ],
     '`body_refs` publishes {json_refs, sentinels} and the {path, kind, cast} triple — the record set from BodyRefGrammar and the triple from the one JSONPath dialect ReferenceRules owns'
 );
 $attrGrammar = $engineFeatures['implemented']['attr-id-codecs/v1']['sections']['attr_id_codecs']['grammar'] ?? [];
 check(
-    ($attrGrammar['codec']['required'] ?? null) === \Duo\AttrIdCodecGrammar::CODEC_KEYS
+    ($attrGrammar['codec']['required'] ?? null) === \WPrism\AttrIdCodecGrammar::CODEC_KEYS
         && ($attrGrammar['id_type'] ?? null) === $vocabularies['attribute_id_types'],
     '`attr_id_codecs` publishes its exact {id_type} object shape and the closed vocabulary that key takes'
 );
@@ -1580,7 +1580,7 @@ check(
 );
 $columnGrammar = $engineFeatures['implemented']['typed-column-codecs/v1']['sections']['column_codecs']['grammar'] ?? [];
 check(
-    ($columnGrammar['codec']['required'] ?? null) === \Duo\ColumnCodecGrammar::CODEC_KEYS
+    ($columnGrammar['codec']['required'] ?? null) === \WPrism\ColumnCodecGrammar::CODEC_KEYS
         && ($columnGrammar['container'] ?? null) === $vocabularies['column_codec_containers']
         && ($columnGrammar['leaves'] ?? null) === $vocabularies['column_codec_leaves'],
     'and `column_codecs` is published too, so the block is complete rather than shaped by whichever sections one adapter happened to use'
@@ -1598,19 +1598,19 @@ check(
 
 $window = $schema['spec_window'] ?? [];
 check(
-    ($window['engine_supported'] ?? null) === DUO_SPEC_VERSION
-        && ($window['accepted'] ?? null) === [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]
+    ($window['engine_supported'] ?? null) === WPRISM_SPEC_VERSION
+        && ($window['accepted'] ?? null) === [WPRISM_SPEC_VERSION - 1, WPRISM_SPEC_VERSION]
         && ($window['n_minus_1_accepted'] ?? null) === true,
-    'spec_window reports this engine accepting {' . (DUO_SPEC_VERSION - 1) . ', ' . DUO_SPEC_VERSION
+    'spec_window reports this engine accepting {' . (WPRISM_SPEC_VERSION - 1) . ', ' . WPRISM_SPEC_VERSION
         . '} — WP-4.2\'s acceptance window, reported here because it is MEASURED and not restated'
 );
 check(
-    ($window['probed'] ?? null) === [DUO_SPEC_VERSION - 2, DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION, DUO_SPEC_VERSION + 1],
+    ($window['probed'] ?? null) === [WPRISM_SPEC_VERSION - 2, WPRISM_SPEC_VERSION - 1, WPRISM_SPEC_VERSION, WPRISM_SPEC_VERSION + 1],
     'and publishes the probed range, so "refused" is distinguishable from "never asked" (' . implode(', ', (array) ($window['probed'] ?? [])) . ')'
 );
 check(
-    ($window['probed'][0] ?? null) === DUO_SPEC_VERSION - 2
-        && !in_array(DUO_SPEC_VERSION - 2, (array) ($window['accepted'] ?? []), true),
+    ($window['probed'][0] ?? null) === WPRISM_SPEC_VERSION - 2
+        && !in_array(WPRISM_SPEC_VERSION - 2, (array) ($window['accepted'] ?? []), true),
     'and N-2 was ASKED and refused, which is what makes "the floor is exactly N-1" a measurement rather than an assumption'
 );
 check(
@@ -1651,11 +1651,11 @@ function remove_tree(string $dir): void {
 }
 
 // agent/ + cli/ + recovery/ is exactly what the command needs: boot() resolves
-// the two defines out of agent/duo.php and the engine files out of
-// agent/duo-classmap.php, and cli/duo requires recovery/rollback-control.php at
+// the two defines out of agent/wprism.php and the engine files out of
+// agent/wprism-classmap.php, and cli/wprism requires recovery/rollback-control.php at
 // startup. manifests/ is deliberately NOT copied — --emit-schema reads no
 // declaration directory, which is itself a property this copy exercises.
-$mutantRoot = sys_get_temp_dir() . '/duo_regress_emit_derivation_' . bin2hex(random_bytes(4));
+$mutantRoot = sys_get_temp_dir() . '/wprism_regress_emit_derivation_' . bin2hex(random_bytes(4));
 foreach (['agent', 'cli', 'recovery'] as $tree) {
     copy_tree($repo . '/' . $tree, $mutantRoot . '/' . $tree);
 }
@@ -1667,7 +1667,7 @@ register_shutdown_function(static fn() => remove_tree($mutantRoot));
  * @return array<string,mixed>
  */
 function emit_from(string $root): array {
-    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/cli/duo')
+    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/cli/wprism')
         . ' manifest-validate --emit-schema';
     $pipes = [];
     $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1720,10 +1720,10 @@ check(emit_from($mutantRoot) === $baseline, 'restoring the constant restores the
 // MUTATION 2 — the shipped window itself is NARROWED back to exact equality.
 // Before WP-4.2 this mutation ran the other way (widen and watch the document
 // widen); now that the window is the shipped behaviour, the case a restated
-// `[DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]` in the emitter could never pass is
+// `[WPRISM_SPEC_VERSION - 1, WPRISM_SPEC_VERSION]` in the emitter could never pass is
 // the narrowing. Same claim, exercised from the side the engine is now on.
 // WP-4.12 moved the window's one definition from AdapterContractGrammar down
-// to the kernel: `site.duo.json` carries the same wire integer and
+// to the kernel: `site.wprism.json` carries the same wire integer and
 // RepositoryCompiler (layer 3) cannot reference the grammar (layer 5), so
 // SpecVersionWindow owns it and the grammar delegates. The mutation follows
 // the definition — the point of mutating rather than reading is that there is
@@ -1735,7 +1735,7 @@ check(str_contains($grammarSource, $windowAnchor), 'the accepted-window return i
 file_put_contents($grammarFile, str_replace($windowAnchor, 'return [$supported];', $grammarSource));
 $narrowed = emit_from($mutantRoot);
 check(
-    ($narrowed['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION]
+    ($narrowed['spec_window']['accepted'] ?? null) === [WPRISM_SPEC_VERSION]
         && ($narrowed['spec_window']['n_minus_1_accepted'] ?? null) === false,
     'MUTATION 2: narrowing the shipped window back to exact equality narrows the emitted `accepted` set — the window is MEASURED by running the refusal, never restated'
 );
@@ -1747,21 +1747,21 @@ file_put_contents($grammarFile, $grammarSource);
 
 // MUTATION 3 — the define moves. The document must follow the engine it was
 // emitted from, including the probe range it centres on that engine.
-$duoFile = $mutantRoot . '/agent/duo.php';
-$duoSource = (string) file_get_contents($duoFile);
-file_put_contents($duoFile, str_replace(
-    "define('DUO_SPEC_VERSION', " . DUO_SPEC_VERSION . ')',
-    "define('DUO_SPEC_VERSION', " . (DUO_SPEC_VERSION + 5) . ')',
-    $duoSource
+$wprismFile = $mutantRoot . '/agent/wprism.php';
+$wprismSource = (string) file_get_contents($wprismFile);
+file_put_contents($wprismFile, str_replace(
+    "define('WPRISM_SPEC_VERSION', " . WPRISM_SPEC_VERSION . ')',
+    "define('WPRISM_SPEC_VERSION', " . (WPRISM_SPEC_VERSION + 5) . ')',
+    $wprismSource
 ));
 $bumped = emit_from($mutantRoot);
 check(
-    ($bumped['spec_version'] ?? null) === DUO_SPEC_VERSION + 5
-        && ($bumped['spec_window']['engine_supported'] ?? null) === DUO_SPEC_VERSION + 5
-        && ($bumped['spec_window']['accepted'] ?? null) === [DUO_SPEC_VERSION + 4, DUO_SPEC_VERSION + 5],
-    'MUTATION 3: moving DUO_SPEC_VERSION in the copy moves the document\'s version, its supported integer and its whole accepted window together — the window travels WITH N, which is why the flip re-stamps no manifest'
+    ($bumped['spec_version'] ?? null) === WPRISM_SPEC_VERSION + 5
+        && ($bumped['spec_window']['engine_supported'] ?? null) === WPRISM_SPEC_VERSION + 5
+        && ($bumped['spec_window']['accepted'] ?? null) === [WPRISM_SPEC_VERSION + 4, WPRISM_SPEC_VERSION + 5],
+    'MUTATION 3: moving WPRISM_SPEC_VERSION in the copy moves the document\'s version, its supported integer and its whole accepted window together — the window travels WITH N, which is why the flip re-stamps no manifest'
 );
-file_put_contents($duoFile, $duoSource);
+file_put_contents($wprismFile, $wprismSource);
 check(emit_from($mutantRoot) === $baseline, 'and restoring the define restores the document exactly');
 
 // The shipped tree is untouched by all of the above — the mutations only ever
@@ -1769,7 +1769,7 @@ check(emit_from($mutantRoot) === $baseline, 'and restoring the define restores t
 // helper with the wrong root would otherwise leave the engine edited under a
 // green suite.
 check(
-    ($shippedNow = duo(['--emit-schema']))['exit'] === 0 && json_decode($shippedNow['stdout'], true) === $schema,
+    ($shippedNow = wprism(['--emit-schema']))['exit'] === 0 && json_decode($shippedNow['stdout'], true) === $schema,
     'the real tree still emits the original document — every mutation stayed inside the scratch copy'
 );
 
@@ -2518,7 +2518,7 @@ check(
 $policySource = file_get_contents($repo . '/agent/src/Policy/Policy.php');
 $manifestValidatorSource = file_get_contents($repo . '/agent/src/Policy/ManifestValidator.php');
 $sitePolicyValidatorSource = file_get_contents($repo . '/agent/src/Policy/SitePolicyValidator.php');
-$attributeGrammar = new \ReflectionClass('Duo\\AttributeGrammar');
+$attributeGrammar = new \ReflectionClass('WPrism\\AttributeGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
     $attributeGrammar->hasMethod('validate_attr_rules')
@@ -2539,7 +2539,7 @@ check(
 // ReferenceShapeGrammar; Policy retains the later keyspace/sidecar pass
 // because that pass needs the full declared-table set. Keep every site and
 // manifest loader path wired directly to the extracted collaborator.
-$referenceShapeGrammar = new ReflectionClass('Duo\\ReferenceShapeGrammar');
+$referenceShapeGrammar = new ReflectionClass('WPrism\\ReferenceShapeGrammar');
 check(
     $referenceShapeGrammar->hasMethod('validate_reference_shapes')
         && $referenceShapeGrammar->getMethod('validate_reference_shapes')->isPublic()
@@ -2553,7 +2553,7 @@ check(
 // The post/menu field declaration grammar belongs to FieldGrammar. Policy
 // keeps the published/shared vocabularies because runtime consumers read the
 // post-field column map and the manifest report publishes all four sets.
-$fieldGrammar = new ReflectionClass('Duo\\FieldGrammar');
+$fieldGrammar = new ReflectionClass('WPrism\\FieldGrammar');
 check(
     $fieldGrammar->hasMethod('validate_field_classes')
         && $fieldGrammar->getMethod('validate_field_classes')->isPublic()
@@ -2571,7 +2571,7 @@ check(
 // UserMetaGrammar owns the same safety check for static declarations and
 // interpreter-returned rules. Policy retains only the published vocabularies;
 // keep all loader and runtime lookup call sites wired to the collaborator.
-$userMetaGrammar = new ReflectionClass('Duo\\UserMetaGrammar');
+$userMetaGrammar = new ReflectionClass('WPrism\\UserMetaGrammar');
 check(
     $userMetaGrammar->hasMethod('validate_user_meta_rules')
         && $userMetaGrammar->getMethod('validate_user_meta_rules')->isPublic()
@@ -2590,7 +2590,7 @@ check(
 // narrower vocabulary. Policy keeps the loader/writer/reporting boundaries,
 // but all four loader calls plus set_rule() and closed_vocabularies() must use
 // the same collaborator-owned values.
-$scopeGrammar = new ReflectionClass('Duo\\ScopeGrammar');
+$scopeGrammar = new ReflectionClass('WPrism\\ScopeGrammar');
 check(
     $scopeGrammar->hasMethod('validate_scope_classes')
         && $scopeGrammar->getMethod('validate_scope_classes')->isPublic()
@@ -2610,7 +2610,7 @@ echo "\n== exit codes and the command's own fail-closed paths ==\n";
 
 foreach ([
     'no arguments at all' => [],
-    'a directory that does not exist' => [sys_get_temp_dir() . '/duo-no-such-manifests-dir'],
+    'a directory that does not exist' => [sys_get_temp_dir() . '/wprism-no-such-manifests-dir'],
     'a path that is a file, not a directory' => [$repo . '/platform/adapter-library/core/manifest.json'],
     'an unsupported flag' => [$repo, '--strict'],
     'an unsupported --format' => [$repo, '--format=yaml'],
@@ -2622,12 +2622,12 @@ foreach ([
     '--manifest naming a manifest the library does not have' => [$repo, '--manifest=not-a-manifest'],
     '--pins naming a manifest the library does not have' => [$repo, '--pins=not-a-manifest'],
     '--site with an empty value' => [$repo, '--site='],
-    '--site pointing at a path that does not exist' => [$repo, '--site=' . sys_get_temp_dir() . '/duo-no-such-site-repo'],
+    '--site pointing at a path that does not exist' => [$repo, '--site=' . sys_get_temp_dir() . '/wprism-no-such-site-repo'],
     // The most likely mistake, and the one worth refusing loudest: a directory
     // that exists but is not a site repo would otherwise fail every manifest
-    // row with the engine's "not a duo site repo?" message, which reads as
+    // row with the engine's "not a wprism site repo?" message, which reads as
     // "your manifests are broken".
-    '--site pointing at a directory with no site.duo.json' => [$repo, '--site=' . $repo . '/adapter-packages'],
+    '--site pointing at a directory with no site.wprism.json' => [$repo, '--site=' . $repo . '/adapter-packages'],
     'a repeated --site' => [$repo, '--site=' . $repo, '--site=' . $repo],
     '--emit-schema together with --site' => ['--emit-schema', '--site=' . $repo],
     // A trust flag is the last place last-wins is acceptable, and the grammar
@@ -2635,19 +2635,19 @@ foreach ([
     'a repeated --no-code' => [$repo, '--no-code', '--no-code'],
     '--emit-schema together with --no-code' => ['--emit-schema', '--no-code'],
 ] as $label => $args) {
-    $result = duo($args);
+    $result = wprism($args);
     check(
-        $result['exit'] === 2 && str_starts_with($result['stderr'], 'duo: manifest-validate: '),
-        "$label exits 2 with a \"duo: \" diagnostic on stderr (exit {$result['exit']}: " . trim($result['stderr']) . ')'
+        $result['exit'] === 2 && str_starts_with($result['stderr'], 'wprism: manifest-validate: '),
+        "$label exits 2 with a \"wprism: \" diagnostic on stderr (exit {$result['exit']}: " . trim($result['stderr']) . ')'
     );
 }
 
-$emptyDir = sys_get_temp_dir() . '/duo_regress_manifest_validate_empty_' . bin2hex(random_bytes(4));
+$emptyDir = sys_get_temp_dir() . '/wprism_regress_manifest_validate_empty_' . bin2hex(random_bytes(4));
 mkdir($emptyDir, 0777, true);
 register_shutdown_function(static function () use ($emptyDir): void {
     @rmdir($emptyDir);
 });
-$result = duo([$emptyDir]);
+$result = wprism([$emptyDir]);
 check(
     $result['exit'] === 2 && str_contains($result['stderr'], 'dispositions directory'),
     'an incomplete historical flat library is an IO refusal, never a vacuous "0 checked, 0 errors" pass'
@@ -2662,7 +2662,7 @@ if (is_readable($unreadableManifest)) {
     // actually performed.
     check(true, 'SKIPPED: unreadable-file refusal (this user can read a 0000 file, so the case is unreachable here)');
 } else {
-    $result = duo([$unreadableDir]);
+    $result = wprism([$unreadableDir]);
     check(
         $result['exit'] === 2
             && str_contains($result['stderr'], 'not a readable regular file')
@@ -2672,7 +2672,7 @@ if (is_readable($unreadableManifest)) {
 }
 chmod($unreadableManifest, 0644);
 
-$result = duo([$repo, '--format=json']);
+$result = wprism([$repo, '--format=json']);
 check($result['exit'] === 0 && $result['stderr'] === '', 'a clean run writes nothing to stderr and exits 0');
 
 // ======================================================================
@@ -2691,14 +2691,14 @@ Canon::write_file($siteAuthored . '/adapters/acme-widgets.json', Canon::encode([
     'option_namespaces' => [['match' => '^acme_widgets_']],
     'options' => ['acme_widgets_layout' => ['class' => 'authored']],
     'plugin' => 'acme-widgets/acme-widgets.php',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'version_range' => ['max' => '2.0.0', 'min' => '1.0.0'],
 ]));
 register_shutdown_function(function () use ($siteAuthored) {
     @unlink($siteAuthored . '/adapters/acme-widgets.json');
     @rmdir($siteAuthored . '/adapters');
 });
-$siteRun = duo([$siteAuthored . '/adapters', '--site=' . $siteAuthored, '--format=json']);
+$siteRun = wprism([$siteAuthored . '/adapters', '--site=' . $siteAuthored, '--format=json']);
 $siteReport = json_decode($siteRun['stdout'], true);
 check($siteRun['exit'] === 0, 'a site adapter directory validated with --site exits 0 (got ' . $siteRun['exit'] . ': ' . substr($siteRun['stderr'], 0, 200) . ')');
 check(
@@ -2713,10 +2713,10 @@ check(
 echo "\n== the site copy of a SHIPPED name: an unstated override is a typed stop naming the pin verb (T6 walk S4) ==\n";
 // An operator building an override copies the packaged WooCommerce manifest
 // into adapters/, edits it, and validates — before stating the override in
-// site.duo.json. That is the shadow refusal, and it is the documented stop:
+// site.wprism.json. That is the shadow refusal, and it is the documented stop:
 // the loader refuses the whole site source, so no manifest is judged. What
 // this command owes the author is the reason CODE and the remediation that
-// names `duo adapter pin … --source=site`, not only "rename or remove".
+// names `wprism adapter pin … --source=site`, not only "rename or remove".
 $shipped = json_decode(
     (string) file_get_contents($repo . '/adapter-packages/woocommerce/package/manifest.json'),
     true
@@ -2729,26 +2729,26 @@ register_shutdown_function(function () use ($overrideSite) {
     @unlink($overrideSite . '/adapters/woocommerce.json');
     @rmdir($overrideSite . '/adapters');
 });
-$unstated = duo([$overrideSite . '/adapters', '--site=' . $overrideSite]);
+$unstated = wprism([$overrideSite . '/adapters', '--site=' . $overrideSite]);
 check($unstated['exit'] === 2, 'the unstated override refuses (exit ' . $unstated['exit'] . ')');
 check(
-    str_contains($unstated['stderr'], '[shadows_shipped] duo: site adapter \'adapters/woocommerce.json\' shadows the shipped adapter \'woocommerce\''),
+    str_contains($unstated['stderr'], '[shadows_shipped] wprism: site adapter \'adapters/woocommerce.json\' shadows the shipped adapter \'woocommerce\''),
     'and the refusal carries the loader\'s own sentence under its bracketed reason code (got: ' . substr($unstated['stderr'], 0, 240) . ')'
 );
 check(
-    str_contains($unstated['stderr'], 'duo adapter pin <site-repo> --name=woocommerce --source=site')
+    str_contains($unstated['stderr'], 'wprism adapter pin <site-repo> --name=woocommerce --source=site')
         && str_contains($unstated['stderr'], 'remediation:'),
     'the remediation names the override verb'
 );
 // Stated (the pin verb writes {name, source:"site", digest}; the shape is what
 // the loader reads), the same directory validates: the shipped provider grant
 // is inherited, so the copy is not refused as out-of-tree code either.
-Canon::write_file($overrideSite . '/site.duo.json', Canon::encode([
+Canon::write_file($overrideSite . '/site.wprism.json', Canon::encode([
     'manifests' => ['core', ['name' => 'woocommerce', 'source' => 'site']],
     'policy' => new \stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
-$stated = duo([$overrideSite . '/adapters', '--site=' . $overrideSite, '--format=json']);
+$stated = wprism([$overrideSite . '/adapters', '--site=' . $overrideSite, '--format=json']);
 $statedReport = json_decode($stated['stdout'], true);
 check(
     $stated['exit'] === 0 && is_array($statedReport) && ($statedReport['summary']['ok'] ?? null) === 1,

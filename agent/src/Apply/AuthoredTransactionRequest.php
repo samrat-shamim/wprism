@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ApplyWorkset.php';
 require_once __DIR__ . '/../Delete/DeletionAuthority.php';

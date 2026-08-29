@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
@@ -10,23 +10,23 @@ require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/MetaOwnerRangeLock.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
-// and regress_adapter_observation.php both stub a fake Duo\Db and reach this
+// and regress_adapter_observation.php both stub a fake WPrism\Db and reach this
 // file transitively through Apply.php without ever loading the real Db.php;
-// requiring it here fatals both suites with "Cannot redeclare class Duo\Db"
+// requiring it here fatals both suites with "Cannot redeclare class WPrism\Db"
 // (caught by regress-offline-all while verifying this file). No test stubs
 // Policy/Tokens/ApplyFieldMaterializer/StructuredValue the same way, so
 // those four are required above; a caller that needs Db (like this file's
 // own test, or Apply.php itself) must require it explicitly.
 
 /**
- * The user entity materializer (DUO-3347 slice 5, one of the "Entity
+ * The user entity materializer (issue #3347 slice 5, one of the "Entity
  * materializers: posts, terms, menus, options/meta/users, relationships,
  * attachments, typed tables" target seams): reconciles one exact-login user's
  * authored user-meta rows against the live target. No user creation,
  * adoption, rename, fallback, capability change, or deletion exists on this
  * path -- the owning user is target-local, resolved by exact byte/case login.
  *
- * Extracted from Apply.php on top of DUO-3347 slice 3's ApplyFieldMaterializer
+ * Extracted from Apply.php on top of issue #3347 slice 3's ApplyFieldMaterializer
  * (for the shared upsert_meta() write) -- finalize_user_meta() and its own
  * exact-login resolver (resolve_exact_login())
  * were otherwise fully self-contained: their only external collaborators were
@@ -67,7 +67,7 @@ final class UserMetaMaterializer {
         } catch (\RuntimeException $failure) {
             if (str_contains($failure->getMessage(), 'requires an active transaction')) {
                 throw new \RuntimeException(
-                    "duo: authored user-meta for exact login '$login' requires an active transaction",
+                    "wprism: authored user-meta for exact login '$login' requires an active transaction",
                     0,
                     $failure
                 );
@@ -87,7 +87,7 @@ final class UserMetaMaterializer {
         $userId = $this->resolve_exact_login($login, $loginIndex);
         if ($userId === null) {
             throw new \RuntimeException(
-                "duo: user-meta exact login '$login' disappeared after preflight; transaction rolled back"
+                "wprism: user-meta exact login '$login' disappeared after preflight; transaction rolled back"
             );
         }
         $frontMeta = (array) ($front['meta'] ?? []);
@@ -96,7 +96,7 @@ final class UserMetaMaterializer {
             $rule = $this->policy->meta_rule_for_user((string) $key, $frontMeta) ?? [];
             if (($rule['class'] ?? '') !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: user-meta '$key' for exact login '$login' is not authorized authored at apply"
+                    "wprism: user-meta '$key' for exact login '$login' is not authorized authored at apply"
                 );
             }
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
@@ -172,7 +172,7 @@ final class UserMetaMaterializer {
             $rule = $this->policy->meta_rule_for_user((string) $key, $lockedContext);
             if (($rule['class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: user-meta '$key' for exact login '$login' is not authored in the locked target context"
+                    "wprism: user-meta '$key' for exact login '$login' is not authored in the locked target context"
                 );
             }
             $this->fieldMaterializer->upsert_locked_authored_meta(
@@ -212,7 +212,7 @@ final class UserMetaMaterializer {
         ), ARRAY_A);
         if (!is_array($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
             throw new \RuntimeException(
-                'duo: exact-login locked user read failed; transaction rolled back'
+                'wprism: exact-login locked user read failed; transaction rolled back'
             );
         }
         return $this->exact_user_id_from_locked_rows($login, $rows);
@@ -222,7 +222,7 @@ final class UserMetaMaterializer {
     private function exact_user_id_from_locked_rows(string $login, array $rows): ?int {
         if (count($rows) > 1) {
             throw new \RuntimeException(
-                'duo: exact-login lookup is ambiguous under the target collation; transaction rolled back'
+                'wprism: exact-login lookup is ambiguous under the target collation; transaction rolled back'
             );
         }
         if ($rows === []) {
@@ -233,7 +233,7 @@ final class UserMetaMaterializer {
             || MetaRows::positive_id($row['ID'] ?? null) === null
             || !is_string($row['user_login'] ?? null)) {
             throw new \RuntimeException(
-                'duo: exact-login locked user row is malformed; transaction rolled back'
+                'wprism: exact-login locked user row is malformed; transaction rolled back'
             );
         }
         return hash_equals($login, $row['user_login'])

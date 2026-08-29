@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Offline adversarial regression for DUO-3344's target-bound apply session.
+ * Offline adversarial regression for issue #3344's target-bound apply session.
  *
  * The fake store is deliberately the only dependency: no WordPress bootstrap,
  * globals, database driver, provider, or target API is available here. It
@@ -11,9 +11,9 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/agent/src/Scope/ScopedApplySession.php';
 
-use Duo\Canon;
-use Duo\ScopedApplySession;
-use Duo\ScopedApplySessionStorage;
+use WPrism\Canon;
+use WPrism\ScopedApplySession;
+use WPrism\ScopedApplySessionStorage;
 
 final class ScopedApplySessionMemoryStore implements ScopedApplySessionStorage {
     /** @var array<string,?string> */

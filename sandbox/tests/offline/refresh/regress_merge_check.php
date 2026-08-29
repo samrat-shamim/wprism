@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for `duo merge-check` — env-free repository-side merge
+ * Offline regression for `wprism merge-check` — env-free repository-side merge
  * validation and ref-vs-ref conflict planning.
  *
  * WHAT FAILS WITHOUT THE CHANGE
@@ -35,10 +35,10 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Orchestrator\Refresh;
+use WPrism\Orchestrator\Refresh;
 
 $repoRoot = dirname(__DIR__, 4);
-$duo = $repoRoot . '/cli/duo';
+$wprism = $repoRoot . '/cli/wprism';
 
 // --------------------------------------------------------------- fixtures
 
@@ -133,10 +133,10 @@ function mc_site(array $manifests = []): string {
 
 /** Exact Canon::encode() bytes for an intentionally empty option document. */
 function mc_options(): string {
-    return "{\n    \"format\": \"duo-options/v1\",\n    \"records\": []\n}\n";
+    return "{\n    \"format\": \"wprism-options/v1\",\n    \"records\": []\n}\n";
 }
 
-/** A `duo-code-lock/v2` naming one component at one version, for case G. */
+/** A `wprism-code-lock/v2` naming one component at one version, for case G. */
 function mc_lock(string $version, string $treeDigest): string {
     return json_encode([
         'components' => [[
@@ -151,19 +151,19 @@ function mc_lock(string $version, string $treeDigest): string {
             'version' => $version,
         ]],
         'first_party' => [],
-        'format' => 'duo-code-lock/v2',
+        'format' => 'wprism-code-lock/v2',
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 }
 
 /**
- * Run the real `duo` executable from inside $cwd.
+ * Run the real `wprism` executable from inside $cwd.
  *
  * @return array{exit:int,stdout:string,stderr:string}
  */
-function mc_run(string $duo, string $cwd, array $args): array {
+function mc_run(string $wprism, string $cwd, array $args): array {
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $duo], $args),
+        array_merge([PHP_BINARY, $wprism], $args),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         $cwd,
@@ -171,7 +171,7 @@ function mc_run(string $duo, string $cwd, array $args): array {
         ['bypass_shell' => true]
     );
     if (!is_resource($process)) {
-        throw new RuntimeException('could not start the duo executable');
+        throw new RuntimeException('could not start the wprism executable');
     }
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
@@ -187,7 +187,7 @@ function mc_json(string $raw): ?array {
     return is_array($decoded) ? $decoded : null;
 }
 
-$scratch = rtrim(sys_get_temp_dir(), '/') . '/duo_merge_check_' . bin2hex(random_bytes(6));
+$scratch = rtrim(sys_get_temp_dir(), '/') . '/wprism_merge_check_' . bin2hex(random_bytes(6));
 $main = $scratch . '/site';
 $probe = $scratch . '/probe';
 register_shutdown_function(static function () use ($scratch): void {
@@ -202,9 +202,9 @@ $pathY = 'state/posts/post/' . $Y . '--y.md';
 
 mkdir($main, 0777, true);
 mc_git($main, ['init', '-q', '-b', 'main']);
-mc_git($main, ['config', 'user.email', 'duo-merge-check-regression@example.test']);
-mc_git($main, ['config', 'user.name', 'Duo merge-check regression']);
-mc_write($main . '/site.duo.json', mc_site());
+mc_git($main, ['config', 'user.email', 'wprism-merge-check-regression@example.test']);
+mc_git($main, ['config', 'user.name', 'WPrism merge-check regression']);
+mc_write($main . '/site.wprism.json', mc_site());
 mc_write($main . '/state/options/core.json', mc_options());
 mc_write($main . '/' . $pathX, mc_post($X, 'x', 'X title'));
 mc_write($main . '/' . $pathY, mc_post($Y, 'y', 'Y title'));
@@ -231,7 +231,7 @@ $commitB = trim(mc_git($main, ['rev-parse', 'HEAD']));
 mc_git($main, ['checkout', '-q', '-b', 'merged']);
 $mergeOutput = mc_git($main, ['merge', '-q', '--no-edit', 'branch-a']);
 $merged = trim(mc_git($main, ['rev-parse', 'HEAD']));
-duo_check(
+wprism_check(
     trim(mc_git($main, ['diff', '--name-only', '--diff-filter=U'])) === '',
     'fixture: git merge composed both edits to X textually, leaving no Git conflict'
         . ($mergeOutput === '' ? '' : " ($mergeOutput)")
@@ -246,34 +246,34 @@ mc_git($main, ['commit', '-qm', 'two files claim one uuid']);
 
 mc_git($main, ['checkout', '-q', 'main']);
 mc_git($main, ['checkout', '-q', '-b', 'broken-options']);
-mc_write($main . '/state/options/core.json', "{\n    \"format\": \"duo-options/v99\",\n    \"records\": []\n}\n");
+mc_write($main . '/state/options/core.json', "{\n    \"format\": \"wprism-options/v99\",\n    \"records\": []\n}\n");
 mc_git($main, ['commit', '-qam', 'options document declares an unknown format']);
 
 // Case G's two refs: identical state, divergent locked component versions.
 mc_git($main, ['checkout', '-q', 'main']);
 mc_git($main, ['checkout', '-q', '-b', 'skew-newer']);
-mc_write($main . '/code/duo-code.lock.json', mc_lock('9.9.1', str_repeat('2', 64)));
+mc_write($main . '/code/wprism-code.lock.json', mc_lock('9.9.1', str_repeat('2', 64)));
 mc_git($main, ['add', '.']);
 mc_git($main, ['commit', '-qm', 'lock woocommerce 9.9.1']);
 mc_git($main, ['checkout', '-q', 'main']);
 mc_git($main, ['checkout', '-q', '-b', 'skew-older']);
-mc_write($main . '/code/duo-code.lock.json', mc_lock('9.8.0', str_repeat('3', 64)));
+mc_write($main . '/code/wprism-code.lock.json', mc_lock('9.8.0', str_repeat('3', 64)));
 mc_git($main, ['add', '.']);
 mc_git($main, ['commit', '-qm', 'lock woocommerce 9.8.0']);
 mc_git($main, ['checkout', '-q', 'merged']);
 
 // ------------------------------------------------- case A: mode 1 coherent
 
-$caseA = mc_run($duo, $main, ['merge-check', '--format=json']);
+$caseA = mc_run($wprism, $main, ['merge-check', '--format=json']);
 $documentA = mc_json($caseA['stdout']);
-duo_check_same(0, $caseA['exit'], 'case A: a coherent committed tree validates with no environment (exit 0)');
-duo_check(
-    is_array($documentA) && ($documentA['format'] ?? null) === 'duo-merge-check/v1'
+wprism_check_same(0, $caseA['exit'], 'case A: a coherent committed tree validates with no environment (exit 0)');
+wprism_check(
+    is_array($documentA) && ($documentA['format'] ?? null) === 'wprism-merge-check/v1'
         && ($documentA['verdict'] ?? null) === 'coherent'
         && ($documentA['mode'] ?? null) === 'validate',
-    'case A: mode 1 publishes duo-merge-check/v1 with verdict=coherent'
+    'case A: mode 1 publishes wprism-merge-check/v1 with verdict=coherent'
 );
-duo_check(
+wprism_check(
     is_array($documentA)
         && ($documentA['coherence']['compiled'] ?? null) === true
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($documentA['coherence']['site_hash'] ?? '')) === 1
@@ -281,12 +281,12 @@ duo_check(
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($documentA['coherence']['artifact_hash'] ?? '')) === 1,
     'case A: the compiler\'s own site/manifest/artifact hashes are echoed, so "compiled" is evidence not a claim'
 );
-duo_check_same(
+wprism_check_same(
     ['base' => null, 'left' => $merged, 'right' => null],
     is_array($documentA) ? ($documentA['refs'] ?? null) : null,
     'case A: mode 1 names exactly the one ref it validated'
 );
-duo_check(
+wprism_check(
     is_array($documentA)
         && array_key_exists('plan', $documentA) && $documentA['plan'] === null
         && array_key_exists('counts', $documentA) && $documentA['counts'] === null,
@@ -297,28 +297,28 @@ duo_check(
 
 $incoherent = [
     ['broken-duplicate-uuid', '/duplicate_uuid/', 'two files claiming one uuid'],
-    ['broken-options', '/duo-options|format/i', 'an options document with an unknown format'],
+    ['broken-options', '/wprism-options|format/i', 'an options document with an unknown format'],
 ];
 foreach ($incoherent as [$ref, $pattern, $what]) {
-    $result = mc_run($duo, $main, ['merge-check', '--ref=' . $ref, '--format=json']);
+    $result = mc_run($wprism, $main, ['merge-check', '--ref=' . $ref, '--format=json']);
     $envelope = mc_json($result['stdout']);
-    duo_check_same(1, $result['exit'], "case B: $what refuses with exit 1 and no environment");
-    duo_check(
+    wprism_check_same(1, $result['exit'], "case B: $what refuses with exit 1 and no environment");
+    wprism_check(
         is_array($envelope)
-            && ($envelope['format'] ?? null) === 'duo-command-refusal/v1'
+            && ($envelope['format'] ?? null) === 'wprism-command-refusal/v1'
             && ($envelope['command'] ?? null) === 'merge-check'
             && ($envelope['reason_code'] ?? null) === 'repository_incoherent'
             && ($envelope['ok'] ?? null) === false,
         "case B: $what arrives as a typed repository_incoherent envelope"
     );
     $detail = is_array($envelope) ? (string) ($envelope['diagnostics'][0]['detail'] ?? '') : '';
-    duo_check(
+    wprism_check(
         preg_match($pattern, $detail) === 1,
         "case B: the compiler's own diagnostic survives into the envelope for $what rather than being flattened"
             . ($detail === '' ? ' (no diagnostic carried)' : '')
     );
-    $human = mc_run($duo, $main, ['merge-check', '--ref=' . $ref]);
-    duo_check(
+    $human = mc_run($wprism, $main, ['merge-check', '--ref=' . $ref]);
+    wprism_check(
         $human['exit'] === 1 && $human['stdout'] === '' && preg_match($pattern, $human['stderr']) === 1,
         "case B: human mode keeps the same diagnostic on stderr and stdout clean for $what"
     );
@@ -329,9 +329,9 @@ foreach ($incoherent as [$ref, $pattern, $what]) {
 // case compiles.
 mkdir($probe, 0777, true);
 mc_git($probe, ['init', '-q', '-b', 'main']);
-mc_git($probe, ['config', 'user.email', 'duo-merge-check-regression@example.test']);
-mc_git($probe, ['config', 'user.name', 'Duo merge-check regression']);
-mc_write($probe . '/site.duo.json', mc_site(['probe']));
+mc_git($probe, ['config', 'user.email', 'wprism-merge-check-regression@example.test']);
+mc_git($probe, ['config', 'user.name', 'WPrism merge-check regression']);
+mc_write($probe . '/site.wprism.json', mc_site(['probe']));
 mc_write($probe . '/manifests/probe.json', json_encode([
     'name' => 'probe',
     'spec_version' => 2,
@@ -340,7 +340,7 @@ mc_write($probe . '/manifests/probe.json', json_encode([
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 mc_write($probe . '/manifests/interpreters/probe.php', <<<'PHP'
 <?php
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 final class Probe {
     public function __construct($policy) {}
     public function post_meta_rule(string $key, array $allMeta): ?array {
@@ -351,7 +351,7 @@ PHP);
 mc_write($probe . '/state/options/core.json', mc_options());
 mc_write($probe . '/' . $pathX, mc_post($X, 'x', 'X title', 'open', ['_probe' => '{{post:' . $Y . '}}']));
 mc_write($probe . '/' . $pathY, mc_post($Y, 'y', 'Y title'));
-\DuoTest\FrozenPolicy::adapterLibrary($probe . '/manifests');
+\WPrismTest\FrozenPolicy::adapterLibrary($probe . '/manifests');
 mc_write(
     $probe . '/adapter-packages/probe/package/manifest.json',
     (string) file_get_contents($probe . '/manifests/probe.json')
@@ -379,18 +379,18 @@ foreach ([
 mc_remove($probe . '/manifests');
 mc_git($probe, ['add', '.']);
 mc_git($probe, ['commit', '-qm', 'probe base with a resolvable typed reference']);
-$probeResolvable = mc_run($duo, $probe, ['merge-check', '--format=json']);
-duo_check_same(
+$probeResolvable = mc_run($wprism, $probe, ['merge-check', '--format=json']);
+wprism_check_same(
     0,
     $probeResolvable['exit'],
     'case B: the typed-reference fixture is coherent before the reference is broken (the control)'
 );
 mc_write($probe . '/' . $pathX, mc_post($X, 'x', 'X title', 'open', ['_probe' => '{{post:' . $missing . '}}']));
 mc_git($probe, ['commit', '-qam', 'probe: point the typed reference at nothing']);
-$probeDangling = mc_run($duo, $probe, ['merge-check', '--format=json']);
+$probeDangling = mc_run($wprism, $probe, ['merge-check', '--format=json']);
 $danglingEnvelope = mc_json($probeDangling['stdout']);
-duo_check_same(1, $probeDangling['exit'], 'case B: a dangling typed reference refuses with exit 1 and no environment');
-duo_check(
+wprism_check_same(1, $probeDangling['exit'], 'case B: a dangling typed reference refuses with exit 1 and no environment');
+wprism_check(
     is_array($danglingEnvelope)
         && ($danglingEnvelope['reason_code'] ?? null) === 'repository_incoherent'
         && preg_match(
@@ -402,22 +402,22 @@ duo_check(
 
 // ------------------------------------- case C: DESIGN.md:182 Spike B verdict
 
-$caseC = mc_run($duo, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--format=json']);
+$caseC = mc_run($wprism, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--format=json']);
 $documentC = mc_json($caseC['stdout']);
-duo_check_same(3, $caseC['exit'], 'case C: a genuine editorial conflict between two refs exits 3');
-duo_check(
+wprism_check_same(3, $caseC['exit'], 'case C: a genuine editorial conflict between two refs exits 3');
+wprism_check(
     is_array($documentC) && ($documentC['verdict'] ?? null) === 'conflicts'
         && ($documentC['refs'] ?? null) === ['base' => $baseCommit, 'left' => $commitB, 'right' => $commitA],
     'case C: B is the computed merge base and W/P are the two named refs'
 );
 $conflicts = is_array($documentC) ? (array) ($documentC['conflicts'] ?? []) : [];
-duo_check_same(1, count($conflicts), 'case C: exactly one entry conflicts');
-duo_check_same(
+wprism_check_same(1, count($conflicts), 'case C: exactly one entry conflicts');
+wprism_check_same(
     ['id' => 'post:' . $X, 'identity' => $X, 'reason' => 'production_and_branch_changed_differently', 'type' => 'post'],
     $conflicts[0] ?? null,
     'case C: the conflict names X by WordPress identity, entity type and reason'
 );
-duo_check_same(
+wprism_check_same(
     ['branch-only' => 1, 'compatible' => 0, 'conflicting' => 1, 'production-only' => 0, 'unchanged' => 0],
     is_array($documentC) ? ($documentC['counts'] ?? null) : null,
     'case C: Y is branch-only, exactly as Spike B requires — one decision, not two'
@@ -426,9 +426,9 @@ duo_check_same(
 // The merged tree is the same question asked the other way round: after
 // `git merge branch-a`, W already contains P, so there is nothing left to
 // decide and the verdict must be clean.
-$caseCMerged = mc_run($duo, $main, ['merge-check', '--ref=merged', '--against=branch-a', '--format=json']);
+$caseCMerged = mc_run($wprism, $main, ['merge-check', '--ref=merged', '--against=branch-a', '--format=json']);
 $documentCMerged = mc_json($caseCMerged['stdout']);
-duo_check(
+wprism_check(
     $caseCMerged['exit'] === 0 && is_array($documentCMerged) && ($documentCMerged['verdict'] ?? null) === 'clean',
     'case C: the completed merge is reported clean against the ref it merged'
 );
@@ -442,27 +442,27 @@ $exitTable = [
     [['merge-check', '--ref=branch-b', '--against=branch-a'], 3, 'conflicts'],
 ];
 foreach ($exitTable as [$args, $expected, $label]) {
-    $result = mc_run($duo, $main, $args);
-    duo_check_same($expected, $result['exit'], "case D: $label exits $expected");
-    $json = mc_run($duo, $main, array_merge($args, ['--format=json']));
-    duo_check_same($expected, $json['exit'], "case D: $label exits $expected under --format=json too");
-    duo_check(
+    $result = mc_run($wprism, $main, $args);
+    wprism_check_same($expected, $result['exit'], "case D: $label exits $expected");
+    $json = mc_run($wprism, $main, array_merge($args, ['--format=json']));
+    wprism_check_same($expected, $json['exit'], "case D: $label exits $expected under --format=json too");
+    wprism_check(
         mc_json($json['stdout']) !== null,
         "case D: $label publishes one parseable document on stdout"
     );
 }
-$conflictJson = mc_run($duo, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--format=json']);
+$conflictJson = mc_run($wprism, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--format=json']);
 $conflictDocument = mc_json($conflictJson['stdout']);
-duo_check(
+wprism_check(
     is_array($conflictDocument)
-        && ($conflictDocument['format'] ?? null) === 'duo-merge-check/v1'
-        && ($conflictDocument['format'] ?? null) !== 'duo-command-refusal/v1'
+        && ($conflictDocument['format'] ?? null) === 'wprism-merge-check/v1'
+        && ($conflictDocument['format'] ?? null) !== 'wprism-command-refusal/v1'
         && ($conflictDocument['exit_code'] ?? null) === 3,
     'case D: exit 3 is an ANSWER — the success document with verdict=conflicts, never a refusal envelope'
 );
-$usageJson = mc_run($duo, $main, ['merge-check', '--not-a-flag=1', '--format=json']);
-duo_check(
-    (mc_json($usageJson['stdout'])['format'] ?? null) === 'duo-command-refusal/v1'
+$usageJson = mc_run($wprism, $main, ['merge-check', '--not-a-flag=1', '--format=json']);
+wprism_check(
+    (mc_json($usageJson['stdout'])['format'] ?? null) === 'wprism-command-refusal/v1'
         && (mc_json($usageJson['stdout'])['reason_code'] ?? null) === 'invalid_arguments',
     'case D: a usage error still gives a machine caller one parseable envelope'
 );
@@ -470,7 +470,7 @@ duo_check(
 // ---------------------------------------------- case E: non-authorizing plan
 
 $planContext = is_array($documentC) ? ($documentC['plan']['context'] ?? null) : null;
-duo_check(
+wprism_check(
     is_array($planContext)
         && ($planContext['advisory'] ?? null) === true
         && ($planContext['production_source'] ?? null) === 'git-ref'
@@ -478,18 +478,18 @@ duo_check(
         && !array_key_exists('production_snapshot_hash', $planContext),
     'case E: the plan context marks itself advisory and carries no live production identity'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => Refresh::assertAuthorizingPlan(is_array($documentC) ? (array) $documentC['plan'] : []),
     RuntimeException::class,
     'case E: Refresh::assertAuthorizingPlan refuses that exact plan'
 );
 try {
     Refresh::assertAuthorizingPlan(is_array($documentC) ? (array) $documentC['plan'] : []);
-    duo_check(false, 'case E: the refusal names the authorized alternative');
+    wprism_check(false, 'case E: the refusal names the authorized alternative');
 } catch (Throwable $refusal) {
-    duo_check_same(
+    wprism_check_same(
         'a merge-check plan is advisory and carries no production authority; '
-            . 'run duo rebase <production-env> --production-ref=<ref> to materialize',
+            . 'run wprism rebase <production-env> --production-ref=<ref> to materialize',
         $refusal->getMessage(),
         'case E: the refusal names the authorized alternative'
     );
@@ -499,14 +499,14 @@ Refresh::assertAuthorizingPlan(['context' => [
     'production_env' => 'production',
     'production_snapshot_hash' => str_repeat('a', 64),
 ]]);
-duo_check(true, 'case E: an ordinary refresh plan context passes the same guard untouched');
+wprism_check(true, 'case E: an ordinary refresh plan context passes the same guard untouched');
 
-$journal = trim(mc_git($main, ['rev-parse', '--path-format=absolute', '--git-common-dir'])) . '/duo-refresh';
-duo_check(
+$journal = trim(mc_git($main, ['rev-parse', '--path-format=absolute', '--git-common-dir'])) . '/wprism-refresh';
+wprism_check(
     !is_dir($journal),
     'case E: no merge-check invocation in this whole suite created a refresh run journal'
 );
-duo_check_same(
+wprism_check_same(
     1,
     count(array_filter(
         explode("\n", trim(mc_git($main, ['worktree', 'list']))),
@@ -514,7 +514,7 @@ duo_check_same(
     )),
     'case E: no merge-check invocation left a candidate worktree behind'
 );
-duo_check_same(
+wprism_check_same(
     ['branch-a', 'branch-b', 'broken-duplicate-uuid', 'broken-options', 'main', 'merged', 'skew-newer', 'skew-older'],
     array_values(array_filter(array_map(
         static fn(string $row): string => trim($row),
@@ -527,13 +527,13 @@ duo_check_same(
 
 $mergeCheckSource = (string) file_get_contents($repoRoot . '/cli/src/Refresh/MergeCheck.php');
 foreach (['EnvironmentDriver', 'captureRaw', 'captureWp', 'streamWp', 'Registry::', 'Transport'] as $forbidden) {
-    duo_check(
+    wprism_check(
         !str_contains($mergeCheckSource, $forbidden),
         "case F: MergeCheck.php references no '$forbidden', so a later refactor cannot quietly reintroduce a live dependency"
     );
 }
-duo_check(
-    str_contains((string) file_get_contents($repoRoot . '/cli/duo'), "if (\$verb === 'merge-check') {")
+wprism_check(
+    str_contains((string) file_get_contents($repoRoot . '/cli/wprism'), "if (\$verb === 'merge-check') {")
         && !str_contains(
             (string) file_get_contents($repoRoot . '/cli/src/Command/EnvironmentCommandPreflight.php'),
             "'merge-check'"
@@ -543,11 +543,11 @@ duo_check(
 
 // ------------------------------------------------------- case G: code skew
 
-$caseG = mc_run($duo, $main, ['merge-check', '--ref=skew-older', '--against=skew-newer', '--format=json']);
+$caseG = mc_run($wprism, $main, ['merge-check', '--ref=skew-older', '--against=skew-newer', '--format=json']);
 $documentG = mc_json($caseG['stdout']);
-duo_check_same(3, $caseG['exit'], 'case G: cross-branch code skew blocks the merge gate with exit 3');
-duo_check_same('code_skew', $documentG['verdict'] ?? null, 'case G: the success document distinguishes code skew from an editorial conflict');
-duo_check_same(
+wprism_check_same(3, $caseG['exit'], 'case G: cross-branch code skew blocks the merge gate with exit 3');
+wprism_check_same('code_skew', $documentG['verdict'] ?? null, 'case G: the success document distinguishes code skew from an editorial conflict');
+wprism_check_same(
     [[
         'component' => 'plugins/woocommerce',
         'left_version' => '9.8.0',
@@ -557,8 +557,8 @@ duo_check_same(
     is_array($documentG) ? ($documentG['code_skew'] ?? null) : null,
     'case G: the skew names the component and both locked versions'
 );
-$caseGHuman = mc_run($duo, $main, ['merge-check', '--ref=skew-older', '--against=skew-newer']);
-duo_check(
+$caseGHuman = mc_run($wprism, $main, ['merge-check', '--ref=skew-older', '--against=skew-newer']);
+wprism_check(
     str_contains($caseGHuman['stdout'], 'blocked: code skew plugins/woocommerce left=9.8.0 right=9.9.1')
         && str_contains(
             $caseGHuman['stdout'],
@@ -566,8 +566,8 @@ duo_check(
         ),
     'case G: the human view carries DESIGN.md:125\'s own remedy verbatim'
 );
-$caseGNone = mc_run($duo, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--format=json']);
-duo_check_same(
+$caseGNone = mc_run($wprism, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--format=json']);
+wprism_check_same(
     [],
     mc_json($caseGNone['stdout'])['code_skew'] ?? null,
     'case G: two refs with no lock at all report no skew rather than a guess'
@@ -575,31 +575,31 @@ duo_check_same(
 
 // ------------------------------- case H: --field-diff is an explicit non-claim
 
-$caseH = mc_run($duo, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--field-diff']);
-duo_check_same(
+$caseH = mc_run($wprism, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--field-diff']);
+wprism_check_same(
     2,
     $caseH['exit'],
     'case H: --field-diff is absent from the surface, not accepted-and-refused '
         . '(RefreshFieldDiff::project() requires a live production_snapshot_hash)'
 );
-duo_check(
+wprism_check(
     !str_contains((string) file_get_contents($repoRoot . '/cli/src/Command/MergeCheckCommand.php'), "'--field-diff',"),
     'case H: the flag list itself records the non-claim, so nothing half-works'
 );
 
 // ---------------------------- case I: --base overrides the computed merge base
 
-$caseI = mc_run($duo, $main, [
+$caseI = mc_run($wprism, $main, [
     'merge-check', '--ref=branch-b', '--against=branch-a', '--base=' . $baseCommit, '--format=json',
 ]);
-duo_check(
+wprism_check(
     $caseI['exit'] === 3
         && (mc_json($caseI['stdout'])['plan']['plan_hash'] ?? null)
             === (is_array($documentC) ? ($documentC['plan']['plan_hash'] ?? null) : null),
     'case I: an explicit --base equal to the computed merge base produces the identical plan_hash'
 );
-$caseIRefusal = mc_run($duo, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--base=nope']);
-duo_check(
+$caseIRefusal = mc_run($wprism, $main, ['merge-check', '--ref=branch-b', '--against=branch-a', '--base=nope']);
+wprism_check(
     $caseIRefusal['exit'] === 1 && str_contains($caseIRefusal['stderr'], '--base does not resolve to a commit'),
     'case I: an unresolvable --base refuses by name rather than silently falling back'
 );
@@ -607,9 +607,9 @@ duo_check(
 // --------------------------- case J: a dirty checkout is refused, not guessed
 
 mc_write($main . '/' . $pathY, mc_post($Y, 'y', 'Y edited but never committed'));
-$caseJ = mc_run($duo, $main, ['merge-check', '--format=json']);
+$caseJ = mc_run($wprism, $main, ['merge-check', '--format=json']);
 $documentJ = mc_json($caseJ['stdout']);
-duo_check(
+wprism_check(
     $caseJ['exit'] === 1 && ($documentJ['reason_code'] ?? null) === 'working_tree_dirty',
     'case J: merge-check refuses to answer for a dirty checkout instead of validating the last commit'
 );
@@ -617,18 +617,18 @@ duo_check(
 // DIFFERENT committed ref still answers while this checkout is dirty, because
 // the compile happens in a detached worktree at that commit and the dirty
 // bytes cannot reach it.
-$caseJNamed = mc_run($duo, $main, ['merge-check', '--ref=branch-a', '--format=json']);
-duo_check_same(
+$caseJNamed = mc_run($wprism, $main, ['merge-check', '--ref=branch-a', '--format=json']);
+wprism_check_same(
     0,
     $caseJNamed['exit'],
     'case J: naming another committed ref still answers, because a detached worktree compiles that commit'
 );
-$caseJExplicitHead = mc_run($duo, $main, ['merge-check', '--ref=merged', '--format=json']);
-duo_check(
+$caseJExplicitHead = mc_run($wprism, $main, ['merge-check', '--ref=merged', '--format=json']);
+wprism_check(
     $caseJExplicitHead['exit'] === 1
         && (mc_json($caseJExplicitHead['stdout'])['reason_code'] ?? null) === 'working_tree_dirty',
     'case J: naming the checked-out ref by name is the same question and gets the same refusal'
 );
 mc_git($main, ['checkout', '-q', '--', $pathY]);
 
-duo_check_summary('merge-check');
+wprism_check_summary('merge-check');

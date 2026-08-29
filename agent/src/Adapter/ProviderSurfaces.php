@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 // The sanctioned checked-read path (`$wpdb->last_error` cleared, run, and the
 // failure shape refused) and the one place its message hygiene is stated. The
@@ -165,7 +165,7 @@ final class ProviderSurfaces {
         // never there, and this refusal has to name that separately.
         if (!is_object($wpdb) || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_results')) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' declares surfaces the engine must observe either "
+                "wprism: provider '$id' capability '$capability' declares surfaces the engine must observe either "
                 . 'side of the call, but this process has no WordPress database handle — run the capability '
                 . 'through the ordinary apply path'
             );
@@ -178,7 +178,7 @@ final class ProviderSurfaces {
                 // a surface silently dropped here would read downstream as a
                 // surface that did not change.
                 throw new \RuntimeException(
-                    "duo: provider '$id' capability '$capability' asked the engine to observe a surface it has "
+                    "wprism: provider '$id' capability '$capability' asked the engine to observe a surface it has "
                     . 'no reader for'
                 );
             }
@@ -266,7 +266,7 @@ final class ProviderSurfaces {
      */
     private static function unreadable_surface(string $id, string $capability): \RuntimeException {
         return new \RuntimeException(
-            "duo: provider '$id' capability '$capability' could not be checked against its own declared "
+            "wprism: provider '$id' capability '$capability' could not be checked against its own declared "
             . 'surfaces — a checked read of the target failed, and an unread surface must not pass as an '
             . 'unchanged one; retry the apply once the database is answering'
         );

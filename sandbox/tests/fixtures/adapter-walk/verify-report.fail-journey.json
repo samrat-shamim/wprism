@@ -7,11 +7,11 @@
     },
     "disclosures": [],
     "environment": "awalk2",
-    "format": "duo-verify-report/v1",
+    "format": "wprism-verify-report/v1",
     "journeys": [
         {
             "detail": "expected HTTP 200, got 404",
-            "expect_contains": "Duo walk contact form",
+            "expect_contains": "WPrism walk contact form",
             "expect_status": 200,
             "http_status": 404,
             "id": "forms-index",
@@ -21,7 +21,7 @@
         },
         {
             "detail": "",
-            "expect_contains": "Duo walk landing page",
+            "expect_contains": "WPrism walk landing page",
             "expect_status": 200,
             "http_status": 200,
             "id": "landing-page",
@@ -30,7 +30,7 @@
             "url": "/?page_id=1"
         }
     ],
-    "plan_digest": "sha256:d9fcd96a9faa6b337c42effeba05ddb300b72105c7ec3a048936a5a57b027a80",
+    "plan_digest": "sha256:9fb3284d063bd31fb64240db96fd2d36345116e4e1644ac23f0d8c9a84667476",
     "uncovered_surfaces": [],
     "verdict": "fail"
 }

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/Deploy.php';
 // WP-2.8: the site-declared per-release probe evidence the graduated
@@ -17,7 +17,7 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 // Policy.php.
 
 /**
- * Detects what a lifecycle phase needs to reconcile (DUO-3350 slice 6, the
+ * Detects what a lifecycle phase needs to reconcile (issue #3350 slice 6, the
  * "LifecyclePlanner" half of the "LifecyclePlanner / LifecycleExecutor"
  * target seam, extracted from Deploy): compares desired active_plugins/
  * template/stylesheet against live WordPress facts (code_mismatch),
@@ -28,7 +28,7 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * REPORTS findings or reads/writes the drift baseline -- none calls
  * activate_plugin()/deactivate_plugins()/switch_theme() or otherwise fires a
  * WordPress lifecycle hook. That is LifecycleExecutor::execute()'s territory
- * (DUO-3350 slice 8, the "LifecycleExecutor" half of this same seam,
+ * (issue #3350 slice 8, the "LifecycleExecutor" half of this same seam,
  * extracted from Deploy::run() afterward): at the time this class was cut,
  * unlike every other cluster this issue had cut so far, run() was a single
  * ~500-line method with promotion-lock/canary/state-handoff/hook-firing
@@ -41,7 +41,7 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * This cluster is a genuinely shared, externally-consumed API, not just
  * Deploy::run()'s own internal orchestration: Apply::build_plan() calls
  * code_mismatch()/code_revision_mismatch()/code_drift() directly for
- * `duo plan`/`duo status`'s own code_mismatch/code_drift plan buckets
+ * `wprism plan`/`wprism status`'s own code_mismatch/code_drift plan buckets
  * (verified by reading Apply.php's own call sites, not assumed), and
  * Capture::run() calls record_code_versions() directly to record a
  * "last known good" baseline after every successful capture, not only after
@@ -75,7 +75,7 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * Code::CODE_REVISION_KEY: Deploy.php never required it either (a
  * pre-existing regress_agent_src_requires.php baseline gap this move
  * simply inherits unchanged, the same "preserve a pre-existing gap rather
- * than introduce a new one" precedent DUO-3348 slice 5's PinResolver.php
+ * than introduce a new one" precedent issue #3348 slice 5's PinResolver.php
  * already established). A real require_once here was tried first and
  * reverted: Code.php's own require chain reaches CodeStageTransaction.php,
  * which requires Ledger.php -- newly pulling Ledger.php into
@@ -86,7 +86,7 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * consequence of adding this one require, not a hypothetical.
  */
 final class LifecyclePlanner {
-    /** duo_kv key for code_drift()'s baseline — see record_code_versions(). */
+    /** wprism_kv key for code_drift()'s baseline — see record_code_versions(). */
     private const CODE_VERSIONS_KEY = 'code_versions';
 
     /**
@@ -107,7 +107,7 @@ final class LifecyclePlanner {
      *
      * Shared by Deploy::run() (this verb's own refuse-precondition) and
      * Apply::build_plan()'s code_mismatch bucket (surfaced at ordinary
-     * `duo plan`/`duo status` time, not just at deploy time) — one
+     * `wprism plan`/`wprism status` time, not just at deploy time) — one
      * implementation, so the two can never disagree about what "in code"
      * means. Descriptor-to-ledger identity is deliberately a separate
      * `code_revision_mismatch()` check below: this method remains about the
@@ -119,7 +119,7 @@ final class LifecyclePlanner {
      *   template?: string parent/standalone theme directory (null = not declared, skip theme checks),
      *   stylesheet?: string active theme directory (null = not declared, skip theme checks),
      * }
-     * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version?:string, version_range?:array, manifest?:string}> `version_range` carries a plugin's `version_range` or (DUO-3222) a theme's `theme_version_range` uniformly — one shared key regardless of `kind`, matching how both are consumed identically by Apply::build_plan()'s code_mismatch bucket
+     * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version?:string, version_range?:array, manifest?:string}> `version_range` carries a plugin's `version_range` or (issue #3222) a theme's `theme_version_range` uniformly — one shared key regardless of `kind`, matching how both are consumed identically by Apply::build_plan()'s code_mismatch bucket
      */
     public static function code_mismatch(Policy $policy, array $desired): array {
         $rows = [];
@@ -152,7 +152,7 @@ final class LifecyclePlanner {
                         'kind' => 'plugin',
                         'plugin' => $plugin,
                         'message' => "active_plugins in state/options/core.json declares '$plugin', and its code "
-                            . "is installed, but it is not active in this environment. Run 'duo deploy <env>' "
+                            . "is installed, but it is not active in this environment. Run 'wprism deploy <env>' "
                             . 'before apply so activation hooks and schema migrations complete first.',
                     ];
                 }
@@ -181,7 +181,7 @@ final class LifecyclePlanner {
                             'manifest' => $r['manifest'],
                             'message' => "$plugin " . ($installed !== '' ? $installed : '(unknown version)')
                                 . " is active in this environment, outside the '{$r['manifest']}' manifest's "
-                                . "declared version_range (>={$r['min']} <{$r['max']}, pinned by site.duo.json). "
+                                . "declared version_range (>={$r['min']} <{$r['max']}, pinned by site.wprism.json). "
                                 . 'Classification guarantees for this plugin are NOT validated against this '
                                 . 'version — apply may silently misclassify fields. Update the plugin, pin an '
                                 . 'older manifest, or pass --force-code-mismatch to proceed at your own risk.',
@@ -195,7 +195,7 @@ final class LifecyclePlanner {
                     'kind' => 'plugin',
                     'plugin' => $plugin,
                     'message' => "plugin '$plugin' is active in this environment but absent from canonical "
-                        . "active_plugins. Run 'duo deploy <env>' before apply so its deactivation hooks complete first.",
+                        . "active_plugins. Run 'wprism deploy <env>' before apply so its deactivation hooks complete first.",
                 ];
             }
             if (!$rows
@@ -206,14 +206,14 @@ final class LifecyclePlanner {
                     'issue' => 'active_plugin_order_mismatch',
                     'kind' => 'plugin_order',
                     'message' => 'active_plugins contains the canonical plugin set but its load order differs. '
-                        . "Run 'duo deploy <env>' before apply so WordPress loads plugins in the declared order.",
+                        . "Run 'wprism deploy <env>' before apply so WordPress loads plugins in the declared order.",
                     'desired_order' => $desiredActive,
                     'environment_order' => $currentActive,
                 ];
             }
         }
 
-        // DUO-3222: themes now get the SAME version-range treatment plugins
+        // issue #3222: themes now get the SAME version-range treatment plugins
         // already had above — existence-only was the exact gap the issue's
         // own review confirmed live ("themes get existence-checked only...
         // no version treatment"). Read theme_ranges() once, check it after
@@ -243,7 +243,7 @@ final class LifecyclePlanner {
                         'theme' => $desiredStylesheet,
                         'message' => "stylesheet in state/options/core.json declares '$desiredStylesheet', and its code "
                             . "is installed, but this environment has theme '" . (string) get_option('stylesheet')
-                            . "' active. Run 'duo deploy <env>' before apply so the theme lifecycle completes first.",
+                            . "' active. Run 'wprism deploy <env>' before apply so the theme lifecycle completes first.",
                     ];
                 }
             }
@@ -282,8 +282,8 @@ final class LifecyclePlanner {
                 'environment_template' => (string) get_option('template'),
                 'message' => "stylesheet '$desiredStylesheet' is active, but state/options/core.json declares "
                     . "template '$desiredTemplate' and this environment has template '"
-                    . (string) get_option('template') . "'. Run 'duo deploy <env>' so WordPress can reconcile "
-                    . 'the theme through switch_theme(); Duo will refuse if this stylesheet cannot resolve to the '
+                    . (string) get_option('template') . "'. Run 'wprism deploy <env>' so WordPress can reconcile "
+                    . 'the theme through switch_theme(); WPrism will refuse if this stylesheet cannot resolve to the '
                     . 'declared parent.',
             ];
         }
@@ -307,7 +307,7 @@ final class LifecyclePlanner {
         }
         if (!class_exists(Code::class) || !method_exists(Code::class, 'completed_code_mismatch')) {
             throw new \RuntimeException(
-                'duo: code payload proof implementation is unavailable; refusing to trust code_revision'
+                'wprism: code payload proof implementation is unavailable; refusing to trust code_revision'
             );
         }
         // Code owns the payload proof. This bridge only preserves the
@@ -323,7 +323,7 @@ final class LifecyclePlanner {
             'expected_revision' => $revision,
             'completed_revision' => $completed,
             'message' => "compiled code revision '$revision' is stale on this environment: $detail. "
-                . "Run 'duo deploy <env>' so Duo can stage, reconcile, verify, and finalize this exact code payload before apply.",
+                . "Run 'wprism deploy <env>' so WPrism can stage, reconcile, verify, and finalize this exact code payload before apply.",
         ]];
     }
 
@@ -342,23 +342,23 @@ final class LifecyclePlanner {
             return null;
         }
         if (!is_array($descriptor) || !method_exists($compiled, 'code_revision')) {
-            throw new \RuntimeException('duo: compiled code descriptor is malformed or unsupported by this agent');
+            throw new \RuntimeException('wprism: compiled code descriptor is malformed or unsupported by this agent');
         }
         $revision = $compiled->code_revision();
         if (!is_string($revision) || $revision === '') {
-            throw new \RuntimeException('duo: compiled code descriptor has no revision');
+            throw new \RuntimeException('wprism: compiled code descriptor has no revision');
         }
         return $revision;
     }
 
     /**
-     * DUO-3231 (docs/code-half.md's risk register #1, "wp-admin/
+     * issue #3231 (docs/code-half.md's risk register #1, "wp-admin/
      * filesystem-initiated updates are silent code drift, and detection
      * alone is not a fix"): a SEPARATE question from code_mismatch() above.
      * code_mismatch asks "is what's installed compatible with what the
      * manifests/repo say is acceptable" (missing entirely, or outside a
      * pinned version_range — a wide band). code_drift asks "did this
-     * specific plugin/theme's version change since the last time Duo
+     * specific plugin/theme's version change since the last time WPrism
      * itself reconciled or observed this environment" — a narrower,
      * provenance question a version_range can't answer: a wp-admin
      * one-click update from 7.2.0 to 7.5.0 can land comfortably inside an
@@ -366,8 +366,8 @@ final class LifecyclePlanner {
      * while still being exactly the out-of-band mutation risk #1 names.
      * The baseline this compares against is written by
      * record_code_versions() below, called at the end of a successful
-     * `duo deploy` AND `duo capture` (Capture::run()) — either is a moment
-     * Duo legitimately observed the environment's code, so either is a
+     * `wprism deploy` AND `wprism capture` (Capture::run()) — either is a moment
+     * WPrism legitimately observed the environment's code, so either is a
      * valid "last known good" checkpoint. No baseline anywhere is the one
      * bootstrap case with nothing to compare. Once a baseline exists, an
      * active plugin absent from it is itself drift evidence: silently minting
@@ -375,7 +375,7 @@ final class LifecyclePlanner {
      *
      * Scoped to exactly the entities $desired already names (the same
      * active_plugins/template/stylesheet the target state declares,
-     * identical scope to code_mismatch() above) — Duo has no opinion on
+     * identical scope to code_mismatch() above) — WPrism has no opinion on
      * drift for a plugin it was never told to manage.
      *
      * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version:string, recorded_version:string}>
@@ -405,9 +405,9 @@ final class LifecyclePlanner {
                         'installed_version' => $installed,
                         'recorded_version' => '',
                         'message' => "$plugin " . ($installed === '' ? '(unknown version)' : $installed)
-                            . ' is active on this environment but absent from the existing Duo code-version baseline. '
+                            . ' is active on this environment but absent from the existing WPrism code-version baseline. '
                             . 'Its activation or first version change therefore cannot be distinguished from an '
-                            . "out-of-band update. Run 'duo deploy' to reconcile and record the installed bytes, or "
+                            . "out-of-band update. Run 'wprism deploy' to reconcile and record the installed bytes, or "
                             . 'remove the undeclared activation before capture/apply.',
                     ];
                     continue;
@@ -423,10 +423,10 @@ final class LifecyclePlanner {
                     'plugin' => $plugin,
                     'installed_version' => $installed,
                     'recorded_version' => $baseline,
-                    'message' => "$plugin is $installed on this environment, but the last successful 'duo deploy' "
-                        . "or 'duo capture' recorded $baseline — its code changed here outside Duo's own "
+                    'message' => "$plugin is $installed on this environment, but the last successful 'wprism deploy' "
+                        . "or 'wprism capture' recorded $baseline — its code changed here outside WPrism's own "
                         . 'reconciliation (a wp-admin/host auto-update is the common cause; see DISALLOW_FILE_MODS '
-                        . "in 'wp duo doctor'). Re-run 'duo deploy' to accept $installed as the new baseline, "
+                        . "in 'wp wprism doctor'). Re-run 'wprism deploy' to accept $installed as the new baseline, "
                         . "restore $baseline, or pass --force-code-drift to proceed at your own risk.",
                 ];
             }
@@ -454,8 +454,8 @@ final class LifecyclePlanner {
                 'installed_version' => $installed,
                 'recorded_version' => $baseline,
                 'message' => "$desiredSlug theme is $installed on this environment, but the last successful "
-                    . "'duo deploy' or 'duo capture' recorded $baseline — its code changed here outside Duo's own "
-                    . "reconciliation. Re-run 'duo deploy' to accept $installed as the new baseline, restore "
+                    . "'wprism deploy' or 'wprism capture' recorded $baseline — its code changed here outside WPrism's own "
+                    . "reconciliation. Re-run 'wprism deploy' to accept $installed as the new baseline, restore "
                     . "$baseline, or pass --force-code-drift to proceed at your own risk.",
             ];
         }
@@ -472,10 +472,10 @@ final class LifecyclePlanner {
      * function needs nothing passed in beyond $policy, keeping its call
      * sites to one line each.
      *
-     * DUO-3507: this is the UNCONDITIONAL writer, and Deploy::run() is the
+     * issue #3507: this is the UNCONDITIONAL writer, and Deploy::run() is the
      * only caller entitled to use it that way. By the time deploy
      * re-baselines (Deploy.php:464-472) it has already refused on drift
-     * (Deploy.php:203-210, "duo: deploy refused — code_drift") or been
+     * (Deploy.php:203-210, "wprism: deploy refused — code_drift") or been
      * explicitly forced past it with --force-code-drift while warning once
      * per overridden row (Deploy.php:221-224) — the consent gate already
      * happened, so this write is that decision's consequence rather than
@@ -514,16 +514,16 @@ final class LifecyclePlanner {
     }
 
     /**
-     * Capture's baseline write: observe, never accept (DUO-3507).
+     * Capture's baseline write: observe, never accept (issue #3507).
      *
-     * `duo capture` reads live state and publishes it; it does not
+     * `wprism capture` reads live state and publishes it; it does not
      * reconcile code, and it has no --force-code-drift consent gate the way
      * Deploy::run() does. Overwriting the baseline across an unaccepted
      * drift was therefore the one place a durable finding was erased by a
      * verb that never asked: code_drift() reads exactly the key
      * record_code_versions() writes (:369), so the re-baseline deleted
-     * the evidence from every later `duo status`/`duo plan`, and the drift
-     * row's own remedy text names 'duo deploy' as the accept path
+     * the evidence from every later `wprism status`/`wprism plan`, and the drift
+     * row's own remedy text names 'wprism deploy' as the accept path
      * (:400-401, :429-430) and never names capture.
      *
      * So: nothing to accept — no baseline recorded yet, or zero drift —
@@ -656,7 +656,7 @@ final class LifecyclePlanner {
             'evidence' => $evidence,
             'message' => "$plugin $installed is active in this environment, outside the '{$range['manifest']}' "
                 . "manifest's declared version_range (>={$range['min']} <{$range['max']}, pinned by "
-                . 'site.duo.json), and is NOT blocked: every release this site recorded between that window and '
+                . 'site.wprism.json), and is NOT blocked: every release this site recorded between that window and '
                 . "these bytes probed green under this adapter's own declared surfaces — $named. That is "
                 . 'evidence about exactly those releases and nothing else: a release with no recorded probe '
                 . 'blocks, and so does one that boot-fataled, diverged on recapture, or could not be resolved. '
@@ -683,7 +683,7 @@ final class LifecyclePlanner {
             'manifest' => $r['manifest'],
             'message' => "$slug " . ($installed !== '' ? $installed : '(unknown version)')
                 . " is active in this environment, outside the '{$r['manifest']}' manifest's declared "
-                . "theme_version_range (>={$r['min']} <{$r['max']}, pinned by site.duo.json). Classification "
+                . "theme_version_range (>={$r['min']} <{$r['max']}, pinned by site.wprism.json). Classification "
                 . 'guarantees for this theme are NOT validated against this version — apply may silently '
                 . 'misclassify fields. Update the theme, pin an older manifest, or pass --force-code-mismatch '
                 . 'to proceed at your own risk.',

@@ -1,6 +1,6 @@
 <?php
 /**
- * Direct offline certification for DUO-3349's extracted user-meta capturer.
+ * Direct offline certification for issue #3349's extracted user-meta capturer.
  *
  * Executes the shipped SQL/classification/canonicalization boundary without
  * loading Capture, Policy, Tokens, or WordPress. The fixture pins exact-login
@@ -16,8 +16,8 @@ if (!defined('ARRAY_A')) {
 
 require_once __DIR__ . '/../../../../agent/src/Capture/UserMetaCapture.php';
 
-use Duo\UserMetaCapture;
-use Duo\UserMetaState;
+use WPrism\UserMetaCapture;
+use WPrism\UserMetaState;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -36,7 +36,7 @@ $throws = static function (callable $run, string $fragment, string $message) use
 };
 
 $check(class_exists(UserMetaCapture::class, false), 'UserMetaCapture loads as a direct offline boundary');
-foreach (['Duo\\Capture', 'Duo\\Policy', 'Duo\\Tokens'] as $runtimeClass) {
+foreach (['WPrism\\Capture', 'WPrism\\Policy', 'WPrism\\Tokens'] as $runtimeClass) {
     $check(!class_exists($runtimeClass, false), "UserMetaCapture does not load $runtimeClass");
 }
 
@@ -416,7 +416,7 @@ $oversizedMetaWpdb->forcedResult = [[
     'meta_id' => '1',
     'user_id' => '1',
     'meta_key_bytes' => '5',
-    'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
+    'meta_value_bytes' => (string) (\WPrism\MetaRows::MAX_META_VALUE_BYTES + 1),
 ]];
 $throws(
     static fn() => $captureForWpdb($oversizedMetaWpdb)->capture([]),

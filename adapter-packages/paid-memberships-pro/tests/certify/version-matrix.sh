@@ -76,7 +76,7 @@ for PMPRO_VERSION in 3.8.2 3.8.3; do
   [ "$INSTALLED_1" = "$PMPRO_VERSION" ] || fail "side 1 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_1"
   pass "side 1: paid-memberships-pro $PMPRO_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "paid-memberships-pro"],
   "policy": {
@@ -96,9 +96,9 @@ EOF
   "${GIT1[@]}" push -qu origin main
 
   seed_pmpro_content
-  wp1 duo capture --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
   pass "captured on side 1 (paid-memberships-pro $PMPRO_VERSION)"
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -113,17 +113,17 @@ EOF
   [ "$INSTALLED_2" = "$PMPRO_VERSION" ] || fail "side 2 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_2"
   wp2 plugin is-active paid-memberships-pro >/dev/null 2>&1 && fail "PMPro target premise must begin inactive"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   wp2 plugin is-active paid-memberships-pro >/dev/null || fail "deploy did not activate the admitted PMPro artifact"
   postdeploy_pmpro_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at paid-memberships-pro $PMPRO_VERSION"
   pass "deploy + apply succeeded on side 2 (paid-memberships-pro $PMPRO_VERSION, hostile target, canary clean)"
 
   check_pmpro_content
 
-  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at paid-memberships-pro $PMPRO_VERSION: $DIFF_OUT"
@@ -140,24 +140,24 @@ EOF
     [ "$(wp1 plugin get paid-memberships-pro --field=version)" = 3.8.3 ] \
       && [ "$(wp2 plugin get paid-memberships-pro --field=version)" = 3.8.3 ] \
       || fail 'PMPro in-place upgrade did not install exact 3.8.3 on both populated environments'
-    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     wp1 eval '
       global $wpdb; $id=(int)$wpdb->get_var("SELECT id FROM {$wpdb->pmpro_membership_levels} WHERE name=\"Builder 東京 🚀\" AND initial_payment=19.95");
       update_pmpro_membership_level_meta($id,"membership_account_message","PMPro 3.8.2 to 3.8.3 upgrade 東京 🚀");
     ' >/dev/null
-    wp1 duo capture --repo=/siterepo
-    wp1 duo lint --repo=/siterepo
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
     "${GIT1[@]}" commit -qm 'capture: PMPro 3.8.2 to 3.8.3 in-place upgrade'
     "${GIT1[@]}" push -q origin main
     git -C "siterepo/${PAIR}2" pull -q origin main
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+    wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail 'PMPro 3.8.2 -> 3.8.3 upgrade apply canary was not clean'
     PMPRO_CHECK_VERSION=3.8.3 check_pmpro_content
     unset PMPRO_CHECK_VERSION
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-pmpro-upgrade-final
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-pmpro-upgrade-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-pmpro-upgrade-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-pmpro-upgrade-final"
     [ -z "$UPGRADE_DIFF" ] || fail "PMPro 3.8.2 -> 3.8.3 in-place upgrade lost byte identity: $UPGRADE_DIFF"
@@ -180,7 +180,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get paid-memberships-pro --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "3.8.3" ] \
   || fail "negative control premise did not install exact paid-memberships-pro 3.8.3 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "paid-memberships-pro"],
   "policy": {
@@ -199,7 +199,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: paid-memberships-pro negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_pmpro_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid PMPro state for adjacent-version refusals"
 "${GIT1[@]}" push -q origin main
@@ -208,7 +208,7 @@ say "negative control: missing PMPro code refuses before lifecycle mutation"
 wp1 plugin deactivate paid-memberships-pro >/dev/null 2>&1 || true
 wp1 plugin delete paid-memberships-pro >/dev/null
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse missing PMPro code, but it exited 0 (got: $DEPLOY_OUT)"
@@ -228,7 +228,7 @@ WRONG_BASENAME_VERSION=$(wp1 plugin get paid-memberships-pro-3.8.3 --field=versi
 [ "$WRONG_BASENAME_VERSION" = "3.8.3" ] \
   || fail "wrong-basename premise did not install official 3.8.3 bytes under the archive root"
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse PMPro under the wrong basename, but it exited 0 (got: $DEPLOY_OUT)"
@@ -250,7 +250,7 @@ wp1 plugin install "$UNREADABLE_ARTIFACT" >/dev/null
 normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
 "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'chmod 000 /var/www/html/wp-content/plugins/paid-memberships-pro/paid-memberships-pro.php'
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'chmod 0644 /var/www/html/wp-content/plugins/paid-memberships-pro/paid-memberships-pro.php'
@@ -274,7 +274,7 @@ for OUT_OF_RANGE_VERSION in 3.8.1 3.8.4; do
     || fail "negative control: expected paid-memberships-pro $OUT_OF_RANGE_VERSION installed, got $INSTALLED_OOR"
 
   set +e
-  DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+  DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
   DEPLOY_RC=$?
   set -e
   [ "$DEPLOY_RC" -ne 0 ] \

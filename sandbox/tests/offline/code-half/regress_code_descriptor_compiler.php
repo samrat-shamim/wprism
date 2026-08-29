@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-// DUO-3350 slice 3: the deterministic descriptor boundary has its own
+// issue #3350 slice 3: the deterministic descriptor boundary has its own
 // collaborator. This fixture intentionally bypasses Code's materializer and
 // ledger paths, then proves the historical Code facade is byte-identical.
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Code/CodeDescriptorCompiler.php';
 require_once $root . '/agent/src/Code/Code.php';
 
-use Duo\Canon;
-use Duo\Code;
-use Duo\CodeCompilationException;
-use Duo\CodeDescriptorCompiler;
+use WPrism\Canon;
+use WPrism\Code;
+use WPrism\CodeCompilationException;
+use WPrism\CodeDescriptorCompiler;
 
 function descriptor_fail(string $message): never {
     throw new RuntimeException('FAIL: ' . $message);
@@ -49,7 +49,7 @@ function descriptor_remove(string $path): void {
     @rmdir($path);
 }
 
-$source = sys_get_temp_dir() . '/duo-descriptor-compiler-' . bin2hex(random_bytes(6));
+$source = sys_get_temp_dir() . '/wprism-descriptor-compiler-' . bin2hex(random_bytes(6));
 register_shutdown_function(static function () use ($source): void {
     descriptor_remove($source);
 });
@@ -77,7 +77,7 @@ try {
     CodeDescriptorCompiler::assert_config(['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content']);
     descriptor_fail('compiler accepted a non-standard code layout');
 } catch (RuntimeException $e) {
-    descriptor_assert(str_contains($e->getMessage(), 'site.duo.json code must contain exactly'), 'config refusal lost its stable diagnostic');
+    descriptor_assert(str_contains($e->getMessage(), 'site.wprism.json code must contain exactly'), 'config refusal lost its stable diagnostic');
 }
 
 $bad = $direct;

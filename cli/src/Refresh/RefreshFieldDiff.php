@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * Private byte-span projector for Refresh's redacted field-level contract.
@@ -15,7 +15,7 @@ namespace Duo\Orchestrator;
  * decoded document back into JSON: branch bytes are the scaffold and every
  * replacement is copied verbatim from one verified source document.
  *
- * The same rule governs the post body (DUO-3494). DESIGN.md:125 keeps
+ * The same rule governs the post body (issue #3494). DESIGN.md:125 keeps
  * "ordered/opaque structures record-atomic", and a post body is ordered, so
  * the only composition allowed here is a whole-top-level-block byte swap
  * between three bodies that already agree on their block sequence: identical
@@ -27,14 +27,14 @@ namespace Duo\Orchestrator;
  * best-effort, and a body silently resolved to ours/theirs is exactly that.
  */
 final class RefreshFieldDiff {
-    public const DIFF_FORMAT = 'duo-refresh-field-diff/v1';
-    public const RESOLUTION_FORMAT = 'duo-refresh-field-resolution/v1';
-    public const POLICY_FORMAT = 'duo-refresh-field-policy/v1';
+    public const DIFF_FORMAT = 'wprism-refresh-field-diff/v1';
+    public const RESOLUTION_FORMAT = 'wprism-refresh-field-resolution/v1';
+    public const POLICY_FORMAT = 'wprism-refresh-field-policy/v1';
     /** Private, process-local only: never journaled or returned by Refresh. */
-    public const PRESENTATION_FORMAT = 'duo-refresh-field-presentation/v2';
+    public const PRESENTATION_FORMAT = 'wprism-refresh-field-presentation/v2';
     private const INTERACTIVE_VALUE_PREVIEW_BYTES = 4096;
     private const INTERACTIVE_PATH_PREVIEW_BYTES = 512;
-    public const ALGORITHM = 'duo-refresh-field-diff/v1';
+    public const ALGORITHM = 'wprism-refresh-field-diff/v1';
 
     /**
      * The closed, understandable engine vocabulary. A group is one atomic
@@ -2472,11 +2472,11 @@ final class RefreshFieldDiff {
 
     private static function recordSelector(string $id): string {
         if ($id === '') throw new \RuntimeException('refresh plan entry has no stable identity');
-        return hash('sha256', "duo-refresh-field-record/v1\0" . $id);
+        return hash('sha256', "wprism-refresh-field-record/v1\0" . $id);
     }
 
     private static function fieldSelector(string $recordSelector, string $field): string {
-        return hash('sha256', "duo-refresh-field-selector/v1\0" . $recordSelector . "\0" . $field);
+        return hash('sha256', "wprism-refresh-field-selector/v1\0" . $recordSelector . "\0" . $field);
     }
 
     private static function choiceKey(string $recordSelector, string $fieldSelector): string {
@@ -2758,8 +2758,8 @@ final class RefreshFieldDiff {
     }
 
     private static function encode(mixed $value): string {
-        if (class_exists(\Duo\Canon::class)) {
-            return \Duo\Canon::encode($value);
+        if (class_exists(\WPrism\Canon::class)) {
+            return \WPrism\Canon::encode($value);
         }
         $encoded = json_encode(self::canonicalize($value), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         return $encoded . "\n";

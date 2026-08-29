@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(CommandRefusalException::class, false)) {
     require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -102,7 +102,7 @@ final class CanonicalLedgerMapGuard {
             }
             $evidence = ['entity_type' => $entityType] + $details;
             if (isset($expected[$uuid][$kind]) && $expected[$uuid][$kind] !== $evidence) {
-                throw new \RuntimeException('duo: compiled canonical identity has contradictory map requirements');
+                throw new \RuntimeException('wprism: compiled canonical identity has contradictory map requirements');
             }
             $expected[$uuid][$kind] = $evidence;
         };

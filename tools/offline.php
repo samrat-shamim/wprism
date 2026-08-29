@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 require_once __DIR__ . '/src/OfflineScenarioDelegation.php';
 
@@ -289,7 +289,7 @@ final class OfflineRunner
      * Recipes may carry env prefixes and continuations; matching the path
      * shape is robust to both and does not require re-expanding make syntax.
      *
-     * DUO-3482 assessed this regex for the sandbox-relative spelling the other
+     * issue #3482 assessed this regex for the sandbox-relative spelling the other
      * two path-aware tools were blind to -- a corpus file whose cwd is
      * `sandbox/` names a suite `tests/grind/x.sh`, and the rule for reading
      * that is stated in the block above `ms_sandbox_relative_tail()` in
@@ -604,14 +604,14 @@ final class OfflineRunnerCli
         // Per-worker TMPDIRs deliberately live OUTSIDE the worktree, not under
         // sandbox/tmp/. Measured: with TMPDIR inside the repo, four suites fail
         // that pass serially -- regress-environment-lifecycle is the clearest,
-        // because cli/src/Environment/Registry.php refuses "a nested site.duo.json outside
+        // because cli/src/Environment/Registry.php refuses "a nested site.wprism.json outside
         // Git worktree root", which is true of any scratch tree placed inside
         // the checkout. That is a real property of the code under test, not a
         // harness bug, so isolation moves rather than switching off. Keyed by
         // the repo path so two clones never share a worker slot.
         $tmp = getenv('TMPDIR');
         $systemTmp = ($tmp === false || $tmp === '') ? sys_get_temp_dir() : rtrim($tmp, '/');
-        $this->tmpRoot = $systemTmp . '/duo-offline-runner-' . substr(sha1($repoRoot), 0, 12);
+        $this->tmpRoot = $systemTmp . '/wprism-offline-runner-' . substr(sha1($repoRoot), 0, 12);
         $make = getenv('MAKE');
         $this->make = ($make === false || $make === '') ? 'make' : $make;
         $this->opt = [];

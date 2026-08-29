@@ -4,14 +4,14 @@ The effect bundle is the lifecycle/rebuild-action/regenerator slice of verified
 SSH rollback. It compiles every possible mutation into an immutable inventory,
 prepares prior evidence while maintenance exclusion is held, binds that
 evidence to the signed rollback receipt, and refuses undeclared runtime effects.
-It is consumed by the integrated automatic profile: `duo promote` passes the
+It is consumed by the integrated automatic profile: `wprism promote` passes the
 compiled plan inventory into receipt preparation and uses the provider's live
 receipt evidence and inverse operation under the signed generation fence.
 
 ## Manifest grammar
 
 Plugin/theme lifecycle effects use top-level `lifecycle_effects`. A rebuild
-action (DUO-3338's structured `actions` channel, which retired the free-form
+action (issue #3338's structured `actions` channel, which retired the free-form
 `rebuilders` command strings) uses `actions[].effects`; a row-keyed regenerator
 uses
 `post_types.<type>.regen_dependency.effects`. Each is a non-empty list. Every
@@ -86,7 +86,7 @@ typed placeholders are `{positive_uint}` (a canonical positive decimal id of
 1–19 digits, without leading zeroes) and `{slug}` (a bounded, lower-case or
 case-lacking WordPress-style identifier — Unicode letters and decimal
 digits, e.g. a multibyte WooCommerce ≥11.0.0 attribute taxonomy name, not
-ASCII-only; see `spec/repo-format.md` for the exact grammar, DUO-3437).
+ASCII-only; see `spec/repo-format.md` for the exact grammar, issue #3437).
 The first four groups and the family names receive concrete runtime keys (for
 example, `post_parent:42` within `posts` and `pa_color_relationships` for a
 product attribute).
@@ -128,7 +128,7 @@ cannot be loaded after raw SQL deletion. A variation also invalidates its
 parent's fixed/specific transients and product cache, matching Woo's public
 11.x clear-cache behavior.
 
-The ordinary, manual `duo promote` path remains supported. Operators may
+The ordinary, manual `wprism promote` path remains supported. Operators may
 continue to use it with an explicit review/rollback plan; the effect bundle
 does not turn WooCommerce's public lifecycle or dynamic caches into a claim
 of automatic reversibility.
@@ -182,7 +182,7 @@ Configure an absolute provider argv vector:
 ```json
 {
   "rollback_recovery": {
-    "effect_provider": ["/opt/duo/bin/effect-provider", "production"]
+    "effect_provider": ["/opt/wprism/bin/effect-provider", "production"]
   }
 }
 ```
@@ -190,21 +190,21 @@ Configure an absolute provider argv vector:
 `recovery-probe` requires canonical evidence that the provider supports
 database-checkpoint mapping, external resources, receipt outbox prevention,
 and inverse readback without exposing credentials. After maintenance exclusion
-is held, the controller sends a signed `duo-effect-bundle-request/v1` containing
+is held, the controller sends a signed `wprism-effect-bundle-request/v1` containing
 the compiled inventory. Any irreversible, malformed, incompatible, secret-
 shaped, undeclared, or unbounded effect blocks before the provider and before
 code mutation.
 
 Any `restorable` inventory row additionally requires the recovery
-`checkpoint_provider`. Duo checks this before creating effect artifacts or
+`checkpoint_provider`. WPrism checks this before creating effect artifacts or
 invoking the effect provider's `prepare` action, because the effect provider
 cannot restore database rows. A read-only capability probe may already have
-run while Duo established recovery readiness.
+run while WPrism established recovery readiness.
 
 For accepted rows the provider writes immutable prior evidence. Restorable
 rows name their checkpoint coverage, reversible rows bind exact inverse and
 fresh-verifier input hashes plus prior state, and prevented rows reserve a
-receipt-specific outbox identity. Duo independently validates and hashes both
+receipt-specific outbox identity. WPrism independently validates and hashes both
 the compile inventory and prior evidence. The metadata digest becomes the
 receipt's provider-owned `lifecycle_receipts_sha256`; callers cannot supply it.
 
@@ -218,7 +218,7 @@ and attest that the external call was prevented. Observation alone is rejected.
 
 `effects_inverse` runs only in `rolling_back` with an exact signed prepared
 operation and input digest. The provider executes idempotent inverses using the
-frozen receipt inputs. Duo then starts a second provider process for
+frozen receipt inputs. WPrism then starts a second provider process for
 `verify-prior`; its readback digest must exactly equal the inverse result.
 Database rows remain the checkpoint executor's responsibility. External
 caches, search indexes, cron services, queues, and files remain distinct

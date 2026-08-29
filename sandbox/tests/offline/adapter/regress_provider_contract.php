@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Offline regression for DUO-3338's native-action vocabulary and plugin-owned
- * provider contract, extended by DUO-3369's structured capability arguments
+ * Offline regression for issue #3338's native-action vocabulary and plugin-owned
+ * provider contract, extended by issue #3369's structured capability arguments
  * (`list<object>`) and engine batch context channels. No WordPress target, no
  * WP-CLI, no docker: the pieces under test are the closed vocabulary (pure PHP
  * by construction — it runs inside Policy's offline validation pass), the
@@ -27,29 +27,29 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 require __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 // wpdb::get_results()'s output mode, which Ledger's own checked reads pass.
 define('ARRAY_A', 'ARRAY_A');
 
 // ---- WordPress lifecycle primitives Deploy::plugin_runtime_state() reads ----
 // Defining validate_plugin() also short-circuits Deploy's wp-admin include.
-$GLOBALS['duo_test_plugins'] = [];
-$GLOBALS['duo_test_active'] = [];
-$GLOBALS['duo_test_providers'] = [];
-$GLOBALS['duo_test_provider_registry_throw'] = null;
+$GLOBALS['wprism_test_plugins'] = [];
+$GLOBALS['wprism_test_active'] = [];
+$GLOBALS['wprism_test_providers'] = [];
+$GLOBALS['wprism_test_provider_registry_throw'] = null;
 
 function validate_plugin(string $plugin): mixed {
-    return isset($GLOBALS['duo_test_plugins'][$plugin])
+    return isset($GLOBALS['wprism_test_plugins'][$plugin])
         ? 0
         : new \WP_Error("plugin '$plugin' does not exist");
 }
 function get_plugins(): array {
-    return $GLOBALS['duo_test_plugins'];
+    return $GLOBALS['wprism_test_plugins'];
 }
 function get_option(string $name, mixed $default = false): mixed {
-    return $name === 'active_plugins' ? $GLOBALS['duo_test_active'] : $default;
+    return $name === 'active_plugins' ? $GLOBALS['wprism_test_active'] : $default;
 }
 function untrailingslashit(string $value): string {
     return rtrim($value, '/\\');
@@ -61,20 +61,20 @@ function is_wp_error(mixed $thing): bool {
     return $thing instanceof \WP_Error;
 }
 function apply_filters(string $hook, mixed $value): mixed {
-    if ($hook === 'duo_providers' && $GLOBALS['duo_test_provider_registry_throw'] !== null) {
-        throw new \RuntimeException($GLOBALS['duo_test_provider_registry_throw']);    }
-    return $hook === 'duo_providers' ? $GLOBALS['duo_test_providers'] : $value;
+    if ($hook === 'wprism_providers' && $GLOBALS['wprism_test_provider_registry_throw'] !== null) {
+        throw new \RuntimeException($GLOBALS['wprism_test_provider_registry_throw']);    }
+    return $hook === 'wprism_providers' ? $GLOBALS['wprism_test_providers'] : $value;
 }
 // Apply::rebuild() flushes the object cache before and after the action loop
 // and hard-fails on a false return; the count is asserted by the drive below,
 // so the stub is evidence rather than a silencer.
-$GLOBALS['duo_test_cache_flushes'] = 0;
+$GLOBALS['wprism_test_cache_flushes'] = 0;
 function wp_cache_flush(): bool {
-    $GLOBALS['duo_test_cache_flushes']++;
+    $GLOBALS['wprism_test_cache_flushes']++;
     return true;
 }
 // Apply::rebuild() reschedules future posts for every post-kind work row it is
-// given. The DUO-3342 drives below hand it real work rows, so these three are
+// given. The issue #3342 drives below hand it real work rows, so these three are
 // the narrow WordPress cron surface that pass touches; each returns the
 // non-failure value the pass hard-fails without.
 function wp_clear_scheduled_hook(string $hook, array $args = []): int {
@@ -89,16 +89,16 @@ function wp_next_scheduled(string $hook, array $args = []): int|false {
 class WP_Error {
     public function __construct(public string $message = '') {}
 }
-// DUO-3317: the WordPress version read a provider `requires.wordpress_version`
+// issue #3317: the WordPress version read a provider `requires.wordpress_version`
 // negotiation makes — TargetProbe::probe_target() reads
 // get_bloginfo('version') the same way. Controlled by a global so the requires
 // cases below can place the site's version inside or outside a declared
 // window. Every other check leaves the requirement path untouched (a
 // declaration with no `requires` never consults it), so defining it here
 // changes nothing they observe.
-$GLOBALS['duo_test_wp_version'] = '';
+$GLOBALS['wprism_test_wp_version'] = '';
 function get_bloginfo(string $show = 'version'): string {
-    return (string) ($GLOBALS['duo_test_wp_version'] ?? '');
+    return (string) ($GLOBALS['wprism_test_wp_version'] ?? '');
 }
 
 // ---- WordPress transient primitives NativeActions::execute() reads ----
@@ -143,9 +143,9 @@ final class NativeActionFakeWpdb {
     }
 }
 
-// DUO-3317: a wpdb whose four read methods return exactly what a test tells
+// issue #3317: a wpdb whose four read methods return exactly what a test tells
 // them to, plus a settable last_error and a record of the SQL it was handed —
-// the fixture \Duo\ProviderSdk's checked reads run against. Deliberately does
+// the fixture \WPrism\ProviderSdk's checked reads run against. Deliberately does
 // NOT model any query grammar: the SDK's whole contract is that it never reads
 // the SQL or the driver text into its failure, so the fake need only prove the
 // SDK distinguishes a real value from every failure shape.
@@ -188,22 +188,22 @@ final class CheckedReadFakeWpdb {
     }
 }
 
-$GLOBALS['duo_native_cache'] = [];
-$GLOBALS['duo_native_cache_reads'] = [];
-$GLOBALS['duo_native_delete_calls'] = [];
-$GLOBALS['duo_native_delete_mode'] = 'delete';
-$GLOBALS['duo_native_cache_sets_found'] = true;
+$GLOBALS['wprism_native_cache'] = [];
+$GLOBALS['wprism_native_cache_reads'] = [];
+$GLOBALS['wprism_native_delete_calls'] = [];
+$GLOBALS['wprism_native_delete_mode'] = 'delete';
+$GLOBALS['wprism_native_cache_sets_found'] = true;
 
 function wp_cache_get($key, $group = '', $force = false, &$found = null): mixed {
     $group = (string) $group;
     $key = (string) $key;
-    $entries = $GLOBALS['duo_native_cache'][$group] ?? [];
+    $entries = $GLOBALS['wprism_native_cache'][$group] ?? [];
     $present = array_key_exists($key, $entries);
-    if ($GLOBALS['duo_native_cache_sets_found']) {
+    if ($GLOBALS['wprism_native_cache_sets_found']) {
         $found = $present;
     }
     $value = $present ? $entries[$key] : false;
-    $GLOBALS['duo_native_cache_reads'][] = [
+    $GLOBALS['wprism_native_cache_reads'][] = [
         'key' => $key,
         'group' => $group,
         'arity' => func_num_args(),
@@ -216,16 +216,16 @@ function wp_cache_get($key, $group = '', $force = false, &$found = null): mixed 
 function delete_transient($transient): bool {
     global $wpdb;
     $name = (string) $transient;
-    $GLOBALS['duo_native_delete_calls'][] = $name;
-    if ($GLOBALS['duo_native_delete_mode'] === 'no-op') {
+    $GLOBALS['wprism_native_delete_calls'][] = $name;
+    if ($GLOBALS['wprism_native_delete_mode'] === 'no-op') {
         return false;
     }
     $wasPresent = array_key_exists('_transient_' . $name, $wpdb->optionRows)
         || array_key_exists('_transient_timeout_' . $name, $wpdb->optionRows)
-        || array_key_exists($name, $GLOBALS['duo_native_cache']['transient'] ?? []);
+        || array_key_exists($name, $GLOBALS['wprism_native_cache']['transient'] ?? []);
     unset($wpdb->optionRows['_transient_' . $name]);
     unset($wpdb->optionRows['_transient_timeout_' . $name]);
-    unset($GLOBALS['duo_native_cache']['transient'][$name]);
+    unset($GLOBALS['wprism_native_cache']['transient'][$name]);
     return $wasPresent;
 }
 
@@ -237,7 +237,7 @@ require $root . '/agent/src/Code/CodeCompatibility.php';
 require $root . '/agent/src/Promotion/Deploy.php';
 require $root . '/agent/src/Adapter/ProviderSdk.php';
 require $root . '/agent/src/Adapter/Providers.php';
-// DUO-3339: `duo status`'s renderer is pure and is one half of the documented
+// issue #3339: `wprism status`'s renderer is pure and is one half of the documented
 // two-renderer lockstep for plan rows, so it is driven directly below.
 require $root . '/cli/src/Plan/PlanSummary.php';
 require __DIR__ . '/../../lib/frozen_policy.php';
@@ -259,14 +259,14 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 };
 
 // ---- explicit scratch library with a real manifest-shipped provider file ----
-$scratchRoot = sys_get_temp_dir() . '/duo-provider-contract-' . getmypid();
-$dir = duo_cert_project_library(\Duo\AdapterLibrary::fromSourceTree($root), $scratchRoot);
+$scratchRoot = sys_get_temp_dir() . '/wprism-provider-contract-' . getmypid();
+$dir = wprism_cert_project_library(\WPrism\AdapterLibrary::fromSourceTree($root), $scratchRoot);
 register_shutdown_function(static function () use ($scratchRoot): void {
-    duo_cert_remove_tree($scratchRoot);
+    wprism_cert_remove_tree($scratchRoot);
 });
 file_put_contents($dir . '/providers/probe-cache.php', <<<'PHP'
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
 final class ProbeCache {
     public array $calls = [];
@@ -283,14 +283,14 @@ final class ProbeCache {
     public static ?string $invokeThrows = null;
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
-    // DUO-3.3: real wp_options writes the capability performs INSIDE invoke(),
+    // WPRISM-3.3: real wp_options writes the capability performs INSIDE invoke(),
     // so the engine's own before/after reading of the declared surfaces has
     // something to disagree with. option name => new value, or null to delete
     // the row. Empty by default, so every check written before this one sees
     // the same inert provider it was written against.
     public static array $optionWrites = [];
 
-    public function __construct(\Duo\Policy $policy) {}
+    public function __construct(\WPrism\Policy $policy) {}
 
     public function identity(): array {
         if (self::$identityThrows !== null) {
@@ -360,7 +360,7 @@ PHP);
 // file lives in the manifests providers/ dir (posing it as plugin-sourced
 // must therefore refuse).
 define('WP_PLUGIN_DIR', $scratchRoot . '/wp-plugins');
-// DUO-3339: this harness models a target that HAS WordPress loaded — that is
+// issue #3339: this harness models a target that HAS WordPress loaded — that is
 // what makes negotiating plugin state meaningful here at all — and
 // Providers::runtime_negotiation_available() reads exactly the four symbols
 // that say so. Three were already present; ABSPATH is the fourth, and without
@@ -369,9 +369,9 @@ define('WP_PLUGIN_DIR', $scratchRoot . '/wp-plugins');
 // genuinely is absent).
 define('ABSPATH', $scratchRoot . '/wp/');
 @mkdir(WP_PLUGIN_DIR . '/probe', 0700, true);
-file_put_contents(WP_PLUGIN_DIR . '/probe/duo-provider.php', <<<'PHP'
+file_put_contents(WP_PLUGIN_DIR . '/probe/wprism-provider.php', <<<'PHP'
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
 final class ProbeSupplied {
     public function identity(): array {
@@ -396,7 +396,7 @@ final class ProbeSupplied {
     }
 }
 PHP);
-require_once WP_PLUGIN_DIR . '/probe/duo-provider.php';
+require_once WP_PLUGIN_DIR . '/probe/wprism-provider.php';
 // Loaded up front so the per-case reset below can address the fixture's static
 // override slots; Providers::negotiate() require_once's the same file itself.
 require_once $dir . '/providers/probe-cache.php';
@@ -406,12 +406,12 @@ require_once $dir . '/providers/probe-cache.php';
 // tell a complete unbind from a partial one.
 file_put_contents($dir . '/providers/probe-index.php', <<<'PHP'
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
 final class ProbeIndex {
     public static array $capabilityOverrides = [];
 
-    public function __construct(\Duo\Policy $policy) {}
+    public function __construct(\WPrism\Policy $policy) {}
 
     public function identity(): array {
         return ['id' => 'probe-index', 'plugin' => 'probe/probe.php', 'version' => '1.0.0'];
@@ -462,11 +462,11 @@ $manifest = [
 // their own authored disposition below.
 copy($dir . '/dispositions/core.json', $dir . '/dispositions/probe.json');
 
-/** @var array<string,\Duo\AdapterLibrary> */
+/** @var array<string,\WPrism\AdapterLibrary> */
 $providerLibraries = [];
-$libraryFor = static function (array $manifest) use ($dir, &$providerLibraries): \Duo\AdapterLibrary {
-    $key = hash('sha256', \Duo\Canon::encode($manifest));
-    file_put_contents($dir . '/probe.json', \Duo\Canon::encode($manifest));
+$libraryFor = static function (array $manifest) use ($dir, &$providerLibraries): \WPrism\AdapterLibrary {
+    $key = hash('sha256', \WPrism\Canon::encode($manifest));
+    file_put_contents($dir . '/probe.json', \WPrism\Canon::encode($manifest));
     if (isset($providerLibraries[$key])) {
         return $providerLibraries[$key];
     }
@@ -501,7 +501,7 @@ $libraryFor = static function (array $manifest) use ($dir, &$providerLibraries):
         $hidden[$away] = $regeneratorPath;
     }
     try {
-        return $providerLibraries[$key] = \Duo\AdapterLibrary::fromLegacyFlatDirectory($dir);
+        return $providerLibraries[$key] = \WPrism\AdapterLibrary::fromLegacyFlatDirectory($dir);
     } finally {
         foreach ($hidden as $away => $path) {
             rename($away, $path);
@@ -509,34 +509,34 @@ $libraryFor = static function (array $manifest) use ($dir, &$providerLibraries):
     }
 };
 
-$policyFor = static function (array $manifest) use ($libraryFor): \Duo\Policy {
-    return \Duo\Policy::from_snapshot([
-        'adapter_sources' => \DuoTest\FrozenPolicy::adapterSources(),
+$policyFor = static function (array $manifest) use ($libraryFor): \WPrism\Policy {
+    return \WPrism\Policy::from_snapshot([
+        'adapter_sources' => \WPrismTest\FrozenPolicy::adapterSources(),
         'dispositions' => null,
-        'format' => \DuoTest\FrozenPolicy::SNAPSHOT_FORMAT,
+        'format' => \WPrismTest\FrozenPolicy::SNAPSHOT_FORMAT,
         'manifests' => [$manifest],
-        'site' => \DuoTest\FrozenPolicy::site([$manifest]),
+        'site' => \WPrismTest\FrozenPolicy::site([$manifest]),
     ], $libraryFor($manifest));
 };
 $reset = static function (): void {
-    $GLOBALS['duo_test_plugins'] = ['probe/probe.php' => ['Version' => '1.5.0']];
-    $GLOBALS['duo_test_active'] = ['probe/probe.php'];
-    $GLOBALS['duo_test_providers'] = [];
-    $GLOBALS['duo_test_provider_registry_throw'] = null;
-    \Duo\Providers\ProbeCache::$capabilityMapOverride = null;
-    \Duo\Providers\ProbeCache::$capabilityOverrides = [];
-    \Duo\Providers\ProbeCache::$capabilitiesThrows = null;
-    \Duo\Providers\ProbeCache::$extraCapabilities = [];
-    \Duo\Providers\ProbeCache::$identityOverrides = [];
-    \Duo\Providers\ProbeCache::$identityThrows = null;
-    \Duo\Providers\ProbeCache::$invokeThrows = null;
-    \Duo\Providers\ProbeCache::$receiptOverride = null;
-    \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
-    \Duo\Providers\ProbeCache::$optionWrites = [];
+    $GLOBALS['wprism_test_plugins'] = ['probe/probe.php' => ['Version' => '1.5.0']];
+    $GLOBALS['wprism_test_active'] = ['probe/probe.php'];
+    $GLOBALS['wprism_test_providers'] = [];
+    $GLOBALS['wprism_test_provider_registry_throw'] = null;
+    \WPrism\Providers\ProbeCache::$capabilityMapOverride = null;
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = [];
+    \WPrism\Providers\ProbeCache::$capabilitiesThrows = null;
+    \WPrism\Providers\ProbeCache::$extraCapabilities = [];
+    \WPrism\Providers\ProbeCache::$identityOverrides = [];
+    \WPrism\Providers\ProbeCache::$identityThrows = null;
+    \WPrism\Providers\ProbeCache::$invokeThrows = null;
+    \WPrism\Providers\ProbeCache::$receiptOverride = null;
+    \WPrism\Providers\ProbeCache::$sleepSeconds = 0.0;
+    \WPrism\Providers\ProbeCache::$optionWrites = [];
 };
 
 echo "\n== closed native-action vocabulary ==\n";
-$check(\Duo\NativeActions::vocabulary() === ['transient.delete', 'rewrite.flush'],
+$check(\WPrism\NativeActions::vocabulary() === ['transient.delete', 'rewrite.flush'],
     'v1 vocabulary is exactly transient.delete and rewrite.flush — a plugin cannot mint an action name');
 $expectMessage = static function (callable $body, string $needle, string $label) use ($check): void {
     try {
@@ -547,22 +547,22 @@ $expectMessage = static function (callable $body, string $needle, string $label)
     }
 };
 $expectMessage(
-    static fn() => \Duo\NativeActions::validate('shell.exec', ['cmd' => 'rm -rf /'], 'probe'),
+    static fn() => \WPrism\NativeActions::validate('shell.exec', ['cmd' => 'rm -rf /'], 'probe'),
     'vocabulary is closed',
     'an unknown native action is refused with the closed vocabulary named'
 );
 $expectMessage(
-    static fn() => \Duo\NativeActions::validate('transient.delete', ['name' => 'ok', 'ttl' => 5], 'probe'),
+    static fn() => \WPrism\NativeActions::validate('transient.delete', ['name' => 'ok', 'ttl' => 5], 'probe'),
     'unknown key(s)',
     'an unknown argument key is refused rather than ignored'
 );
 $expectMessage(
-    static fn() => \Duo\NativeActions::validate('transient.delete', [], 'probe'),
+    static fn() => \WPrism\NativeActions::validate('transient.delete', [], 'probe'),
     'missing required key',
     'a missing required argument is refused'
 );
 $expectMessage(
-    static fn() => \Duo\NativeActions::validate('transient.delete', ['name' => "a'; DROP TABLE wp_options; --"], 'probe'),
+    static fn() => \WPrism\NativeActions::validate('transient.delete', ['name' => "a'; DROP TABLE wp_options; --"], 'probe'),
     'bounded string',
     'an argument outside the bounded charset is refused before any target contact'
 );
@@ -575,13 +575,13 @@ echo "\n== native transient deletion: persistent-cache presence verification ==\
 $resetNativeActionRuntime = static function (): void {
     global $wpdb;
     $wpdb = new NativeActionFakeWpdb();
-    $GLOBALS['duo_native_cache'] = [];
-    $GLOBALS['duo_native_cache_reads'] = [];
-    $GLOBALS['duo_native_delete_calls'] = [];
-    $GLOBALS['duo_native_delete_mode'] = 'delete';
-    $GLOBALS['duo_native_cache_sets_found'] = true;
+    $GLOBALS['wprism_native_cache'] = [];
+    $GLOBALS['wprism_native_cache_reads'] = [];
+    $GLOBALS['wprism_native_delete_calls'] = [];
+    $GLOBALS['wprism_native_delete_mode'] = 'delete';
+    $GLOBALS['wprism_native_cache_sets_found'] = true;
 };
-$deleteNativeTransient = static fn(string $name): array => \Duo\NativeActions::execute(
+$deleteNativeTransient = static fn(string $name): array => \WPrism\NativeActions::execute(
     'transient.delete',
     ['name' => $name]
 );
@@ -612,14 +612,14 @@ try {
     $check(str_contains($t->getMessage(), 'option-row read failed'),
         'an option-row read failure is not mistaken for an absent transient');
 }
-$check($GLOBALS['duo_native_delete_calls'] === [],
+$check($GLOBALS['wprism_native_delete_calls'] === [],
     'a checked option-row read failure refuses before delete_transient() is called');
 
 // The public cache API owes callers a boolean presence flag. A legacy or
 // nonconforming wrapper that leaves it unset cannot prove absence, so the
 // action must stop before delete_transient() rather than publish a guess.
 $resetNativeActionRuntime();
-$GLOBALS['duo_native_cache_sets_found'] = false;
+$GLOBALS['wprism_native_cache_sets_found'] = false;
 try {
     $deleteNativeTransient('native_missing_found_flag');
     $check(false, 'a cache wrapper that omits the found flag is refused');
@@ -627,7 +627,7 @@ try {
     $check(str_contains($t->getMessage(), 'did not provide its required found flag'),
         'a cache wrapper that omits the found flag is refused');
 }
-$check($GLOBALS['duo_native_delete_calls'] === [],
+$check($GLOBALS['wprism_native_delete_calls'] === [],
     'an unverifiable cache read refuses before delete_transient() is called');
 
 // A conventional non-false cache value and both option rows must be observed
@@ -638,7 +638,7 @@ $wpdb->optionRows = [
     '_transient_' . $ordinaryName => 'persisted-value',
     '_transient_timeout_' . $ordinaryName => '4102444800',
 ];
-$GLOBALS['duo_native_cache']['transient'] = [$ordinaryName => 'cached-value'];
+$GLOBALS['wprism_native_cache']['transient'] = [$ordinaryName => 'cached-value'];
 $ordinaryReceipt = $deleteNativeTransient($ordinaryName);
 $check(
     ($ordinaryReceipt['before'] ?? null) === ['value_row' => true, 'timeout_row' => true, 'cached' => true]
@@ -646,9 +646,9 @@ $check(
         && ($ordinaryReceipt['verified'] ?? null) === true,
     'an ordinary persistent cache value and both option rows are observed then removed'
 );
-$check($GLOBALS['duo_native_delete_calls'] === [$ordinaryName]
+$check($GLOBALS['wprism_native_delete_calls'] === [$ordinaryName]
     && $wpdb->optionRows === []
-    && !array_key_exists($ordinaryName, $GLOBALS['duo_native_cache']['transient'] ?? []),
+    && !array_key_exists($ordinaryName, $GLOBALS['wprism_native_cache']['transient'] ?? []),
     'ordinary transient deletion removes the exact cache key and both option rows');
 
 // A persistent cache can legitimately store boolean false. wp_cache_get()
@@ -656,7 +656,7 @@ $check($GLOBALS['duo_native_delete_calls'] === [$ordinaryName]
 // honor WordPress's by-reference $found flag rather than test the return value.
 $resetNativeActionRuntime();
 $falseName = 'native_false_value';
-$GLOBALS['duo_native_cache']['transient'] = [$falseName => false];
+$GLOBALS['wprism_native_cache']['transient'] = [$falseName => false];
 $falseReceipt = $deleteNativeTransient($falseName);
 $check(
     ($falseReceipt['before'] ?? null) === ['value_row' => false, 'timeout_row' => false, 'cached' => true]
@@ -664,7 +664,7 @@ $check(
         && ($falseReceipt['verified'] ?? null) === true,
     'a boolean-false cache entry is observed as present and is removed'
 );
-$check($GLOBALS['duo_native_cache_reads'] === [
+$check($GLOBALS['wprism_native_cache_reads'] === [
     ['key' => $falseName, 'group' => 'transient', 'arity' => 4, 'found' => true, 'value' => false],
     ['key' => $falseName, 'group' => 'transient', 'arity' => 4, 'found' => false, 'value' => false],
 ], 'NativeActions uses wp_cache_get(..., &$found) to distinguish false from a miss');
@@ -674,8 +674,8 @@ $check($GLOBALS['duo_native_cache_reads'] === [
 // receipt may claim verified=true merely because the cached value is false.
 $resetNativeActionRuntime();
 $failedFalseName = 'native_false_survivor';
-$GLOBALS['duo_native_cache']['transient'] = [$failedFalseName => false];
-$GLOBALS['duo_native_delete_mode'] = 'no-op';
+$GLOBALS['wprism_native_cache']['transient'] = [$failedFalseName => false];
+$GLOBALS['wprism_native_delete_mode'] = 'no-op';
 $failedFalseReceipt = null;
 $failedFalseError = null;
 try {
@@ -688,35 +688,35 @@ $check($failedFalseError instanceof \Throwable
     'a no-op delete that leaves a false-valued persistent cache entry is refused');
 $check($failedFalseReceipt === null,
     'a surviving false-valued cache entry never returns a verified=true receipt');
-$check(array_key_exists($failedFalseName, $GLOBALS['duo_native_cache']['transient'] ?? [])
-    && $GLOBALS['duo_native_cache']['transient'][$failedFalseName] === false,
+$check(array_key_exists($failedFalseName, $GLOBALS['wprism_native_cache']['transient'] ?? [])
+    && $GLOBALS['wprism_native_cache']['transient'][$failedFalseName] === false,
     'the failed-delete fixture genuinely leaves the boolean-false cache entry present for readback');
 
-echo "\n== provider checked reads: the read twin of Db, same message hygiene (DUO-3317) ==\n";
+echo "\n== provider checked reads: the read twin of Db, same message hygiene (issue #3317) ==\n";
 // The SQL a provider hands the SDK can carry option/meta payloads (the value
-// kind Duo keeps out of diagnostics), so this string embeds a secret the
+// kind WPrism keeps out of diagnostics), so this string embeds a secret the
 // message must never echo — the read twin of Db's operation-level context rule.
-$secretSql = "SELECT option_value FROM wp_options WHERE option_name='duo_secret_CHECKED_READ_SECRET'";
+$secretSql = "SELECT option_value FROM wp_options WHERE option_name='wprism_secret_CHECKED_READ_SECRET'";
 $readContext = 'probe cache group lookup';
 $readFake = new CheckedReadFakeWpdb();
 
 $readFake->varReturn = '42';
-$check(\Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === '42',
+$check(\WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === '42',
     'checked_get_var returns a real scalar value untouched');
 $readFake->colReturn = ['a', 'b'];
-$check(\Duo\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake) === ['a', 'b'],
+$check(\WPrism\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake) === ['a', 'b'],
     'checked_get_col returns the column array');
 $readFake->colReturn = [];
-$check(\Duo\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake) === [],
+$check(\WPrism\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake) === [],
     'checked_get_col passes a genuinely empty column through — an empty result is not a failure');
 $readFake->rowReturn = ['id' => '7', 'slug' => 'x'];
-$check(\Duo\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake) === ['id' => '7', 'slug' => 'x'],
+$check(\WPrism\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake) === ['id' => '7', 'slug' => 'x'],
     'checked_get_row returns an ARRAY_A row');
 $readFake->rowReturn = null;
-$check(\Duo\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake) === null,
+$check(\WPrism\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake) === null,
     'checked_get_row passes a genuine null (no matching row) through');
 $readFake->resultsReturn = [['id' => '1'], ['id' => '2']];
-$check(\Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake) === [['id' => '1'], ['id' => '2']],
+$check(\WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake) === [['id' => '1'], ['id' => '2']],
     'checked_get_results returns the ARRAY_A rows');
 
 // last_error is cleared before the read: a stale error from a prior query does
@@ -724,7 +724,7 @@ $check(\Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake
 $readFake = new CheckedReadFakeWpdb();
 $readFake->last_error = 'stale DRIVER_SECRET from an earlier query';
 $readFake->varReturn = 'ok';
-$check(\Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === 'ok',
+$check(\WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake) === 'ok',
     'a stale last_error from a previous query is cleared before the read and does not fail a clean one');
 
 $checkedReadThrows = static function (callable $body, string $label) use ($check, $readContext): void {
@@ -748,29 +748,29 @@ $checkedReadThrows = static function (callable $body, string $label) use ($check
 $readFake = new CheckedReadFakeWpdb();
 $readFake->varReturn = '42';
 $readFake->errorOnRead = 'MySQL error near DRIVER_SECRET';
-$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
+$checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
     'a non-empty last_error throws even behind a plausible value, and the message carries neither the SQL nor the driver text');
 
 // Each read's own failure shape throws, and each redacts identically.
 $readFake = new CheckedReadFakeWpdb();
 $readFake->varReturn = false;
-$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
+$checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_var($secretSql, $readContext, $readFake),
     'checked_get_var throws on a false return (the wpdb failure sentinel), naming only the context');
 $readFake = new CheckedReadFakeWpdb();
 $readFake->colReturn = false;
-$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake),
+$checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_col($secretSql, $readContext, $readFake),
     'checked_get_col throws on a non-array return');
 $readFake = new CheckedReadFakeWpdb();
 $readFake->rowReturn = 'not-an-array';
-$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake),
+$checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_row($secretSql, $readContext, $readFake),
     'checked_get_row throws on a non-array, non-null return');
 $readFake = new CheckedReadFakeWpdb();
 $readFake->resultsReturn = null;
-$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
+$checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
     'checked_get_results throws on a non-array return');
 $readFake = new CheckedReadFakeWpdb();
 $readFake->resultsReturn = ['aliased' => ['id' => '1']];
-$checkedReadThrows(fn() => \Duo\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
+$checkedReadThrows(fn() => \WPrism\ProviderSdk::checked_get_results($secretSql, $readContext, $readFake),
     'checked_get_results throws on an associative outer result instead of silently reindexing it');
 
 echo "\n== negotiation: the supported path ==\n";
@@ -779,7 +779,7 @@ $policy = $policyFor($manifest);
 $selected = $policy->actions_for(['post:probe']);
 $check(count($selected) === 1, 'the unscoped probe action is selected by a non-empty surface set');
 $check($policy->actions_for([]) === [], 'an empty surface set selects nothing, so nothing is negotiated');
-$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for([]));
+$negotiation = \WPrism\Providers::negotiate($policy, $policy->actions_for([]));
 // `surface_observation` is the fourth key negotiation carries: per bound
 // capability, which of its declared surfaces the engine will read either side
 // of invoke(). Nothing bound here, so it is empty for the same reason the other
@@ -791,9 +791,9 @@ $check($negotiation === [
     'surface_observation' => [],
 ], 'a run selecting no provider action touches no provider code at all');
 
-$negotiation = \Duo\Providers::negotiate($policy, $selected);
+$negotiation = \WPrism\Providers::negotiate($policy, $selected);
 $check($negotiation['problems'] === [], 'an installed, active, in-range provider with a matching identity negotiates clean');
-$check($negotiation['providers']['probe-cache'] instanceof \Duo\Providers\ProbeCache,
+$check($negotiation['providers']['probe-cache'] instanceof \WPrism\Providers\ProbeCache,
     'the manifest-shipped provider class is loaded from <manifests_dir>/providers/<id>.php');
 $check(($negotiation['capabilities']['probe-cache']['flush']['scope'] ?? null) === 'site',
     'the negotiated capability declaration is bound for the rebuild pass');
@@ -806,10 +806,10 @@ $readOnlyManifest = $manifest;
 $readOnlyManifest['actions'][0]['effects'] = [];
 $reset();
 $readOnlyPolicy = $policyFor($readOnlyManifest);
-$notSelected = \Duo\Providers::negotiate($readOnlyPolicy, $readOnlyPolicy->actions_for([]));
+$notSelected = \WPrism\Providers::negotiate($readOnlyPolicy, $readOnlyPolicy->actions_for([]));
 $check($notSelected === ['problems' => [], 'providers' => [], 'capabilities' => [], 'surface_observation' => []],
     'an unselected explicit read-only action loads and negotiates no provider');
-$writeMismatch = \Duo\Providers::negotiate(
+$writeMismatch = \WPrism\Providers::negotiate(
     $readOnlyPolicy,
     $readOnlyPolicy->actions_for(['post:probe'])
 );
@@ -834,7 +834,7 @@ $mixedEffectManifest['actions'][] = [
 ];
 $reset();
 $mixedEffectPolicy = $policyFor($mixedEffectManifest);
-$mixedEffectNegotiation = \Duo\Providers::negotiate(
+$mixedEffectNegotiation = \WPrism\Providers::negotiate(
     $mixedEffectPolicy,
     $mixedEffectPolicy->actions_for(['post:probe'])
 );
@@ -843,8 +843,8 @@ $check(count($mixedEffectNegotiation['problems']) === 1
     && $mixedEffectNegotiation['providers'] === [],
     'two selected actions sharing one capability validate independently, so an effectful sibling cannot hide an empty-effect/write mismatch');
 $reset();
-\Duo\Providers\ProbeCache::$capabilityOverrides = ['writes' => []];
-$readOnlyNegotiation = \Duo\Providers::negotiate(
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['writes' => []];
+$readOnlyNegotiation = \WPrism\Providers::negotiate(
     $readOnlyPolicy,
     $readOnlyPolicy->actions_for(['post:probe'])
 );
@@ -861,17 +861,17 @@ $problemFor = static function (array $mutate, ?callable $before = null) use ($po
     }
     $m = $mutate === [] ? $manifest : array_replace_recursive($manifest, $mutate);
     $policy = $policyFor($m);
-    $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+    $negotiation = \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
     return $negotiation['problems'];
 };
 $one = static function (array $problems) use ($check): array {
     $check(count($problems) === 1, 'exactly one problem row is reported');
     return $problems[0] ?? [];
 };
-$providerSecret = "https://provider.example.test/rebuild?access_token=DUO_PROVIDER_SECRET\nINJECTED_PROVIDER_LINE";
+$providerSecret = "https://provider.example.test/rebuild?access_token=WPRISM_PROVIDER_SECRET\nINJECTED_PROVIDER_LINE";
 $opaqueProviderProblem = static function (array $problem): bool {
     $serialized = json_encode($problem, JSON_THROW_ON_ERROR);
-    return !str_contains($serialized, 'DUO_PROVIDER_SECRET')
+    return !str_contains($serialized, 'WPRISM_PROVIDER_SECRET')
         && !str_contains($serialized, 'INJECTED_PROVIDER_LINE')
         && !str_contains((string) ($problem['found'] ?? ''), "\n");
 };
@@ -882,20 +882,20 @@ $opaqueProviderRefusal = static function (array $problem, string $code, string $
 };
 
 $p = $one($problemFor([], static function (): void {
-    $GLOBALS['duo_test_plugins'] = [];
-    $GLOBALS['duo_test_active'] = [];
+    $GLOBALS['wprism_test_plugins'] = [];
+    $GLOBALS['wprism_test_active'] = [];
 }));
 $check(($p['code'] ?? '') === 'missing_plugin' && str_contains($p['remediation'] ?? '', 'install and activate'),
     'an uninstalled owning plugin is refused with an install remediation');
 
 $p = $one($problemFor([], static function (): void {
-    $GLOBALS['duo_test_active'] = [];
+    $GLOBALS['wprism_test_active'] = [];
 }));
-$check(($p['code'] ?? '') === 'inactive_plugin' && str_contains($p['remediation'] ?? '', 'duo deploy'),
+$check(($p['code'] ?? '') === 'inactive_plugin' && str_contains($p['remediation'] ?? '', 'wprism deploy'),
     'an inactive owning plugin is refused and pointed at deploy');
 
 $p = $one($problemFor([], static function (): void {
-    $GLOBALS['duo_test_plugins']['probe/probe.php']['Version'] = '2.4.0';
+    $GLOBALS['wprism_test_plugins']['probe/probe.php']['Version'] = '2.4.0';
 }));
 $check(($p['code'] ?? '') === 'outside_version_range'
     && ($p['expected'] ?? '') === '>=1.0.0 <2.0.0'
@@ -903,7 +903,7 @@ $check(($p['code'] ?? '') === 'outside_version_range'
     'a live plugin version outside the declaring manifest range is refused with both versions named');
 
 $p = $one($problemFor([], static function () use ($providerSecret): void {
-    \Duo\Providers\ProbeCache::$identityOverrides = ['version' => $providerSecret];
+    \WPrism\Providers\ProbeCache::$identityOverrides = ['version' => $providerSecret];
 }));
 $check(($p['code'] ?? '') === 'identity_mismatch'
     && str_contains($p['expected'] ?? '', 'version=1.0.0')
@@ -914,7 +914,7 @@ $check(($p['code'] ?? '') === 'identity_mismatch'
 $p = $one($problemFor(
     ['actions' => [['capability' => 'purge']], 'providers' => [['capabilities' => ['purge']]]],
     static function () use ($providerSecret): void {
-        \Duo\Providers\ProbeCache::$capabilityMapOverride = [$providerSecret => []];
+        \WPrism\Providers\ProbeCache::$capabilityMapOverride = [$providerSecret => []];
     }
 ));
 $check(($p['code'] ?? '') === 'missing_capability'
@@ -923,21 +923,21 @@ $check(($p['code'] ?? '') === 'missing_capability'
     'a missing capability is structured without exposing advertised capability names');
 
 $p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$capabilityMapOverride = [];
+    \WPrism\Providers\ProbeCache::$capabilityMapOverride = [];
 }));
 $check(($p['code'] ?? '') === 'missing_capability'
     && ($p['found'] ?? '') === 'provider did not advertise the declared capability',
     'an empty advertised capability map is an honest unavailable-target refusal, not a malformed-list diagnosis');
 
 $p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$capabilityMapOverride = [[]];
+    \WPrism\Providers\ProbeCache::$capabilityMapOverride = [[]];
 }));
 $check(($p['code'] ?? '') === 'contract_shape'
     && ($p['found'] ?? '') === 'capabilities() did not return a name => declaration map',
     'a non-empty positional capability list remains a malformed provider contract');
 
 $p = $one($problemFor([], static function (): void {
-    \Duo\Providers\ProbeCache::$capabilityOverrides = ['idempotent' => false];
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = ['idempotent' => false];
 }));
 $check(($p['code'] ?? '') === 'non_idempotent_capability' && str_contains($p['remediation'] ?? '', 'retry'),
     "a non-idempotent capability is refused because apply's retry re-fires the rebuild pass");
@@ -948,7 +948,7 @@ $check(($p['code'] ?? '') === 'invalid_capability_args'
     'manifest arguments that do not match the provider-declared schema are refused without echoing validator text');
 
 $p = $one($problemFor([], static function () use ($providerSecret): void {
-    \Duo\Providers\ProbeCache::$capabilityOverrides = [$providerSecret => true];
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = [$providerSecret => true];
 }));
 $check(($p['code'] ?? '') === 'malformed_capability'
     && ($p['found'] ?? '') === 'provider advertised a malformed capability declaration'
@@ -956,7 +956,7 @@ $check(($p['code'] ?? '') === 'malformed_capability'
     'a malformed capability is refused without exposing provider-controlled schema keys');
 
 $p = $one($problemFor([], static function () use ($providerSecret): void {
-    \Duo\Providers\ProbeCache::$capabilitiesThrows = $providerSecret;
+    \WPrism\Providers\ProbeCache::$capabilitiesThrows = $providerSecret;
 }));
 $check(($p['code'] ?? '') === 'contract_shape'
     && ($p['expected'] ?? '') === 'capabilities() returning a name => declaration map'
@@ -965,7 +965,7 @@ $check(($p['code'] ?? '') === 'contract_shape'
     'a provider whose capabilities() throws becomes a structured, redacted contract problem');
 
 $p = $one($problemFor([], static function () use ($providerSecret): void {
-    \Duo\Providers\ProbeCache::$identityThrows = $providerSecret;
+    \WPrism\Providers\ProbeCache::$identityThrows = $providerSecret;
 }));
 $check(($p['code'] ?? '') === 'contract_shape'
     && ($p['expected'] ?? '') === 'identity() returning an array'
@@ -973,22 +973,22 @@ $check(($p['code'] ?? '') === 'contract_shape'
     && $opaqueProviderProblem($p),
     'a provider whose identity() throws becomes a structured, redacted contract problem');
 
-echo "\n== negotiation: the declared `requires` contract, enforced before the provider loads (DUO-3317) ==\n";
+echo "\n== negotiation: the declared `requires` contract, enforced before the provider loads (issue #3317) ==\n";
 
 // A required function absent in this environment: one aggregated
 // provider_requirement_unmet naming the function, before the provider file is
 // ever loaded (this manifest source would otherwise construct it below).
-$p = $one($problemFor(['providers' => [['requires' => ['functions' => ['duo_absent_probe_function']]]]]));
+$p = $one($problemFor(['providers' => [['requires' => ['functions' => ['wprism_absent_probe_function']]]]]));
 $check(($p['code'] ?? '') === 'provider_requirement_unmet'
-    && str_contains($p['expected'] ?? '', 'functions duo_absent_probe_function')
-    && str_contains($p['found'] ?? '', 'missing functions: duo_absent_probe_function')
+    && str_contains($p['expected'] ?? '', 'functions wprism_absent_probe_function')
+    && str_contains($p['found'] ?? '', 'missing functions: wprism_absent_probe_function')
     && trim($p['remediation'] ?? '') !== ''
     && $opaqueProviderProblem($p),
     'a required function absent here refuses with provider_requirement_unmet, naming the function and a remediation');
 
-$p = $one($problemFor(['providers' => [['requires' => ['classes' => ['DuoAbsentProbeClass']]]]]));
+$p = $one($problemFor(['providers' => [['requires' => ['classes' => ['WPrismAbsentProbeClass']]]]]));
 $check(($p['code'] ?? '') === 'provider_requirement_unmet'
-    && str_contains($p['found'] ?? '', 'missing classes: DuoAbsentProbeClass'),
+    && str_contains($p['found'] ?? '', 'missing classes: WPrismAbsentProbeClass'),
     'a required class absent here refuses the same way, naming the class');
 
 // plugin_version bounds INDEPENDENTLY of the manifest version_range: installed
@@ -1004,7 +1004,7 @@ $check(($p['code'] ?? '') === 'provider_requirement_unmet'
 // wordpress_version reads get_bloginfo('version') the way probe_target does.
 $p = $one($problemFor(
     ['providers' => [['requires' => ['wordpress_version' => ['min' => '6.0', 'max' => '7.0']]]]],
-    static function (): void { $GLOBALS['duo_test_wp_version'] = '5.0'; }
+    static function (): void { $GLOBALS['wprism_test_wp_version'] = '5.0'; }
 ));
 $check(($p['code'] ?? '') === 'provider_requirement_unmet'
     && str_contains($p['expected'] ?? '', 'wordpress_version >=6.0 <7.0')
@@ -1021,11 +1021,11 @@ $check(($p['code'] ?? '') === 'provider_requirement_unmet'
 
 // Every unmet requirement in ONE row (negotiate names the whole gap at once).
 $p = $one($problemFor(['providers' => [['requires' => [
-    'functions' => ['duo_absent_probe_function'],
+    'functions' => ['wprism_absent_probe_function'],
     'php_version' => ['min' => '99.0', 'max' => '99.1'],
 ]]]]));
 $check(($p['code'] ?? '') === 'provider_requirement_unmet'
-    && str_contains($p['found'] ?? '', 'missing functions: duo_absent_probe_function')
+    && str_contains($p['found'] ?? '', 'missing functions: wprism_absent_probe_function')
     && str_contains($p['found'] ?? '', 'php ' . PHP_VERSION),
     'multiple unmet requirements aggregate into one problem row, so an operator sees the whole environment gap at once');
 
@@ -1033,9 +1033,9 @@ $check(($p['code'] ?? '') === 'provider_requirement_unmet'
 // requirement row, not contract_shape — the requirement gate ran BEFORE the
 // provider was constructed and asked for identity().
 $p = $one($problemFor(
-    ['providers' => [['requires' => ['functions' => ['duo_absent_probe_function']]]]],
+    ['providers' => [['requires' => ['functions' => ['wprism_absent_probe_function']]]]],
     static function () use ($providerSecret): void {
-        \Duo\Providers\ProbeCache::$identityThrows = $providerSecret;
+        \WPrism\Providers\ProbeCache::$identityThrows = $providerSecret;
     }
 ));
 $check(($p['code'] ?? '') === 'provider_requirement_unmet' && $opaqueProviderProblem($p),
@@ -1045,7 +1045,7 @@ $check(($p['code'] ?? '') === 'provider_requirement_unmet' && $opaqueProviderPro
 // Every declared requirement satisfied negotiates byte-for-byte like a
 // declaration with no requires: the provider loads and binds.
 $reset();
-$GLOBALS['duo_test_wp_version'] = '6.5';
+$GLOBALS['wprism_test_wp_version'] = '6.5';
 $satisfied = array_replace_recursive($manifest, ['providers' => [['requires' => [
     'functions' => ['strlen'],
     'classes' => ['stdClass'],
@@ -1053,14 +1053,14 @@ $satisfied = array_replace_recursive($manifest, ['providers' => [['requires' => 
     'wordpress_version' => ['min' => '6.0', 'max' => '7.0'],
     'php_version' => ['min' => '8.0', 'max' => '99.0'],
 ]]]]);
-$negotiation = \Duo\Providers::negotiate($policyFor($satisfied), $policyFor($satisfied)->actions_for(['post:probe']));
+$negotiation = \WPrism\Providers::negotiate($policyFor($satisfied), $policyFor($satisfied)->actions_for(['post:probe']));
 $check($negotiation['problems'] === [],
     'a provider whose every declared requirement is satisfied negotiates clean, exactly as one with no requires block');
-$check(($negotiation['providers']['probe-cache'] ?? null) instanceof \Duo\Providers\ProbeCache,
+$check(($negotiation['providers']['probe-cache'] ?? null) instanceof \WPrism\Providers\ProbeCache,
     'and the provider is loaded and bound once the requirement gate passes');
-$GLOBALS['duo_test_wp_version'] = '';
+$GLOBALS['wprism_test_wp_version'] = '';
 
-echo "\n== the same detection, reported at plan (DUO-3339) ==\n";
+echo "\n== the same detection, reported at plan (issue #3339) ==\n";
 // spec/repo-format.md's bound (4) was that negotiation ran at APPLY only, so a
 // missing or incompatible provider was invisible until the promotion that
 // needed it. It now runs as a read-only question at plan too — and the whole
@@ -1068,11 +1068,11 @@ echo "\n== the same detection, reported at plan (DUO-3339) ==\n";
 // makes "same" falsifiable: negotiate() must BE diagnose(), and the rows plan
 // reports must be the rows apply would refuse on.
 $reset();
-$GLOBALS['duo_test_active'] = [];
+$GLOBALS['wprism_test_active'] = [];
 $policy = $policyFor($manifest);
 $selected = $policy->actions_for(['post:probe']);
-$negotiated = \Duo\Providers::negotiate($policy, $selected);
-$diagnosed = \Duo\Providers::diagnose($policy, $selected);
+$negotiated = \WPrism\Providers::negotiate($policy, $selected);
+$diagnosed = \WPrism\Providers::diagnose($policy, $selected);
 $check($negotiated == $diagnosed && $negotiated['problems'] !== [],
     'diagnose() and negotiate() return the identical result for a broken selection — one body, not two implementations');
 $check(array_column($diagnosed['problems'], 'code') === ['inactive_plugin'],
@@ -1080,7 +1080,7 @@ $check(array_column($diagnosed['problems'], 'code') === ['inactive_plugin'],
 
 $negotiateSource = implode("\n", array_slice(
     (array) file($root . '/agent/src/Adapter/Providers.php', FILE_IGNORE_NEW_LINES),
-    (new \ReflectionMethod(\Duo\Providers::class, 'negotiate'))->getStartLine() - 1,
+    (new \ReflectionMethod(\WPrism\Providers::class, 'negotiate'))->getStartLine() - 1,
     2
 ));
 $check((bool) preg_match('/return self::diagnose\(\$policy, \$selectedActions\);/', $negotiateSource),
@@ -1088,11 +1088,11 @@ $check((bool) preg_match('/return self::diagnose\(\$policy, \$selectedActions\);
     . 'day it was written and drift the day after, so the sharing itself is pinned');
 
 $reset();
-$GLOBALS['duo_test_active'] = [];
+$GLOBALS['wprism_test_active'] = [];
 $policy = $policyFor($manifest);
-$check(\Duo\Providers::negotiate($policy, $policy->actions_for([]))['problems'] === [],
+$check(\WPrism\Providers::negotiate($policy, $policy->actions_for([]))['problems'] === [],
     'a read-only apply selects no action, so apply negotiates nothing and refuses nothing');
-$planProblems = \Duo\Providers::problems($policy);
+$planProblems = \WPrism\Providers::problems($policy);
 $check(array_column($planProblems, 'code') === ['inactive_plugin'],
     'while the PLAN view still reports the inactive plugin: it covers every provider action the PINNED manifests '
     . 'declare, so "no problems" can never mean "this run happened to look at nothing"');
@@ -1103,7 +1103,7 @@ $check(($planProblems[0]['manifest'] ?? '') === 'probe' && ($planProblems[0]['pl
 
 $reset();
 $policy = $policyFor($manifest);
-$check(\Duo\Providers::problems($policy) === [], 'a healthy environment reports no provider problems at plan');
+$check(\WPrism\Providers::problems($policy) === [], 'a healthy environment reports no provider problems at plan');
 
 echo "\n== missing manifest provider: reporting stays visible while apply stays fail-closed ==\n";
 
@@ -1136,44 +1136,44 @@ $disposition = [
     'default_authored_keyspaces' => [],
 ];
 $dispositionSnapshot = [
-    'format' => \Duo\ManifestDispositions::FORMAT,
+    'format' => \WPrism\ManifestDispositions::FORMAT,
     'manifests' => ['probe' => $disposition],
     'profiles' => [],
 ];
-file_put_contents($dir . '/probe.json', \Duo\Canon::encode($manifest));
-$reviewedPolicy = \Duo\Policy::from_snapshot([
+file_put_contents($dir . '/probe.json', \WPrism\Canon::encode($manifest));
+$reviewedPolicy = \WPrism\Policy::from_snapshot([
     // v6 is the generation that carries dispositions and NO `capabilities`
     // record. The key set is closed, so a snapshot still carrying the retired
     // generated registry is refused rather than read with the record ignored —
     // pinned directly below.
-    'format' => 'duo-policy-snapshot/v6',
+    'format' => 'wprism-policy-snapshot/v6',
     'adapter_sources' => [
-        'format' => 'duo-adapter-sources/v2',
+        'format' => 'wprism-adapter-sources/v2',
         'certificates' => [],
         'out_of_tree' => [],
     ],
     'dispositions' => $dispositionSnapshot,
     'site' => [
         'manifests' => ['probe'],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
     ],
     'manifests' => [$manifest],
 ], $libraryFor($manifest));
 $v6Snapshot = $reviewedPolicy->export_snapshot();
 $check(!array_key_exists('capabilities', $v6Snapshot)
-    && ($v6Snapshot['format'] ?? null) === 'duo-policy-snapshot/v6',
+    && ($v6Snapshot['format'] ?? null) === 'wprism-policy-snapshot/v6',
     'a v6 snapshot round trip emits dispositions and no `capabilities` record at all');
 // The retired generation is a REFUSAL, not an ignored key. A v5 snapshot froze
 // a generated registry this agent no longer validates against anything, so
 // reading it would verify a record nobody checked; the closed key set is what
 // makes that loud.
 $v5Snapshot = $v6Snapshot;
-$v5Snapshot['format'] = 'duo-policy-snapshot/v5';
-$v5Snapshot['capabilities'] = ['format' => 'duo-capability-registry/v2', 'manifests' => []];
+$v5Snapshot['format'] = 'wprism-policy-snapshot/v5';
+$v5Snapshot['capabilities'] = ['format' => 'wprism-capability-registry/v2', 'manifests' => []];
 $v5Refusal = '';
 try {
-    \Duo\Policy::from_snapshot($v5Snapshot, $reviewedPolicy->adapter_library());
+    \WPrism\Policy::from_snapshot($v5Snapshot, $reviewedPolicy->adapter_library());
 } catch (\Throwable $t) {
     $v5Refusal = $t->getMessage();
 }
@@ -1190,31 +1190,31 @@ $check(str_contains($v5Refusal, 'frozen policy snapshot has an unsupported or ma
 //    retired read path could still accept and therefore the only thing it was
 //    still verifying.
 //
-// The refusal names duo-adapter-sources/v1 because that record — not the
+// The refusal names wprism-adapter-sources/v1 because that record — not the
 // envelope — is what made v4 worth removing: a manifest absent from
 // `out_of_tree` took shipped authority there with no proof at all.
 foreach ([
     'a genuine v4 document (six keys, `capabilities` included)' => static function (array $s): array {
-        $s['format'] = 'duo-policy-snapshot/v4';
-        $s['capabilities'] = ['format' => 'duo-capability-registry/v2', 'manifests' => []];
-        $s['adapter_sources'] = ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []];
+        $s['format'] = 'wprism-policy-snapshot/v4';
+        $s['capabilities'] = ['format' => 'wprism-capability-registry/v2', 'manifests' => []];
+        $s['adapter_sources'] = ['format' => 'wprism-adapter-sources/v1', 'out_of_tree' => []];
         return $s;
     },
     'a hand-built v4 document (five keys, the only shape the retired path accepted)' => static function (array $s): array {
-        $s['format'] = 'duo-policy-snapshot/v4';
-        $s['adapter_sources'] = ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []];
+        $s['format'] = 'wprism-policy-snapshot/v4';
+        $s['adapter_sources'] = ['format' => 'wprism-adapter-sources/v1', 'out_of_tree' => []];
         return $s;
     },
 ] as $label => $mutate) {
     $v4Refusal = '';
     try {
-        \Duo\Policy::from_snapshot($mutate($v6Snapshot), $reviewedPolicy->adapter_library());
+        \WPrism\Policy::from_snapshot($mutate($v6Snapshot), $reviewedPolicy->adapter_library());
     } catch (\Throwable $t) {
         $v4Refusal = $t->getMessage();
     }
-    $check(str_contains($v4Refusal, 'duo-policy-snapshot/v4 is retired and is no longer read')
-        && str_contains($v4Refusal, 'duo-adapter-sources/v1')
-        && str_contains($v4Refusal, 'duo-policy-snapshot/v6'),
+    $check(str_contains($v4Refusal, 'wprism-policy-snapshot/v4 is retired and is no longer read')
+        && str_contains($v4Refusal, 'wprism-adapter-sources/v1')
+        && str_contains($v4Refusal, 'wprism-policy-snapshot/v6'),
         "$label is refused with the retired format named, the reason given, and the current format offered "
         . "(got: $v4Refusal)");
 }
@@ -1234,13 +1234,13 @@ $check(count($readiness) === 1
     'plan/status readiness reports a missing manifest provider as a structured blocker instead of throwing');
 $applyRefusal = false;
 try {
-    \Duo\Providers::negotiate($reviewedPolicy, $reviewedPolicy->actions_for(['post:probe']));
-} catch (\Duo\ProviderPackagingException $failure) {
+    \WPrism\Providers::negotiate($reviewedPolicy, $reviewedPolicy->actions_for(['post:probe']));
+} catch (\WPrism\ProviderPackagingException $failure) {
     $applyRefusal = str_contains($failure->getMessage(), 'provider code ships with its manifest');
 }
 $check($applyRefusal,
     'direct negotiation still throws the packaging fault for apply\'s fail-before-mutation gate');
-$offlinePackaging = \Duo\Providers::packaging_problems(
+$offlinePackaging = \WPrism\Providers::packaging_problems(
     $reviewedPolicy,
     $reviewedPolicy->actions_for(['post:probe'])
 );
@@ -1251,9 +1251,9 @@ $check(count($offlinePackaging) === 1
 rename($providerFile . '.hidden', $providerFile);
 @unlink($dir . '/probe.json');
 
-// DUO-3314 shipped the NARROWED, gating diagnosis: build_plan() merges
+// issue #3314 shipped the NARROWED, gating diagnosis: build_plan() merges
 // Policy::provider_readiness_blockers($selectedActions) into
-// adapter_dispositions, which duo status's exit code counts. The wide set must
+// adapter_dispositions, which wprism status's exit code counts. The wide set must
 // therefore not restate what the narrow one already gated on — one fact, one
 // row, the same discipline AdapterSources::refuse() applies to installed files.
 //
@@ -1263,12 +1263,12 @@ rename($providerFile . '.hidden', $providerFile);
 // promote is BUILT here from the same problem row it starts from, and the field
 // mapping is pinned against the real source rather than assumed.
 $reset();
-$GLOBALS['duo_test_active'] = [];
+$GLOBALS['wprism_test_active'] = [];
 $policy = $policyFor($manifest);
-$wide = \Duo\Providers::problems($policy);
+$wide = \WPrism\Providers::problems($policy);
 $check(array_column($wide, 'code') === ['inactive_plugin'],
     'the wide plan view reports the inactive plugin when nothing has gated on it yet');
-// DUO-3348 slice 4: provider_readiness_blockers()'s row-building body moved
+// issue #3348 slice 4: provider_readiness_blockers()'s row-building body moved
 // from Policy.php into AdapterRegistry.php; Policy::provider_readiness_
 // blockers() is still the public entry point this comment block describes,
 // but the bytes pinned below now live in the file that actually builds them.
@@ -1287,17 +1287,17 @@ $promoted = [[
     'code' => $wide[0]['code'],
     'status' => 'blocked',
 ]];
-$check(\Duo\Providers::problems($policy, $promoted) === [],
+$check(\WPrism\Providers::problems($policy, $promoted) === [],
     'so once that row is gating, the wide plan view reports NOTHING for it — a selected inactive plugin is one '
     . 'finding, not a BLOCKED disposition row plus a PROVIDER_PROBLEM row about the same provider');
-$check(array_column(\Duo\Providers::problems($policy), 'code') === ['inactive_plugin'],
+$check(array_column(\WPrism\Providers::problems($policy), 'code') === ['inactive_plugin'],
     'while the same call with no gating rows still reports it, so the dedupe is subtraction and never suppression');
-$check(\Duo\Providers::problems($policy, [['provider' => 'probe-cache', 'manifest' => 'probe', 'code' => 'other']])
+$check(\WPrism\Providers::problems($policy, [['provider' => 'probe-cache', 'manifest' => 'probe', 'code' => 'other']])
     !== [],
     'and the key is (provider, manifest, code): a DIFFERENT code for the same provider is a different finding and survives');
 $reset();
 
-// The runtime gate DUO-3314 put on the narrowed diagnosis applies here too:
+// The runtime gate issue #3314 put on the narrowed diagnosis applies here too:
 // with no loaded WordPress there is no plugin state to negotiate against, so
 // every declared provider would report `missing_plugin` and an offline
 // manifest-library load would manufacture a wall of findings about an
@@ -1309,7 +1309,7 @@ $gateProbe = $scratchRoot . '/gate-probe.php';
 file_put_contents($gateProbe, <<<'PROBE'
 <?php
 // Deliberately NO define('ABSPATH', ...) — that is the whole subject.
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 define('WP_PLUGIN_DIR', __DIR__ . '/wp-plugins');
 function apply_filters(string $hook, mixed $value): mixed { return $value; }
 function get_option(string $name, mixed $default = false): mixed { return $default; }
@@ -1325,11 +1325,11 @@ require $engine . '/agent/src/Policy/Policy.php';
 require $engine . '/agent/src/Code/CodeCompatibility.php';
 require $engine . '/agent/src/Promotion/Deploy.php';
 require $engine . '/agent/src/Adapter/Providers.php';
-$manifest = json_decode(getenv('DUO_PROBE_MANIFEST'), true);
+$manifest = json_decode(getenv('WPRISM_PROBE_MANIFEST'), true);
 // $libraryDir is the parent's scratch package projection. The v6 wire proves shipped
 // membership against that library instead of trusting the snapshot, so publish
 // the frozen bytes before freezing them; the parent's shutdown removes it.
-file_put_contents($libraryDir . '/' . $manifest['name'] . '.json', Duo\Canon::encode($manifest));
+file_put_contents($libraryDir . '/' . $manifest['name'] . '.json', WPrism\Canon::encode($manifest));
 $index = $libraryDir . '/providers/probe-index.php';
 $hiddenIndex = dirname($libraryDir) . '/.probe-index.php';
 $regenerator = $libraryDir . '/regenerators/probe-lookups.php';
@@ -1341,7 +1341,7 @@ if (is_file($regenerator)) {
     rename($regenerator, $hiddenRegenerator);
 }
 try {
-    $library = Duo\AdapterLibrary::fromLegacyFlatDirectory($libraryDir);
+    $library = WPrism\AdapterLibrary::fromLegacyFlatDirectory($libraryDir);
 } finally {
     if (is_file($hiddenIndex)) {
         rename($hiddenIndex, $index);
@@ -1350,9 +1350,9 @@ try {
         rename($hiddenRegenerator, $regenerator);
     }
 }
-$policy = Duo\Policy::from_snapshot([
-    'format' => 'duo-policy-snapshot/v6',
-    'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
+$policy = WPrism\Policy::from_snapshot([
+    'format' => 'wprism-policy-snapshot/v6',
+    'adapter_sources' => ['certificates' => [], 'format' => 'wprism-adapter-sources/v2', 'out_of_tree' => []],
     'dispositions' => null,
     'site' => [
         'manifests' => [$manifest['name']],
@@ -1362,8 +1362,8 @@ $policy = Duo\Policy::from_snapshot([
     'manifests' => [$manifest],
 ], $library);
 echo json_encode([
-    'gate' => Duo\Providers::runtime_negotiation_available(),
-    'problems' => count(Duo\Providers::problems($policy)),
+    'gate' => WPrism\Providers::runtime_negotiation_available(),
+    'problems' => count(WPrism\Providers::problems($policy)),
     'declared' => count(array_filter(
         $policy->actions(),
         static fn(array $a): bool => ($a['kind'] ?? null) === 'provider'
@@ -1374,7 +1374,7 @@ PROBE
 );
 $gateOut = [];
 exec(
-    'DUO_PROBE_MANIFEST=' . escapeshellarg((string) json_encode($manifest)) . ' '
+    'WPRISM_PROBE_MANIFEST=' . escapeshellarg((string) json_encode($manifest)) . ' '
     . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($gateProbe) . ' 2>&1',
     $gateOut,
     $gateRc
@@ -1393,7 +1393,7 @@ $check(is_array($gate) && ($gate['declared'] ?? 0) === 1 && ($gate['problems'] ?
 $reset();
 $policy = $policyFor($manifest);
 rename($dir . '/providers/probe-cache.php', $dir . '/providers/probe-cache.php.hidden');
-$faultProblems = \Duo\Providers::problems($policy);
+$faultProblems = \WPrism\Providers::problems($policy);
 rename($dir . '/providers/probe-cache.php.hidden', $dir . '/providers/probe-cache.php');
 $check(count($faultProblems) === 1 && ($faultProblems[0]['code'] ?? '') === 'provider_code_unavailable'
     && str_contains($faultProblems[0]['found'] ?? '', 'provider code ships with its manifest'),
@@ -1406,9 +1406,9 @@ $check(($faultProblems[0]['provider'] ?? '') === 'probe-cache'
     'and the row names the real provider, the real declaring manifest, and the real file to repair — not a '
     . 'literal <id> placeholder standing in for a coordinate nobody looked up');
 
-// The OTHER branch, and the reason the two are not one code. DUO-3314 has
+// The OTHER branch, and the reason the two are not one code. issue #3314 has
 // since converted every previously reachable foreign-throw path in diagnose()
-// into a structured problem row of its own — a `duo_providers` registry that
+// into a structured problem row of its own — a `wprism_providers` registry that
 // throws is now `provider_registry_unavailable`, and identity()/capabilities()
 // throwing are `contract_shape` — so the generic branch is a backstop with no
 // reachable trigger left in this fixture. It is asserted against source rather
@@ -1417,9 +1417,9 @@ $check(($faultProblems[0]['provider'] ?? '') === 'probe-cache'
 // providers/<id>.php coordinate for an identity nobody established.
 $problemsSource = implode("\n", array_slice(
     (array) file($root . '/agent/src/Adapter/Providers.php', FILE_IGNORE_NEW_LINES),
-    (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() - 1,
-    (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getEndLine()
-        - (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() + 1
+    (new \ReflectionMethod(\WPrism\Providers::class, 'problems'))->getStartLine() - 1,
+    (new \ReflectionMethod(\WPrism\Providers::class, 'problems'))->getEndLine()
+        - (new \ReflectionMethod(\WPrism\Providers::class, 'problems'))->getStartLine() + 1
 ));
 $check(str_contains($problemsSource, 'catch (ProviderPackagingException $t)')
     && str_contains($problemsSource, 'catch (\Throwable $t)'),
@@ -1429,16 +1429,16 @@ $check(str_contains($problemsSource, "'provider_diagnosis_failed'")
     'and the generic branch has its own code and points at the message instead of inventing a file to repair');
 $packagingSource = implode("\n", array_slice(
     (array) file($root . '/agent/src/Adapter/Providers.php', FILE_IGNORE_NEW_LINES),
-    (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getStartLine() - 1,
-    (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getEndLine()
-        - (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getStartLine() + 1
+    (new \ReflectionMethod(\WPrism\Providers::class, 'packaging_problem'))->getStartLine() - 1,
+    (new \ReflectionMethod(\WPrism\Providers::class, 'packaging_problem'))->getEndLine()
+        - (new \ReflectionMethod(\WPrism\Providers::class, 'packaging_problem'))->getStartLine() + 1
 ));
 $check(str_contains($problemsSource, 'self::packaging_problem($t)')
     && substr_count($packagingSource, 'providers/') === 1
     && !str_contains($packagingSource, '<id>'),
     'while only the shared packaging projection names a providers/ path, and never as a literal <id> placeholder');
 
-// DUO-3403 (PR #176 finding 5, site 3): the generic branch's `found` field is
+// issue #3403 (PR #176 finding 5, site 3): the generic branch's `found` field is
 // the ONE deliberately third-party-transparent string a problem row carries —
 // it publishes a message from code the engine does not own, on purpose, on the
 // `capabilities --format=json` surface. That transparency is kept, but a
@@ -1448,23 +1448,23 @@ $check(str_contains($problemsSource, 'self::packaging_problem($t)')
 // directly because the branch is a backstop with no reachable trigger in this
 // fixture (asserted above); the floor is a named helper so it is unit-drivable.
 $check(str_contains($problemsSource, 'self::publishable_foreign_detail(get_class($t)'),
-    'DUO-3403: the generic diagnosis branch routes its third-party detail through the secret/path floor');
-$foreignFloor = new \ReflectionMethod(\Duo\Providers::class, 'publishable_foreign_detail');
-$cleanDetail = 'RuntimeException: duo_providers callback for adapter "acme" returned no identity';
+    'issue #3403: the generic diagnosis branch routes its third-party detail through the secret/path floor');
+$foreignFloor = new \ReflectionMethod(\WPrism\Providers::class, 'publishable_foreign_detail');
+$cleanDetail = 'RuntimeException: wprism_providers callback for adapter "acme" returned no identity';
 $check($foreignFloor->invoke(null, $cleanDetail) === $cleanDetail,
-    'DUO-3403: a clean third-party diagnosis message publishes verbatim — the intended transparency is preserved');
+    'issue #3403: a clean third-party diagnosis message publishes verbatim — the intended transparency is preserved');
 $credentialLeak = 'RuntimeException: upstream rejected token sk_live_0123456789abcdef during identity()';
 $pathLeak = 'RuntimeException: could not read /Users/deployer/.aws/credentials during capabilities()';
 $redactedCredential = $foreignFloor->invoke(null, $credentialLeak);
 $redactedPath = $foreignFloor->invoke(null, $pathLeak);
 $check($redactedCredential !== $credentialLeak
-    && !\Duo\CommandRefusalException::containsSensitivePublicDetail($redactedCredential),
-    'DUO-3403: a credential-shaped third-party message is replaced by a bounded, secret-free placeholder');
+    && !\WPrism\CommandRefusalException::containsSensitivePublicDetail($redactedCredential),
+    'issue #3403: a credential-shaped third-party message is replaced by a bounded, secret-free placeholder');
 $check($redactedPath !== $pathLeak
-    && !\Duo\CommandRefusalException::containsSensitivePublicDetail($redactedPath),
-    'DUO-3403: an absolute-path-shaped third-party message is replaced by a bounded, secret-free placeholder');
+    && !\WPrism\CommandRefusalException::containsSensitivePublicDetail($redactedPath),
+    'issue #3403: an absolute-path-shaped third-party message is replaced by a bounded, secret-free placeholder');
 $check($redactedCredential === $redactedPath,
-    'DUO-3403: both trip to the same bounded placeholder, which carries no captured third-party bytes');
+    'issue #3403: both trip to the same bounded placeholder, which carries no captured third-party bytes');
 $reset();
 
 // Apply::plan() is not offline-drivable (it loads policy, compiles the
@@ -1503,9 +1503,9 @@ $check(!str_contains($afterPlan, 'Providers::problems') && !str_contains($afterP
 // same advice to one operator through two commands). PlanSummary::render() is
 // pure and is driven for real; agent/src/Command/Cli.php's half runs only inside a
 // wp-cli plan, so it is asserted against its source.
-$summary = \Duo\Orchestrator\PlanSummary::render(['provider_problems' => $planProblems]);
+$summary = \WPrism\Orchestrator\PlanSummary::render(['provider_problems' => $planProblems]);
 $summaryText = implode("\n", $summary['lines']);
-$check(str_contains($summaryText, '1 provider_problems'), 'duo status counts provider problems in its summary line');
+$check(str_contains($summaryText, '1 provider_problems'), 'wprism status counts provider problems in its summary line');
 $check(str_contains($summaryText, 'PROVIDER_PROBLEM (')
     && str_contains($summaryText, 'manifest=probe plugin=probe/probe.php')
     && str_contains($summaryText, '[inactive_plugin]')
@@ -1513,21 +1513,21 @@ $check(str_contains($summaryText, 'PROVIDER_PROBLEM (')
     'and renders the provider, its declaring manifest, its owning plugin, the code, and the remediation');
 $check($summary['ok'] === false,
     'and flips readiness: a known provider defect cannot share exit 0 with a green environment status');
-$check(\Duo\Orchestrator\PlanSummary::render(['conflict' => [['uuid' => 'x', 'type' => 'post']]])['ok'] === false,
+$check(\WPrism\Orchestrator\PlanSummary::render(['conflict' => [['uuid' => 'x', 'type' => 'post']]])['ok'] === false,
     'while a bucket that DOES predict a refusal still flips it — the exclusion above is about width, not severity');
 
 $cliSource = (string) file_get_contents($root . '/agent/src/Command/Cli.php');
 $check(str_contains($cliSource, "foreach (\$plan['provider_problems'] ?? [] as \$r) {")
     && str_contains($cliSource, "'PROVIDER_PROBLEM '")
     && str_contains($cliSource, "count(\$plan['provider_problems'] ?? []) . ' provider_problems'"),
-    'and `wp duo plan` renders and counts the same rows, so the two commands never give one operator different advice');
+    'and `wp wprism plan` renders and counts the same rows, so the two commands never give one operator different advice');
 
 echo "\n== plugin-sourced providers (a custom plugin advertising its own) ==\n";
 $pluginSourced = array_replace_recursive($manifest, ['providers' => [['source' => 'plugin']]]);
 $reset();
 $policy = $policyFor($pluginSourced);
-$p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
-$check(($p['code'] ?? '') === 'missing_plugin_provider' && str_contains($p['expected'] ?? '', 'duo_providers'),
+$p = $one(\WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
+$check(($p['code'] ?? '') === 'missing_plugin_provider' && str_contains($p['expected'] ?? '', 'wprism_providers'),
     'a plugin-sourced provider nobody registered is a negotiation problem, not a load crash');
 
 $registryUnavailableManifest = $pluginSourced;
@@ -1545,9 +1545,9 @@ $registryUnavailableManifest['actions'][] = [
     'args' => ['groups' => ['probe-group']],
 ];
 $reset();
-$GLOBALS['duo_test_provider_registry_throw'] = $providerSecret;
+$GLOBALS['wprism_test_provider_registry_throw'] = $providerSecret;
 $registryUnavailablePolicy = $policyFor($registryUnavailableManifest);
-$registryProblems = \Duo\Providers::negotiate(
+$registryProblems = \WPrism\Providers::negotiate(
     $registryUnavailablePolicy,
     $registryUnavailablePolicy->actions_for(['post:probe'])
 )['problems'];
@@ -1561,7 +1561,7 @@ sort($registryProblemProviders, SORT_STRING);
 foreach ($registryProblems as $problem) {
     $registryProblemsAreOpaque = $registryProblemsAreOpaque
         && ($problem['code'] ?? '') === 'provider_registry_unavailable'
-        && ($problem['expected'] ?? '') === 'a readable `duo_providers` registry'
+        && ($problem['expected'] ?? '') === 'a readable `wprism_providers` registry'
         && ($problem['found'] ?? '') === 'provider registry callback failed'
         && ($problem['remediation'] ?? '') === 'upgrade or disable the faulty provider plugin and retry'
         && !str_contains((string) ($problem['found'] ?? ''), "\n");
@@ -1569,36 +1569,36 @@ foreach ($registryProblems as $problem) {
 $check(
     $registryProblemsAreOpaque
     && $registryProblemProviders === ['probe-cache', 'probe-second']
-    && !str_contains($registryProblemJson, 'DUO_PROVIDER_SECRET')
+    && !str_contains($registryProblemJson, 'WPRISM_PROVIDER_SECRET')
     && !str_contains($registryProblemJson, 'INJECTED_PROVIDER_LINE'),
-    'a throwing duo_providers registry blocks every selected plugin provider with one structured, redacted remediation'
+    'a throwing wprism_providers registry blocks every selected plugin provider with one structured, redacted remediation'
 );
 
 $reset();
-$GLOBALS['duo_test_providers'] = [new \Duo\Providers\ProbeSupplied()];
-$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+$GLOBALS['wprism_test_providers'] = [new \WPrism\Providers\ProbeSupplied()];
+$negotiation = \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 $check($negotiation['problems'] === [] && isset($negotiation['providers']['probe-cache']),
-    'a provider advertised on the duo_providers filter is discovered and negotiated by its own identity()');
+    'a provider advertised on the wprism_providers filter is discovered and negotiated by its own identity()');
 
 $reset();
-$GLOBALS['duo_test_providers'] = [new \Duo\Providers\ProbeCache($policy)];
-$p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
+$GLOBALS['wprism_test_providers'] = [new \WPrism\Providers\ProbeCache($policy)];
+$p = $one(\WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
 $check(($p['code'] ?? '') === 'provider_outside_owning_plugin'
     && str_contains($p['remediation'] ?? '', 'source: manifest'),
     'a plugin-sourced registration whose class file lives outside the owning plugin directory is refused (identity stays falsifiable)');
 
 $reset();
-$GLOBALS['duo_test_providers'] = [new class {
+$GLOBALS['wprism_test_providers'] = [new class {
     public function identity(): array {
         throw new \RuntimeException('third-party provider exploding on discovery');
     }
-}, new \Duo\Providers\ProbeSupplied()];
-$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+}, new \WPrism\Providers\ProbeSupplied()];
+$negotiation = \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 $check($negotiation['problems'] === [] && isset($negotiation['providers']['probe-cache']),
     "an unrelated registration whose identity() throws is skipped, not a fatal for the provider actually wanted");
 
 $reset();
-$GLOBALS['duo_test_providers'] = [
+$GLOBALS['wprism_test_providers'] = [
     new class {
         public function identity(): array {
             return ['id' => new \stdClass()];
@@ -1617,33 +1617,33 @@ $GLOBALS['duo_test_providers'] = [
             }];
         }
     },
-    new \Duo\Providers\ProbeSupplied(),
+    new \WPrism\Providers\ProbeSupplied(),
 ];
-$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+$negotiation = \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 $malformedIdentityJson = json_encode($negotiation, JSON_THROW_ON_ERROR);
 $check(
     $negotiation['problems'] === []
     && isset($negotiation['providers']['probe-cache'])
-    && !str_contains($malformedIdentityJson, 'DUO_PROVIDER_SECRET')
+    && !str_contains($malformedIdentityJson, 'WPRISM_PROVIDER_SECRET')
     && !str_contains($malformedIdentityJson, 'INJECTED_PROVIDER_LINE'),
     'malformed or throwing Stringable plugin registration ids are skipped without a fatal or public payload leak'
 );
 
 echo "\n== entity scope negotiates its batch preconditions before any mutation ==\n";
 $reset();
-\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
 $policy = $policyFor($manifest);
-$p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
+$p = $one(\WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']))['problems']);
 $check(($p['code'] ?? '') === 'entity_scope_unscoped_action'
     && str_contains($p['remediation'] ?? '', 'scope: site'),
     'an entity-scoped capability on an unscoped action refuses at negotiation (its batch would always be empty)');
 
 $reset();
-\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
 $entityManifest = $manifest;
 $entityManifest['actions'][0]['triggers'] = ['option:probe_setting'];
 $policy = $policyFor($entityManifest);
-$p = $one(\Duo\Providers::negotiate($policy, $policy->actions_for(['option:probe_setting']))['problems']);
+$p = $one(\WPrism\Providers::negotiate($policy, $policy->actions_for(['option:probe_setting']))['problems']);
 $check(($p['code'] ?? '') === 'entity_scope_unresolvable_trigger'
     && str_contains($p['found'] ?? '', 'option:probe_setting'),
     'an entity-scoped capability triggered on a surface with no per-entity id refuses at negotiation, not post-commit');
@@ -1660,17 +1660,17 @@ $policy = $policyFor($manifest);
 $optionsBaseline = [
     ['option_id' => 1, 'option_name' => 'probe_setting', 'option_value' => 'declared-read', 'autoload' => 'yes'],
 ];
-$wpdb = \DuoTest\FakeWpdb::install();
+$wpdb = \WPrismTest\FakeWpdb::install();
 $wpdb->seedTable('options', $optionsBaseline);
 
 echo "\n== invocation: receipts, value-level verification, and the timeout budget ==\n";
 $reset();
 $policy = $policyFor($manifest);
 $action = $policy->actions_for(['post:probe'])[0];
-$negotiation = \Duo\Providers::negotiate($policy, [$action]);
+$negotiation = \WPrism\Providers::negotiate($policy, [$action]);
 $provider = $negotiation['providers']['probe-cache'];
 $declaration = $negotiation['capabilities']['probe-cache']['flush'];
-$receipt = \Duo\Providers::invoke($provider, $action, $declaration, []);
+$receipt = \WPrism\Providers::invoke($provider, $action, $declaration, []);
 $check(($receipt['verified'] ?? null) === true
     && ($receipt['after']['groups'] ?? null) === ['probe-group']
     && is_float($receipt['duration_seconds'] ?? null),
@@ -1684,54 +1684,54 @@ $expectInvokeFailure = static function (callable $before, string $needle, string
     $reset();
     $before();
     try {
-        \Duo\Providers::invoke($provider, $action, $declaration, []);
+        \WPrism\Providers::invoke($provider, $action, $declaration, []);
         $check(false, $label);
     } catch (\Throwable $t) {
         $check(str_contains($t->getMessage(), $needle), $label . ' (message: ' . $t->getMessage() . ')');
     }
 };
 $expectInvokeFailure(
-    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['before' => [], 'after' => [], 'verified' => false],
+    static fn() => \WPrism\Providers\ProbeCache::$receiptOverride = ['before' => [], 'after' => [], 'verified' => false],
     'no value-level verification',
     'a receipt with verified !== true is refused: command success is not evidence the effect landed'
 );
 $expectInvokeFailure(
-    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['ok' => true],
+    static fn() => \WPrism\Providers\ProbeCache::$receiptOverride = ['ok' => true],
     'malformed receipt',
     'a receipt missing before/after/verified is refused'
 );
-$receiptSecret = "https://provider.example.test/receipt?access_token=DUO_RECEIPT_SECRET\nINJECTED_RECEIPT_LINE";
+$receiptSecret = "https://provider.example.test/receipt?access_token=WPRISM_RECEIPT_SECRET\nINJECTED_RECEIPT_LINE";
 $reset();
-\Duo\Providers\ProbeCache::$receiptOverride = [$receiptSecret => true];
+\WPrism\Providers\ProbeCache::$receiptOverride = [$receiptSecret => true];
 try {
-    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    \WPrism\Providers::invoke($provider, $action, $declaration, []);
     $check(false, 'a malformed receipt never publishes provider-returned receipt keys');
 } catch (\Throwable $t) {
     $message = $t->getMessage();
     $check(
         str_contains($message, "provider 'probe-cache' capability 'flush'")
         && str_contains($message, 'exactly before, after, and verified are required')
-        && !str_contains($message, 'DUO_RECEIPT_SECRET')
+        && !str_contains($message, 'WPRISM_RECEIPT_SECRET')
         && !str_contains($message, 'INJECTED_RECEIPT_LINE')
         && !str_contains($message, "\n"),
         'a malformed receipt error preserves provider/capability and required shape without exposing returned keys'
     );
 }
-$invokeSecret = "https://provider.example.test/invoke?access_token=DUO_INVOKE_SECRET\nINJECTED_INVOKE_LINE";
+$invokeSecret = "https://provider.example.test/invoke?access_token=WPRISM_INVOKE_SECRET\nINJECTED_INVOKE_LINE";
 $reset();
-\Duo\Providers\ProbeCache::$invokeThrows = $invokeSecret;
+\WPrism\Providers\ProbeCache::$invokeThrows = $invokeSecret;
 try {
-    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    \WPrism\Providers::invoke($provider, $action, $declaration, []);
     $check(false, 'a provider invocation failure never publishes the provider throwable');
 } catch (\Throwable $t) {
     $message = $t->getMessage();
     $rendered = (string) $t;
     $check(
         str_contains($message, "provider 'probe-cache' capability 'flush' failed")
-        && !str_contains($message, 'DUO_INVOKE_SECRET')
+        && !str_contains($message, 'WPRISM_INVOKE_SECRET')
         && !str_contains($message, 'INJECTED_INVOKE_LINE')
         && !str_contains($message, "\n")
-        && !str_contains($rendered, 'DUO_INVOKE_SECRET')
+        && !str_contains($rendered, 'WPRISM_INVOKE_SECRET')
         && !str_contains($rendered, 'INJECTED_INVOKE_LINE')
         && $t->getPrevious() === null,
         'a provider invocation failure preserves provider/capability but redacts its throwable chain'
@@ -1742,16 +1742,16 @@ try {
 // this is the only check that the post-hoc budget is enforced at all rather
 // than merely declared.
 $reset();
-\Duo\Providers\ProbeCache::$sleepSeconds = 1.1;
+\WPrism\Providers\ProbeCache::$sleepSeconds = 1.1;
 try {
-    \Duo\Providers::invoke($provider, $action, ['timeout_seconds' => 1] + $declaration, []);
+    \WPrism\Providers::invoke($provider, $action, ['timeout_seconds' => 1] + $declaration, []);
     $check(false, 'an invocation past its declared timeout_seconds budget is a hard failure');
 } catch (\Throwable $t) {
     $check(str_contains($t->getMessage(), 'overran its declared budget'),
         'an invocation past its declared timeout_seconds budget is a hard failure (message: '
         . $t->getMessage() . ')');
 }
-\Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
+\WPrism\Providers\ProbeCache::$sleepSeconds = 0.0;
 
 // ======================================================================
 // WP-3.3: the receipt is checked against the engine's OWN reading of the
@@ -1782,18 +1782,18 @@ $wpdb->seedTable('options', $optionsBaseline);
 // complete bounded reader for. A behaviour pin rather than a constant pin:
 // widening this is what would make the refusals below unsound, so the property
 // under guard is what observable() ANSWERS.
-$check(\Duo\ProviderSurfaces::observable('option:probe_setting') === true
-    && \Duo\ProviderSurfaces::observable('table:postmeta') === false
-    && \Duo\ProviderSurfaces::observable('post:product') === false
-    && \Duo\ProviderSurfaces::observable('term:probe_tax') === false
-    && \Duo\ProviderSurfaces::observable('entity:probe-cache-groups') === false,
+$check(\WPrism\ProviderSurfaces::observable('option:probe_setting') === true
+    && \WPrism\ProviderSurfaces::observable('table:postmeta') === false
+    && \WPrism\ProviderSurfaces::observable('post:product') === false
+    && \WPrism\ProviderSurfaces::observable('term:probe_tax') === false
+    && \WPrism\ProviderSurfaces::observable('entity:probe-cache-groups') === false,
     'exactly one of the five declared surface kinds is observable: `option:` names a bounded extent, the other four name a table, a post type, a taxonomy or an adapter-minted name');
 
 // The plan is decided from the DECLARATION alone — no query, no target, no
 // provider call — which is what lets negotiation publish it read-only and
 // invoke() re-derive the identical one instead of the two agreeing by
 // convention.
-$shippedShapePlan = \Duo\ProviderSurfaces::observation_plan($declaration);
+$shippedShapePlan = \WPrism\ProviderSurfaces::observation_plan($declaration);
 $check($shippedShapePlan['watched'] === ['option:probe_setting']
     && $shippedShapePlan['writes'] === []
     && $shippedShapePlan['read_only'] === ['option:probe_setting']
@@ -1815,7 +1815,7 @@ $observationQueries = static fn(): int => count(array_filter(
 ));
 $wpdb->resetLog();
 $reset();
-$observedReceipt = \Duo\Providers::invoke($provider, $action, $declaration, []);
+$observedReceipt = \WPrism\Providers::invoke($provider, $action, $declaration, []);
 $measuredQueries = $observationQueries();
 $check($measuredQueries === 2 && count($wpdb->queries()) === 2,
     "and the MEASURED cost matches it: $measuredQueries added queries across one invoke, and nothing else ran, so a future regression in the reader's query count is visible here rather than on a customer's target");
@@ -1827,9 +1827,9 @@ $check($measuredQueries === 2 && count($wpdb->queries()) === 2,
 $opaqueDeclaration = ['reads' => ['table:posts'], 'writes' => ['entity:probe-cache-groups']] + $declaration;
 $wpdb->resetLog();
 $reset();
-$opaqueReceipt = \Duo\Providers::invoke($provider, $action, $opaqueDeclaration, []);
+$opaqueReceipt = \WPrism\Providers::invoke($provider, $action, $opaqueDeclaration, []);
 $check($wpdb->queries() === []
-    && \Duo\ProviderSurfaces::observation_plan($opaqueDeclaration)['queries_per_invoke'] === 0,
+    && \WPrism\ProviderSurfaces::observation_plan($opaqueDeclaration)['queries_per_invoke'] === 0,
     'a capability whose declared surfaces are all `table:`/`post:`/`entity:` costs ZERO added queries — the nine shipped adapters pay nothing for a check that cannot reach them');
 $check(array_diff_key($observedReceipt, ['duration_seconds' => true])
     === array_diff_key($opaqueReceipt, ['duration_seconds' => true]),
@@ -1841,9 +1841,9 @@ $check(array_diff_key($observedReceipt, ['duration_seconds' => true])
 // under `writes`.
 $writesDeclaration = ['writes' => ['option:probe_written']] + $declaration;
 $reset();
-\Duo\Providers\ProbeCache::$optionWrites = ['probe_written' => 'landed'];
+\WPrism\Providers\ProbeCache::$optionWrites = ['probe_written' => 'landed'];
 $wpdb->resetLog();
-$deltaReceipt = \Duo\Providers::invoke($provider, $action, $writesDeclaration, []);
+$deltaReceipt = \WPrism\Providers::invoke($provider, $action, $writesDeclaration, []);
 $check(array_diff_key($deltaReceipt, ['duration_seconds' => true])
     === array_diff_key($observedReceipt, ['duration_seconds' => true]),
     'a receipt whose claimed change the declared writes surface actually shows passes, and publishes the same bytes it always did');
@@ -1854,7 +1854,7 @@ $check($observationQueries() === 4,
 $reset();
 $wpdb->seedTable('options', $optionsBaseline);
 try {
-    \Duo\Providers::invoke($provider, $action, $writesDeclaration, []);
+    \WPrism\Providers::invoke($provider, $action, $writesDeclaration, []);
     $check(false, 'a receipt claiming a value-level change its own declared writes surface does not show is refused');
 } catch (\Throwable $t) {
     $check(str_contains($t->getMessage(), "provider 'probe-cache' capability 'flush'")
@@ -1868,8 +1868,8 @@ try {
 // The converged case is not a claim to have written anything, so the same
 // unmoved surface is no contradiction.
 $reset();
-\Duo\Providers\ProbeCache::$receiptOverride = ['before' => ['groups' => []], 'after' => ['groups' => []], 'verified' => true];
-$convergedReceipt = \Duo\Providers::invoke($provider, $action, $writesDeclaration, []);
+\WPrism\Providers\ProbeCache::$receiptOverride = ['before' => ['groups' => []], 'after' => ['groups' => []], 'verified' => true];
+$convergedReceipt = \WPrism\Providers::invoke($provider, $action, $writesDeclaration, []);
 $check(($convergedReceipt['verified'] ?? null) === true,
     'a receipt reporting before === after passes with the surface unmoved: `already converged` is not a write claim, and only the positive claim is checkable');
 
@@ -1879,8 +1879,8 @@ $check(($convergedReceipt['verified'] ?? null) === true,
 // punishing a provider for the reader's gap.
 $reset();
 $mixedDeclaration = ['writes' => ['option:probe_written', 'entity:probe-cache-groups']] + $declaration;
-$mixedPlan = \Duo\ProviderSurfaces::observation_plan($mixedDeclaration);
-$mixedReceipt = \Duo\Providers::invoke($provider, $action, $mixedDeclaration, []);
+$mixedPlan = \WPrism\ProviderSurfaces::observation_plan($mixedDeclaration);
+$mixedReceipt = \WPrism\Providers::invoke($provider, $action, $mixedDeclaration, []);
 $check($mixedPlan['writes_fully_observable'] === false
     && $mixedPlan['unobservable'] === ['entity:probe-cache-groups']
     && ($mixedReceipt['verified'] ?? null) === true,
@@ -1888,9 +1888,9 @@ $check($mixedPlan['writes_fully_observable'] === false
 
 // ---- the surface the capability declared it would only READ ----
 $reset();
-\Duo\Providers\ProbeCache::$optionWrites = ['probe_setting' => 'scribbled-by-the-provider'];
+\WPrism\Providers\ProbeCache::$optionWrites = ['probe_setting' => 'scribbled-by-the-provider'];
 try {
-    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    \WPrism\Providers::invoke($provider, $action, $declaration, []);
     $check(false, 'a provider that changes a surface it declared under reads is refused');
 } catch (\Throwable $t) {
     $check(str_contains($t->getMessage(), "provider 'probe-cache' capability 'flush'")
@@ -1906,9 +1906,9 @@ try {
 // unchanged and let the scribble through.
 $reset();
 $wpdb->seedTable('options', $optionsBaseline);
-$witnessBeforeFlip = \Duo\ProviderSurfaces::observe(['option:probe_setting'], 'probe-cache', 'flush');
+$witnessBeforeFlip = \WPrism\ProviderSurfaces::observe(['option:probe_setting'], 'probe-cache', 'flush');
 $wpdb->update('options', ['autoload' => 'no'], ['option_name' => 'probe_setting']);
-$check($witnessBeforeFlip !== \Duo\ProviderSurfaces::observe(['option:probe_setting'], 'probe-cache', 'flush'),
+$check($witnessBeforeFlip !== \WPrism\ProviderSurfaces::observe(['option:probe_setting'], 'probe-cache', 'flush'),
     'the witness folds autoload as well as the value: an apply that left an option\'s bytes alone and made it autoload changed the surface, and a value-only witness would report it unchanged');
 $wpdb->seedTable('options', $optionsBaseline);
 
@@ -1920,10 +1920,10 @@ $precedence = static function (callable $arm, string $needle, string $absent, st
 ): void {
     $reset();
     $wpdb->seedTable('options', $optionsBaseline);
-    \Duo\Providers\ProbeCache::$optionWrites = ['probe_setting' => 'scribbled-by-the-provider'];
+    \WPrism\Providers\ProbeCache::$optionWrites = ['probe_setting' => 'scribbled-by-the-provider'];
     $arm();
     try {
-        \Duo\Providers::invoke($provider, $action, ['timeout_seconds' => 1] + $declaration, []);
+        \WPrism\Providers::invoke($provider, $action, ['timeout_seconds' => 1] + $declaration, []);
         $check(false, $label);
     } catch (\Throwable $t) {
         $check(str_contains($t->getMessage(), $needle) && !str_contains($t->getMessage(), $absent),
@@ -1931,13 +1931,13 @@ $precedence = static function (callable $arm, string $needle, string $absent, st
     }
 };
 $precedence(
-    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['ok' => true],
+    static fn() => \WPrism\Providers\ProbeCache::$receiptOverride = ['ok' => true],
     'exactly before, after, and verified are required',
     'declared \'option:probe_setting\' under reads',
     'a malformed receipt still refuses as malformed, even with a real read-only surface violation behind it'
 );
 $precedence(
-    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['before' => [], 'after' => [], 'verified' => false],
+    static fn() => \WPrism\Providers\ProbeCache::$receiptOverride = ['before' => [], 'after' => [], 'verified' => false],
     'a receipt must prove the state it wrote, not that a call returned',
     'declared \'option:probe_setting\' under reads',
     'an unverified receipt still refuses as unverified, ahead of the surface check that would also have refused it'
@@ -1946,7 +1946,7 @@ $precedence(
 // is worth the first: the post-hoc budget is the refusal the surface check was
 // most likely to displace, because both are decided after the call returns.
 $precedence(
-    static fn() => \Duo\Providers\ProbeCache::$sleepSeconds = 1.1,
+    static fn() => \WPrism\Providers\ProbeCache::$sleepSeconds = 1.1,
     'overran its declared budget',
     'declared \'option:probe_setting\' under reads',
     'an over-budget invocation still refuses as over-budget: the surface check is decided strictly after all three'
@@ -1961,7 +1961,7 @@ $wpdb->seedTable('options', $optionsBaseline);
 $callsBefore = count($provider->calls);
 $wpdb->failNextQuery('injected surface observation failure', 'probe_setting');
 try {
-    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    \WPrism\Providers::invoke($provider, $action, $declaration, []);
     $check(false, 'a failed checked read of a declared surface refuses before the provider is called');
 } catch (\Throwable $t) {
     $check(str_contains($t->getMessage(), 'provider checked read failed')
@@ -1982,7 +1982,7 @@ $wpdb->seedTable('options', [
     ['option_id' => 2, 'option_name' => 'probe_setting', 'option_value' => 'the-duplicate', 'autoload' => 'yes'],
 ]);
 try {
-    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    \WPrism\Providers::invoke($provider, $action, $declaration, []);
     $check(false, 'an ambiguous collation-equal option row refuses rather than folding to one witness');
 } catch (\Throwable $t) {
     $check(str_contains($t->getMessage(), 'could not be checked against its own declared surfaces')
@@ -1997,7 +1997,7 @@ try {
 $reset();
 $wpdb->seedTable('options', $optionsBaseline);
 $wpdb->resetLog();
-$observationNegotiation = \Duo\Providers::negotiate($policy, [$action]);
+$observationNegotiation = \WPrism\Providers::negotiate($policy, [$action]);
 $check($observationNegotiation['surface_observation']['probe-cache']['flush'] === $shippedShapePlan
     && $wpdb->queries() === [],
     'negotiation publishes the same plan invoke() re-derives, and reaches it with zero queries — an unobservable declared surface is legible at read-only negotiation time, not discovered mid-mutation');
@@ -2007,12 +2007,12 @@ $wpdb->seedTable('options', $optionsBaseline);
 $wpdb->resetLog();
 
 // ======================================================================
-// DUO-3383: publication bounds on a SUCCESSFUL receipt.
+// issue #3383: publication bounds on a SUCCESSFUL receipt.
 //
-// DUO-3314 hardened the FAILURE diagnostics above — every one of those checks
+// issue #3314 hardened the FAILURE diagnostics above — every one of those checks
 // proves a refusal keeps provider/capability and drops provider bytes. The
 // SUCCESS path had no such contract: `before`/`after` were propagated verbatim
-// into Apply's `actions` rows and out through `wp duo apply --format=json`, so
+// into Apply's `actions` rows and out through `wp wprism apply --format=json`, so
 // a provider returning a live key, a newline, or a megabyte published it.
 //
 // The load-bearing claim is not "secrets are gone" — dropping the fields
@@ -2023,7 +2023,7 @@ $wpdb->resetLog();
 // matrix below is that property, exercised once per bounded shape.
 // ======================================================================
 
-echo "\n== DUO-3383: successful receipt values are bounded before publication ==\n";
+echo "\n== issue #3383: successful receipt values are bounded before publication ==\n";
 // The house secret fixture (Secrets::HARD_PATTERNS' first entry, the same
 // shape regress_capture_secret_scan.php plants), a control-bearing value whose
 // second line would forge a warning if it ever reached a human summary, and a
@@ -2031,29 +2031,29 @@ echo "\n== DUO-3383: successful receipt values are bounded before publication ==
 $receiptSecretValue = 'sk_live_' . str_repeat('A', 24);
 $receiptOtherSecret = 'sk_live_' . str_repeat('B', 24);
 $receiptControlValue = "flushed\nWarning: INJECTED_RECEIPT_WARNING\r\x00";
-$receiptOversized = str_repeat('z', \Duo\Providers::RECEIPT_MAX_STRING_BYTES + 1);
+$receiptOversized = str_repeat('z', \WPrism\Providers::RECEIPT_MAX_STRING_BYTES + 1);
 $receiptDeep = static function (int $leaf): array {
     $node = ['leaf' => $leaf];
-    for ($i = 0; $i < \Duo\Providers::RECEIPT_MAX_DEPTH; $i++) {
+    for ($i = 0; $i < \WPrism\Providers::RECEIPT_MAX_DEPTH; $i++) {
         $node = ['nested' => $node];
     }
     return $node;
 };
 $receiptWide = static fn(int $leaf): array => ['rows' => array_fill(
     0,
-    \Duo\Providers::RECEIPT_MAX_ENTRIES + 1,
+    \WPrism\Providers::RECEIPT_MAX_ENTRIES + 1,
     $leaf
 )];
 
 /** Invoke with a planted successful receipt and return what the engine publishes. */
 $publish = static function (mixed $before, mixed $after) use ($reset, $provider, $action, $declaration): array {
     $reset();
-    \Duo\Providers\ProbeCache::$receiptOverride = [
+    \WPrism\Providers\ProbeCache::$receiptOverride = [
         'before' => $before,
         'after' => $after,
         'verified' => true,
     ];
-    return \Duo\Providers::invoke($provider, $action, $declaration, []);
+    return \WPrism\Providers::invoke($provider, $action, $declaration, []);
 };
 /** Every published byte a machine caller and a human caller could ever see. */
 $publishedJson = static fn(array $receipt): string => (string) json_encode(
@@ -2061,10 +2061,10 @@ $publishedJson = static fn(array $receipt): string => (string) json_encode(
     JSON_UNESCAPED_SLASHES // the exact flags Cli::apply() publishes with (review F1)
 );
 $isWitness = static fn(mixed $v): bool => is_string($v)
-    && str_starts_with($v, \Duo\Providers::RECEIPT_WITNESS_PREFIX)
+    && str_starts_with($v, \WPrism\Providers::RECEIPT_WITNESS_PREFIX)
     && str_ends_with($v, '>');
 $witnessReason = static function (mixed $v): string {
-    $rest = substr((string) $v, strlen(\Duo\Providers::RECEIPT_WITNESS_PREFIX));
+    $rest = substr((string) $v, strlen(\WPrism\Providers::RECEIPT_WITNESS_PREFIX));
     return (string) strstr($rest, ':', true);
 };
 
@@ -2072,7 +2072,7 @@ $inBounds = $publish(['groups' => []], ['groups' => ['probe-group']]);
 $check(
     serialize([$inBounds['before'], $inBounds['after'], $inBounds['verified']])
         === 'a:3:{i:0;a:1:{s:6:"groups";a:0:{}}i:1;a:1:{s:6:"groups";a:1:{i:0;s:11:"probe-group";}}i:2;b:1;}',
-    'a receipt already inside every bound publishes byte-identically to the pre-DUO-3383 engine — no key added, '
+    'a receipt already inside every bound publishes byte-identically to the pre-issue #3383 engine — no key added, '
     . 'none reordered, no value rewritten'
 );
 
@@ -2089,8 +2089,8 @@ $bounded = [
     'oversized string' => ['oversized', $receiptOversized, $receiptOversized . 'z'],
     'invalid UTF-8' => ['binary', "probe\xC3\x28", "probe\xC3\x29"],
     'witness-shaped' => ['ambiguous',
-        \Duo\Providers::RECEIPT_WITNESS_PREFIX . 'secret:sha256:' . str_repeat('0', 64) . '>',
-        \Duo\Providers::RECEIPT_WITNESS_PREFIX . 'secret:sha256:' . str_repeat('1', 64) . '>'],
+        \WPrism\Providers::RECEIPT_WITNESS_PREFIX . 'secret:sha256:' . str_repeat('0', 64) . '>',
+        \WPrism\Providers::RECEIPT_WITNESS_PREFIX . 'secret:sha256:' . str_repeat('1', 64) . '>'],
 ];
 foreach ($bounded as $label => [$reason, $planted, $otherPlanted]) {
     $same = $publish(['v' => $planted], ['v' => $planted]);
@@ -2168,7 +2168,7 @@ $check(
 // unverified and unpublishable must refuse as unverified — the pinned
 // precedence, defended behaviorally rather than by source text alone.
 $expectInvokeFailure(
-    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['before' => (object) [], 'after' => [], 'verified' => false],
+    static fn() => \WPrism\Providers\ProbeCache::$receiptOverride = ['before' => (object) [], 'after' => [], 'verified' => false],
     'no value-level verification',
     'a receipt both unverified and unpublishable refuses as unverified — bounding stays last'
 );
@@ -2184,13 +2184,13 @@ $check(
 
 $manyRows = static fn(string $fill): array => array_map(
     static fn(int $i): string => $fill . $i,
-    range(1, \Duo\Providers::RECEIPT_MAX_ENTRIES)
+    range(1, \WPrism\Providers::RECEIPT_MAX_ENTRIES)
 );
 $hugeSame = $publish($manyRows(str_repeat('a', 100)), $manyRows(str_repeat('a', 100)));
 $hugeDiffers = $publish($manyRows(str_repeat('a', 100)), $manyRows(str_repeat('b', 100)));
 $check(
     $isWitness($hugeSame['before']) && $witnessReason($hugeSame['before']) === 'oversized'
-    && strlen($publishedJson($hugeSame)) < \Duo\Providers::RECEIPT_MAX_VALUE_BYTES
+    && strlen($publishedJson($hugeSame)) < \WPrism\Providers::RECEIPT_MAX_VALUE_BYTES
     && $hugeSame['before'] === $hugeSame['after'] && $hugeDiffers['before'] !== $hugeDiffers['after'],
     'a value that is legal entry by entry but still oversized as a whole is summarized once at the top, and the '
     . 'published receipt is then smaller than the bound it broke'
@@ -2213,9 +2213,9 @@ $malformed = [
 ];
 foreach ($malformed as $label => $value) {
     $reset();
-    \Duo\Providers\ProbeCache::$receiptOverride = ['before' => ['v' => $value], 'after' => [], 'verified' => true];
+    \WPrism\Providers\ProbeCache::$receiptOverride = ['before' => ['v' => $value], 'after' => [], 'verified' => true];
     try {
-        \Duo\Providers::invoke($provider, $action, $declaration, []);
+        \WPrism\Providers::invoke($provider, $action, $declaration, []);
         $check(false, "a successful receipt carrying $label fails closed rather than publishing");
     } catch (\Throwable $t) {
         $check(
@@ -2239,7 +2239,7 @@ $providersSource = (string) file_get_contents($root . '/agent/src/Adapter/Provid
 $check(
     str_contains($providersSource, 'CommandRefusalException::containsSensitivePublicDetail($value)')
     && preg_match('/sk_live_|AKIA|ghp_|xox[baprs]|BEGIN [A-Z ]*PRIVATE KEY/', $providersSource) !== 1,
-    'the secret grammar is the shared one (Secrets, reached through the DUO-3345 public-output screen) — this file '
+    'the secret grammar is the shared one (Secrets, reached through the issue #3345 public-output screen) — this file '
     . 'declares no vendor token pattern of its own, so a pattern added there covers receipts for free'
 );
 $check(
@@ -2251,17 +2251,17 @@ $check(
     . 'downstream path that could retain it and no protected copy to guard'
 );
 $check(
-    \Duo\Providers::RECEIPT_WITNESS_REASONS === ['ambiguous', 'binary', 'control', 'deep', 'oversized', 'secret', 'wide']
-    && \Duo\Providers::RECEIPT_MAX_DEPTH === 4
-    && \Duo\Providers::RECEIPT_MAX_ENTRIES === 128
-    && \Duo\Providers::RECEIPT_MAX_STRING_BYTES === 512
-    && \Duo\Providers::RECEIPT_MAX_KEY_BYTES === 128
-    && \Duo\Providers::RECEIPT_MAX_VALUE_BYTES === 8192,
+    \WPrism\Providers::RECEIPT_WITNESS_REASONS === ['ambiguous', 'binary', 'control', 'deep', 'oversized', 'secret', 'wide']
+    && \WPrism\Providers::RECEIPT_MAX_DEPTH === 4
+    && \WPrism\Providers::RECEIPT_MAX_ENTRIES === 128
+    && \WPrism\Providers::RECEIPT_MAX_STRING_BYTES === 512
+    && \WPrism\Providers::RECEIPT_MAX_KEY_BYTES === 128
+    && \WPrism\Providers::RECEIPT_MAX_VALUE_BYTES === 8192,
     'the bounds and the reason vocabulary are canonical constants, not numbers spelled out at each call site'
 );
 
 // ======================================================================
-// DUO-3369: structured capability arguments and engine batch context.
+// issue #3369: structured capability arguments and engine batch context.
 //
 // Two additions to the same contract, both closed the way everything else
 // here is closed: an argument may be a list of TYPED OBJECTS with a declared
@@ -2286,11 +2286,11 @@ $rowsNegotiation = static function (array $declaredArgs, array $actionArgs) use 
     $policyFor, $manifest, $reset
 ): array {
     $reset();
-    \Duo\Providers\ProbeCache::$capabilityOverrides = ['args' => $declaredArgs];
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = ['args' => $declaredArgs];
     $m = $manifest;
     $m['actions'][0]['args'] = $actionArgs;
     $policy = $policyFor($m);
-    return \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+    return \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 };
 $rowsProblem = static function (array $declaredArgs, array $actionArgs) use ($rowsNegotiation, $one): array {
     return $one($rowsNegotiation($declaredArgs, $actionArgs)['problems']);
@@ -2469,8 +2469,8 @@ $check($opaqueProviderRefusal(
 // load gate above already refuses this shape in a manifest: a capability
 // negotiated from a non-manifest caller must still not receive nested rows.
 $reset();
-\Duo\Providers\ProbeCache::$capabilityOverrides = ['args' => $rowsArgs];
-$validateArgs = new \ReflectionMethod(\Duo\Providers::class, 'validate_args');
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['args' => $rowsArgs];
+$validateArgs = new \ReflectionMethod(\WPrism\Providers::class, 'validate_args');
 try {
     $validateArgs->invoke(
         null,
@@ -2508,11 +2508,11 @@ $channelNegotiation = static function (mixed $context, string $scope = 'entity')
     if ($context !== null) {
         $overrides['context'] = $context;
     }
-    \Duo\Providers\ProbeCache::$capabilityOverrides = $overrides;
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = $overrides;
     $m = $manifest;
     $m['actions'][0]['triggers'] = ['post:probe'];
     $policy = $policyFor($m);
-    return \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+    return \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 };
 $channelProblem = static function (mixed $context, string $scope = 'entity') use ($channelNegotiation, $one): array {
     return $one($channelNegotiation($context, $scope)['problems']);
@@ -2522,7 +2522,7 @@ $negotiation = $channelNegotiation(['deletions', 'retry']);
 $check($negotiation['problems'] === []
     && ($negotiation['capabilities']['probe-cache']['flush']['context'] ?? null) === ['deletions', 'retry'],
     'an entity-scoped capability may declare engine batch channels, and the declaration binds for the rebuild pass');
-$check(\Duo\Providers::CONTEXT_CHANNELS === ['always_on_write', 'deletions', 'reparents', 'retry'],
+$check(\WPrism\Providers::CONTEXT_CHANNELS === ['always_on_write', 'deletions', 'reparents', 'retry'],
     'the channel vocabulary is exactly deletions, reparents, retry, always_on_write — a capability cannot mint a fifth');
 
 $p = $channelProblem(['deletions', 'tombstones']);
@@ -2565,7 +2565,7 @@ echo "\n== internal schema validator detail stays private ==\n";
 // fixed labels. The private validator still has exact author-facing detail;
 // keep representative assertions here so redaction does not weaken the
 // list<object> or context grammar itself.
-$validateCapabilityDeclaration = new \ReflectionMethod(\Duo\Providers::class, 'validate_capability_declaration');
+$validateCapabilityDeclaration = new \ReflectionMethod(\WPrism\Providers::class, 'validate_capability_declaration');
 $expectInternalDeclarationRefusal = static function (array $decl, string $needle, string $label) use (
     $check, $validateCapabilityDeclaration
 ): void {
@@ -2612,11 +2612,11 @@ $invokeWith = static function (array $context, array $channels = ['deletions', '
     $policyFor, $manifest, $reset, $entityAction, $batch
 ): array {
     $reset();
-    \Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => $channels];
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => $channels];
     $policy = $policyFor($manifest);
-    $provider = new \Duo\Providers\ProbeCache($policy);
+    $provider = new \WPrism\Providers\ProbeCache($policy);
     $declaration = $provider->capabilities()['flush'];
-    \Duo\Providers::invoke($provider, $entityAction, $declaration, $batch, $context);
+    \WPrism\Providers::invoke($provider, $entityAction, $declaration, $batch, $context);
     return $provider->calls[0][1];
 };
 $args = $invokeWith(['deletions' => $deletionRows, 'retry' => true]);
@@ -2699,7 +2699,7 @@ final class ProbeBatchWpdb {
     public array $map = [];
     /** @var array<int,array{post_type:string,post_parent:int}> */
     public array $postsRows = [];
-    /** @var array<string,string> the duo_kv keyspace (markers) */
+    /** @var array<string,string> the wprism_kv keyspace (markers) */
     public array $kv = [];
     /** @var array<string,mixed> option name => stored value */
     public array $optionRows = [];
@@ -2715,11 +2715,11 @@ final class ProbeBatchWpdb {
     }
 
     public function query(string $query): int {
-        if (preg_match("/INSERT INTO wp_duo_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
+        if (preg_match("/INSERT INTO wp_wprism_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
             $this->kv[stripslashes($m[1])] = stripslashes($m[2]);
             return 1;
         }
-        if (preg_match("/DELETE FROM wp_duo_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
+        if (preg_match("/DELETE FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
             unset($this->kv[stripslashes($m[1])]);
             return 1;
         }
@@ -2727,7 +2727,7 @@ final class ProbeBatchWpdb {
     }
 
     public function get_results(string $query, $output = null): array {
-        if (!str_contains($query, 'SELECT k, v FROM wp_duo_kv')) {
+        if (!str_contains($query, 'SELECT k, v FROM wp_wprism_kv')) {
             return [];
         }
         return array_map(
@@ -2755,10 +2755,10 @@ final class ProbeBatchWpdb {
             $this->optionReadNames[] = $name;
             return array_key_exists($name, $this->optionRows) ? $this->optionRows[$name] : null;
         }
-        if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
+        if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
             return $this->map[$m[1] . "\0" . $m[2]] ?? null;
         }
-        if (preg_match("/SELECT uuid FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
+        if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
             foreach ($this->map as $key => $id) {
                 [$uuid, $kind] = explode("\0", $key, 2);
                 if ($kind === $m[1] && (int) $id === (int) $m[2]) {
@@ -2767,7 +2767,7 @@ final class ProbeBatchWpdb {
             }
             return null;
         }
-        if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
+        if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
             return $this->kv[stripslashes($m[1])] ?? null;
         }
         return null;
@@ -2797,7 +2797,7 @@ $wpdb->map = [
 // post_parent before phase 1 rewrites it.
 $wpdb->postsRows = [204 => ['post_type' => 'probe', 'post_parent' => 202]];
 
-$batchBuilder = new \Duo\ProviderActionBatchBuilder($policyFor($manifest), []);
+$batchBuilder = new \WPrism\ProviderActionBatchBuilder($policyFor($manifest), []);
 
 $batchAction = [
     'provider' => 'probe-cache',
@@ -2810,7 +2810,7 @@ $deleteWork = [
     ['uuid' => $forgottenDeleted, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => 'probe'],
     ['uuid' => $otherAdapters, 'type' => 'post', 'deletion_kind' => 'post', 'deletion_type' => 'somebody_else'],
 ];
-// DUO-3342: every row carries all six keys, including for a tombstone the
+// issue #3342: every row carries all six keys, including for a tombstone the
 // engine took no pre-delete inventory of — a consumer must be able to tell "no
 // children" from "the engine did not say", and an absent key collapses those.
 $deletionRow = static function (
@@ -2884,7 +2884,7 @@ $context = $batchBuilder->action_context(
 $check(array_keys($context) === ['deletions'] && $context['deletions'] === $deletions,
     'only the declared channel is assembled — an undeclared one costs no work and delivers nothing');
 $check($batchBuilder->action_context($batchAction, ['scope' => 'entity'], $deleteWork, $regenContext) === [],
-    'a capability declaring no context assembles nothing at all (the pre-DUO-3369 path)');
+    'a capability declaring no context assembles nothing at all (the pre-issue #3369 path)');
 $check($batchBuilder->action_context(
         $batchAction,
         ['scope' => 'entity', 'context' => ['retry']],
@@ -2912,7 +2912,7 @@ $alwaysOnAlone = ['scope' => 'entity', 'context' => ['always_on_write']];
 $hasWork = static fn(array $declaration, array $entities, array $channels): bool =>
     $batchBuilder->action_batch_has_work($declaration, $entities, $channels);
 $check($hasWork($noChannels, [], []) === false,
-    'the DUO-3338 skip survives verbatim: a channel-less capability with an empty entity batch is still skipped');
+    'the issue #3338 skip survives verbatim: a channel-less capability with an empty entity batch is still skipped');
 $check($hasWork($noChannels, [['kind' => 'post:probe', 'id' => 7]], []) === true,
     'a non-empty entity batch is work, as before');
 $check($hasWork($withDeletions, [], ['deletions' => $deletions]) === true,
@@ -2952,7 +2952,7 @@ $driveAction['triggers'] = ['post:probe'];
  * $rebuildArgs is rebuild()'s own parameter list:
  * [attachmentIds, work, tree, regenContext, deleteWork, withDeletes, absentTombstones].
  *
- * $receipt plants what the capability returns (DUO-3383), so the publication
+ * $receipt plants what the capability returns (issue #3383), so the publication
  * bounds can be exercised through the whole pass rather than at invoke() alone.
  */
 $driveRebuild = static function (
@@ -2960,11 +2960,11 @@ $driveRebuild = static function (
     array $rebuildArgs,
     bool $retrying = false,
     mixed $receiptOverride = null,
-    ?\Duo\Policy $policyOverride = null
+    ?\WPrism\Policy $policyOverride = null
 ) use ($drivePolicy, $driveAction, $reset, $dir): array {
     $reset();
-    \Duo\Providers\ProbeCache::$receiptOverride = $receiptOverride;
-    \Duo\Providers\ProbeCache::$capabilityOverrides = $channels === []
+    \WPrism\Providers\ProbeCache::$receiptOverride = $receiptOverride;
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = $channels === []
         ? ['scope' => 'entity']
         : ['scope' => 'entity', 'context' => $channels];
     // The policy the PASS reads (pinned actions, marker ownership) may differ
@@ -2972,8 +2972,8 @@ $driveRebuild = static function (
     // run-independent, so proving a narrowing needs a pinned claimant the
     // selection does not contain.
     $passPolicy = $policyOverride ?? $drivePolicy;
-    $provider = new \Duo\Providers\ProbeCache($passPolicy);
-    $selection = new \Duo\RebuildSelection($passPolicy);
+    $provider = new \WPrism\Providers\ProbeCache($passPolicy);
+    $selection = new \WPrism\RebuildSelection($passPolicy);
     $selection->set_selected_actions([$driveAction]);
     $negotiated = [
         'providers' => ['probe-cache' => $provider],
@@ -2985,9 +2985,9 @@ $driveRebuild = static function (
     $receipts = [];
     $error = '';
     try {
-        $compiledSentinel = (new \ReflectionClass(\Duo\CompiledRepository::class))
+        $compiledSentinel = (new \ReflectionClass(\WPrism\CompiledRepository::class))
             ->newInstanceWithoutConstructor();
-        $callbacks = new \Duo\ApplyServiceCallbacks(
+        $callbacks = new \WPrism\ApplyServiceCallbacks(
             taxonomyOwnership: static fn(): array => [],
             renewPromotionLock: static function (string $phase): void {},
             renewRegenerationLease: static function (): void {},
@@ -3004,10 +3004,10 @@ $driveRebuild = static function (
         // state to the caller-owned repository even when this particular
         // rebuild has no attachments. Keep the product-path drive exact
         // instead of bypassing ApplyServices with hand-built collaborators.
-        $services = new \Duo\ApplyServices($passPolicy, $compiledSentinel, $callbacks, $dir);
-        $coordinator = new \Duo\ApplyRebuildCoordinator($services, $selection);
+        $services = new \WPrism\ApplyServices($passPolicy, $compiledSentinel, $callbacks, $dir);
+        $coordinator = new \WPrism\ApplyRebuildCoordinator($services, $selection);
         $coordinator->rebuild(
-            new \Duo\RebuildRequest(
+            new \WPrism\RebuildRequest(
                 attachmentIds: $attachmentIds,
                 work: $work,
                 tree: $tree,
@@ -3046,7 +3046,7 @@ $driveAbsent = [
 ];
 
 $wpdb->kv = [];
-$flushesBefore = $GLOBALS['duo_test_cache_flushes'];
+$flushesBefore = $GLOBALS['wprism_test_cache_flushes'];
 $run = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, true, []]);
 $check($run['error'] === '' && $run['calls'] === 1
     && ($run['args']['entities']['deletions'] ?? null)
@@ -3055,7 +3055,7 @@ $check($run['error'] === '' && $run['calls'] === 1
 $check(array_keys((array) ($run['args']['entities'] ?? [])) === ['entities', 'deletions']
     && ($run['args']['entities']['entities'] ?? null) === [],
     'the assembled context reaches invoke() as the envelope — a bare batch here would mean the pass dropped it');
-$check($GLOBALS['duo_test_cache_flushes'] === $flushesBefore + 2,
+$check($GLOBALS['wprism_test_cache_flushes'] === $flushesBefore + 2,
     'the pass still flushes the object cache either side of the action loop (the drive is the real rebuild(), not a stub)');
 
 $run = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, false, []]);
@@ -3172,9 +3172,9 @@ $check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncom
     'run() records its apply_in_progress read on the instance, which is the only path by which the retry channel '
     . 'can ever be true');
 
-echo "\n== DUO-3383: every surface a successful receipt reaches, and the ones it must not ==\n";
+echo "\n== issue #3383: every surface a successful receipt reaches, and the ones it must not ==\n";
 // The bounds above are proved at invoke(). These prove the pass that consumes
-// it publishes nothing else: Apply's `actions` rows ARE `wp duo apply
+// it publishes nothing else: Apply's `actions` rows ARE `wp wprism apply
 // --format=json`'s `actions` (Apply::rebuild() copies the receipt fields
 // straight in, Cli::apply() serializes the summary whole), and the human line
 // is the warning this same loop appends.
@@ -3279,7 +3279,7 @@ $check(
     "the agent's human apply render never reads the receipt rows at all — its JSON arm publishes the summary whole, "
     . 'and that is the surface the bounds above cover'
 );
-$hostSource = (string) file_get_contents($root . '/cli/duo');
+$hostSource = (string) file_get_contents($root . '/cli/wprism');
 preg_match_all('/\$applySummary\[[^\]]+\]/', $hostSource, $hostReads);
 $check(
     array_values(array_unique($hostReads[0])) === ["\$applySummary['artifact']"],
@@ -3288,7 +3288,7 @@ $check(
 );
 
 echo "\n== the capture behind the reparents channel: scoped to DECLARED consumers ==\n";
-// DUO-3369 review, F2(a): scoping the capture to batch regen_dependency post
+// issue #3369 review, F2(a): scoping the capture to batch regen_dependency post
 // types alone made the channel structurally empty for a provider-only
 // manifest — a capability could declare `reparents`, negotiate clean, and
 // never receive a row no matter what the revision moved.
@@ -3298,7 +3298,7 @@ $captureWith = static function (array $channels, array $triggers = ['post:probe'
     $drivePolicy, $driveAction, $captureWork, $captureTree, &$wpdb
 ): array {
     $wpdb->kv = [];
-    $selection = new \Duo\RebuildSelection($drivePolicy);
+    $selection = new \WPrism\RebuildSelection($drivePolicy);
     $selection->set_selected_actions([['triggers' => $triggers] + $driveAction]);
     $declaration = $channels === []
         ? ['scope' => 'entity']
@@ -3307,7 +3307,7 @@ $captureWith = static function (array $channels, array $triggers = ['post:probe'
         'providers' => [],
         'capabilities' => ['probe-cache' => ['flush' => $declaration]],
     ]);
-    $store = new \Duo\RegenerationContextStore(
+    $store = new \WPrism\RegenerationContextStore(
         $drivePolicy,
         fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface)
     );
@@ -3330,7 +3330,7 @@ $check($captureWith(['reparents'], ['post:somebody_else']) === [],
 $wpdb->kv = [];
 
 // ======================================================================
-// DUO-3342: the provider dispatch gains the crash-safety the regen-batch
+// issue #3342: the provider dispatch gains the crash-safety the regen-batch
 // path has — as channel semantics. Four properties, each of which the
 // provider path structurally lacked while the regenerator channel had it:
 // the pre-delete inventory is CAPTURED for a provider-only manifest, the
@@ -3345,7 +3345,7 @@ $captureDeleteWith = static function (array $channels, array $triggers = ['post:
     $drivePolicy, $driveAction, $liveDeleted, &$wpdb
 ): array {
     $wpdb->kv = [];
-    $selection = new \Duo\RebuildSelection($drivePolicy);
+    $selection = new \WPrism\RebuildSelection($drivePolicy);
     $selection->set_selected_actions([['triggers' => $triggers] + $driveAction]);
     $declaration = $channels === []
         ? ['scope' => 'entity']
@@ -3354,7 +3354,7 @@ $captureDeleteWith = static function (array $channels, array $triggers = ['post:
         'providers' => [],
         'capabilities' => ['probe-cache' => ['flush' => $declaration]],
     ]);
-    $store = new \Duo\RegenerationContextStore(
+    $store = new \WPrism\RegenerationContextStore(
         $drivePolicy,
         fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface)
     );
@@ -3546,14 +3546,14 @@ $driveSweep = static function (array $sweepManifest, array $negotiated = [], ?ar
 ): string {
     $wpdb->kv = $markers ?? $sweepMarkers;
     $sweepPolicy = $policyFor($sweepManifest);
-    $selection = new \Duo\RebuildSelection($sweepPolicy);
+    $selection = new \WPrism\RebuildSelection($sweepPolicy);
     $selection->set_selected_actions([]);
     $selection->set_negotiated_providers(['providers' => [], 'capabilities' => $negotiated]);
-    $store = new \Duo\RegenerationContextStore(
+    $store = new \WPrism\RegenerationContextStore(
         $sweepPolicy,
         fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface)
     );
-    $regenerator = new \Duo\DependencyRegenerator(
+    $regenerator = new \WPrism\DependencyRegenerator(
         $sweepPolicy,
         $store,
         fn(string $surface): bool => $selection->declares_entity_batch_for($surface),
@@ -3638,9 +3638,9 @@ $claimantNegotiation = static function (mixed $context) use ($policyFor, $claima
     if ($context !== null) {
         $overrides['context'] = $context;
     }
-    \Duo\Providers\ProbeCache::$capabilityOverrides = $overrides;
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = $overrides;
     $policy = $policyFor($claimantManifest);
-    return \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+    return \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 };
 $p = $one($claimantNegotiation(['deletions'])['problems']);
 $check(($p['code'] ?? '') === 'post_type_claimed_by_regen_batch'
@@ -3660,14 +3660,14 @@ $check($claimantNegotiation(null)['problems'] === [],
 $reset();
 
 echo "\n== outstanding receipts are legible in plan and status (independent review F3) ==\n";
-// DUO-3342 made these markers SURVIVE a failed apply instead of being swept in
+// issue #3342 made these markers SURVIVE a failed apply instead of being swept in
 // the same pass that read them. That is the point — and it is also what makes
 // them worth surfacing: a marker can now stand between a failure and its retry,
 // and an operator deciding "is this safe to promote" must be able to see it.
-$drivePlanProjection = static function (\Duo\Policy $projectionPolicy, ?array $negotiated = []) use ($scratchRoot): array {
-    $selection = new \Duo\RebuildSelection($projectionPolicy);
+$drivePlanProjection = static function (\WPrism\Policy $projectionPolicy, ?array $negotiated = []) use ($scratchRoot): array {
+    $selection = new \WPrism\RebuildSelection($projectionPolicy);
     $selection->set_negotiated_providers($negotiated);
-    return (new \Duo\ApplyPlanEnvironment($projectionPolicy, $selection, $scratchRoot))
+    return (new \WPrism\ApplyPlanEnvironment($projectionPolicy, $selection, $scratchRoot))
         ->regeneration_debt_projection();
 };
 $wpdb->kv = $sweepMarkers + [
@@ -3706,10 +3706,10 @@ $envManifest['options'] = [
 $envPolicy = $policyFor($envManifest);
 $wpdb->optionRows = ['m_present' => 'configured', 'z_optional' => ''];
 $wpdb->optionReadNames = [];
-\Duo\EnvironmentValues::set($scratchRoot, 'm_present', 'configured');
-$envFacade = (new \Duo\ApplyPlanEnvironment(
+\WPrism\EnvironmentValues::set($scratchRoot, 'm_present', 'configured');
+$envFacade = (new \WPrism\ApplyPlanEnvironment(
     $envPolicy,
-    new \Duo\RebuildSelection($envPolicy),
+    new \WPrism\RebuildSelection($envPolicy),
     $scratchRoot
 ))->env_missing_projection();
 $check($envFacade === [
@@ -3719,7 +3719,7 @@ $check($envFacade === [
     ],
     'warnings' => [
         "env_missing: option 'a_required' is required and not yet provisioned on "
-            . "this environment — see 'wp duo env-set --name=a_required --stdin'",
+            . "this environment — see 'wp wprism env-set --name=a_required --stdin'",
     ],
 ], 'the real Apply facade combines Policy env declarations with live wp_options values');
 $check(
@@ -3762,24 +3762,24 @@ $statusPlan = array_fill_keys([
 $statusPlan['regen_context'] = [
     ['uuid' => $liveDeleted, 'type' => 'post', 'post_type' => 'probe', 'kind' => 'delete'],
 ];
-$rendered = \Duo\Orchestrator\PlanSummary::render($statusPlan);
+$rendered = \WPrism\Orchestrator\PlanSummary::render($statusPlan);
 $renderedText = implode("\n", (array) $rendered['lines']);
 $check(($rendered['ok'] ?? null) === false,
-    'duo status refuses to call an environment clean while a derived-state receipt is outstanding — same '
+    'wprism status refuses to call an environment clean while a derived-state receipt is outstanding — same '
     . 'footing as regen_pending, and for the same reason');
 $check(str_contains($renderedText, '1 regen_context')
     && str_contains($renderedText, 'REGEN_CONTEXT')
     && str_contains($renderedText, "post type 'probe', delete receipt"),
     'and names the entity, its post type, and which receipt is outstanding');
 $statusPlan['regen_context'] = [];
-$check((\Duo\Orchestrator\PlanSummary::render($statusPlan)['ok'] ?? null) === true,
+$check((\WPrism\Orchestrator\PlanSummary::render($statusPlan)['ok'] ?? null) === true,
     'an empty bucket is not a blocker — the row is the signal, never the key');
 // build_plan() itself is not drivable offline (it needs a compiled repository
 // and a live target), so its one edge into the planner projection is asserted
 // against its own source — the idiom this suite already uses for run()'s
 // threading. Without it, deleting the call site while keeping the method passes
 // every behavioural check in this section (proven: that mutation survived).
-$buildPlanMethod = (new ReflectionClass(\Duo\ApplyPlanBuilder::class))->getMethod('build');
+$buildPlanMethod = (new ReflectionClass(\WPrism\ApplyPlanBuilder::class))->getMethod('build');
 $buildPlanSource = implode("\n", array_slice(
     (array) file((string) $buildPlanMethod->getFileName(), FILE_IGNORE_NEW_LINES),
     $buildPlanMethod->getStartLine() - 1,
@@ -3793,17 +3793,17 @@ $check((bool) preg_match(
 $check((bool) preg_match(
     "/foreach \\(\\\$regenDebt\\['warnings'\\] as \\\$warning\\) \\{\\s*\\\$this->warnings\\[\\] = \\\$warning;/",
     $buildPlanSource
-), 'and carries the projection warnings into Apply, so a plain `duo plan` says it out loud rather than only in a '
+), 'and carries the projection warnings into Apply, so a plain `wprism plan` says it out loud rather than only in a '
     . 'structured bucket a script has to look for');
 
-// Lockstep with the agent-side renderer and the precondition hash: `duo status`
-// and a plain `wp duo plan` must never give an operator different advice, and a
+// Lockstep with the agent-side renderer and the precondition hash: `wprism status`
+// and a plain `wp wprism plan` must never give an operator different advice, and a
 // receipt appearing between plan and apply must invalidate the plan.
 $cliSource = (string) file_get_contents($root . '/agent/src/Command/Cli.php');
 $check(str_contains($cliSource, "REGEN_CONTEXT ")
     && str_contains($cliSource, "count(\$plan['regen_context'] ?? []) . ' regen_context'"),
     'the agent-side plan renderer carries the same bucket, count line included');
-$plannerHashMethod = (new ReflectionClass(\Duo\ApplyPlanner::class))->getMethod('plan_precondition_hash');
+$plannerHashMethod = (new ReflectionClass(\WPrism\ApplyPlanner::class))->getMethod('plan_precondition_hash');
 $hashSource = implode("\n", array_slice(
     (array) file((string) $plannerHashMethod->getFileName(), FILE_IGNORE_NEW_LINES),
     $plannerHashMethod->getStartLine() - 1,
@@ -3835,11 +3835,11 @@ $twoConsumers = static function (
     ?string $secondCapabilityName = 'flush_again'
 ) use ($policyFor, $manifest, $reset, $secondCapability): array {
     $reset();
-    \Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => $firstContext];
+    \WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => $firstContext];
     $m = $manifest;
     $m['actions'][0]['triggers'] = ['post:probe'];
     if ($secondCapabilityName === 'flush_again') {
-        \Duo\Providers\ProbeCache::$extraCapabilities = ['flush_again' => $secondCapability($secondContext)];
+        \WPrism\Providers\ProbeCache::$extraCapabilities = ['flush_again' => $secondCapability($secondContext)];
         $m['providers'][0]['capabilities'] = ['flush', 'flush_again'];
     }
     $m['actions'][] = [
@@ -3850,7 +3850,7 @@ $twoConsumers = static function (
         'triggers' => $secondTriggers,
     ];
     $policy = $policyFor($m);
-    return \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe', 'post:probe_other']));
+    return \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe', 'post:probe_other']));
 };
 
 $negotiation = $twoConsumers(['deletions'], ['deletions']);
@@ -3864,9 +3864,9 @@ $check(str_contains($p['remediation'] ?? '', 'the evidence its own retry depends
     'and the remediation says why one keyspace cannot serve two consumers, not merely that it may not');
 $check(!isset($negotiation['providers']['probe-cache']) && !isset($negotiation['capabilities']['probe-cache']),
     'neither claimant binds — which of them would have cleared the shared marker is the question with no answer');
-// DUO-3314 made a negotiation problem row operator-facing wire data:
+// issue #3314 made a negotiation problem row operator-facing wire data:
 // Policy::provider_readiness_blockers() promotes exactly these keys into the
-// adapter_dispositions rows `duo status` and `duo capabilities` render. A row
+// adapter_dispositions rows `wprism status` and `wprism capabilities` render. A row
 // missing one of them renders as '?' or blank, so the two codes this migration
 // added have to carry the same shape every other refusal does — including
 // carrying NO extra key a renderer would have to know to ignore.
@@ -3888,11 +3888,11 @@ $rowShapeOk = static function (array $row) use ($promotedKeys): bool {
 };
 $check($rowShapeOk($p),
     'and the refusal row carries exactly the keys the readiness projection reads, each non-empty — a '
-    . 'channel collision is legible in `duo status`, not just in an apply that refused');
+    . 'channel collision is legible in `wprism status`, not just in an apply that refused');
 $claimantRow = $one($claimantNegotiation(['deletions'])['problems']);
 $check($rowShapeOk($claimantRow),
     'the dual-claimant refusal carries the same wire shape for the same reason');
-// The other half of DUO-3314's posture: a refusal an operator reads must not
+// The other half of issue #3314's posture: a refusal an operator reads must not
 // carry third-party free-form text. Both rows are built only from closed
 // vocabularies and pattern-validated identities. Pinned as the two markers that
 // betray a leak rather than as a full charset (the engine's own prose uses em
@@ -3918,8 +3918,8 @@ $check($twoConsumers(['deletions'], [], ['post:probe'], 'flush')['problems'] ===
 // unbind from a partial one — a single provider's two capabilities both live
 // under one key, so unbinding "the first claimant" alone would look identical.
 $reset();
-\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
-\Duo\Providers\ProbeIndex::$capabilityOverrides = ['context' => ['deletions']];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
+\WPrism\Providers\ProbeIndex::$capabilityOverrides = ['context' => ['deletions']];
 $crossManifest = $manifest;
 $crossManifest['actions'][0]['triggers'] = ['post:probe'];
 $crossManifest['providers'][] = [
@@ -3937,7 +3937,7 @@ $crossManifest['actions'][] = [
     'triggers' => ['post:probe'],
 ];
 $crossPolicy = $policyFor($crossManifest);
-$crossNegotiation = \Duo\Providers::negotiate($crossPolicy, $crossPolicy->actions_for(['post:probe']));
+$crossNegotiation = \WPrism\Providers::negotiate($crossPolicy, $crossPolicy->actions_for(['post:probe']));
 $crossProblem = $one($crossNegotiation['problems']);
 $check(($crossProblem['code'] ?? '') === 'channel_claimed_twice'
     && str_contains($crossProblem['found'] ?? '', 'probe-cache/flush, probe-index/reindex'),
@@ -3949,13 +3949,13 @@ $check(!isset($crossNegotiation['providers']['probe-cache'])
     && !isset($crossNegotiation['capabilities']['probe-index']),
     'and EVERY claimant is unbound, not just the one the refusal is attributed to — a partial unbind would '
     . 'leave one of them holding a marker keyspace the refusal says has no owner');
-// DUO-3339 gave these refusals a SECOND surface: Providers::problems() runs the
+// issue #3339 gave these refusals a SECOND surface: Providers::problems() runs the
 // same diagnosis over every pinned action for plan/status, and subtracts rows
 // the narrowed gating diagnosis already reported. Both new codes have to travel
 // that path like any other — they are ordinary problem rows, and the moment
 // they were not, a collision would be reported twice to one operator, or not at
 // all.
-$crossWide = \Duo\Providers::problems($crossPolicy);
+$crossWide = \WPrism\Providers::problems($crossPolicy);
 $check(array_column($crossWide, 'code') === ['channel_claimed_twice'],
     'a channel collision reaches the wide plan/status view too, so a half-finished migration is visible before '
     . 'the apply that would refuse on it');
@@ -3967,19 +3967,19 @@ $crossGating = [[
     'code' => $crossWide[0]['code'],
     'status' => 'blocked',
 ]];
-$check(\Duo\Providers::problems($crossPolicy, $crossGating) === [],
+$check(\WPrism\Providers::problems($crossPolicy, $crossGating) === [],
     'and once the scoped diagnosis has gated on it, the wide view drops it — one collision is one finding, '
     . 'even though the row is attributed to only one of its claimants');
-$check(\Duo\Providers::problems($crossPolicy) !== [],
+$check(\WPrism\Providers::problems($crossPolicy) !== [],
     'subtraction, never suppression: with nothing gating, the same call still reports it');
-\Duo\Providers\ProbeIndex::$capabilityOverrides = [];
+\WPrism\Providers\ProbeIndex::$capabilityOverrides = [];
 
 $reset();
-\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
-$claimantWide = \Duo\Providers::problems($policyFor($claimantManifest));
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
+$claimantWide = \WPrism\Providers::problems($policyFor($claimantManifest));
 $check(array_column($claimantWide, 'code') === ['post_type_claimed_by_regen_batch'],
     'the dual-claimant refusal travels the same surface, for the same reason');
-$check(\Duo\Providers::problems($policyFor($claimantManifest), [[
+$check(\WPrism\Providers::problems($policyFor($claimantManifest), [[
     'provider' => $claimantWide[0]['provider'],
     'manifest' => $claimantWide[0]['manifest'],
     'code' => $claimantWide[0]['code'],
@@ -3987,16 +3987,16 @@ $check(\Duo\Providers::problems($policyFor($claimantManifest), [[
     'and subtracts on the same (provider, manifest, code) key every other row uses');
 $reset();
 
-echo "\n== byte-compatibility with the pre-DUO-3369 contract, in frozen bytes ==\n";
+echo "\n== byte-compatibility with the pre-issue #3369 contract, in frozen bytes ==\n";
 // Both literals below were captured by running THIS harness's fixtures through
-// the engine as of main@40b54fe (the commit before DUO-3369) and printing
+// the engine as of main@40b54fe (the commit before issue #3369) and printing
 // serialize() of the negotiated declaration map and of the arguments the
 // capability received. They are the acceptance criterion in executable form:
 // an existing scalar-args, channel-less provider must not be able to observe
 // that either channel grew.
 $reset();
 $policy = $policyFor($manifest);
-$negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+$negotiation = \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
 $check(
     serialize($negotiation['capabilities'])
         === 'a:1:{s:11:"probe-cache";a:1:{s:5:"flush";a:6:{s:4:"args";a:1:{s:6:"groups";a:2:{s:4:"type";'
@@ -4006,12 +4006,12 @@ $check(
     'a scalar-args capability negotiates to declaration bytes identical to the pre-change engine (no key added, none reordered)'
 );
 $reset();
-\Duo\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity'];
 $policy = $policyFor($manifest);
 $byteAction = $policy->actions_for(['post:probe'])[0];
 $byteAction['triggers'] = ['post:probe'];
-$byteProvider = new \Duo\Providers\ProbeCache($policy);
-\Duo\Providers::invoke($byteProvider, $byteAction, $byteProvider->capabilities()['flush'], $batch);
+$byteProvider = new \WPrism\Providers\ProbeCache($policy);
+\WPrism\Providers::invoke($byteProvider, $byteAction, $byteProvider->capabilities()['flush'], $batch);
 $check(
     serialize($byteProvider->calls[0][1])
         === 'a:2:{s:6:"groups";a:1:{i:0;s:11:"probe-group";}s:8:"entities";a:2:{i:0;a:2:{s:4:"kind";'
@@ -4026,7 +4026,7 @@ unlink($dir . '/providers/probe-cache.php');
 $reset();
 $policy = $policyFor($manifest);
 $expectMessage(
-    static fn() => \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe'])),
+    static fn() => \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:probe'])),
     'provider code ships with its manifest, not the engine',
     'a missing manifest-shipped provider file is a packaging fault that throws, not an environment problem'
 );

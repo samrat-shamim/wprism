@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guide command checker (DUO-3323) — proves docs/guides/*.md never cites a
+# Guide command checker (issue #3323) — proves docs/guides/*.md never cites a
 # command that does not exist, and that anything it cites which DOESN'T exist
 # is labeled as unshipped at the exact line that mentions it.
 #
@@ -10,12 +10,12 @@
 # worth anything. So the honesty contract in docs/guides/README.md is
 # mechanically checked rather than merely asserted:
 #
-#   1. every `duo <verb>` token must be a real host verb (cli/duo's dispatch
+#   1. every `wprism <verb>` token must be a real host verb (cli/wprism's dispatch
 #      list plus the verbs main() compares before it), and
-#   2. every `wp duo <command>` token must be a real agent registration
+#   2. every `wp wprism <command>` token must be a real agent registration
 #      (agent/src/Command/Cli.php's public methods, with @subcommand overrides), and
 #   3. a token that is neither is a FAILURE naming the guide and line —
-#      UNLESS that same line carries the literal `**Planned (DUO-NNNN)**`
+#      UNLESS that same line carries the literal `**Planned** — not yet shipped.`
 #      label, which is precisely how the guides are required to mark
 #      unshipped behavior. A planned command may be named in prose; it may
 #      never be named without its label.
@@ -28,10 +28,10 @@
 #     examined, because that is where the guides cite commands. A command
 #     named in bare prose is invisible here.
 #   - FLAGS ARE NOT CHECKED. Only verbs and subcommands are resolved, so
-#     `duo status --nonsense` passes.
-#   - Only the bare `duo …`, `cli/duo …`, and `wp duo …` spellings are
-#     recognized. A path-prefixed invocation (`./cli/duo status`,
-#     `bin/duo status`) does not match the extractor and is silently
+#     `wprism status --nonsense` passes.
+#   - Only the bare `wprism …`, `cli/wprism …`, and `wp wprism …` spellings are
+#     recognized. A path-prefixed invocation (`./cli/wprism status`,
+#     `bin/wprism status`) does not match the extractor and is silently
 #     unchecked — cite commands in one of the three recognized forms.
 #
 # Deliberately NOT named regress_* and deliberately has no Makefile target:
@@ -48,7 +48,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-HOST_CLI="$ROOT/cli/duo"
+HOST_CLI="$ROOT/cli/wprism"
 HOST_PREFLIGHT="$ROOT/cli/src/Command/EnvironmentCommandPreflight.php"
 AGENT_CLI="$ROOT/agent/src/Command/Cli.php"
 GUIDE_DIR="$ROOT/docs/guides"
@@ -66,7 +66,7 @@ done
 
 # --- the two allowlists, read out of the source, never hardcoded -------------
 
-# cli/duo dispatch: the environment preflight vocabulary plus every verb main()
+# cli/wprism dispatch: the environment preflight vocabulary plus every verb main()
 # compares directly (that is where offline commands such as `envs` and
 # `driver-capabilities` are handled). The vocabulary is read from the runtime
 # collaborator rather than copied from the host entrypoint.
@@ -74,7 +74,7 @@ host_verbs() {
     {
         php -r '
             require $argv[1];
-            foreach (Duo\Orchestrator\EnvironmentCommandPreflight::environmentVerbs() as $verb) {
+            foreach (WPrism\Orchestrator\EnvironmentCommandPreflight::environmentVerbs() as $verb) {
                 echo $verb, "\n";
             }
         ' "$HOST_PREFLIGHT"
@@ -84,13 +84,13 @@ host_verbs() {
         -e "/^[a-z][a-z0-9-]*$/p" | sort -u
 }
 
-# agent/src/Command/Cli.php registers the whole class as `wp duo`, so every public
+# agent/src/Command/Cli.php registers the whole class as `wp wprism`, so every public
 # method is a subcommand, named exactly as WP-CLI names it: the `@subcommand`
 # annotation when one is present, otherwise the RAW method name. WP-CLI never
 # hyphenates a method name itself (CommandFactory::create_subcommand takes the
 # tag or `$reflection->name`), which is why `code_inventory` shipped unreachable
-# as `wp duo code-inventory` while this checker -- which used to hyphenate --
-# validated the guide citation green (DUO-3517). Emitting the raw name means a
+# as `wp wprism code-inventory` while this checker -- which used to hyphenate --
+# validated the guide citation green (issue #3517). Emitting the raw name means a
 # guide that cites a hyphenated form of an untagged method now fails here.
 agent_commands() {
     # One name per handler, exactly as WP-CLI registers it: the @subcommand tag
@@ -114,9 +114,9 @@ agent_commands() {
 # --- token extraction --------------------------------------------------------
 
 # Emits one TAB-separated row per citation: file, line, planned-flag, kind,
-# token. `wp duo <cmd>` is consumed first so its `duo` never also reads as a
+# token. `wp wprism <cmd>` is consumed first so its `wprism` never also reads as a
 # host verb. Inline code spans are joined with " | " so two adjacent spans
-# can never form a phantom `duo <token>` pair across the boundary.
+# can never form a phantom `wprism <token>` pair across the boundary.
 AWK_EXTRACT='
 BEGIN { fence = 0 }
 {
@@ -133,22 +133,22 @@ BEGIN { fence = 0 }
         }
     }
     if (code == "") { next }
-    planned = (line ~ /\*\*Planned \(DUO-[0-9]+\)\*\*/) ? 1 : 0
+    planned = (line ~ /\*\*Planned\*\*[[:space:]]*—[[:space:]]*not yet shipped\./) ? 1 : 0
 
     work = code
     kept = ""
-    while (match(work, /wp[[:space:]]+duo[[:space:]]+[a-z][a-z0-9-]*/)) {
+    while (match(work, /wp[[:space:]]+wprism[[:space:]]+[a-z][a-z0-9-]*/)) {
         seg = substr(work, RSTART, RLENGTH)
-        sub(/^.*duo[[:space:]]+/, "", seg)
+        sub(/^.*wprism[[:space:]]+/, "", seg)
         printf "%s\t%d\t%d\tagent\t%s\n", FILENAME, FNR, planned, seg
         kept = kept " | " substr(work, 1, RSTART - 1)
         work = substr(work, RSTART + RLENGTH)
     }
     work = kept " | " work
 
-    while (match(work, /(^|[^a-zA-Z0-9_.\/-])(cli\/)?duo[[:space:]]+[a-z][a-z0-9-]*/)) {
+    while (match(work, /(^|[^a-zA-Z0-9_.\/-])(cli\/)?wprism[[:space:]]+[a-z][a-z0-9-]*/)) {
         seg = substr(work, RSTART, RLENGTH)
-        sub(/^.*duo[[:space:]]+/, "", seg)
+        sub(/^.*wprism[[:space:]]+/, "", seg)
         printf "%s\t%d\t%d\thost\t%s\n", FILENAME, FNR, planned, seg
         work = substr(work, RSTART + RLENGTH)
     }
@@ -175,17 +175,17 @@ scan_guides() {
             checked=$((checked + 1))
             if [ "$kind" = 'agent' ]; then
                 allowed="$commands"
-                label="wp duo $token"
+                label="wp wprism $token"
             else
                 allowed="$verbs"
-                label="duo $token"
+                label="wprism $token"
             fi
             # A here-string, not `printf | grep -q`: grep -q exits on the
             # first match, and under `pipefail` a printf that was still
             # writing then fails the pipeline with SIGPIPE -- a VALID token
             # (the alphabetically first verb, `adapter`, most of all) reported
             # as unknown whenever the host is busy. Observed as an intermittent
-            # "cites 'duo adapter', which is not a verb" while the offline
+            # "cites 'wprism adapter', which is not a verb" while the offline
             # corpus ran beside this check.
             if grep -qxF -- "$token" <<<"$allowed"; then
                 continue
@@ -196,7 +196,7 @@ scan_guides() {
                 continue
             fi
             echo "FAIL: $(basename "$file"):$lineno cites '$label', which is not a"\
-                 "$([ "$kind" = 'agent' ] && echo 'wp duo subcommand in agent/src/Command/Cli.php' || echo 'verb in cli/duo')" >&2
+                 "$([ "$kind" = 'agent' ] && echo 'wp wprism subcommand in agent/src/Command/Cli.php' || echo 'verb in cli/wprism')" >&2
             status=1
         done < <(awk "$AWK_EXTRACT" "$f")
     done
@@ -220,9 +220,9 @@ self_test() {
     cp "$GUIDE_DIR"/*.md "$bad/"
     cp "$GUIDE_DIR"/*.md "$good/"
 
-    printf '\nInjected by --self-test: run `duo not-a-real-verb` and `wp duo not-a-real-command`.\n' \
+    printf '\nInjected by --self-test: run `wprism not-a-real-verb` and `wp wprism not-a-real-command`.\n' \
         >> "$bad/quickstart.md"
-    printf '\nInjected by --self-test: `duo not-a-real-verb` is **Planned (DUO-9999)** — not yet shipped.\n' \
+    printf '\nInjected by --self-test: `wprism not-a-real-verb` is **Planned** — not yet shipped.\n' \
         >> "$good/quickstart.md"
 
     local out rc
@@ -242,12 +242,12 @@ self_test() {
         printf '%s\n' "$out" >&2
         return 1
     fi
-    if ! printf '%s\n' "$out" | grep -q "duo not-a-real-verb"; then
+    if ! printf '%s\n' "$out" | grep -q "wprism not-a-real-verb"; then
         echo "SELF-TEST FAILED: failure did not name the bogus host verb" >&2
         printf '%s\n' "$out" >&2
         return 1
     fi
-    if ! printf '%s\n' "$out" | grep -q "wp duo not-a-real-command"; then
+    if ! printf '%s\n' "$out" | grep -q "wp wprism not-a-real-command"; then
         echo "SELF-TEST FAILED: failure did not name the bogus agent command" >&2
         printf '%s\n' "$out" >&2
         return 1
@@ -265,7 +265,7 @@ self_test() {
         printf '%s\n' "$out" >&2
         return 1
     fi
-    echo "  ok: accepted, because the line carries **Planned (DUO-9999)**"
+    echo "  ok: accepted, because the line carries **Planned** — not yet shipped."
     return 0
 }
 

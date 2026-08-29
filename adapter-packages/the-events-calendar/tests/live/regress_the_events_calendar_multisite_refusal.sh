@@ -4,7 +4,7 @@
 # every adapter-facing command refuses before it can mutate the populated graph.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$PACKAGE_ROOT/../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -26,22 +26,22 @@ PORT2="${TEC_MULTISITE_PORT2:-9011}"
 
 REPO_ROOT="$(cd .. && pwd -P)"
 SOURCE_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
-EXPECTED_SHA="${DUO_EXPECTED_SOURCE_SHA:-}"
+EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:-}"
 [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
-  || fail "DUO_EXPECTED_SOURCE_SHA must bind the exact lowercase 40-character candidate SHA"
+  || fail "WPRISM_EXPECTED_SOURCE_SHA must bind the exact lowercase 40-character candidate SHA"
 [ "$EXPECTED_SHA" = "$SOURCE_SHA" ] \
-  || fail "DUO_EXPECTED_SOURCE_SHA=$EXPECTED_SHA does not equal this checkout HEAD=$SOURCE_SHA"
+  || fail "WPRISM_EXPECTED_SOURCE_SHA=$EXPECTED_SHA does not equal this checkout HEAD=$SOURCE_SHA"
 [ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ] \
   || fail "TEC multisite evidence requires a clean candidate checkout"
 
-WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+WORDPRESS_OFFLINE="${WPRISM_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
   0|1) ;;
-  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+  *) fail "WPRISM_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
 esac
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA" DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
-PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_EXPECTED_SOURCE_SHA="$SOURCE_SHA" WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
   PAIR_COMPOSE+=(-f pair.wordpress-offline.yml)
@@ -83,7 +83,7 @@ tec_storage_fingerprint() {
         "widget_tribe-widget-events-list",
         "sidebars_widgets",
         "wp_user_roles",
-        "duo_tec_multisite_canary"
+        "wprism_tec_multisite_canary"
       ),
     ];
     $fingerprint = [];
@@ -144,7 +144,7 @@ seed_adjacent_adapter_surfaces() {
     )));
     wp_set_sidebars_widgets($sidebars);
     update_option(
-      "duo_tec_multisite_canary",
+      "wprism_tec_multisite_canary",
       "untouched-" . $canonical["month_view"]["grid_lines_color"],
       false
     );
@@ -172,20 +172,20 @@ write_site_policy() {
       taxonomies:["category","post_tag","tribe_events_cat"]
     },
     spec_version:2
-  }' > "$CONF_REPO1/site.duo.json"
+  }' > "$CONF_REPO1/site.wprism.json"
   cp site-repo.gitignore.template "$CONF_REPO1/.gitignore"
 }
 
 assert_command_refuses() { # <capture|plan|deploy|apply> <baseline-fingerprint> <site-policy-sha>
   local command="$1" baseline="$2" site_sha="$3" output rc=0 answer
   set +e
-  output=$(wp1 duo "$command" --repo=/siterepo --format=json 2>/dev/null)
+  output=$(wp1 wprism "$command" --repo=/siterepo --format=json 2>/dev/null)
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "TEC multisite $command returned success"
   answer=$(printf '%s\n' "$output" | awk 'NF { line=$0 } END { print line }')
   printf '%s\n' "$answer" | jq -e --arg command "$command" '
-    .format == "duo-command-refusal/v1" and
+    .format == "wprism-command-refusal/v1" and
     .ok == false and
     .command == $command and
     .reason_code == "multisite_unsupported" and
@@ -196,8 +196,8 @@ assert_command_refuses() { # <capture|plan|deploy|apply> <baseline-fingerprint> 
   ' >/dev/null || fail "TEC multisite $command did not return the exact typed refusal: $answer"
   [ "$(tec_storage_fingerprint)" = "$baseline" ] \
     || fail "TEC multisite $command mutated the populated adapter graph"
-  [ "$(shasum -a 256 "$CONF_REPO1/site.duo.json" | awk '{print $1}')" = "$site_sha" ] \
-    || fail "TEC multisite $command mutated site.duo.json"
+  [ "$(shasum -a 256 "$CONF_REPO1/site.wprism.json" | awk '{print $1}')" = "$site_sha" ] \
+    || fail "TEC multisite $command mutated site.wprism.json"
   [ ! -e "$CONF_REPO1/state" ] \
     && [ ! -e "$CONF_REPO1/state.capture-staging" ] \
     && [ ! -e "$CONF_REPO1/state.capture-backup" ] \
@@ -219,20 +219,20 @@ for version in 6.17.2 6.17.3; do
 
   seed_adjacent_adapter_surfaces
   write_site_policy
-  wp1 core multisite-convert --title="Duo TEC $version Multisite Refusal" >/dev/null
+  wp1 core multisite-convert --title="WPrism TEC $version Multisite Refusal" >/dev/null
   [ "$(wp1 eval 'echo is_multisite() ? "yes" : "no";')" = yes ] \
     || fail "WordPress did not report multisite for TEC $version"
   [ "$(wp1 plugin get the-events-calendar --field=version)" = "$version" ] \
     || fail "multisite conversion changed the exact TEC $version artifact"
 
   # Settle normal plugin bootstrap, then require two identical physical reads
-  # before attributing any later difference to a Duo command.
+  # before attributing any later difference to a WPrism command.
   wp1 eval 'echo Tribe__Events__Main::VERSION;' >/dev/null
   before=$(tec_storage_fingerprint)
   require_observed_nonempty "TEC $version multisite baseline" "$before"
   [ "$(tec_storage_fingerprint)" = "$before" ] \
     || fail "TEC $version fixture is not stable across ordinary network boots"
-  site_before=$(shasum -a 256 "$CONF_REPO1/site.duo.json" | awk '{print $1}')
+  site_before=$(shasum -a 256 "$CONF_REPO1/site.wprism.json" | awk '{print $1}')
 
   for command in capture plan deploy apply; do
     assert_command_refuses "$command" "$before" "$site_before"

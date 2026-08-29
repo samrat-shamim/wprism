@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/AdoptCommand.php';
 
-use Duo\Orchestrator\AdoptionTransport;
-use Duo\Orchestrator\Adopt;
-use Duo\Orchestrator\AdoptCommand;
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\AdoptionTransport;
+use WPrism\Orchestrator\Adopt;
+use WPrism\Orchestrator\AdoptCommand;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
 
 function fail_adopt_command(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -53,7 +53,7 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
     public function __construct(
         private string $sourceRoot,
         private bool $failUpload = false,
-        public string $topology = 'duo-single-site',
+        public string $topology = 'wprism-single-site',
         public int $topologyExit = 0
     ) {}
 
@@ -68,18 +68,18 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
 
     public function captureRaw(string $script): array {
         $this->rawScripts[] = $script;
-        if ($script === 'echo duo-reachable') {
-            return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
+        if ($script === 'echo wprism-reachable') {
+            return ['exit' => 0, 'stdout' => "wprism-reachable\n", 'stderr' => ''];
         }
-        // DUO-3511: doctor's repo-path and tracked-status answers are line 1
+        // issue #3511: doctor's repo-path and tracked-status answers are line 1
         // and line 2 of one script now, so adopt's own transactional doctor
         // run sees the same two-line payload a real target prints.
-        if (str_contains($script, 'site.duo.json')
-            && str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
-            return ['exit' => 0, 'stdout' => "duo-repo-ok\nduo-untracked\n", 'stderr' => ''];
+        if (str_contains($script, 'site.wprism.json')
+            && str_contains($script, 'git ls-files --error-unmatch .wprism-env-values.json')) {
+            return ['exit' => 0, 'stdout' => "wprism-repo-ok\nwprism-untracked\n", 'stderr' => ''];
         }
         if (str_contains($script, 'archive=') && str_contains($script, 'agent_new=')) {
-            return ['exit' => 0, 'stdout' => "duo-repo-created\n", 'stderr' => ''];
+            return ['exit' => 0, 'stdout' => "wprism-repo-created\n", 'stderr' => ''];
         }
         return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
     }
@@ -95,33 +95,33 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         }
         // The PRE-SWAP topology probe. Answered with plain `wp eval` args in
         // both branches, never CodeDeploy::controlArgs(): that bootstrap
-        // requires the installed agent at wp-content/mu-plugins/duo/duo.php,
+        // requires the installed agent at wp-content/mu-plugins/wprism/wprism.php,
         // which by construction does not exist yet at this point.
         // Matched on the probe's own distinctive literal, not on
         // `is_multisite`: doctor's composed SITE_FACTS eval now names
         // is_multisite() too, and a looser pattern would shadow it
         // (first-match-wins).
-        if (str_contains($snippet, 'duo-single-site')) {
+        if (str_contains($snippet, 'wprism-single-site')) {
             if ($this->topologyExit !== 0) {
                 return ['exit' => $this->topologyExit, 'stdout' => '', 'stderr' => 'fixture topology probe refused'];
             }
             return ['exit' => 0, 'stdout' => $this->topology . "\n", 'stderr' => ''];
         }
-        if (str_contains($snippet, 'DUO_AGENT_VERSION')) {
-            $source = (string) file_get_contents($this->sourceRoot . '/agent/duo.php');
-            preg_match("/define\\(\\s*'DUO_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $source, $match);
+        if (str_contains($snippet, 'WPRISM_AGENT_VERSION')) {
+            $source = (string) file_get_contents($this->sourceRoot . '/agent/wprism.php');
+            preg_match("/define\\(\\s*'WPRISM_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $source, $match);
             return ['exit' => 0, 'stdout' => ($match[1] ?? 'unknown') . "\n", 'stderr' => ''];
         }
-        if (str_contains($snippet, 'duo-policy-ok')) {
-            return ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''];
+        if (str_contains($snippet, 'wprism-policy-ok')) {
+            return ['exit' => 0, 'stdout' => "wprism-policy-ok\n", 'stderr' => ''];
         }
-        // DUO-3511: doctor's three WordPress-side facts arrive in one eval.
+        // issue #3511: doctor's three WordPress-side facts arrive in one eval.
         if (str_contains($snippet, 'class_exists')
             && str_contains($snippet, 'DISALLOW_FILE_MODS')
             && str_contains($snippet, 'db_server_info')) {
             return ['exit' => 0, 'stdout' => (string) json_encode([
-                'agent' => 'duo-ok',
-                'file_mods' => 'duo-set',
+                'agent' => 'wprism-ok',
+                'file_mods' => 'wprism-set',
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
@@ -214,7 +214,7 @@ assert_adopt_command(str_contains($healthyOutput, 'adopt: installed agent '), 's
 assert_adopt_command(str_contains($healthyOutput, '[PASS] transport reachable'), 'success renders the doctor result');
 assert_adopt_command(str_contains($healthyOutput, '[WARN] DISALLOW_FILE_MODS set') === false, 'healthy fixture does not invent an advisory warning');
 assert_adopt_command($healthy->uploadCalls === 1, 'successful adoption uploads one archive');
-// DUO-3511: 9 -> 8 raw and 8 -> 6 wp, and every one of the three fewer calls
+// issue #3511: 9 -> 8 raw and 8 -> 6 wp, and every one of the three fewer calls
 // is doctor's. Adopt's own probe set did not move: the transactional doctor
 // run inside the install transaction now costs 2 raw + 2 wp instead of 3 + 4.
 assert_adopt_command(count($healthy->rawScripts) === 8, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
@@ -223,8 +223,8 @@ assert_adopt_command(count($healthy->wpArgs) === 7, 'adoption plus doctor perfor
 // The topology question is asked BEFORE the swap, and a network is refused
 // with nothing installed. mu-plugins are network-wide, so the window between
 // the install script and the post-swap Policy probe loads the drop-in on every
-// blog of every request; on a DUO_JOURNAL target that window created per-blog
-// `wp_N_duo_*` tables Adopt::rollbackScript() cannot remove (it restores
+// blog of every request; on a WPRISM_JOURNAL target that window created per-blog
+// `wp_N_wprism_*` tables Adopt::rollbackScript() cannot remove (it restores
 // filesystem paths only, and the shipped tree has no DROP TABLE). Before this,
 // adoption refused only from the post-swap Policy probe -- i.e. after a fully
 // installed, network-wide swap, followed by a rollback whose story did not
@@ -232,7 +232,7 @@ assert_adopt_command(count($healthy->wpArgs) === 7, 'adoption plus doctor perfor
 // Driven through Adopt::install() rather than AdoptCommand::run(): the refusal
 // PHASE is the fact under test, and install() returns it as data while the
 // command renders it to STDERR.
-$network = new AdoptCommandFakeTransport($sourceRoot, false, 'duo-multisite');
+$network = new AdoptCommandFakeTransport($sourceRoot, false, 'wprism-multisite');
 $networkResult = Adopt::install($network, $sourceRoot);
 assert_adopt_command($networkResult['exit'] !== 0, 'a network refuses adoption');
 assert_adopt_command(
@@ -257,7 +257,7 @@ assert_adopt_command(
 assert_adopt_command(
     count(array_filter(
         $network->wpArgs,
-        static fn(array $a): bool => str_contains((string) ($a[1] ?? ''), 'duo-policy-ok')
+        static fn(array $a): bool => str_contains((string) ($a[1] ?? ''), 'wprism-policy-ok')
     )) === 0,
     'the post-swap Policy probe is never reached'
 );
@@ -271,7 +271,7 @@ assert_adopt_command(
 
 // Fail-closed: an adoption that cannot establish the topology must not swap
 // either. A probe that exits non-zero is not a single-site answer.
-$unreadable = new AdoptCommandFakeTransport($sourceRoot, false, 'duo-single-site', 77);
+$unreadable = new AdoptCommandFakeTransport($sourceRoot, false, 'wprism-single-site', 77);
 $unreadableResult = Adopt::install($unreadable, $sourceRoot);
 assert_adopt_command($unreadableResult['exit'] === 77, 'an unreadable topology answer preserves the transport exit code');
 assert_adopt_command($unreadableResult['phase'] === 'topology probe', 'and refuses at the same phase');

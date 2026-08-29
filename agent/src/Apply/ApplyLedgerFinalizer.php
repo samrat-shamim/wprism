@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Scope/ScopedApplyCoordinator.php';
@@ -50,9 +50,9 @@ final class ApplyLedgerFinalizer {
                 $scopedTransactionBoundary = true;
                 global $wpdb;
                 DeleteGuardEvaluator::assert_innodb_tables([
-                    $wpdb->prefix . 'duo_map',
-                    $wpdb->prefix . 'duo_state',
-                    $wpdb->prefix . 'duo_kv',
+                    $wpdb->prefix . 'wprism_map',
+                    $wpdb->prefix . 'wprism_state',
+                    $wpdb->prefix . 'wprism_kv',
                 ], 'scoped ledger finalization');
                 DeleteGuardEvaluator::assert_transaction_isolation('scoped ledger finalization');
             } else {
@@ -64,7 +64,7 @@ final class ApplyLedgerFinalizer {
             if ($scoped) {
                 if ($scopedSession === null
                     || $scopedSession->phase() !== ScopedApplySession::PHASE_VERIFYING) {
-                    throw new \RuntimeException('duo: scoped ledger finalization has no exact verifying session');
+                    throw new \RuntimeException('wprism: scoped ledger finalization has no exact verifying session');
                 }
                 $authorReceipt = ScopedApplyCoordinator::receipt_at($scopedSession, 1);
                 $authorMapHash = is_array($authorReceipt) ? ($authorReceipt['after_hash'] ?? null) : null;
@@ -74,7 +74,7 @@ final class ApplyLedgerFinalizer {
                     || !is_string($verifiedAuthorMapHash)
                     || !hash_equals($authorMapHash, $verifiedAuthorMapHash)) {
                     throw new \RuntimeException(
-                        'duo: scoped ledger finalization has no exact converged authored-map witness'
+                        'wprism: scoped ledger finalization has no exact converged authored-map witness'
                     );
                 }
                 $lockedAuthorMap = self::locked_map_inventory();
@@ -90,7 +90,7 @@ final class ApplyLedgerFinalizer {
                     (string) $lockedAuthorRoots['protected_ledger_map_root']
                 )) {
                     throw new \RuntimeException(
-                        'duo: selected identity map changed before scoped ledger finalization'
+                        'wprism: selected identity map changed before scoped ledger finalization'
                     );
                 }
                 if ($executeDeletes) {
@@ -98,7 +98,7 @@ final class ApplyLedgerFinalizer {
                         $uuid = is_array($row) ? ($row['uuid'] ?? null) : null;
                         if (!is_string($uuid) || $uuid === '') {
                             throw new \RuntimeException(
-                                'duo: scoped ledger finalization received a malformed authorized map deletion'
+                                'wprism: scoped ledger finalization received a malformed authorized map deletion'
                             );
                         }
                         $authorizedMapDeletes[$uuid] = true;
@@ -135,7 +135,7 @@ final class ApplyLedgerFinalizer {
             if ($scoped) {
                 $convergenceHash = (string) ($verification['receipt_hash'] ?? '');
                 if (preg_match('/^[a-f0-9]{64}$/D', $convergenceHash) !== 1) {
-                    throw new \RuntimeException('duo: scoped convergence receipt has no valid identity');
+                    throw new \RuntimeException('wprism: scoped convergence receipt has no valid identity');
                 }
                 $expectedTerminalMap = array_values(array_filter(
                     (array) $lockedAuthorMap,
@@ -157,7 +157,7 @@ final class ApplyLedgerFinalizer {
                     (string) $terminalMapRoots['protected_ledger_map_root']
                 )) {
                     throw new \RuntimeException(
-                        'duo: identity map changed outside authorized tombstone cleanup during scoped ledger finalization'
+                        'wprism: identity map changed outside authorized tombstone cleanup during scoped ledger finalization'
                     );
                 }
                 $scopedSession->complete($convergenceHash, [
@@ -189,7 +189,7 @@ final class ApplyLedgerFinalizer {
                         $scopedSession->reload();
                     } catch (\Throwable $reloadFailure) {
                         throw new \RuntimeException(
-                            'duo: scoped ledger rollback could not reload its durable verifying session; '
+                            'wprism: scoped ledger rollback could not reload its durable verifying session; '
                                 . 'recovery_required',
                             0,
                             $failure
@@ -219,22 +219,22 @@ final class ApplyLedgerFinalizer {
         $limit = self::MAX_LOCKED_MAP_ROWS + 1;
         $wpdb->last_error = '';
         $rows = $wpdb->get_results(
-            "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}duo_map "
+            "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}wprism_map "
             . "FORCE INDEX (PRIMARY) ORDER BY uuid ASC, id_kind ASC LIMIT $limit FOR UPDATE",
             ARRAY_A
         );
         if (!is_array($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: scoped ledger map inventory could not be locked and read');
+            throw new \RuntimeException('wprism: scoped ledger map inventory could not be locked and read');
         }
         DeleteGuardEvaluator::assert_transaction_isolation('scoped ledger map inventory readback');
         if (count($rows) > self::MAX_LOCKED_MAP_ROWS) {
-            throw new \RuntimeException('duo: scoped ledger map inventory exceeds the bounded row frontier');
+            throw new \RuntimeException('wprism: scoped ledger map inventory exceeds the bounded row frontier');
         }
         $out = [];
         $seen = [];
         foreach ($rows as $row) {
             if (array_keys($row) !== ['uuid', 'entity_type', 'id_kind', 'local_id']) {
-                throw new \RuntimeException('duo: scoped ledger map inventory returned a malformed row shape');
+                throw new \RuntimeException('wprism: scoped ledger map inventory returned a malformed row shape');
             }
             $uuid = $row['uuid'];
             $entityType = $row['entity_type'];
@@ -246,11 +246,11 @@ final class ApplyLedgerFinalizer {
                 || (!is_int($rawLocalId) && !is_string($rawLocalId))
                 || preg_match('/^[1-9][0-9]*$/D', (string) $rawLocalId) !== 1
                 || (int) $rawLocalId <= 0) {
-                throw new \RuntimeException('duo: scoped ledger map inventory returned malformed row values');
+                throw new \RuntimeException('wprism: scoped ledger map inventory returned malformed row values');
             }
             $key = $uuid . "\0" . $idKind;
             if (isset($seen[$key])) {
-                throw new \RuntimeException('duo: scoped ledger map inventory contains a duplicate primary identity');
+                throw new \RuntimeException('wprism: scoped ledger map inventory contains a duplicate primary identity');
             }
             $seen[$key] = true;
             $out[] = [

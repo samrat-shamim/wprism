@@ -13,19 +13,19 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 PAIR="${WOO_REWRITE_COINSTALL_PAIR:-woorewrite}"
 PORT1="${WOO_REWRITE_COINSTALL_PORT1:-8978}"
 PORT2="${WOO_REWRITE_COINSTALL_PORT2:-8979}"
-EXPECTED_SHA="${DUO_EXPECTED_SOURCE_SHA:-}"
+EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:-}"
 HEAD="$(git -C "$ROOT" rev-parse HEAD)"
-[ -n "$EXPECTED_SHA" ] || fail 'DUO_EXPECTED_SOURCE_SHA is required'
+[ -n "$EXPECTED_SHA" ] || fail 'WPRISM_EXPECTED_SOURCE_SHA is required'
 [ "$EXPECTED_SHA" = "$HEAD" ] || fail "expected candidate $EXPECTED_SHA, checkout is $HEAD"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail 'invalid pair name'
 [[ "$PORT1" =~ ^[0-9]{4,5}$ && "$PORT2" =~ ^[0-9]{4,5}$ ]] || fail 'invalid pair ports'
 command -v jq >/dev/null || fail 'jq is required'
 
-export DUO_SOURCE_ROOT="$ROOT" DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" DUO_PAIR="$PAIR"
+export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" WPRISM_PAIR="$PAIR"
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'WooCommerce rewrite co-install could not pin its candidate mounts in the caller environment'
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
 # Four exact production plugins exceed PHP's image-default 128 MiB while
 # WordPress loads active plugins, before WP-CLI can raise its own ceiling.
@@ -40,7 +40,7 @@ wp1() { wp_side 1 "$@"; }
 wp2() { wp_side 2 "$@"; }
 install_hostile_mu() { # basename; plugin bytes on stdin
   local name="$1" path
-  [[ "$name" =~ ^duo-woo-[a-z0-9-]+\.php$ ]] || fail "invalid hostile MU-plugin name: $name"
+  [[ "$name" =~ ^wprism-woo-[a-z0-9-]+\.php$ ]] || fail "invalid hostile MU-plugin name: $name"
   path="/var/www/html/wp-content/mu-plugins/$name"
   # WordPress images may create mu-plugins as root:root 0755. Runtime fixture
   # ownership belongs to the disposable web container, so use its explicit
@@ -59,7 +59,7 @@ trap - EXIT HUP INT TERM
 }
 remove_hostile_mu() { # basename
   local name="$1" path
-  [[ "$name" =~ ^duo-woo-[a-z0-9-]+\.php$ ]] || fail "invalid hostile MU-plugin name: $name"
+  [[ "$name" =~ ^wprism-woo-[a-z0-9-]+\.php$ ]] || fail "invalid hostile MU-plugin name: $name"
   path="/var/www/html/wp-content/mu-plugins/$name"
   "${COMPOSE[@]}" exec -T --user root wp2 sh -c 'test -f "$1" && rm "$1"' sh "$path"
 }
@@ -69,9 +69,9 @@ ORIGIN="siterepo/origin-$PAIR.git"
 TOPOLOGY="$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/fixtures/woocommerce-rewrite-coinstall-topology.json"
 SCENARIO="$ROOT/integration-scenarios/woocommerce-rewrite-coinstall/scenario.json"
 . bin/fetch-artifact.sh
-DUO_ARTIFACT_PARTICIPANTS="$(artifact_library_scenario_participants "$SCENARIO")" \
+WPRISM_ARTIFACT_PARTICIPANTS="$(artifact_library_scenario_participants "$SCENARIO")" \
   || fail 'Woo rewrite co-install scenario metadata is malformed'
-export DUO_ARTIFACT_PARTICIPANTS
+export WPRISM_ARTIFACT_PARTICIPANTS
 
 GREEN=0
 cleanup() {
@@ -124,10 +124,10 @@ echo wp_json_encode(["id"=>(int)$product->ID,"language"=>$language,"path"=>$path
   # than the CLI URL-to-ID helper, which can observe stale rewrite state in a
   # bootstrap immediately after a Woo permalink mutation.
   response=$("${COMPOSE[@]}" exec -T "wp$side" curl -sS --max-time 20 \
-    -H "Host: $host" -w '\n__DUO_HTTP_STATUS__%{http_code}' \
+    -H "Host: $host" -w '\n__WPRISM_HTTP_STATUS__%{http_code}' \
     "http://127.0.0.1$path") || fail "product route HTTP request failed on side $side: $path"
   status=$(printf '%s\n' "$response" | tail -1)
-  status=${status#__DUO_HTTP_STATUS__}
+  status=${status#__WPRISM_HTTP_STATUS__}
   body=$(printf '%s\n' "$response" | sed '$d')
   [ "$status" = 200 ] || fail "product route did not return HTTP 200 on side $side: path=$path status=$status"
   case "$body" in
@@ -156,17 +156,17 @@ assert_live_source_file_hashes() { # side
     # a second positional produced "Too many positional arguments" before the
     # first of the 50 exact source hashes could be observed.
     actual=$("wp$side" eval '
-$relative=(string)getenv("DUO_AUDITED_PLUGIN_FILE");$path=WP_PLUGIN_DIR."/".$relative;
+$relative=(string)getenv("WPRISM_AUDITED_PLUGIN_FILE");$path=WP_PLUGIN_DIR."/".$relative;
 if(!is_file($path)){throw new RuntimeException("audited plugin source file is absent: ".$relative);}
 echo hash_file("sha256",$path);
-' --exec="putenv('DUO_AUDITED_PLUGIN_FILE=$root/$relative');" | tail -1) || fail "could not hash audited $plugin source file: $relative"
+' --exec="putenv('WPRISM_AUDITED_PLUGIN_FILE=$root/$relative');" | tail -1) || fail "could not hash audited $plugin source file: $relative"
     [ "$actual" = "$expected" ] \
       || fail "installed $plugin source hash differs from topology fixture for $relative: $actual"
   done < <(jq -r '.source_files[] | [.plugin,.path,.sha256] | @tsv' "$TOPOLOGY")
 }
 
 say "candidate/source preflight: $HEAD"
-jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts["wordpress-seo"].versions=={"28.0":"348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f","28.2":"f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23","28.3":"381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb"} and ((.source_files|map(select(.plugin=="wordpress-seo" and .path=="wp-seo-main.php"))|.[0].versions)=={"28.0":"c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b","28.2":"9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117","28.3":"5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1"}) and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==55) and (.static_callbacks|length==39) and (.dynamic_callback_containers|length==4) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and (.yoast_normal_option_topology.pre_update_option|length==6) and (.yoast_normal_option_topology.update_option|length==7) and (.yoast_normal_option_topology.add_option|length==6) and (.yoast_normal_option_topology.pre_update_option|all(.priority==9223372036854775807 and .accepted_args==3)) and (.yoast_normal_option_topology.update_option|all(.priority==10 and .accepted_args==1)) and (.yoast_normal_option_topology.add_option|all(.priority==10 and .accepted_args==1)) and .yoast_normal_option_topology.woocommerce_permalinks=={"hook":"update_option_woocommerce_permalinks","callback":"Yoast\\WP\\SEO\\Integrations\\Third_Party\\Woocommerce_Permalinks::reset_woocommerce_permalinks","priority":10,"accepted_args":2} and .yoast_normal_option_topology.option_cache_map=={"wpseo":"WPSEO_Option_Wpseo","wpseo_titles":"WPSEO_Option_Titles","wpseo_social":"WPSEO_Option_Social","wpseo_taxonomy_meta":"WPSEO_Taxonomy_Meta","wpseo_llmstxt":"WPSEO_Option_Llmstxt","wpseo_tracking_only":"WPSEO_Option_Tracking_Only"} and .yoast_normal_option_topology.sitemap.global=="wpseo_sitemaps" and .yoast_normal_option_topology.sitemap.class=="WPSEO_Sitemaps" and .yoast_normal_option_topology.sitemap.cache_property=="cache" and .yoast_normal_option_topology.sitemap.cache_class=="WPSEO_Sitemaps_Cache" and .yoast_normal_option_topology.sitemap.cache_callback=={"hook":"update_option","method":"clear_on_option_update","priority":10,"accepted_args":1} and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.=={"hook":"rewrite_rules_array","callback":"PLL_Sitemaps::rewrite_rules","priority":10,"accepted_args":1,"activation":"at least one Polylang language and the normal sitemap loader initializes the runtime-owned sitemap service"})) and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
+jq -e '.format=="wprism-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts["wordpress-seo"].versions=={"28.0":"348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f","28.2":"f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23","28.3":"381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb"} and ((.source_files|map(select(.plugin=="wordpress-seo" and .path=="wp-seo-main.php"))|.[0].versions)=={"28.0":"c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b","28.2":"9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117","28.3":"5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1"}) and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==55) and (.static_callbacks|length==39) and (.dynamic_callback_containers|length==4) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and (.yoast_normal_option_topology.pre_update_option|length==6) and (.yoast_normal_option_topology.update_option|length==7) and (.yoast_normal_option_topology.add_option|length==6) and (.yoast_normal_option_topology.pre_update_option|all(.priority==9223372036854775807 and .accepted_args==3)) and (.yoast_normal_option_topology.update_option|all(.priority==10 and .accepted_args==1)) and (.yoast_normal_option_topology.add_option|all(.priority==10 and .accepted_args==1)) and .yoast_normal_option_topology.woocommerce_permalinks=={"hook":"update_option_woocommerce_permalinks","callback":"Yoast\\WP\\SEO\\Integrations\\Third_Party\\Woocommerce_Permalinks::reset_woocommerce_permalinks","priority":10,"accepted_args":2} and .yoast_normal_option_topology.option_cache_map=={"wpseo":"WPSEO_Option_Wpseo","wpseo_titles":"WPSEO_Option_Titles","wpseo_social":"WPSEO_Option_Social","wpseo_taxonomy_meta":"WPSEO_Taxonomy_Meta","wpseo_llmstxt":"WPSEO_Option_Llmstxt","wpseo_tracking_only":"WPSEO_Option_Tracking_Only"} and .yoast_normal_option_topology.sitemap.global=="wpseo_sitemaps" and .yoast_normal_option_topology.sitemap.class=="WPSEO_Sitemaps" and .yoast_normal_option_topology.sitemap.cache_property=="cache" and .yoast_normal_option_topology.sitemap.cache_class=="WPSEO_Sitemaps_Cache" and .yoast_normal_option_topology.sitemap.cache_callback=={"hook":"update_option","method":"clear_on_option_update","priority":10,"accepted_args":1} and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.=={"hook":"rewrite_rules_array","callback":"PLL_Sitemaps::rewrite_rules","priority":10,"accepted_args":1,"activation":"at least one Polylang language and the normal sitemap loader initializes the runtime-owned sitemap service"})) and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
 validate_artifact_library
 artifact_library_jq -e --slurpfile topology "$TOPOLOGY" '. as $library | ($topology[0].artifacts | to_entries | all(. as $artifact | $library.plugins[$artifact.key][$artifact.value.version].sha256 == $artifact.value.sha256)) and ($topology[0].artifacts["wordpress-seo"].versions | to_entries | all(. as $artifact | $library.plugins["wordpress-seo"][$artifact.key].sha256 == $artifact.value))' >/dev/null || fail 'co-install artifact hashes differ from the artifact library'
 pass 'candidate, artifact hashes, and audited topology are pinned'
@@ -248,7 +248,7 @@ jq -e '
 ' <<<"$POLYLANG_SOURCE_MODE" >/dev/null \
   || fail "Polylang directory-mode source option did not survive its authoring request: $POLYLANG_SOURCE_MODE"
 wp1 rewrite flush --hard >/dev/null
-cat > "$R1/site.duo.json" <<'EOF'
+cat > "$R1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce", "yoast", "polylang", "the-events-calendar"],
   "policy": {
@@ -263,10 +263,10 @@ EOF
 cp site-repo.gitignore.template "$R1/.gitignore"
 git -C "$R1" init -q -b main
 git -C "$R1" remote add origin "../origin-$PAIR.git"
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 bash bin/pair.sh repo-host "$PAIR" 1 >/dev/null
-git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test add -A
-git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test commit -qm 'capture: Woo rewrite co-install baseline'
+git -C "$R1" -c user.name=wprism-woo-rewrite -c user.email=woo-rewrite@example.test add -A
+git -C "$R1" -c user.name=wprism-woo-rewrite -c user.email=woo-rewrite@example.test commit -qm 'capture: Woo rewrite co-install baseline'
 git -C "$R1" push -qu origin main
 [ -z "$(find "$R2" -mindepth 1 -maxdepth 1 -print -quit)" ] \
   || fail "pair reset did not leave the exact target repository root empty: $R2"
@@ -274,7 +274,7 @@ git clone -q "$ORIGIN" "$R2"
 bash bin/pair.sh repo-host "$PAIR" 2 >/dev/null
 REVISION=$(git -C "$R2" rev-parse HEAD)
 INITIAL_RC=0
-INITIAL_RAW=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json 2>&1) \
+INITIAL_RAW=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json 2>&1) \
   || INITIAL_RC=$?
 [ "$INITIAL_RC" -eq 0 ] \
   || fail "initial co-install apply failed (exit $INITIAL_RC): $INITIAL_RAW"
@@ -459,10 +459,10 @@ $value["product_base"]="catalogue/%product_cat%";update_option("woocommerce_perm
 # direct CLI mutation above deliberately bypasses that admin request, so cross
 # the same native regeneration boundary before treating the source as valid.
 wp1 rewrite flush --hard >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 bash bin/pair.sh repo-host "$PAIR" 1 >/dev/null
-git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test add -A
-git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test commit -qm 'capture: Woo product route change for retry'
+git -C "$R1" -c user.name=wprism-woo-rewrite -c user.email=woo-rewrite@example.test add -A
+git -C "$R1" -c user.name=wprism-woo-rewrite -c user.email=woo-rewrite@example.test commit -qm 'capture: Woo product route change for retry'
 git -C "$R1" push -q origin main
 git -C "$R2" pull -q origin main
 REVISION=$(git -C "$R2" rev-parse HEAD)
@@ -477,12 +477,12 @@ SOURCE_ROUTE=$(product_route 1)
 echo "$SOURCE_ROUTE" | jq -e '.language=="en" and (.path|startswith("/en/catalogue/")) and (.path|endswith("/rewrite-coinstall-product/")) and .http_status==200 and .single_product==true and .postid==.id' >/dev/null || fail "source route does not exercise the directory-mode Woo grammar: $SOURCE_ROUTE"
 BEFORE=$(witness 2)
 echo "$BEFORE" | jq -e '.woo!=null and (.woo.id|type=="number")' >/dev/null || fail "target lacks a pre-existing Woo option identity: $BEFORE"
-install_hostile_mu duo-woo-rewrite-hostile.php <<'PHP'
+install_hostile_mu wprism-woo-rewrite-hostile.php <<'PHP'
 <?php
 add_filter("clean_url", static fn($url) => $url, 10, 3);
 PHP
 set +e
-FAILED=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
+FAILED=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
 RC=$?
 set -e
 [ "$RC" -ne 0 ] || fail "hostile clean_url unexpectedly allowed apply: $FAILED"
@@ -491,8 +491,8 @@ AFTER_FAILED=$(witness 2)
 [ "$AFTER_FAILED" = "$BEFORE" ] || fail "failed apply changed permalink/Woo/rewrite/TEC witnesses
 before=$BEFORE
 after=$AFTER_FAILED"
-remove_hostile_mu duo-woo-rewrite-hostile.php
-RETRY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'retry failed'
+remove_hostile_mu wprism-woo-rewrite-hostile.php
+RETRY=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'retry failed'
 echo "$RETRY" | jq -e '.canary=="clean" and (.actions|any(.kind=="provider" and .source=="provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes" and .verified==true))' >/dev/null || fail "retry receipt missing: $RETRY"
 AFTER_RETRY=$(witness 2)
 echo "$AFTER_RETRY" | jq -e --argjson source "$SOURCE" --argjson before "$BEFORE" '
@@ -519,10 +519,10 @@ update_option("woocommerce_permalinks",$value);
 # earlier successful request cannot make its old catalogue rules authoritative
 # for the newly-authored atelier base.
 wp1 rewrite flush --hard >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 bash bin/pair.sh repo-host "$PAIR" 1 >/dev/null
-git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test add -A
-git -C "$R1" -c user.name=duo-woo-rewrite -c user.email=woo-rewrite@example.test commit -qm 'capture: Woo product route Polylang dynamic refusal'
+git -C "$R1" -c user.name=wprism-woo-rewrite -c user.email=woo-rewrite@example.test add -A
+git -C "$R1" -c user.name=wprism-woo-rewrite -c user.email=woo-rewrite@example.test commit -qm 'capture: Woo product route Polylang dynamic refusal'
 git -C "$R1" push -q origin main
 git -C "$R2" pull -q origin main
 REVISION=$(git -C "$R2" rev-parse HEAD)
@@ -530,14 +530,14 @@ SOURCE_POLY=$(witness 1)
 SOURCE_ROUTE_POLY=$(product_route 1)
 echo "$SOURCE_ROUTE_POLY" | jq -e '.language=="en" and (.path|startswith("/en/atelier/")) and .http_status==200 and .single_product==true and .postid==.id' >/dev/null || fail "source route did not reach the next Polylang directory grammar: $SOURCE_ROUTE_POLY"
 BEFORE_POLY=$(witness 2)
-install_hostile_mu duo-woo-polylang-dynamic-hostile.php <<'PHP'
+install_hostile_mu wprism-woo-polylang-dynamic-hostile.php <<'PHP'
 <?php
 add_filter("pll_modify_rewrite_rule", static function (bool $modify, array $rule, string $type, string|false $archive): bool {
     return $modify;
 }, 10, 4);
 PHP
 set +e
-FAILED_POLY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
+FAILED_POLY=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" 2>&1)
 RC=$?
 set -e
 [ "$RC" -ne 0 ] || fail "third-party Polylang dynamic callback unexpectedly allowed apply: $FAILED_POLY"
@@ -549,8 +549,8 @@ AFTER_POLY_FAILED=$(witness 2)
 [ "$AFTER_POLY_FAILED" = "$BEFORE_POLY" ] || fail "third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses
 before=$BEFORE_POLY
 after=$AFTER_POLY_FAILED"
-remove_hostile_mu duo-woo-polylang-dynamic-hostile.php
-RETRY_POLY=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'Polylang dynamic retry failed'
+remove_hostile_mu wprism-woo-polylang-dynamic-hostile.php
+RETRY_POLY=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=posts,terms --default-author=admin --revision="$REVISION" --format=json | tail -1) || fail 'Polylang dynamic retry failed'
 echo "$RETRY_POLY" | jq -e '.canary=="clean" and (.actions|any(.kind=="provider" and .source=="provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes" and .verified==true))' >/dev/null || fail "Polylang dynamic retry receipt missing: $RETRY_POLY"
 AFTER_POLY_RETRY=$(witness 2)
 echo "$AFTER_POLY_RETRY" | jq -e --argjson source "$SOURCE_POLY" --argjson before "$BEFORE_POLY" '

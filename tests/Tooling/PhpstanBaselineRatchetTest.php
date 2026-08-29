@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -29,8 +29,8 @@ use PHPUnit\Framework\TestCase;
  *
  * The third test here is unrelated to PHPStan and is the reason this whole
  * toolchain is allowed to exist at the repo root at all: the drop-in must stay
- * dependency-free. cli/src/Onboarding/Adopt.php:120 installs a managed site with
- * `tar -cf … agent manifests recovery` — no vendor/, no composer.json, no
+ * dependency-free. Adoption assembles package payloads inside the staged agent
+ * and archives only `agent recovery` — no vendor/, no composer.json, no
  * autoloader ever reaches the site. If a drop-in file ever grew a
  * `require vendor/autoload.php`, every adoption would fatal at load time on a
  * real site while every developer machine stayed green, because only here is
@@ -40,12 +40,12 @@ use PHPUnit\Framework\TestCase;
 #[CoversNothing]
 final class PhpstanBaselineRatchetTest extends TestCase
 {
-    private const BASELINE = DUO_REPO_ROOT . '/phpstan-baseline.neon';
-    private const CEILING = DUO_REPO_ROOT . '/tests/Tooling/fixtures/phpstan-baseline-ceiling.txt';
+    private const BASELINE = WPRISM_REPO_ROOT . '/phpstan-baseline.neon';
+    private const CEILING = WPRISM_REPO_ROOT . '/tests/Tooling/fixtures/phpstan-baseline-ceiling.txt';
 
     /**
      * Concrete needles only. The word "composer" on its own appears in
-     * cli/duo's and cli/README's prose *documenting* this very invariant
+     * cli/wprism's and cli/README's prose *documenting* this very invariant
      * ("dependency-free PHP 8+ … no composer"), so matching it would fail on
      * the documentation of the rule it enforces.
      *
@@ -58,18 +58,18 @@ final class PhpstanBaselineRatchetTest extends TestCase
     ];
 
     /**
-     * The drop-in's OWN classmap autoloader (owner ruling D3, DUO-3481) is the
-     * one sanctioned `spl_autoload_register` in shipped code: agent/duo.php and
-     * cli/duo register a closure over the committed, generated
-     * duo-classmap.php files (plain project source, not a vendored library;
+     * The drop-in's OWN classmap autoloader (owner ruling D3, issue #3481) is the
+     * one sanctioned `spl_autoload_register` in shipped code: agent/wprism.php and
+     * cli/wprism register a closure over the committed, generated
+     * wprism-classmap.php files (plain project source, not a vendored library;
      * every existing require_once is retained). Any other registration site
      * in the drop-in is a new autoloader and fails this test.
      *
      * @var list<string>
      */
     private const SANCTIONED_SPL_AUTOLOAD_SITES = [
-        'agent/duo.php',
-        'cli/duo',
+        'agent/wprism.php',
+        'cli/wprism',
     ];
 
     public function testBaselineEntryCountIsAtOrBelowTheCommittedCeiling(): void
@@ -116,7 +116,7 @@ final class PhpstanBaselineRatchetTest extends TestCase
 
         $missing = [];
         foreach ($paths as $path) {
-            if (!is_file(DUO_REPO_ROOT . '/' . $path)) {
+            if (!is_file(WPRISM_REPO_ROOT . '/' . $path)) {
                 $missing[] = $path;
             }
         }
@@ -153,7 +153,7 @@ final class PhpstanBaselineRatchetTest extends TestCase
     #[DataProvider('dropInFiles')]
     public function testDropInSourceNeverReferencesAnAutoloader(string $relative): void
     {
-        $source = self::codeWithoutComments((string) file_get_contents(DUO_REPO_ROOT . '/' . $relative));
+        $source = self::codeWithoutComments((string) file_get_contents(WPRISM_REPO_ROOT . '/' . $relative));
 
         // Code, not commentary: the generated maps and the loaders describe the
         // fallback in docblocks; only a real registration counts.
@@ -162,14 +162,14 @@ final class PhpstanBaselineRatchetTest extends TestCase
                 $relative,
                 self::SANCTIONED_SPL_AUTOLOAD_SITES,
                 sprintf(
-                    '%s registers an autoloader. Only agent/duo.php and cli/duo may (the additive '
-                    . 'classmap over duo-classmap.php, owner ruling D3); anything else is a new loading '
+                    '%s registers an autoloader. Only agent/wprism.php and cli/wprism may (the additive '
+                    . 'classmap over wprism-classmap.php, owner ruling D3); anything else is a new loading '
                     . 'mechanism inside the dependency-free drop-in and needs its own ruling.',
                     $relative
                 )
             );
             $this->assertStringContainsString(
-                'duo-classmap.php',
+                'wprism-classmap.php',
                 $source,
                 "$relative registers an autoloader that is not the committed classmap"
             );
@@ -180,7 +180,7 @@ final class PhpstanBaselineRatchetTest extends TestCase
                 $needle,
                 $source,
                 sprintf(
-                    '%s references "%s". The drop-in ships via `tar -cf … agent manifests recovery` '
+                    '%s references "%s". The drop-in ships as the staged `agent recovery` payload '
                     . '(cli/src/Onboarding/Adopt.php) and never receives vendor/, so this would fatal on every '
                     . 'adopted site while staying green here.',
                     $relative,
@@ -222,9 +222,9 @@ final class PhpstanBaselineRatchetTest extends TestCase
                 if (!$file instanceof \SplFileInfo || !$file->isFile()) {
                     continue;
                 }
-                // cli/duo is the extensionless `#!/usr/bin/env php` entrypoint;
+                // cli/wprism is the extensionless `#!/usr/bin/env php` entrypoint;
                 // it is drop-in-adjacent source and must obey the same rule.
-                if ($file->getExtension() !== 'php' && $file->getFilename() !== 'duo') {
+                if ($file->getExtension() !== 'php' && $file->getFilename() !== 'wprism') {
                     continue;
                 }
                 $seen[substr($file->getPathname(), strlen($root) + 1)] = true;

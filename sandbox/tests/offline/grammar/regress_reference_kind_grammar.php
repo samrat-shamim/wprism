@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for ReferenceKindGrammar (DUO-3348 slice 24).
+ * Offline regression for ReferenceKindGrammar (issue #3348 slice 24).
  *
  * Ref, token, and ledger declarations share the same declared-table id_kind
  * extension path but intentionally have different engine-owned bases. This
@@ -9,8 +9,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -20,10 +20,10 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/ReferenceKindGrammar.php';
 require_once __DIR__ . '/../policy/manifest_fixtures.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Canon;
-use Duo\Policy;
-use Duo\ReferenceKindGrammar;
-use DuoTest\FrozenPolicy;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\ReferenceKindGrammar;
+use WPrismTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -200,7 +200,7 @@ $check(
 $frozenSnapshot = static function (array $manifests): array {
     return FrozenPolicy::envelope(
         $manifests,
-        FrozenPolicy::site($manifests, DUO_SPEC_VERSION),
+        FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION),
         FrozenPolicy::library()
     );
 };
@@ -228,13 +228,13 @@ $assertThrows(
     'Policy::from_snapshot() reaches ReferenceKindGrammar for a malformed ref kind'
 );
 
-$loadRoot = sys_get_temp_dir() . '/duo_regress_reference_kind_' . bin2hex(random_bytes(4));
+$loadRoot = sys_get_temp_dir() . '/wprism_regress_reference_kind_' . bin2hex(random_bytes(4));
 $loadManifests = $loadRoot . '/manifests';
 mkdir($loadManifests, 0777, true);
-Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
+Canon::write_file($loadRoot . '/site.wprism.json', Canon::encode([
     'manifests' => ['a', 'b'],
     'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 manifest_fixture_code($loadManifests);
 Canon::write_file($loadManifests . '/a.json', Canon::encode($snapshotManifests[0]));

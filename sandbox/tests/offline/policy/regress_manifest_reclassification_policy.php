@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3249's Policy.php-side wiring: rule_details()'s core-yields-to-
+ * issue #3249's Policy.php-side wiring: rule_details()'s core-yields-to-
  * plugin precedence, authored_options()'s reclassification-away
  * reconciliation pass, and active_reclassifications()'s plan-visible
  * reporting. Uses an explicit FAKE flat adapter library (one manifest named
@@ -13,9 +13,9 @@
  * (en/de, and the reclassification is what lets its zero-exclusion
  * byte-identity diff hold with no default_category carve-out — see that
  * script's own note at the DIFF_OUT assertion, and manifests/
- * polylang.json's DUO-3249 note, which cites the same run).
+ * polylang.json's issue #3249 note, which cites the same run).
  *
- * DUO-3255 later ratified the formerly-undecided non-core collision case:
+ * issue #3255 later ratified the formerly-undecided non-core collision case:
  * contradictory rules refuse, identical rules dedupe. The final checks
  * preserve this file's original boundary proof while asserting that new
  * ruling does not disturb core-yields-to-plugin reclassification.
@@ -24,7 +24,7 @@
  * and the script exits 1.
  */
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_reclass_policy_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_reclass_policy_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0777, true);
 register_shutdown_function(function () use ($fixtureDir) {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixtureDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -38,10 +38,10 @@ require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
-use Duo\Policy;
+use WPrism\Policy;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = 0;
@@ -79,7 +79,7 @@ echo "\n== fixtures: a 'core' manifest + a plugin that reclassifies one of its o
 
 write_manifest($fixtureDir, 'core', [
     'name' => 'core',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => [
         'default_category' => ['class' => 'authored', 'ref' => 'term'],
@@ -88,7 +88,7 @@ write_manifest($fixtureDir, 'core', [
 ]);
 write_manifest($fixtureDir, 'plugin', [
     'name' => 'plugin',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => [
         'default_category' => ['class' => 'derived', 'note' => 'plugin manages per-language'],
     ],
@@ -144,7 +144,7 @@ echo "\n== a plugin declaring the SAME class as core (no actual override) is not
 
 write_manifest($fixtureDir, 'agree', [
     'name' => 'agree',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => ['default_category' => ['class' => 'authored', 'ref' => 'term']],
 ]);
@@ -152,17 +152,17 @@ $agreeing = manifest_fixture_policy_load($fixtureDir, null, ['core', 'agree']);
 check($agreeing->active_reclassifications() === [], 'no reclassification reported when the plugin agrees with core\'s own class');
 
 // ======================================================================
-echo "\n== non-core collisions: contradictions refuse, identical rules dedupe (DUO-3255) ==\n";
+echo "\n== non-core collisions: contradictions refuse, identical rules dedupe (issue #3255) ==\n";
 
 write_manifest($fixtureDir, 'p1', [
     'name' => 'p1',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => ['shared_name' => ['class' => 'authored']],
 ]);
 write_manifest($fixtureDir, 'p2', [
     'name' => 'p2',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'runtime']],
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['p1', 'p2']), 'contradictory rules for options.shared_name',
@@ -170,12 +170,12 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['p1', 'p2'
 
 write_manifest($fixtureDir, 'p3', [
     'name' => 'p3',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'runtime']],
 ]);
 write_manifest($fixtureDir, 'p4', [
     'name' => 'p4',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'runtime']],
 ]);
 $identical = manifest_fixture_policy_load($fixtureDir, null, ['p3', 'p4']);
@@ -184,13 +184,13 @@ check(($d['source'] ?? null) === 'p3', 'identical non-core declarations dedupe a
 
 write_manifest($fixtureDir, 'p5', [
     'name' => 'p5',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => ['shared_authored' => ['class' => 'authored', 'ref' => 'post']],
 ]);
 write_manifest($fixtureDir, 'p6', [
     'name' => 'p6',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => ['shared_authored' => ['class' => 'authored', 'ref' => 'post']],
 ]);
@@ -202,7 +202,7 @@ check(isset($identicalAuthored->authored_options()['shared_authored']),
 
 write_manifest($fixtureDir, 'p7', [
     'name' => 'p7',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => [
         'shared_subkeys' => [
@@ -214,7 +214,7 @@ write_manifest($fixtureDir, 'p7', [
 ]);
 write_manifest($fixtureDir, 'p8', [
     'name' => 'p8',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => [
         'shared_subkeys' => [

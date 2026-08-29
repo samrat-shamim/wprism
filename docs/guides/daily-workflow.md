@@ -1,12 +1,12 @@
 # The daily workflow
 
-This is the loop a WordPress team runs once Duo is installed:
+This is the loop a WordPress team runs once WPrism is installed:
 
 **branch → rehearse → capture → refresh/rebase → plan/status → release → verify
 → recover/reap.**
 
 Two of those steps are composed verbs that sit on top of the older ones.
-`duo release` composes `duo promote`; `duo recover` drives the recovery runtime
+`wprism release` composes `wprism promote`; `wprism recover` drives the recovery runtime
 you would otherwise type by hand. Both lower-level paths are still documented
 and still supported, and both are below.
 
@@ -18,7 +18,7 @@ it stops you.
 ## The mental model, in one paragraph
 
 Git stays git. The site repo is an ordinary repository with ordinary branches,
-and Duo adds no branching model of its own. What Duo owns is the boundary
+and WPrism adds no branching model of its own. What WPrism owns is the boundary
 between that repository and a live WordPress install: `capture` reads an
 environment into canonical state, `apply` writes canonical state into an
 environment, `deploy` moves code and runs the lifecycle window where activation
@@ -30,13 +30,13 @@ see [DESIGN.md](../../DESIGN.md).
 ## Start of day: know your environments
 
 ```sh
-duo envs
-duo doctor stage
+wprism envs
+wprism doctor stage
 ```
 
-`duo envs` lists the merged registry with a transport summary per environment;
+`wprism envs` lists the merged registry with a transport summary per environment;
 an individually broken entry prints as an inline `ERROR:` row rather than
-failing the whole listing. `duo doctor <env>` runs nine gated checks — each one
+failing the whole listing. `wprism doctor <env>` runs nine gated checks — each one
 after a failure is reported as failed rather than run, because a broken
 transport makes every later check meaningless noise.
 
@@ -48,7 +48,7 @@ compare against `docs/compatibility-baseline.json`, so an environment outside
 the certified range tells you before a capture does.
 
 If you are about to run something destructive against an environment you have
-not touched in a while, `duo driver-capabilities <env>` answers "will this
+not touched in a while, `wprism driver-capabilities <env>` answers "will this
 workflow even be attempted here" without contacting the target at all. Every
 verb except `envs` and `driver-capabilities` runs that preflight for you first;
 running it by hand is for when you want the answer before you commit to the
@@ -64,23 +64,23 @@ git checkout -b feature/pricing-page
 
 Then make the change *on an environment* — a developer's local install, a
 sandbox pair, whatever your team uses — because WordPress content is authored
-in WordPress, not in a text editor over canonical JSON. Duo's job starts when
+in WordPress, not in a text editor over canonical JSON. WPrism's job starts when
 you want that change to become a reviewable diff.
 
 When the host exposes a machine-local environment provider, materialize the
 branch from one coherent production cut:
 
 ```sh
-duo env materialize preview --from production --branch feature/pricing-page --ttl 86400
+wprism env materialize preview --from production --branch feature/pricing-page --ttl 86400
 ```
 
-The branch ref must resolve to the clean branch currently checked out. Duo
+The branch ref must resolve to the clean branch currently checked out. WPrism
 freezes production while it reads semantic truth, binds that export to one
 immutable database/media snapshot set, attaches the named target, restores the
 physical baseline, materializes the rebased candidate commit, and promotes the
 exact compiled code-and-state release. Attach is the default because many
-hosts provision environments outside Duo. Use `--create` only when the target
-provider explicitly advertises both create and receipt-backed destroy; Duo
+hosts provision environments outside WPrism. Use `--create` only when the target
+provider explicitly advertises both create and receipt-backed destroy; WPrism
 never guesses that attach implies provisioning.
 
 `--ttl` publishes observable expiry metadata. It does not grant a provider
@@ -88,7 +88,7 @@ permission to delete the environment when the clock passes that time. Cleanup
 is always the explicit, identity- and lease-fenced command:
 
 ```sh
-duo env reap preview
+wprism env reap preview
 ```
 
 A target whose resource identity, ownership lease, mutation fence, or TTL
@@ -105,26 +105,26 @@ claim infrastructure authority.
 ## Capture
 
 ```sh
-duo capture dev
+wprism capture dev
 ```
 
 Capture is the only command that mints or repairs entity identity and
 publishes canonical state. Everything else in the system consumes what capture
-produced, which is why `wp duo refresh-export` — the read-only production
+produced, which is why `wp wprism refresh-export` — the read-only production
 export used by `refresh` below — is deliberately *not* a capture substitute.
 
 Capture refuses rather than guesses. If it finds an unclassified surface, a
 whole entity type with live rows and no disposition, or a value that
 hard-matches a secret pattern under an `authored` rule, it aborts and tells you
 exactly which key. That is the loud-and-blocking posture the whole
-classification pipeline is built on; the remedy is `duo pending` and
-`duo classify`, covered in
+classification pipeline is built on; the remedy is `wprism pending` and
+`wprism classify`, covered in
 [capabilities-and-limits.md](capabilities-and-limits.md). Expect that queue to
 hold genuinely undeclared plugin options — the rows a fresh WooCommerce or
 Yoast install adds — and not WordPress's own bookkeeping: every
 `widget_<type>` row, `sidebars_widgets`, and every `theme_mods_*` row belongs
-to a dedicated engine mechanism that already handles it, so `duo pending` does
-not ask you to classify them (their writes stay visible in `wp duo journal-report`,
+to a dedicated engine mechanism that already handles it, so `wprism pending` does
+not ask you to classify them (their writes stay visible in `wp wprism journal-report`,
 and a widget type with live instances that no manifest declares still refuses
 capture, loudly).
 
@@ -134,12 +134,12 @@ reviewer who is not a WordPress database expert.
 
 ## Refresh and rebase against production
 
-Production keeps moving while your branch sits in review. `duo refresh` answers
+Production keeps moving while your branch sits in review. `wprism refresh` answers
 "what actually changed underneath me", without pulling production's database
 into your repository:
 
 ```sh
-duo refresh production --production-ref=v2026.03.1
+wprism refresh production --production-ref=v2026.03.1
 ```
 
 It fetches a read-only production export, compiles the base and branch commits
@@ -165,15 +165,15 @@ Plan rows already speak WordPress, not just repository paths: an entity with an
 authored display name — a post's title, a term's or menu's name — carries it as
 the row's `title` in plan JSON, and both renderers print it in single quotes
 after the path. The two differ in *where* you see it, deliberately.
-`wp duo plan` prints it on every itemized row; `duo status` itemizes only rows
+`wp wprism plan` prints it on every itemized row; `wprism status` itemizes only rows
 that demand a decision — drift, conflict, collision, pending, blocked or
 conflicted deletes — so the name shows up exactly there, while a clean
 create/update batch still renders as counts alone. Rows with no authored name (options, sidebars,
 typed tables, tombstones) look the same as they always did; the name is never
 guessed or derived.
 
-The entity-action explanation surface has shipped. Human `duo plan` prints a
-hash-safe `EXPLAIN` selector beneath each itemized row. `duo explain` follows
+The entity-action explanation surface has shipped. Human `wprism plan` prints a
+hash-safe `EXPLAIN` selector beneath each itemized row. `wprism explain` follows
 that one row through the compiled source shape, winning policy and manifest
 rules, declared outbound references, selected structured actions, and the
 verification apply would require—without exposing values or running anything.
@@ -182,8 +182,8 @@ For a value-free/redacted field-level change and conflict projection, opt in
 explicitly:
 
 ```sh
-duo refresh production --production-ref=v2026.03.1 --field-diff
-duo refresh production --production-ref=v2026.03.1 --field-diff --format=json
+wprism refresh production --production-ref=v2026.03.1 --field-diff
+wprism refresh production --production-ref=v2026.03.1 --field-diff --format=json
 ```
 
 This is not a literal before/after display. It names only an opaque record
@@ -194,7 +194,7 @@ hashes are omitted. It decomposes only ordinary B/P/W plan entries already
 classified as `conflicting`; branch-only, production-only, and compatible rows
 remain in the ordinary private plan/counts because they need no field choice.
 The JSON result is one immutable
-`duo-refresh-field-diff/v1` object that is display-only/non-authorizing and is
+`wprism-refresh-field-diff/v1` object that is display-only/non-authorizing and is
 bound to the ordinary plan and production snapshot without changing the plan
 hash. Field mode is unavailable for scope contracts and policy-evidence skew.
 For eligible fields, `production-only` means B=W≠P, `branch-only` means B=P≠W,
@@ -226,7 +226,7 @@ resolver for that absence.
 When you are ready to move the branch onto current production:
 
 ```sh
-duo rebase production --production-ref=v2026.03.1 --new-branch=feature/pricing-page-2
+wprism rebase production --production-ref=v2026.03.1 --new-branch=feature/pricing-page-2
 ```
 
 `rebase` re-exports production immediately before materializing and refuses if
@@ -238,14 +238,14 @@ them wholesale (`--strategy=ours|theirs`) or per entity
 (`--resolve=<stable-id>=ours|theirs`, repeatable) is a journal-bound choice
 that is recorded, not inferred. An unresolved planner receipt creates no
 branch. If a run is interrupted and leaves a candidate worktree behind,
-`duo rebase production --abort=<run-id>` removes exactly that worktree and
+`wprism rebase production --abort=<run-id>` removes exactly that worktree and
 nothing else.
 
 If the redacted field diff is eligible, resolve it through the explicit local
 TTY reveal surface:
 
 ```sh
-duo rebase production --production-ref=v2026.03.1 \
+wprism rebase production --production-ref=v2026.03.1 \
   --new-branch=feature/pricing-page-2 --interactive
 ```
 
@@ -277,20 +277,20 @@ it does not decode/re-encode a mixed post or term document.
 
 ## Merge, with no environment at all
 
-`git merge` is still git's job. What Duo adds is the question you can only ask
+`git merge` is still git's job. What WPrism adds is the question you can only ask
 afterwards — *is the tree I now have coherent, and does it disagree with the
-other branch anywhere that matters?* — and `duo merge-check` answers it without
+other branch anywhere that matters?* — and `wprism merge-check` answers it without
 an environment, a registry, or a transport. That matters most at exactly the
 moment every other verb refuses: you have just merged, production is behind a
 VPN you are not on, and the tree in front of you is the thing you need judged.
 
 ```sh
 git merge feature/pricing-page
-duo merge-check
+wprism merge-check
 ```
 
 That is validation mode. It compiles the committed tree with the same
-repository compiler `duo capture` and `duo deploy` use, and refuses structural
+repository compiler `wprism capture` and `wprism deploy` use, and refuses structural
 incoherence by name — two files claiming one uuid, a typed reference pointing
 at nothing, a media catalog entry that does not verify, a code lock digest that
 does not match. It prints the compiler's own diagnostic; nothing is
@@ -299,11 +299,11 @@ paraphrased.
 Point it at a second ref to get the conflict report:
 
 ```sh
-duo merge-check --ref=HEAD --against=origin/production
+wprism merge-check --ref=HEAD --against=origin/production
 ```
 
 It compiles both refs and their merge base, runs the same B/P/W planner
-`duo refresh` runs, and prints the same five category counts and the same
+`wprism refresh` runs, and prints the same five category counts and the same
 conflict rows — `--ref` is the "branch" side and `--against` is the
 "production" side, so `branch-only` still reads "changed only on mine".
 `--base=<ref>` overrides the computed merge base when the two branches have
@@ -321,17 +321,17 @@ This is the part a CI job binds to, so it is fixed:
 | 3 | the tree compiled and the plan is valid, and conflicts need a human |
 
 3 is an **answer**, not a failure. Under `--format=json` it emits the
-`duo-merge-check/v1` success document with `verdict: "conflicts"` — never a
+`wprism-merge-check/v1` success document with `verdict: "conflicts"` — never a
 refusal envelope — so a pipeline can separate "a person owes me a merge
 decision" from "my checkout is broken" without reading prose. Every refusal
-does emit `duo-command-refusal/v1` under `--format=json`, so there is exactly
+does emit `wprism-command-refusal/v1` under `--format=json`, so there is exactly
 one parseable document for every outcome.
 
 ### Cross-branch plugin version skew
 
 Locked component versions are overwritten, never merged, so two branches can
 disagree about which WooCommerce a merged state tree was captured against.
-merge-check reads each ref's `code/duo-code.lock.json` and reports the
+merge-check reads each ref's `code/wprism-code.lock.json` and reports the
 difference in `code_skew[]`. Any skew is blocking: exit 3 with
 `verdict: "code_skew"` even when the state plan has no editorial conflict.
 The remedy is ordering: merge code first, run migrations, re-capture, then
@@ -341,15 +341,15 @@ merge state.
 
 - **It never authorizes anything.** Its plan is marked advisory inside the
   bytes its own `plan_hash` covers, so it cannot be confused with a refresh
-  plan and cannot drive `duo rebase`. Materializing against production stays
-  `duo rebase <production-env> --production-ref=<ref>`, which is authorized by
+  plan and cannot drive `wprism rebase`. Materializing against production stays
+  `wprism rebase <production-env> --production-ref=<ref>`, which is authorized by
   a live production read for a reason.
 - **It validates a committed ref.** With a dirty canonical partition it refuses
   and tells you to commit the merge — compiling the last commit while your
   `state/` holds uncommitted bytes would be a confidently wrong answer. A
   completed `git merge` leaves you clean anyway.
 - **No field-level diff, and no scoped mode.** Both need evidence only a live
-  production export can produce. `duo refresh --field-diff` remains the field
+  production export can produce. `wprism refresh --field-diff` remains the field
   surface.
 - **Conflicts are presented by WordPress identity, entity type and reason.**
   Presenting them by URL and business consequence is not shipped.
@@ -357,7 +357,7 @@ merge state.
 ## Plan and status
 
 ```sh
-duo status stage
+wprism status stage
 ```
 
 This is the question "is this environment safe to promote?", and its **exit
@@ -370,7 +370,7 @@ path in single quotes, so you are reading "the Pricing page", not a UUID.
 The buckets that make it non-zero and the exact remedy for each are tabulated
 in
 [capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy).
-`duo status` is a *readiness* probe, and the mutation boundary now agrees on
+`wprism status` is a *readiness* probe, and the mutation boundary now agrees on
 the two stale/partial cases: ordinary drift and unauthorized deletions both
 refuse in preparation. A missing required `env` value remains a visible
 runtime gap rather than authored state apply can write. A planned deletion
@@ -380,26 +380,26 @@ the rest of the plan or record a revision while the tombstone stays pending
 until somebody authorizes it, and status keeps saying no until then.
 
 Ordinary drift refuses during apply preparation before any authored mutation.
-It names the preserved entities and points at `duo capture`; capture and
+It names the preserved entities and points at `wprism capture`; capture and
 reconcile them, then apply a newly built plan. The one exception is the
 externally checkpointed scoped-promotion profile, whose signed selection is
 explicit authority to replace only its selected drift.
 
-`duo status` parses and reformats; it never prints raw JSON. For that, and for
-scripting, use `duo plan <env> --format=json`.
+`wprism status` parses and reformats; it never prints raw JSON. For that, and for
+scripting, use `wprism plan <env> --format=json`.
 
 To inspect one itemized action without applying it, copy the selector printed
 directly below that row:
 
 ```sh
-duo explain stage update:sha256:<entity-identity-hash>
-duo explain stage update:sha256:<entity-identity-hash> --format=json
+wprism explain stage update:sha256:<entity-identity-hash>
+wprism explain stage update:sha256:<entity-identity-hash> --format=json
 ```
 
 The result is a strict observation of the current plan, not a cached receipt.
 It performs no identity repair, target write, provider negotiation, native
 action, or attachment-offload hook. If media is not already local, use the
-ordinary capture/provider workflow first. A declared action is reported as selected/not checked; `duo apply`
+ordinary capture/provider workflow first. A declared action is reported as selected/not checked; `wprism apply`
 still owns capability negotiation, force/delete gates, mutation, and value-level
 readback. Values, raw selectors, repository paths, target-local ids, action
 arguments, and provider receipts are omitted.
@@ -407,13 +407,13 @@ arguments, and provider receipts are omitted.
 ## Release
 
 ```sh
-duo release stage --from=main --plan-only
-duo release stage --from=main --yes
-duo verify stage
+wprism release stage --from=main --plan-only
+wprism release stage --from=main --yes
+wprism verify stage
 ```
 
-`duo release` is the composed release: it authorizes in front of promotion and
-verifies behind it. It **composes** `duo promote` rather than forking it —
+`wprism release` is the composed release: it authorizes in front of promotion and
+verifies behind it. It **composes** `wprism promote` rather than forking it —
 deploy-before-apply ordering, the promotion lease, the target fence, the
 database checkpoint and the verified/scoped rollback selection are all
 promote's, byte for byte — and it adds the two things that were previously in
@@ -431,13 +431,13 @@ what may change, the recovery claim, effects, and the authority still required
 — ending in a single question. `--plan-only` prints exactly that and exits
 having mutated nothing, including the site repository.
 
-That deletion refusal now holds at every mutation entry point. `duo release`,
-`duo promote`, and direct `wp duo apply` all require `--with-deletes` before a
+That deletion refusal now holds at every mutation entry point. `wprism release`,
+`wprism promote`, and direct `wp wprism apply` all require `--with-deletes` before a
 plan containing live tombstones can mutate anything. Release additionally
 freezes that authority in its reviewed plan; the lower-level verbs enforce the
 same no-partial-success invariant at apply preparation.
 
-Behind: `duo verify`, which pairs a fresh read-only convergence re-read with
+Behind: `wprism verify`, which pairs a fresh read-only convergence re-read with
 the HTTP journey oracles your contract declares. Both must pass. If you
 declared no journeys, verify says so rather than letting a green tick imply a
 business check nobody wrote.
@@ -461,24 +461,24 @@ Before releasing to a shared environment, rehearse the change on a disposable
 one:
 
 ```sh
-duo rehearse preview --from production --branch feature/pricing-page
-duo rehearse preview --reap
+wprism rehearse preview --from production --branch feature/pricing-page
+wprism rehearse preview --reap
 ```
 
-`duo rehearse` is `duo env materialize` plus a preview of what a release would
+`wprism rehearse` is `wprism env materialize` plus a preview of what a release would
 touch, and it prints its containment disclosure before it contacts the
-provider: Duo does not strip production credentials, does not default-deny
+provider: WPrism does not strip production credentials, does not default-deny
 outbound HTTP, mail, payment or webhook traffic, and does not verify
 containment. A rehearsal is a preview, not a sandbox — point it at test
 credentials, and do not treat "I rehearsed it" as "I qualified it".
 
-### `duo promote` — the lower-level verb
+### `wprism promote` — the lower-level verb
 
 ```sh
-duo promote stage
+wprism promote stage
 ```
 
-`duo promote` remains exactly what it was and is not deprecated: the
+`wprism promote` remains exactly what it was and is not deprecated: the
 fail-closed code-and-state path. It compiles the repository once into an
 immutable artifact, acquires a target-database lease bound to that artifact's
 hash, exports a database checkpoint, and then runs the phases in order — code
@@ -486,7 +486,7 @@ staging, lifecycle retirement, a fresh-process lifecycle activation, code
 finalization, and finally the hook-free state apply. It stops at the first
 failed phase and prints recovery guidance rather than continuing.
 
-Two profiles exist, and Duo selects between them from declared capabilities and
+Two profiles exist, and WPrism selects between them from declared capabilities and
 runtime preflight, never from the host's filesystem layout. A production SSH
 target configured with the complete verified-rollback capability prepares a
 signed, provider-backed claim and converges to either `committed` or verified
@@ -502,11 +502,11 @@ through.
 Reach for `promote` directly when you want the mutation without the
 authorization document: a scoped promotion, an environment with no application
 contract, or automation that has already produced its own record of what it
-intends. Everywhere else, `duo release` gives you the same mutation plus the
+intends. Everywhere else, `wprism release` gives you the same mutation plus the
 frozen plan and the verification, and the frozen plan is what makes recovery's
 claim literal later.
 
-For a lifecycle-and-code move with no state apply, `duo deploy <env>` is the
+For a lifecycle-and-code move with no state apply, `wprism deploy <env>` is the
 standalone path; it takes and retains its own database checkpoint under the
 same lease, and `--no-checkpoint` skips it. See
 [code-updates.md](code-updates.md).
@@ -514,12 +514,12 @@ same lease, and `--no-checkpoint` skips it. See
 ## Recover
 
 ```sh
-duo recover production --list
-duo recover production --restore=<receipt-id> --writers-excluded
+wprism recover production --list
+wprism recover production --restore=<receipt-id> --writers-excluded
 ```
 
 A failed release is not a mystery to be poked at with SQL, and it is no longer
-a sequence of raw commands to be typed either. `duo recover` is the operator
+a sequence of raw commands to be typed either. `wprism recover` is the operator
 verb over the recovery runtime: `--list` prints the active checkpoint receipt —
 id, state, kind, generation, owner, covered inventory, age — and `--restore=`
 performs the profile's own rollback, or drives the four ordered operator-directed
@@ -553,21 +553,21 @@ An `incomplete_lifecycle` receipt is the strictest case: a hook window failed
 after its durable pre-hook boundary, so canonical state may already have been
 committed by a hook that then threw. No force flag bypasses it. The only exit
 is restoring the exact pre-lifecycle database checkpoint, which is what
-`duo recover` does.
+`wprism recover` does.
 
-`duo recover` lists two sources: the signed receipt of the adopted rollback
+`wprism recover` lists two sources: the signed receipt of the adopted rollback
 authority, which an adopted target has once its rollback authority is
 configured, and the plain database checkpoint every operator-directed release
-retained under `.duo/checkpoints/`, which every target has — restored through
+retained under `.wprism/checkpoints/`, which every target has — restored through
 the same four ordered steps. A signed rollback needs that configured authority;
 without one it says so and stops rather than improvising. The raw runtime actions it drives are named in [internals.md](internals.md) as
-internals — `duo` never needs you to type them, and running them directly is
+internals — `wprism` never needs you to type them, and running them directly is
 outside the supported workflow. The complete narrative is
 [recovery.md](recovery.md).
 
 Those retained checkpoints are whole-database dumps and **nothing removes them
-on its own** — Duo has no automatic retention anywhere. Periodic housekeeping
-is an explicit verb: `duo recover <env> --prune-retained=<keep-n>` prints what
+on its own** — WPrism has no automatic retention anywhere. Periodic housekeeping
+is an explicit verb: `wprism recover <env> --prune-retained=<keep-n>` prints what
 it would delete and deletes nothing, and the same command with
 `--confirm-prune` removes exactly those rows. It keeps the newest `keep-n` of
 each verb, so the most recent before-image is never deletable, and it removes
@@ -575,36 +575,36 @@ only the `.sql` — the compiled artifact and the frozen plan beside it stay.
 See ["Pruning retained checkpoints"](recovery.md#pruning-retained-checkpoints).
 
 Forced overrides, where they exist at all, disclose their consequences and
-always leave an exit path through `duo` — never through operator SQL.
+always leave an exit path through `wprism` — never through operator SQL.
 
 ## A realistic week
 
-- **Monday** — `duo doctor` each environment; `duo status production` to
+- **Monday** — `wprism doctor` each environment; `wprism status production` to
   confirm you are starting from a clean baseline. After a plugin update, a
-  certification refresh, or anything that moved the stack, `duo assess
+  certification refresh, or anything that moved the stack, `wprism assess
   production` as well: readiness is recomputed from evidence, so it is the
   cheapest way to find out that a surface you rely on now reads
   `Requalification required`.
-- **During the week** — branch; `duo rehearse preview --from production
-  --branch=<branch> --ttl=86400` (or `duo env materialize` when you want the
+- **During the week** — branch; `wprism rehearse preview --from production
+  --branch=<branch> --ttl=86400` (or `wprism env materialize` when you want the
   environment without the preview); author on the rehearsal environment;
-  `duo capture preview`; review the state diff in the pull request like any
+  `wprism capture preview`; review the state diff in the pull request like any
   other diff.
-- **Before merging** — `duo refresh production --production-ref=<ref>`; rebase
-  if production moved; `duo status stage` after applying to staging.
-- **Release** — `duo release production --from=<ref> --plan-only`, read the
+- **Before merging** — `wprism refresh production --production-ref=<ref>`; rebase
+  if production moved; `wprism status stage` after applying to staging.
+- **Release** — `wprism release production --from=<ref> --plan-only`, read the
   frozen plan and its recovery claim out loud to whoever owns the outcome, then
-  `duo release production --from=<ref> --yes`. Verification runs behind it;
-  `duo status production` once more is still the receipt that the two halves
+  `wprism release production --from=<ref> --yes`. Verification runs behind it;
+  `wprism status production` once more is still the receipt that the two halves
   agree.
 - **When a release fails** — take the one next action it printed. `recover`
-  means `duo recover production --list` and then a restore under a real
+  means `wprism recover production --list` and then a restore under a real
   maintenance window; `reconcile` never means retry.
 - **When something is red** — go to
   [capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy)
   and match the bucket name. Every refusal in this system has exactly one
   documented remedy, and reaching for a force flag before reading it is how
-  teams lose the guarantees they installed Duo for.
-- **End of branch** — `duo env reap preview`; verify the receipt says
+  teams lose the guarantees they installed WPrism for.
+- **End of branch** — `wprism env reap preview`; verify the receipt says
   `destroyed` for an explicitly created target or `detached` for an attached
   target.

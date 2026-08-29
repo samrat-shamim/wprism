@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Build and verify DUO-3299's signed SSH rollback certification evidence.
+ * Build and verify issue #3299's signed SSH rollback certification evidence.
  *
  * matrix
  * build <spec.json> <secret-key> <bundle.json>
@@ -14,10 +14,10 @@ declare(strict_types=1);
  * a partial run look complete by describing a smaller set of cases.
  */
 
-const SSH_ROLLBACK_INPUT_FORMAT = 'duo-ssh-rollback-certification-input/v1';
-const SSH_ROLLBACK_BUNDLE_FORMAT = 'duo-ssh-rollback-certification/v1';
-const SSH_ROLLBACK_MATRIX_FORMAT = 'duo-ssh-rollback-crash-matrix/v1';
-const SSH_ROLLBACK_SIGNATURE_FORMAT = 'duo-ssh-rollback-certification-signature/v1';
+const SSH_ROLLBACK_INPUT_FORMAT = 'wprism-ssh-rollback-certification-input/v1';
+const SSH_ROLLBACK_BUNDLE_FORMAT = 'wprism-ssh-rollback-certification/v1';
+const SSH_ROLLBACK_MATRIX_FORMAT = 'wprism-ssh-rollback-crash-matrix/v1';
+const SSH_ROLLBACK_SIGNATURE_FORMAT = 'wprism-ssh-rollback-certification-signature/v1';
 
 /** @return list<string> */
 function ssh_cert_boundaries(): array {

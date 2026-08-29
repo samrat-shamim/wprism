@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 $root = dirname(__DIR__, 4);
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
@@ -20,10 +20,10 @@ require_once $root . '/agent/src/Adapter/Providers.php';
 require_once $root . '/agent/src/Rebuild/NativeActions.php';
 require_once $root . '/tools/src/ArtifactLibrary.php';
 
-use Duo\Policy;
-use DuoTest\FakeWpdb;
-use DuoTest\WpCliChildRuntime;
-use DuoTest\WpStore;
+use WPrism\Policy;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpCliChildRuntime;
+use WPrismTest\WpStore;
 
 $scenarioRecord = json_decode(
     (string) file_get_contents(
@@ -40,17 +40,17 @@ $coinstallTopology = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-duo_check_same(
-    'duo-adapter-integration-scenario/v1',
+wprism_check_same(
+    'wprism-adapter-integration-scenario/v1',
     $scenarioRecord['format'] ?? null,
     'the mixed rewrite scenario carries the closed participant-record format'
 );
-duo_check_same(
+wprism_check_same(
     ['polylang', 'the-events-calendar', 'woocommerce', 'yoast'],
     $scenarioRecord['participants'] ?? null,
     'the mixed rewrite artifact scope names exactly its four adapter participants'
 );
-$artifactLock = \Duo\Tooling\ArtifactLibrary::loadParticipants(
+$artifactLock = \WPrism\Tooling\ArtifactLibrary::loadParticipants(
     $root,
     (array) ($scenarioRecord['participants'] ?? [])
 );
@@ -59,23 +59,23 @@ $settingsInventory = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-duo_check_same('duo-woocommerce-rewrite-coinstall-topology/v1', $coinstallTopology['format'] ?? null,
+wprism_check_same('wprism-woocommerce-rewrite-coinstall-topology/v1', $coinstallTopology['format'] ?? null,
     'the mixed rewrite fixture has the reviewed source-topology format');
 foreach ((array) ($coinstallTopology['artifacts'] ?? []) as $slug => $artifact) {
-    duo_check_same(
+    wprism_check_same(
         $artifact['sha256'] ?? null,
         $artifactLock['plugins'][$slug][$artifact['version'] ?? '']['sha256'] ?? null,
         "mixed rewrite topology pins the exact $slug artifact that supplies its hooks"
     );
 }
 $yoastArtifactMatrix = (array) ($coinstallTopology['artifacts']['wordpress-seo']['versions'] ?? []);
-duo_check_same([
+wprism_check_same([
     '28.0' => '348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f',
     '28.2' => 'f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23',
     '28.3' => '381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb',
 ], $yoastArtifactMatrix, 'mixed rewrite topology binds every admitted Yoast 28.x artifact ZIP');
 foreach ($yoastArtifactMatrix as $version => $sha256) {
-    duo_check_same(
+    wprism_check_same(
         $sha256,
         $artifactLock['plugins']['wordpress-seo'][$version]['sha256'] ?? null,
         "mixed rewrite topology pins the exact Yoast $version artifact lock"
@@ -84,14 +84,14 @@ foreach ($yoastArtifactMatrix as $version => $sha256) {
 $yoastPolicy = Policy::load(
     null,
     ['yoast'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'yoast')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'yoast')
 );
 $yoastActions = array_values(array_filter(
     $yoastPolicy->actions_for(['option:woocommerce_permalinks']),
     static fn(array $action): bool => ($action['provider'] ?? null) === 'yoast-index'
         && ($action['capability'] ?? null) === 'reindex'
 ));
-duo_check_same(
+wprism_check_same(
     1,
     count($yoastActions),
     'the declared Woo/Yoast co-install scenario selects one full reindex for a Woo permalink mutation'
@@ -105,7 +105,7 @@ foreach ((array) ($yoastActions[0]['effects'] ?? []) as $effect) {
         $yoastEffects[(string) ($selector['type'] ?? '') . ':' . (string) ($selector['value'] ?? '')] = true;
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     array_diff([
         'table:options',
@@ -121,13 +121,13 @@ $yoastMainRows = array_values(array_filter(
     static fn(array $source): bool => ($source['plugin'] ?? null) === 'wordpress-seo'
         && ($source['path'] ?? null) === 'wp-seo-main.php'
 ));
-duo_check_same([
+wprism_check_same([
     '28.0' => 'c1eabcbc2c5e8243d7ee9c0a787330355492701603e1869c49eb78a9b51d3a0b',
     '28.2' => '9fdfe9f87a5c11c4d45673d121c81db9117d138357d297d7d2d3a4be5b387117',
     '28.3' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
 ], $yoastMainRows[0]['versions'] ?? null,
     'mixed rewrite topology binds each version-specific Yoast main source hash');
-duo_check_same([
+wprism_check_same([
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-core-functions.php', 'sha256' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684'],
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-formatting-functions.php', 'sha256' => 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41'],
     ['plugin' => 'woocommerce', 'path' => 'includes/class-woocommerce.php', 'sha256' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7'],
@@ -189,7 +189,7 @@ duo_check_same([
     ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Main.php', 'sha256' => '3f7b3c50960071a350077ee1c72bd342ebe4613c374913522361371ca30aaa94'],
 ], $coinstallTopology['source_files'] ?? null,
     'mixed rewrite topology binds each installed extension callback to its exact audited source bytes');
-duo_check_same([
+wprism_check_same([
     'wpseo' => 'WPSEO_Option_Wpseo',
     'wpseo_titles' => 'WPSEO_Option_Titles',
     'wpseo_social' => 'WPSEO_Option_Social',
@@ -198,7 +198,7 @@ duo_check_same([
     'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
 ], $coinstallTopology['yoast_normal_option_topology']['option_cache_map'] ?? null,
     'normal Yoast option cache map closes every registered option singleton');
-duo_check_same([
+wprism_check_same([
     'global' => 'wpseo_sitemaps',
     'class' => 'WPSEO_Sitemaps',
     'cache_property' => 'cache',
@@ -228,9 +228,9 @@ foreach ((array) ($coinstallTopology['source_files'] ?? []) as $source) {
         $unboundWooSources[] = $path;
     }
 }
-duo_check_same([], $unboundWooSources,
+wprism_check_same([], $unboundWooSources,
     'every Woo rewrite callback source is bound to the exact source inventory for the installed 11.0.1 artifact');
-duo_check_same([
+wprism_check_same([
     ['hook' => 'rewrite_rules_array', 'callback' => 'wc_fix_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'category_rewrite_rules', 'callback' => 'WPSEO_Rewrite::category_rewrite_rules_wrapper', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
@@ -272,7 +272,7 @@ duo_check_same([
     ['hook' => 'rewrite_rules_array', 'callback' => 'Tribe__Events__Rewrite::filter_rewrite_rules_array', 'priority' => 25, 'accepted_args' => 1],
 ], $coinstallTopology['static_callbacks'] ?? null,
     'mixed rewrite topology closes every static Woo, Yoast, and TEC callback with priority and accepted-argument identity');
-duo_check_same([
+wprism_check_same([
     'updated_option' => [
         ['callback' => 'Tribe__Settings_Manager::update_options_cache', 'priority' => 10, 'accepted_args' => 3],
         ['callback' => 'Tribe__Cache_Listener::update_last_updated_option', 'priority' => 10, 'accepted_args' => 3],
@@ -292,7 +292,7 @@ duo_check_same([
     ],
 ], $coinstallTopology['marker_option_topology'] ?? null,
     'the exact TEC/core marker option callback union stays closed; arbitrary updated_option or option-hook callbacks are never admitted');
-duo_check_same([
+wprism_check_same([
     'updated_option' => [
         ['callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
         ['callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
@@ -308,14 +308,14 @@ duo_check_same([
     ],
 ], $coinstallTopology['woocommerce_normal_option_topology'] ?? null,
     'the normal Woo boot option callback union is source-bound and is distinct from unsupported request-conditional tracking callbacks');
-duo_check_same([
+wprism_check_same([
     'rewrite_rules',
     'tribe_last_generate_rewrite_rules',
     'tribe_last_save_post',
     'tribe_last_updated_option',
 ], $coinstallTopology['durable_effects'] ?? null,
     'mixed rewrite topology binds the exact durable Core and TEC mutation set');
-duo_check_same([
+wprism_check_same([
     [
         'hook' => 'rewrite_rules_array',
         'callback' => 'PLL_Links_Directory::rewrite_rules',
@@ -373,13 +373,13 @@ $composeHandoffIsExact = static function (string $harness): bool {
     }
 
     return array_column($mutations, 'line') === [
-        'COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)',
+        'COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)',
         'PAIR_COMPOSE=("${COMPOSE[@]}")',
     ]
         && $resolverLine !== null
         && $mutations[1]['number'] < $resolverLine;
 };
-duo_check(
+wprism_check(
     $composeHandoffIsExact($liveHarness),
     'the scenario hands its exact Compose argv to the pinned artifact resolver before loading it'
 );
@@ -400,10 +400,10 @@ foreach ([
         $liveHarness
     ),
 ] as $claim => $invalidHarness) {
-    duo_check(!$composeHandoffIsExact($invalidHarness), $claim);
+    wprism_check(!$composeHandoffIsExact($invalidHarness), $claim);
 }
 foreach ([
-    'DUO_EXPECTED_SOURCE_SHA is required',
+    'WPRISM_EXPECTED_SOURCE_SHA is required',
     'pair_identity_export_source_mounts',
     'WP_CLI_MEMORY_LIMIT=512M',
     '-d "memory_limit=$WP_CLI_MEMORY_LIMIT" /usr/local/bin/wp',
@@ -417,16 +417,16 @@ foreach ([
     'Yoast dynamic rewrite singleton differs from the canonical WordPress rewrite runtime',
     'The Events Calendar rewrite callback differs from the exact TEC event rewrite singleton',
     'Polylang dynamic rewrite callback differs from the directory links model',
-    'install_hostile_mu duo-woo-rewrite-hostile.php <<\'PHP\'',
-    'remove_hostile_mu duo-woo-rewrite-hostile.php',
-    'install_hostile_mu duo-woo-polylang-dynamic-hostile.php <<\'PHP\'',
-    'remove_hostile_mu duo-woo-polylang-dynamic-hostile.php',
+    'install_hostile_mu wprism-woo-rewrite-hostile.php <<\'PHP\'',
+    'remove_hostile_mu wprism-woo-rewrite-hostile.php',
+    'install_hostile_mu wprism-woo-polylang-dynamic-hostile.php <<\'PHP\'',
+    'remove_hostile_mu wprism-woo-polylang-dynamic-hostile.php',
     'third-party Polylang dynamic callback unexpectedly allowed apply',
     'Polylang dynamic refusal did not stop at the pre-mutation rewrite preflight',
     'third-party Polylang refusal changed permalink/Woo/rewrite/TEC witnesses',
     'Polylang dynamic retry did not regenerate the exact directory product route',
 ] as $witness) {
-    duo_check(str_contains($liveHarness, $witness), "the candidate-bound scenario pins $witness");
+    wprism_check(str_contains($liveHarness, $witness), "the candidate-bound scenario pins $witness");
 }
 foreach ([
     '->get(' => 'scenario service inspection cannot construct cache misses through Container::get',
@@ -438,14 +438,14 @@ foreach ([
     '["product_base","category_base","attribute_base","tag_base","use_verbose_page_rules"]' =>
         'permalink fixtures retain WooCommerce native key order',
 ] as $forbidden => $claim) {
-    duo_check(!str_contains($liveHarness, $forbidden), $claim);
+    wprism_check(!str_contains($liveHarness, $forbidden), $claim);
 }
-duo_check_same(
+wprism_check_same(
     1,
     preg_match_all('/^[[:space:]]*establish_woocommerce_hpos[[:space:]]+"wp\$side"/m', $liveHarness),
     'the scenario establishes HPOS through the shared native new-shop helper'
 );
-duo_check_same(
+wprism_check_same(
     3,
     substr_count($liveHarness, 'wp1 rewrite flush --hard >/dev/null'),
     'each authored source permalink grammar crosses native rewrite regeneration'
@@ -465,7 +465,7 @@ foreach (array_intersect_key($wooSourceHashes, array_fill_keys([
     'src/Internal/DataStores/Orders/DataSynchronizer.php',
     'src/Internal/DataStores/Orders/CustomOrdersTableController.php',
 ], true)) as $wooSourceHash) {
-    duo_check(
+    wprism_check(
         is_string($wooSourceHash) && str_contains($nativeRewriteEffectSource, $wooSourceHash),
         'the shared rewrite boundary cites each exact participant Woo service/bootstrap source hash it admits'
     );
@@ -511,7 +511,7 @@ if (!class_exists('WP_CLI')) {
                 $result->stdout .= "\nwarning: secret=trailing-marker";
             } elseif (self::$mode === 'mismatch') {
                 $decoded = json_decode((string) $result->stdout, true, flags: JSON_THROW_ON_ERROR);
-                $field = ($decoded['format'] ?? null) === 'duo-woocommerce-permalink-child/v1'
+                $field = ($decoded['format'] ?? null) === 'wprism-woocommerce-permalink-child/v1'
                     ? 'product_permalink_sha256'
                     : 'category_lookup_sha256';
                 $decoded['after'][$field] = str_repeat('0', 64);
@@ -919,7 +919,7 @@ function woo_hierarchy_test_native_rewrite_child(): object {
     return (object) [
         'return_code' => 0,
         'stdout' => json_encode(
-            ['format' => 'duo-rewrite-flush-fresh/v1', 'after' => $after],
+            ['format' => 'wprism-rewrite-flush-fresh/v1', 'after' => $after],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
         ),
         'stderr' => '',
@@ -939,19 +939,19 @@ function woo_hierarchy_test_native_child(bool $flushRewrite): object {
     woo_hierarchy_test_set_option('product_brand_children', woo_hierarchy_test_children($brandMap));
 
     if ($flushRewrite) {
-        \Duo\NativeActions::execute('rewrite.flush', []);
-        \Duo\NativeActions::rewrite_evidence();
+        \WPrism\NativeActions::execute('rewrite.flush', []);
+        \WPrism\NativeActions::rewrite_evidence();
     }
 
     $snapshot = new ReflectionMethod(
-        \Duo\Providers\WoocommerceHierarchyLookups::class,
+        \WPrism\Providers\WoocommerceHierarchyLookups::class,
         'projection_snapshot'
     );
     $after = $snapshot->invoke(null, true, $flushRewrite);
     return (object) [
         'return_code' => 0,
         'stdout' => json_encode(
-            ['format' => 'duo-woocommerce-hierarchy-child/v1', 'after' => $after],
+            ['format' => 'wprism-woocommerce-hierarchy-child/v1', 'after' => $after],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
         ),
         'stderr' => '',
@@ -1022,10 +1022,10 @@ $wpdb->seedTable('wp_options', [
 
 WP_CLI::$handler = static function (string $command, array $options): object {
     $isHierarchy = str_contains($command, 'WoocommerceHierarchyLookups::run_child(');
-    $isNativeRewrite = str_contains($command, 'Duo\\NativeActions::execute("rewrite.flush", [])');
-    duo_check(($isHierarchy xor $isNativeRewrite),
+    $isNativeRewrite = str_contains($command, 'WPrism\\NativeActions::execute("rewrite.flush", [])');
+    wprism_check(($isHierarchy xor $isNativeRewrite),
         'the bounded process transport contains only its fixed hierarchy child or Core\'s fixed native rewrite child');
-    duo_check_same(
+    wprism_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
         $options,
         'WP-CLI child invocation is isolated and returns the complete process result'
@@ -1077,23 +1077,23 @@ $policy = Policy::load(
     ['woocommerce'],
     false,
     null,
-    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+    \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
 );
-$provider = new \Duo\Providers\WoocommerceHierarchyLookups($policy);
+$provider = new \WPrism\Providers\WoocommerceHierarchyLookups($policy);
 $capabilities = $provider->capabilities();
-duo_check_same([
+wprism_check_same([
     'id' => 'woocommerce-hierarchy-lookups',
     'plugin' => 'woocommerce/woocommerce.php',
     'version' => '2.0.0',
 ], $provider->identity(), 'provider identity is exact and manifest-bindable');
-duo_check_same(
+wprism_check_same(
     ['flush_rewrite' => ['type' => 'bool', 'required' => true]],
     $capabilities['rebuild_hierarchy_lookups']['args'] ?? null,
     'brand rewrite authority is an exact required boolean, never inferred from a dirty target'
 );
-duo_check_same([], $capabilities['rebuild_product_permalink_routes']['args'] ?? null,
+wprism_check_same([], $capabilities['rebuild_product_permalink_routes']['args'] ?? null,
     'product permalink repair takes no target-controlled arguments');
-duo_check_same(
+wprism_check_same(
     [
         'option:permalink_structure',
         'option:rewrite_rules',
@@ -1104,14 +1104,14 @@ duo_check_same(
     $capabilities['rebuild_product_permalink_routes']['reads'] ?? null,
     'product permalink repair declares its exact authored and derived reads'
 );
-duo_check_same(
+wprism_check_same(
     ['option:rewrite_rules'],
     $capabilities['rebuild_product_permalink_routes']['writes'] ?? null,
     'product permalink repair writes only the derived rewrite option'
 );
 
 $operation = [
-    'format' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+    'format' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
     'authority_sha256' => str_repeat('a', 64),
     'session_sha256' => str_repeat('b', 64),
     'input_sha256' => str_repeat('c', 64),
@@ -1123,17 +1123,17 @@ $operation = [
 // and an authored empty structure are separate native grammars and both must
 // remain bound to the child receipt.
 $productRoute = $provider->invoke_scoped('rebuild_product_permalink_routes', [], $operation);
-duo_check(($productRoute['after']['permalink_structure_present'] ?? null) === false
+wprism_check(($productRoute['after']['permalink_structure_present'] ?? null) === false
     && ($productRoute['after']['rewrite_rules_valid'] ?? false) === true
     && ($productRoute['after']['rewrite_rules'] ?? null) === 0
     && ($productRoute['after']['rewrite_rules_raw_sha256'] ?? null) === hash('sha256', ''),
     'absent core permalink_structure binds a native plain-permalink empty-string rewrite receipt');
-duo_check_same(0, $GLOBALS['wooHierarchyPermalinkNativeReads'],
+wprism_check_same(0, $GLOBALS['wooHierarchyPermalinkNativeReads'],
     'product permalink receipt never calls hookful wc_get_permalink_structure');
 
 woo_hierarchy_test_set_option('permalink_structure', '');
 $productEmptyCore = $provider->invoke('rebuild_product_permalink_routes', []);
-duo_check(($productEmptyCore['after']['permalink_structure_present'] ?? null) === true
+wprism_check(($productEmptyCore['after']['permalink_structure_present'] ?? null) === true
     && ($productEmptyCore['after']['permalink_structure_option_id'] ?? 0) > 0
     && ($productEmptyCore['after']['rewrite_rules_valid'] ?? false) === true
     && ($productEmptyCore['after']['rewrite_rules'] ?? null) === 0,
@@ -1141,11 +1141,11 @@ duo_check(($productEmptyCore['after']['permalink_structure_present'] ?? null) ==
 
 woo_hierarchy_test_set_option('permalink_structure', '/%postname%/');
 $productPretty = $provider->invoke('rebuild_product_permalink_routes', []);
-duo_check(($productPretty['after']['permalink_structure_present'] ?? null) === true
+wprism_check(($productPretty['after']['permalink_structure_present'] ?? null) === true
     && ($productPretty['after']['rewrite_rules_valid'] ?? false) === true
     && ($productPretty['after']['rewrite_rules'] ?? null) === 4,
     'pretty core permalinks bind the single native child generation to ordered rewrite bytes');
-$productPrettyNoOp = \Duo\Providers::invoke(
+$productPrettyNoOp = \WPrism\Providers::invoke(
     $provider,
     [
         'provider' => 'woocommerce-hierarchy-lookups',
@@ -1155,7 +1155,7 @@ $productPrettyNoOp = \Duo\Providers::invoke(
     $capabilities['rebuild_product_permalink_routes'],
     []
 );
-duo_check(($productPrettyNoOp['verified'] ?? null) === true
+wprism_check(($productPrettyNoOp['verified'] ?? null) === true
     && ($productPrettyNoOp['before'] ?? null) === ($productPrettyNoOp['after'] ?? null)
     && array_filter(
         array_keys((array) ($productPrettyNoOp['before'] ?? [])),
@@ -1172,12 +1172,12 @@ $nativeFirstHelperRow = [
 ];
 woo_hierarchy_test_set_option('woocommerce_permalinks', $nativeFirstHelperRow);
 $alternateOrderRoute = $provider->invoke('rebuild_product_permalink_routes', []);
-duo_check(($alternateOrderRoute['after']['product_permalink_valid'] ?? false) === true
+wprism_check(($alternateOrderRoute['after']['product_permalink_valid'] ?? false) === true
     && ($alternateOrderRoute['after']['product_permalink_fields'] ?? null) === 5
     && ($alternateOrderRoute['after']['product_permalink_raw_sha256'] ?? null)
         !== ($productPretty['after']['product_permalink_raw_sha256'] ?? null),
     'native migration/helper five-field order is accepted semantically while its distinct raw bytes remain receipt-bound');
-duo_check_same(0, $GLOBALS['wooHierarchyPermalinkNativeReads'],
+wprism_check_same(0, $GLOBALS['wooHierarchyPermalinkNativeReads'],
     'alternate native permalink key order does not reach a hookful Woo option reader');
 
 $sanitizerCallsBeforeHostile = $GLOBALS['wooHierarchyPermalinkSanitizerCalls'];
@@ -1188,15 +1188,15 @@ woo_hierarchy_test_install_native_hook('clean_url', [[
         return $value;
     }, 10, 3,
 ]]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
     RuntimeException::class,
     'same-value clean_url callback is refused before Woo native permalink sanitization',
     'extension callback'
 );
-duo_check_same(0, $sameValueCleanUrlCalls,
+wprism_check_same(0, $sameValueCleanUrlCalls,
     'hostile clean_url callback has zero runtime effects because topology is checked before sanitization');
-duo_check_same($sanitizerCallsBeforeHostile, $GLOBALS['wooHierarchyPermalinkSanitizerCalls'],
+wprism_check_same($sanitizerCallsBeforeHostile, $GLOBALS['wooHierarchyPermalinkSanitizerCalls'],
     'hostile clean_url callback cannot enter wc_sanitize_permalink before the refusal');
 woo_hierarchy_test_clear_native_hooks();
 
@@ -1243,8 +1243,8 @@ woo_hierarchy_test_install_native_hook('updated_option', [
     [[$tecListener, 'update_last_save_post'], 10, 3],
 ]);
 $mixedRoute = $provider->invoke('rebuild_product_permalink_routes', []);
-$mixedNativeEvidence = \Duo\NativeActions::rewrite_evidence();
-duo_check(($mixedRoute['after']['rewrite_rules_valid'] ?? false) === true
+$mixedNativeEvidence = \WPrism\NativeActions::rewrite_evidence();
+wprism_check(($mixedRoute['after']['rewrite_rules_valid'] ?? false) === true
     && array_filter(
         array_keys((array) ($mixedRoute['after'] ?? [])),
         static fn(string $key): bool => str_starts_with($key, 'native_rewrite_')
@@ -1265,13 +1265,13 @@ duo_check(($mixedRoute['after']['rewrite_rules_valid'] ?? false) === true
     ]
     && $GLOBALS['wooHierarchyTecPurgeRequested'] === true,
     'mixed Woo+Yoast+Polylang+TEC delegates one generation to Core: native evidence verifies the durable/effective split without entering the receipt preimage, Polylang dynamic type/third-party callback runs, and TEC records all marker effects');
-duo_check(array_keys(array_intersect_key(WpStore::instance()->options, array_flip($tecListener->writes)))
+wprism_check(array_keys(array_intersect_key(WpStore::instance()->options, array_flip($tecListener->writes)))
     === $tecListener->writes,
     'mixed Woo+TEC listener writes are explicit option effects rather than an untracked request-local side effect');
 woo_hierarchy_test_clear_native_hooks();
 
 WP_CLI::$mode = 'product-core-permalink-race';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
     RuntimeException::class,
     'a concurrent core permalink grammar edit cannot be blessed by a matching child rewrite receipt',
@@ -1279,7 +1279,7 @@ duo_check_throws(
 );
 WP_CLI::$mode = 'success';
 woo_hierarchy_test_set_option('permalink_structure', '/%postname%/');
-duo_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['rewrite_rules_valid'] ?? false) === true,
+wprism_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['rewrite_rules_valid'] ?? false) === true,
     'product permalink retry converges after a core permalink grammar race');
 
 foreach ([
@@ -1289,7 +1289,7 @@ foreach ([
     'product-brand-race' => 'authored product permalink state changed',
 ] as $mode => $needle) {
     WP_CLI::$mode = $mode;
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
         RuntimeException::class,
         "raw Woo source witness ($mode) cannot be replaced while Core regenerates rewrites",
@@ -1298,11 +1298,11 @@ foreach ([
     WP_CLI::$mode = 'success';
     woo_hierarchy_test_set_option('woocommerce_permalinks', $nativeFirstHelperRow);
     woo_hierarchy_test_set_option('woocommerce_brand_permalink', 'maker-houses');
-    duo_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['product_permalink_valid'] ?? false) === true,
+    wprism_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['product_permalink_valid'] ?? false) === true,
         "product permalink retry converges after raw Woo source race $mode");
 }
 WP_CLI::$mode = 'product-raw-race';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_product_permalink_routes', []),
     RuntimeException::class,
     'a same-semantic but noncanonical Woo permalink byte replacement cannot inherit the first raw witness',
@@ -1310,35 +1310,35 @@ duo_check_throws(
 );
 WP_CLI::$mode = 'success';
 woo_hierarchy_test_set_option('woocommerce_permalinks', $nativeFirstHelperRow);
-duo_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['product_permalink_valid'] ?? false) === true,
+wprism_check(($provider->invoke('rebuild_product_permalink_routes', [])['after']['product_permalink_valid'] ?? false) === true,
     'product permalink retry converges after same-semantic raw-byte replacement');
 
 $hierarchyArgs = ['flush_rewrite' => false];
 $receipt = $provider->invoke_scoped('rebuild_hierarchy_lookups', $hierarchyArgs, $operation);
-duo_check_same(false, $receipt['before']['category_lookup_valid'] ?? null,
+wprism_check_same(false, $receipt['before']['category_lookup_valid'] ?? null,
     'same-count hostile category rows are observed as dirty before native regeneration');
-duo_check_same(false, $receipt['before']['product_cat_children_valid'] ?? null,
+wprism_check_same(false, $receipt['before']['product_cat_children_valid'] ?? null,
     'same-count hostile hierarchy-option drift is observed instead of blessed');
-duo_check(($receipt['after']['category_lookup_valid'] ?? false) === true
+wprism_check(($receipt['after']['category_lookup_valid'] ?? false) === true
     && ($receipt['after']['category_lookup_rows'] ?? null) === 6
     && ($receipt['after']['product_cat_children'] ?? null) === 2
     && ($receipt['after']['product_brand_children'] ?? null) === 1,
     'native child repairs exact category closure and both hierarchy caches for divergent large term ids');
 $receiptBytes = json_encode($receipt, JSON_THROW_ON_ERROR);
-duo_check(!str_contains($receiptBytes, '9000000000')
+wprism_check(!str_contains($receiptBytes, '9000000000')
     && !str_contains($receiptBytes, '8000000000')
     && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['category_lookup_sha256'] ?? '')) === 1,
     'bounded receipts retain counts and exact hashes without leaking term identities');
 
 $idempotent = $provider->invoke_scoped('rebuild_hierarchy_lookups', $hierarchyArgs, $operation);
-duo_check_same($receipt['after'], $idempotent['before'],
+wprism_check_same($receipt['after'], $idempotent['before'],
     'a second apply begins from the exact converged projection');
-duo_check_same($receipt['after'], $idempotent['after'],
+wprism_check_same($receipt['after'], $idempotent['after'],
     'concurrent/retried idempotent repair produces the same exact receipt');
 
 $exactAfter = $receipt['after'];
 woo_hierarchy_test_set_option('product_cat_children', [9000000000 => [9000000002], 9000000001 => [9000000002]]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->reconcile_scoped(
         'rebuild_hierarchy_lookups',
         $hierarchyArgs,
@@ -1349,10 +1349,10 @@ duo_check_throws(
     'hierarchy option disagrees'
 );
 $recovered = $provider->invoke_scoped('rebuild_hierarchy_lookups', $hierarchyArgs, $operation);
-duo_check_same($exactAfter, $recovered['after'], 'retry restores exact hierarchy state after same-count drift');
+wprism_check_same($exactAfter, $recovered['after'], 'retry restores exact hierarchy state after same-count drift');
 
 $wpdb->delete('wp_wc_category_lookup', ['category_tree_id' => 9000000001, 'category_id' => 9000000002]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->reconcile_scoped(
         'rebuild_hierarchy_lookups',
         $hierarchyArgs,
@@ -1366,7 +1366,7 @@ $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
 $wpdb->update('wp_term_taxonomy', ['parent' => 9000000000], ['term_id' => 9000000002]);
 $moved = $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
-duo_check(($moved['after']['category_lookup_rows'] ?? null) === 5
+wprism_check(($moved['after']['category_lookup_rows'] ?? null) === 5
     && ($moved['after']['product_cat_children'] ?? null) === 2
     && ($moved['after']['product_cat_parent_sha256'] ?? null)
         !== ($exactAfter['product_cat_parent_sha256'] ?? null),
@@ -1375,7 +1375,7 @@ duo_check(($moved['after']['category_lookup_rows'] ?? null) === 5
 $wpdb->delete('wp_term_taxonomy', ['term_id' => 9000000001]);
 $wpdb->update('wp_term_taxonomy', ['parent' => 0], ['term_id' => 9000000002]);
 $removedParent = $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
-duo_check(($removedParent['after']['product_cat_terms'] ?? null) === 2
+wprism_check(($removedParent['after']['product_cat_terms'] ?? null) === 2
     && ($removedParent['after']['category_lookup_rows'] ?? null) === 2
     && ($removedParent['after']['product_cat_children'] ?? null) === 0,
     'parent removal and child reparenting remove stale closure and hierarchy rows');
@@ -1392,13 +1392,13 @@ $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
 $callsBeforeMalformed = count(WP_CLI::$calls);
 $wpdb->update('wp_term_taxonomy', ['parent' => 7777777777], ['term_id' => 9000000002]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'dangling authored parent refuses before the native child can mutate derived state',
     'dangling parent'
 );
-duo_check_same($callsBeforeMalformed, count(WP_CLI::$calls),
+wprism_check_same($callsBeforeMalformed, count(WP_CLI::$calls),
     'pre-mutation hierarchy refusal launches no child process');
 $wpdb->update('wp_term_taxonomy', ['parent' => 9000000001], ['term_id' => 9000000002]);
 
@@ -1409,13 +1409,13 @@ woo_hierarchy_test_set_raw_option(
     new WooHierarchyWakeupCanary()
 );
 $objectRepair = $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
-duo_check_same(0, WooHierarchyWakeupCanary::$wakeups,
+wprism_check_same(0, WooHierarchyWakeupCanary::$wakeups,
     'hostile serialized hierarchy bytes cross PlainData with zero object execution');
-duo_check_same(true, $objectRepair['after']['product_cat_children_valid'] ?? null,
+wprism_check_same(true, $objectRepair['after']['product_cat_children_valid'] ?? null,
     'hostile derived option bytes are replaced through the native repair path');
 
 WP_CLI::$mode = 'parent-race';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'a concurrent authored parent move cannot be blessed even when child and parent projections agree',
@@ -1432,12 +1432,12 @@ try {
 } catch (Throwable $failure) {
     $failureMessage = $failure->getMessage();
 }
-duo_check(str_contains($failureMessage, 'exited 23')
+wprism_check(str_contains($failureMessage, 'exited 23')
     && str_contains($failureMessage, 'recovery_required')
     && !str_contains($failureMessage, 'secret='),
     'child failure is loud/retryable and redacts stdout plus stderr');
 WP_CLI::$mode = 'success';
-duo_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
+wprism_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
     'failed child invocation retries to exact convergence');
 
 foreach (['stderr', 'trailing', 'mismatch', 'stdout-overflow', 'stderr-overflow'] as $mode) {
@@ -1448,17 +1448,17 @@ foreach (['stderr', 'trailing', 'mismatch', 'stdout-overflow', 'stderr-overflow'
     } catch (Throwable $failure) {
         $message = $failure->getMessage();
     }
-    duo_check($message !== '' && str_contains($message, 'recovery_required')
+    wprism_check($message !== '' && str_contains($message, 'recovery_required')
         && !str_contains($message, 'secret='),
         "$mode child output cannot verify or leak through the repair boundary");
 }
 WP_CLI::$mode = 'success';
-duo_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
+wprism_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
     'a bounded child-output refusal leaves the same exact hierarchy repair retryable');
 
 $rewriteArgs = ['flush_rewrite' => true];
 WP_CLI::$mode = 'brand-route-race';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $rewriteArgs),
     RuntimeException::class,
     'a concurrent authored brand-route edit cannot be blessed with its matching regenerated rules',
@@ -1467,7 +1467,7 @@ duo_check_throws(
 WP_CLI::$mode = 'success';
 woo_hierarchy_test_set_option('woocommerce_brand_permalink', 'maker-houses');
 $routeReceipt = $provider->invoke_scoped('rebuild_hierarchy_lookups', $rewriteArgs, $operation);
-duo_check(($routeReceipt['after']['rewrite_rules_valid'] ?? false) === true
+wprism_check(($routeReceipt['after']['rewrite_rules_valid'] ?? false) === true
     && ($routeReceipt['after']['rewrite_rules'] ?? null) === 4
     && preg_match('/^[a-f0-9]{64}$/D', (string) ($routeReceipt['after']['brand_permalink_sha256'] ?? '')) === 1,
     'brand permalink path flushes and binds exact fresh-process rewrite state');
@@ -1483,16 +1483,16 @@ $routeDrift = $provider->reconcile_scoped(
     $rewriteArgs,
     $operation
 );
-duo_check(($routeDrift['after']['rewrite_rules'] ?? null) === ($savedRoute['rewrite_rules'] ?? null)
+wprism_check(($routeDrift['after']['rewrite_rules'] ?? null) === ($savedRoute['rewrite_rules'] ?? null)
     && ($routeDrift['after']['rewrite_rules_canonical_sha256'] ?? null)
         !== ($savedRoute['rewrite_rules_canonical_sha256'] ?? null),
     'same-count durable rewrite drift changes the scoped recovery fingerprint');
 $routeRecovered = $provider->invoke('rebuild_hierarchy_lookups', $rewriteArgs);
-duo_check_same($savedRoute, $routeRecovered['after'], 'brand-route retry restores exact native rewrite state');
+wprism_check_same($savedRoute, $routeRecovered['after'], 'brand-route retry restores exact native rewrite state');
 
 woo_hierarchy_test_remove_option('woocommerce_brand_permalink');
 $defaultRoute = $provider->invoke('rebuild_hierarchy_lookups', $rewriteArgs);
-duo_check(($defaultRoute['after']['rewrite_rules_valid'] ?? false) === true
+wprism_check(($defaultRoute['after']['rewrite_rules_valid'] ?? false) === true
     && ($defaultRoute['after']['brand_permalink_sha256'] ?? null) === hash('sha256', ''),
     'absent brand permalink uses Woo core default while remaining distinctly receipt-bound');
 
@@ -1503,14 +1503,14 @@ try {
 } catch (Throwable $failure) {
     $dbFailure = $failure->getMessage();
 }
-duo_check(str_contains($dbFailure, 'provider checked read failed')
+wprism_check(str_contains($dbFailure, 'provider checked read failed')
     && !str_contains($dbFailure, 'database-marker'),
     'checked parent-map read failure stays loud and redacts driver detail');
-duo_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
+wprism_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
     'checked-read failure retries cleanly');
 
 $rawOption = new ReflectionMethod(
-    \Duo\Providers\WoocommerceHierarchyLookups::class,
+    \WPrism\Providers\WoocommerceHierarchyLookups::class,
     'raw_option'
 );
 $optionRows = $wpdb->rows('wp_options');
@@ -1523,27 +1523,27 @@ $aliasedRows[] = [
 ];
 woo_hierarchy_test_seed_option_rows($aliasedRows);
 $callsBeforeAlias = count(WP_CLI::$calls);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'a collation-equivalent hierarchy option alias refuses before native mutation',
     'aliased'
 );
-duo_check_same($callsBeforeAlias, count(WP_CLI::$calls),
+wprism_check_same($callsBeforeAlias, count(WP_CLI::$calls),
     'an aliased option identity launches no repair child');
 woo_hierarchy_test_seed_option_rows($optionRows);
 
 $oversizedRaw = str_repeat('x', 16777217);
 woo_hierarchy_test_set_raw_option('product_cat_children', $oversizedRaw, []);
 $wpdb->resetLog();
-duo_check_same(null, $rawOption->invoke(null, 'product_cat_children', false),
+wprism_check_same(null, $rawOption->invoke(null, 'product_cat_children', false),
     'an oversized dirty derived option is observed without transferring its LONGTEXT payload');
 $oversizedQueries = $wpdb->queries();
-duo_check(count($oversizedQueries) === 1
+wprism_check(count($oversizedQueries) === 1
     && str_contains($oversizedQueries[0], 'LENGTH(option_value) AS option_bytes')
     && !str_contains($oversizedQueries[0], ', option_value,'),
     'oversized option refusal stops after the compact identity/size witness');
-duo_check_throws(
+wprism_check_throws(
     static fn() => $rawOption->invoke(null, 'product_cat_children', true),
     RuntimeException::class,
     'verified readback refuses an oversized hierarchy option loudly',
@@ -1567,13 +1567,13 @@ $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use 
     }
     return null;
 });
-duo_check_throws(
+wprism_check_throws(
     static fn() => $rawOption->invoke(null, 'product_cat_children', true),
     RuntimeException::class,
     'option growth between compact witness and payload fetch cannot cross the byte bound',
     'changed during bounded readback'
 );
-duo_check($grewDuringRead,
+wprism_check($grewDuringRead,
     'the growth race is injected after the witness and before the exact payload fetch');
 woo_hierarchy_test_set_option(
     'product_cat_children',
@@ -1586,7 +1586,7 @@ $currentChildrenRaw = (string) array_values(array_filter(
     static fn(array $row): bool => ($row['option_name'] ?? null) === 'product_cat_children'
 ))[0]['option_value'];
 $sameLengthChildrenRaw = str_replace('9000000002', '9000000003', $currentChildrenRaw);
-duo_check(strlen($sameLengthChildrenRaw) === strlen($currentChildrenRaw)
+wprism_check(strlen($sameLengthChildrenRaw) === strlen($currentChildrenRaw)
     && $sameLengthChildrenRaw !== $currentChildrenRaw,
     'same-length hierarchy race fixture changes bytes without changing the compact size witness');
 $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (
@@ -1602,13 +1602,13 @@ $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use 
     }
     return null;
 });
-duo_check_throws(
+wprism_check_throws(
     static fn() => $rawOption->invoke(null, 'product_cat_children', true),
     RuntimeException::class,
     'same-length hierarchy option replacement cannot cross the confirming payload read',
     'changed during bounded readback'
 );
-duo_check_same(2, $sameLengthPayloadReads,
+wprism_check_same(2, $sameLengthPayloadReads,
     'same-length hierarchy mutation occurs between first and confirming bounded payload reads');
 woo_hierarchy_test_set_option(
     'product_cat_children',
@@ -1622,7 +1622,7 @@ try {
 } catch (Throwable $failure) {
     $optionFailure = $failure->getMessage();
 }
-duo_check(str_contains($optionFailure, 'provider checked read failed')
+wprism_check(str_contains($optionFailure, 'provider checked read failed')
     && !str_contains($optionFailure, 'HIERARCHY_OPTION_DRIVER'),
     'option witness database failure is loud, bounded, and redacted');
 
@@ -1630,13 +1630,13 @@ $wpdb->prefix = 'wp_`hostile';
 $wpdb->options = 'wp_`hostileoptions';
 $wpdb->term_taxonomy = 'wp_`hostileterm_taxonomy';
 $wpdb->resetLog();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'a hostile hierarchy database prefix is refused before identifier interpolation',
     'exact site options-table identity'
 );
-duo_check_same([], $wpdb->queries(),
+wprism_check_same([], $wpdb->queries(),
     'invalid hierarchy database identifiers reach no checked SQL read');
 $wpdb->prefix = 'wp_';
 $wpdb->options = 'wp_options';
@@ -1650,14 +1650,14 @@ $wpdb->setColumns('wp_wc_category_lookup', array_merge(
     ), 'longtext')
 ));
 $wpdb->resetLog();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'a hostile schema inventory beyond the explicit MySQL column ceiling refuses before repair',
     'oversized column inventory'
 );
 $oversizedSchemaQueries = $wpdb->queries();
-duo_check(count($oversizedSchemaQueries) === 1
+wprism_check(count($oversizedSchemaQueries) === 1
     && str_contains($oversizedSchemaQueries[0], 'information_schema.COLUMNS')
     && !array_filter(
         $oversizedSchemaQueries,
@@ -1670,31 +1670,31 @@ $wpdb->setColumns('wp_wc_category_lookup', [
 $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
 $source = (string) file_get_contents($root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-hierarchy-lookups.php');
-duo_check(str_contains($source, 'use Duo\\WpCliChildProcess;')
-    && str_contains($source, '$duoLayoutRoot = dirname(__DIR__, 5);')
-    && str_contains($source, "is_dir(\$duoLayoutRoot . '/agent/src')")
-    && str_contains($source, "basename(\$duoLayoutRoot) === 'agent'")
-    && str_contains($source, "require_once \$duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';")
+wprism_check(str_contains($source, 'use WPrism\\WpCliChildProcess;')
+    && str_contains($source, '$wprismLayoutRoot = dirname(__DIR__, 5);')
+    && str_contains($source, "is_dir(\$wprismLayoutRoot . '/agent/src')")
+    && str_contains($source, "basename(\$wprismLayoutRoot) === 'agent'")
+    && str_contains($source, "require_once \$wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';")
     && preg_match('/WpCliChildProcess::capture\(\s*\'eval \' \. escapeshellarg\(\$code\),\s*120,\s*16384,\s*16384\s*\)/', $source) === 1
     && !str_contains($source, 'WP_CLI::runcommand('),
     'hierarchy repair owns the reviewed bounded 120-second/16-KiB child transport rather than WP-CLI return=all');
-duo_check(str_contains($source, 'CategoryLookup')
+wprism_check(str_contains($source, 'CategoryLookup')
     && str_contains($source, '->regenerate()')
     && str_contains($source, '_get_term_hierarchy($taxonomy)')
     && str_contains($source, 'clean_taxonomy_cache($taxonomy)')
     && str_contains($source, "wp_cache_delete('get', 'term-queries')"),
     'shipped child uses Woo/WordPress native writers after explicit persistent-cache invalidation');
-duo_check(str_contains($source, "NativeActions::execute('rewrite.flush', [])")
+wprism_check(str_contains($source, "NativeActions::execute('rewrite.flush', [])")
     && !str_contains($source, 'flush_rewrite_rules(false)')
     && !str_contains($source, '$wp_rewrite->rewrite_rules()')
     && str_contains($source, 'NativeActions owns the extension interpreter'),
     'Woo binds exactly one shared native rewrite receipt and never re-enters the effectful generator for verification');
-duo_check(str_contains($source, 'PlainData::decode_serialized(')
+wprism_check(str_contains($source, 'PlainData::decode_serialized(')
     && !str_contains($source, 'maybe_unserialize('),
     'all raw serialized hierarchy/rewrite bytes use the shared class-disabled plain-data boundary');
 
 $acyclic = new ReflectionMethod(
-    \Duo\Providers\WoocommerceHierarchyLookups::class,
+    \WPrism\Providers\WoocommerceHierarchyLookups::class,
     'assert_acyclic_parent_map'
 );
 $longChain = [];
@@ -1702,9 +1702,9 @@ for ($termId = 1; $termId <= 50000; ++$termId) {
     $longChain[$termId] = $termId - 1;
 }
 $acyclic->invoke(null, $longChain, 'product_cat');
-duo_check(true,
+wprism_check(true,
     'a 50k-deep acyclic hierarchy completes through the linear iterative graph validator');
-duo_check_throws(
+wprism_check_throws(
     static fn() => $acyclic->invoke(null, [1 => 2, 2 => 1], 'product_cat'),
     RuntimeException::class,
     'the linear graph validator still refuses an authored parent cycle',
@@ -1712,14 +1712,14 @@ duo_check_throws(
 );
 
 $closure = new ReflectionMethod(
-    \Duo\Providers\WoocommerceHierarchyLookups::class,
+    \WPrism\Providers\WoocommerceHierarchyLookups::class,
     'category_closure'
 );
 $overBoundChain = [];
 for ($termId = 1; $termId <= 632; ++$termId) {
     $overBoundChain[$termId] = $termId - 1;
 }
-duo_check_throws(
+wprism_check_throws(
     static fn() => $closure->invoke(null, $overBoundChain),
     RuntimeException::class,
     'a valid deep hierarchy refuses before allocating a category closure beyond the exact row cap',
@@ -1727,7 +1727,7 @@ duo_check_throws(
 );
 
 $queries = $wpdb->queries();
-duo_check(
+wprism_check(
     count(array_filter($queries, static fn(string $sql): bool =>
         str_contains($sql, 'SELECT term_id, parent FROM wp_term_taxonomy')
         && str_contains($sql, 'LIMIT 200001'))) > 0
@@ -1742,11 +1742,11 @@ $wpdb->setColumns('wp_wc_category_lookup', [
     'category_id' => 'bigint(20) unsigned',
     'addon_payload' => 'longtext',
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'unknown category lookup schema refuses before native truncation',
     'unknown or missing columns'
 );
 
-duo_check_summary('WooCommerce hierarchy lookup provider');
+wprism_check_summary('WooCommerce hierarchy lookup provider');

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(CompiledRepository::class, false)) {
     require_once __DIR__ . '/../Repository/CompiledArtifact.php';

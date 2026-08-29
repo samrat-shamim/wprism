@@ -15,7 +15,7 @@ echo adapter_canonical([
     'adapter' => (string) $request['adapter'],
     'adapter_version' => '1.0.0',
     'available' => true,
-    'format' => 'duo-recovery-adapter-response/v1',
+    'format' => 'wprism-recovery-adapter-response/v1',
     'input_sha256' => $request['input_sha256'],
     'loads_site_code' => false,
     'result_sha256' => $execute ? hash('sha256', (string) $request['input_sha256']) : null,

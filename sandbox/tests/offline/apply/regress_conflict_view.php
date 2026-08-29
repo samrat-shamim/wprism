@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-$planSummaryPath = getenv('DUO_PLAN_SUMMARY_PATH');
+$planSummaryPath = getenv('WPRISM_PLAN_SUMMARY_PATH');
 require_once is_string($planSummaryPath) && $planSummaryPath !== ''
     ? $planSummaryPath
     : __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
-use Duo\ApplyPlanner;
-use Duo\Orchestrator\PlanSummary;
+use WPrism\ApplyPlanner;
+use WPrism\Orchestrator\PlanSummary;
 
 function fail_conflict_view(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -33,7 +33,7 @@ function empty_plan(): array {
 }
 
 /**
- * Builds fixtures through the real ApplyPlanner::conflict_view() (DUO-3347
+ * Builds fixtures through the real ApplyPlanner::conflict_view() (issue #3347
  * slice 2 made it public, extracted out of Apply) rather than a hand-copied
  * twin — the destructive `effect` the wire carries is entirely derived from
  * $repositoryIntent by that function, never an independent input, so this
@@ -171,7 +171,7 @@ assert_conflict_view(
     'a guard-blocked deletion conflict must not advertise a destructive repository choice'
 );
 
-$applyReflection = new ReflectionClass(\Duo\ApplyRequestCoordinator::class);
+$applyReflection = new ReflectionClass(\WPrism\ApplyRequestCoordinator::class);
 $apply = $applyReflection->newInstanceWithoutConstructor();
 $warnings = $applyReflection->getProperty('warnings');
 $warnings->setValue($apply, [
@@ -179,7 +179,7 @@ $warnings->setValue($apply, [
     'FORCED conflict 44444444-4444-7444-8444-444444444444 (repository intent authorized to replace target authored state)',
 ]);
 $forcedEvidence = $applyReflection->getProperty('forcedOverrideEvidence');
-$evidenceMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'forced_override_evidence');
+$evidenceMethod = new ReflectionMethod(\WPrism\ApplyPlanner::class, 'forced_override_evidence');
 $ordinaryEvidence = $evidenceMethod->invoke(null, [
     'uuid' => '44444444-4444-7444-8444-444444444444',
     'conflict_view' => $plan['conflict'][0]['conflict_view'],
@@ -188,7 +188,7 @@ $forcedEvidence->setValue($apply, [$ordinaryEvidence]);
 $preserve = $applyReflection->getMethod('failure_with_forced_warnings');
 $laterFailure = new RuntimeException('later convergence failed');
 $reported = $preserve->invoke(null, $laterFailure, $apply);
-assert_conflict_view($reported instanceof \Duo\CommandRefusalException, 'forced failure evidence must remain a typed machine-readable refusal');
+assert_conflict_view($reported instanceof \WPrism\CommandRefusalException, 'forced failure evidence must remain a typed machine-readable refusal');
 assert_conflict_view($reported->getPrevious() === $laterFailure, 'forced failure evidence must retain the exact original cause');
 assert_conflict_view(
     str_contains($reported->getMessage(), 'Warning: FORCED conflict 44444444-4444-7444-8444-444444444444')
@@ -229,13 +229,13 @@ assert_conflict_view(
         && !array_key_exists('guard_override', $blockedEvidence),
     'a guard-blocked deletion refusal must distinguish required and supplied flags without fabricating authorization or the suppressed apply choice'
 );
-$incompleteMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'incomplete_override_refusal');
+$incompleteMethod = new ReflectionMethod(\WPrism\ApplyPlanner::class, 'incomplete_override_refusal');
 $incomplete = $incompleteMethod->invoke(null, [$blockedEvidence], 'operator-only guard detail');
 $warnings->setValue($apply, ['FORCED past code_drift: reviewed operator-only context']);
 $forcedEvidence->setValue($apply, []);
 $incompleteReported = $preserve->invoke(null, $incomplete, $apply);
 assert_conflict_view(
-    $incompleteReported instanceof \Duo\CommandRefusalException
+    $incompleteReported instanceof \WPrism\CommandRefusalException
         && $incompleteReported->reasonCode === 'apply_conflict_override_incomplete'
         && ($incompleteReported->payload()['forced_overrides'][0]['status'] ?? null) === 'incomplete',
     'an unrelated authorized force warning must not relabel an incomplete conflict authorization as authorized or generic'
@@ -261,7 +261,7 @@ $warnings->setValue($apply, [
 $forcedEvidence->setValue($apply, [$blockedAuthorizedEvidence]);
 $blockedReported = $preserve->invoke(null, $laterFailure, $apply);
 assert_conflict_view(
-    $blockedReported instanceof \Duo\CommandRefusalException
+    $blockedReported instanceof \WPrism\CommandRefusalException
         && ($blockedReported->payload()['forced_overrides'][0] ?? null) === $blockedAuthorizedEvidence,
     'a later guard-blocked deletion failure must preserve the truthful typed force evidence in JSON'
 );

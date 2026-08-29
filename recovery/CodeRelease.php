@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Recovery;
+namespace WPrism\Recovery;
 
 /**
  * Target-owned immutable code-release preparation and atomic selection.
@@ -13,15 +13,15 @@ namespace Duo\Recovery;
  * verification without loading WordPress or site code.
  */
 final class CodeRelease {
-    private const REQUEST_FORMAT_V1 = 'duo-code-release-request/v1';
-    private const REQUEST_FORMAT_V2 = 'duo-code-release-request/v2';
-    private const PROVIDER_REQUEST_FORMAT_V1 = 'duo-code-release-provider-request/v1';
-    private const PROVIDER_REQUEST_FORMAT_V2 = 'duo-code-release-provider-request/v2';
-    private const PROVIDER_RESPONSE_FORMAT = 'duo-code-release-provider-response/v1';
-    private const DESCRIPTOR_FORMAT = 'duo-code-release-descriptor/v1';
-    private const METADATA_FORMAT = 'duo-code-release-metadata/v1';
-    private const OPERATION_FORMAT = 'duo-code-release-operation/v1';
-    private const TOMBSTONE_FORMAT = 'duo-code-release-tombstone/v1';
+    private const REQUEST_FORMAT_V1 = 'wprism-code-release-request/v1';
+    private const REQUEST_FORMAT_V2 = 'wprism-code-release-request/v2';
+    private const PROVIDER_REQUEST_FORMAT_V1 = 'wprism-code-release-provider-request/v1';
+    private const PROVIDER_REQUEST_FORMAT_V2 = 'wprism-code-release-provider-request/v2';
+    private const PROVIDER_RESPONSE_FORMAT = 'wprism-code-release-provider-response/v1';
+    private const DESCRIPTOR_FORMAT = 'wprism-code-release-descriptor/v1';
+    private const METADATA_FORMAT = 'wprism-code-release-metadata/v1';
+    private const OPERATION_FORMAT = 'wprism-code-release-operation/v1';
+    private const TOMBSTONE_FORMAT = 'wprism-code-release-tombstone/v1';
 
     public static function configured(string $root): bool {
         return array_key_exists('code_release_provider', RecoveryExecutor::configuration($root));
@@ -49,7 +49,7 @@ final class CodeRelease {
     public static function probe(string $root): array {
         $config = RecoveryExecutor::configuration($root);
         if (!array_key_exists('code_release_provider', $config)) {
-            throw new \RuntimeException('duo code release: no code release provider is configured');
+            throw new \RuntimeException('wprism code release: no code release provider is configured');
         }
         $status = RollbackControl::status($root);
         $response = self::call($config, self::providerRequest([
@@ -93,7 +93,7 @@ final class CodeRelease {
             || ($response['target_git_history'] ?? null) !== false
             || ($response['target_registry_credentials'] ?? null) !== false
             || ($response['verified_descriptors'] ?? null) !== true) {
-            throw new \RuntimeException('duo code release: provider did not attest the certified immutable release contract');
+            throw new \RuntimeException('wprism code release: provider did not attest the certified immutable release contract');
         }
         self::assertActor((string) ($response['provider_id'] ?? ''), 'provider id');
         self::assertActor((string) ($response['provider_version'] ?? ''), 'provider version');
@@ -110,27 +110,27 @@ final class CodeRelease {
             $status = RollbackControl::status($root);
             if ((string) $payload['action'] === 'prepare') {
                 if (!empty($status['active']) && empty($status['terminal'])) {
-                    throw new \RuntimeException('duo code release: prepare refused during a nonterminal generation');
+                    throw new \RuntimeException('wprism code release: prepare refused during a nonterminal generation');
                 }
                 if ((int) $payload['generation'] !== (int) $status['generation'] + 1
                     || (int) $payload['claim_epoch'] !== 1
                     || !hash_equals((string) $payload['target_id'], (string) $status['target_id'])) {
-                    throw new \RuntimeException('duo code release: prepare is not for the exact next target generation');
+                    throw new \RuntimeException('wprism code release: prepare is not for the exact next target generation');
                 }
                 $recovery = RecoveryExecutor::decorateStatus($root, $status);
                 $reservation = $recovery['exclusion_reservation'] ?? null;
                 if (($recovery['exclusion_state'] ?? '') !== 'held' || !is_array($reservation)) {
-                    throw new \RuntimeException('duo code release: prepare requires a verified held exclusion reservation');
+                    throw new \RuntimeException('wprism code release: prepare requires a verified held exclusion reservation');
                 }
                 foreach (['artifact_hash', 'claim_epoch', 'claimant', 'generation', 'owner', 'receipt_id'] as $key) {
                     if ((string) $payload[$key] !== (string) ($reservation[$key] ?? '')) {
-                        throw new \RuntimeException("duo code release: exclusion reservation $key does not match prepare");
+                        throw new \RuntimeException("wprism code release: exclusion reservation $key does not match prepare");
                     }
                 }
                 return self::prepare($root, $payload);
             }
             if (empty($status['active']) || empty($status['terminal'])) {
-                throw new \RuntimeException('duo code release: deletion requires signed terminal authority');
+                throw new \RuntimeException('wprism code release: deletion requires signed terminal authority');
             }
             self::assertIdentity($payload, $status, true);
             return self::delete($root, $payload, $status);
@@ -147,7 +147,7 @@ final class CodeRelease {
             || !hash_equals(self::metadataHash($metadata), (string) $receipt['code_release_metadata_sha256'])
             || (string) $metadata['created_at'] !== (string) $receipt['created_at']
             || (string) $metadata['retention_until'] !== (string) $receipt['retention_until']) {
-            throw new \RuntimeException('duo code release: prepared release is not bound to the exact claim receipt');
+            throw new \RuntimeException('wprism code release: prepared release is not bound to the exact claim receipt');
         }
         self::verifyMetadataArtifacts($root, $metadata);
     }
@@ -161,7 +161,7 @@ final class CodeRelease {
         array $status
     ): array {
         if (!in_array($adapter, ['code_select', 'code_restore'], true)) {
-            throw new \RuntimeException('duo code release: unsupported code release operation');
+            throw new \RuntimeException('wprism code release: unsupported code release operation');
         }
         $input = self::readCanonical($inputPath, 'operation input');
         self::assertExactKeys($input, [
@@ -171,7 +171,7 @@ final class CodeRelease {
         $expectedOperation = $adapter === 'code_select' ? 'select_desired' : 'restore_prior';
         if (($input['format'] ?? '') !== self::OPERATION_FORMAT
             || ($input['operation'] ?? '') !== $expectedOperation) {
-            throw new \RuntimeException('duo code release: operation input does not name the authorized pointer transition');
+            throw new \RuntimeException('wprism code release: operation input does not name the authorized pointer transition');
         }
         self::assertIdentity($input, $status, false);
         self::assertHash((string) ($input['code_release_metadata_sha256'] ?? ''), 'operation metadata hash');
@@ -180,16 +180,16 @@ final class CodeRelease {
         self::assertIdentity($metadata, $status, false);
         self::verifyMetadataArtifacts($root, $metadata);
         if (!hash_equals(self::metadataHash($metadata), (string) $input['code_release_metadata_sha256'])) {
-            throw new \RuntimeException('duo code release: operation metadata hash does not match the immutable release receipt');
+            throw new \RuntimeException('wprism code release: operation metadata hash does not match the immutable release receipt');
         }
         if (!hash_equals(self::metadataHash($metadata), (string) ($status['code_release_metadata_sha256'] ?? ''))) {
-            throw new \RuntimeException('duo code release: signed receipt does not authorize this release metadata');
+            throw new \RuntimeException('wprism code release: signed receipt does not authorize this release metadata');
         }
         $from = $adapter === 'code_select'
             ? (string) $metadata['prior_pointer_sha256']
             : (string) $metadata['desired_pointer_sha256'];
         if (!hash_equals($from, (string) $input['expected_from_pointer_sha256'])) {
-            throw new \RuntimeException('duo code release: operation expected pointer is stale or foreign');
+            throw new \RuntimeException('wprism code release: operation expected pointer is stale or foreign');
         }
         $role = $adapter === 'code_select' ? 'desired' : 'prior';
         $config = RecoveryExecutor::configuration($root);
@@ -223,7 +223,7 @@ final class CodeRelease {
         self::validateSelection($verified, $verifyRequest, $metadata, $role, 'verified');
         if (!hash_equals((string) $selected['pointer_sha256'], (string) $verified['pointer_sha256'])
             || !hash_equals((string) $selected['result_sha256'], (string) $verified['result_sha256'])) {
-            throw new \RuntimeException('duo code release: selected pointer changed during independent verification');
+            throw new \RuntimeException('wprism code release: selected pointer changed during independent verification');
         }
         return [
             'adapter_version' => (string) $verified['provider_version'],
@@ -244,7 +244,7 @@ final class CodeRelease {
             self::assertIdentity($payload, $metadata, true);
             if (!hash_equals((string) $payload['desired_code_revision'], (string) $metadata['desired_code_revision'])
                 || (string) $payload['retention_until'] !== (string) $metadata['retention_until']) {
-                throw new \RuntimeException('duo code release: prepare retry changed immutable release inputs');
+                throw new \RuntimeException('wprism code release: prepare retry changed immutable release inputs');
             }
             self::verifyMetadataArtifacts($root, $metadata);
             if ($planBound) {
@@ -256,7 +256,7 @@ final class CodeRelease {
                 (string) $payload['desired_descriptor_sha256'],
                 (string) $metadata['desired_descriptor_sha256']
             )) {
-                throw new \RuntimeException('duo code release: prepare retry changed immutable release inputs');
+                throw new \RuntimeException('wprism code release: prepare retry changed immutable release inputs');
             }
             return self::publicMetadata($metadata);
         }
@@ -264,10 +264,10 @@ final class CodeRelease {
         $priorPath = $dir . '/artifacts/prior-code-descriptor.json';
         foreach ([$desiredPath, $priorPath] as $path) {
             if (is_link($path) || (file_exists($path) && !is_file($path))) {
-                throw new \RuntimeException('duo code release: descriptor output path is unsafe');
+                throw new \RuntimeException('wprism code release: descriptor output path is unsafe');
             }
             if (is_file($path) && !@unlink($path)) {
-                throw new \RuntimeException('duo code release: could not clear interrupted descriptor output');
+                throw new \RuntimeException('wprism code release: could not clear interrupted descriptor output');
             }
         }
         self::syncDirectory($dir . '/artifacts');
@@ -326,14 +326,14 @@ final class CodeRelease {
             || (int) ($response['target_generation'] ?? 0) !== (int) $payload['generation']
             || ($response['desired_descriptor_path'] ?? '') !== $desiredPath
             || ($response['prior_descriptor_path'] ?? '') !== $priorPath) {
-            throw new \RuntimeException('duo code release: provider preparation did not satisfy the certified release contract');
+            throw new \RuntimeException('wprism code release: provider preparation did not satisfy the certified release contract');
         }
         foreach (['desired_descriptor_sha256', 'desired_pointer_sha256', 'prior_descriptor_sha256', 'prior_pointer_sha256'] as $key) {
             self::assertHash((string) ($response[$key] ?? ''), "prepare $key");
         }
         if (!$planBound
             && !hash_equals((string) $payload['desired_descriptor_sha256'], (string) $response['desired_descriptor_sha256'])) {
-            throw new \RuntimeException('duo code release: provider returned a different desired descriptor');
+            throw new \RuntimeException('wprism code release: provider returned a different desired descriptor');
         }
         foreach (['desired_release_id', 'prior_release_id', 'provider_id', 'provider_version'] as $key) {
             self::assertActor((string) ($response[$key] ?? ''), "prepare $key");
@@ -350,7 +350,7 @@ final class CodeRelease {
             || !hash_equals((string) $desired['release_id'], (string) $response['desired_release_id'])
             || !hash_equals((string) $prior['release_id'], (string) $response['prior_release_id'])
             || (int) $desired['generation'] !== (int) $payload['generation']) {
-            throw new \RuntimeException('duo code release: descriptor bytes do not match provider preparation evidence');
+            throw new \RuntimeException('wprism code release: descriptor bytes do not match provider preparation evidence');
         }
         $metadata = [
             'artifact_hash' => (string) $payload['artifact_hash'],
@@ -389,21 +389,21 @@ final class CodeRelease {
             self::assertExactKeys($existing, ['deleted_at', 'format', 'metadata_sha256', 'prior_release_id', 'provider_id', 'receipt_id'], 'code release tombstone');
             if (($existing['format'] ?? '') !== self::TOMBSTONE_FORMAT
                 || !hash_equals((string) ($existing['receipt_id'] ?? ''), (string) $status['receipt_id'])) {
-                throw new \RuntimeException('duo code release: deletion tombstone is stale or corrupt');
+                throw new \RuntimeException('wprism code release: deletion tombstone is stale or corrupt');
             }
             return ['deleted' => true, 'ok' => true, 'prior_release_id' => (string) $existing['prior_release_id']];
         }
         $metadata = self::metadata($root, (string) $status['receipt_id']);
         self::assertIdentity($metadata, $status, false);
         if ((string) $payload['retention_until'] !== (string) $metadata['retention_until']) {
-            throw new \RuntimeException('duo code release: deletion retention does not match immutable metadata');
+            throw new \RuntimeException('wprism code release: deletion retention does not match immutable metadata');
         }
         if (!hash_equals((string) $payload['desired_code_revision'], (string) $metadata['desired_code_revision'])
             || !hash_equals((string) $payload['desired_descriptor_sha256'], (string) $metadata['desired_descriptor_sha256'])) {
-            throw new \RuntimeException('duo code release: deletion release identity does not match immutable metadata');
+            throw new \RuntimeException('wprism code release: deletion release identity does not match immutable metadata');
         }
         if (self::timeValue((string) $payload['timestamp']) < self::timeValue((string) $metadata['retention_until'])) {
-            throw new \RuntimeException('duo code release: rollback release retention has not elapsed');
+            throw new \RuntimeException('wprism code release: rollback release retention has not elapsed');
         }
         $config = RecoveryExecutor::configuration($root);
         $request = self::providerRequest([
@@ -427,7 +427,7 @@ final class CodeRelease {
             || ($response['prior_release_absent'] ?? null) !== true
             || !hash_equals((string) ($response['provider_id'] ?? ''), (string) $metadata['provider_id'])
             || !hash_equals((string) ($response['provider_version'] ?? ''), (string) $metadata['provider_version'])) {
-            throw new \RuntimeException('duo code release: provider did not prove retained prior release deletion');
+            throw new \RuntimeException('wprism code release: provider did not prove retained prior release deletion');
         }
         $tombstone = ['deleted_at' => (string) $payload['timestamp'], 'format' => self::TOMBSTONE_FORMAT,
             'metadata_sha256' => self::metadataHash($metadata), 'prior_release_id' => (string) $metadata['prior_release_id'],
@@ -459,7 +459,7 @@ final class CodeRelease {
             || !hash_equals((string) ($response['release_id'] ?? ''), (string) $metadata[$role . '_release_id'])
             || !hash_equals((string) ($response['descriptor_sha256'] ?? ''), (string) $metadata[$role . '_descriptor_sha256'])
             || !hash_equals((string) ($response['pointer_sha256'] ?? ''), (string) $metadata[$role . '_pointer_sha256'])) {
-            throw new \RuntimeException("duo code release: provider did not prove the exact $role release after pointer transition");
+            throw new \RuntimeException("wprism code release: provider did not prove the exact $role release after pointer transition");
         }
         self::assertHash((string) ($response['result_sha256'] ?? ''), "$role result hash");
         self::assertActor((string) ($response['provider_version'] ?? ''), 'provider version');
@@ -471,40 +471,41 @@ final class CodeRelease {
         $descriptor = self::readCanonical($path, "$role descriptor");
         self::assertExactKeys($descriptor, ['artifact_hash', 'code_revision', 'files', 'format', 'generation', 'owned_roots', 'release_id', 'role'], "$role descriptor");
         if (($descriptor['format'] ?? '') !== self::DESCRIPTOR_FORMAT || ($descriptor['role'] ?? '') !== $role) {
-            throw new \RuntimeException("duo code release: malformed $role descriptor identity");
+            throw new \RuntimeException("wprism code release: malformed $role descriptor identity");
         }
         self::assertHash((string) ($descriptor['artifact_hash'] ?? ''), "$role artifact hash");
         self::assertHash((string) ($descriptor['code_revision'] ?? ''), "$role code revision");
         self::assertActor((string) ($descriptor['release_id'] ?? ''), "$role release id");
         if (!is_int($descriptor['generation'] ?? null) || (int) $descriptor['generation'] < 0) {
-            throw new \RuntimeException("duo code release: $role generation is invalid");
+            throw new \RuntimeException("wprism code release: $role generation is invalid");
         }
         if (!is_array($descriptor['owned_roots'] ?? null) || !array_is_list($descriptor['owned_roots'])) {
-            throw new \RuntimeException("duo code release: $role owned roots must be a list");
+            throw new \RuntimeException("wprism code release: $role owned roots must be a list");
         }
         $roots = [];
         foreach ($descriptor['owned_roots'] as $root) {
             self::assertSafeRelativePath($root, "$role owned root");
-            if (isset($roots[$root])) throw new \RuntimeException("duo code release: duplicate $role owned root");
+            if (isset($roots[$root])) throw new \RuntimeException("wprism code release: duplicate $role owned root");
             $roots[$root] = true;
         }
         if (!is_array($descriptor['files'] ?? null) || !array_is_list($descriptor['files'])) {
-            throw new \RuntimeException("duo code release: $role files must be a list");
+            throw new \RuntimeException("wprism code release: $role files must be a list");
         }
         $paths = [];
         foreach ($descriptor['files'] as $index => $file) {
             if (!is_array($file) || array_keys($file) !== ['path', 'sha256', 'type']
                 || !in_array($file['type'] ?? null, ['directory', 'file'], true)) {
-                throw new \RuntimeException("duo code release: $role file[$index] is malformed or a symlink");
+                throw new \RuntimeException("wprism code release: $role file[$index] is malformed or a symlink");
             }
             self::assertSafeRelativePath($file['path'] ?? null, "$role file path");
             self::assertHash((string) ($file['sha256'] ?? ''), "$role file hash");
             $path = (string) $file['path'];
-            if (isset($paths[$path])) throw new \RuntimeException("duo code release: duplicate $role file path");
+            if (isset($paths[$path])) throw new \RuntimeException("wprism code release: duplicate $role file path");
             $paths[$path] = true;
             $owned = false;
-            foreach (array_keys($roots) as $root) if ($path === $root || str_starts_with($path, $root . '/')) { $owned = true; break; }
-            if (!$owned) throw new \RuntimeException("duo code release: $role file escapes declared owned roots");
+            foreach (array_keys($roots) as $root) if ($path === $root || str_starts_with($path, $root . '/')) { $owned = true;
+            break; }
+            if (!$owned) throw new \RuntimeException("wprism code release: $role file escapes declared owned roots");
         }
         return $descriptor;
     }
@@ -520,11 +521,11 @@ final class CodeRelease {
     private static function assertDesiredInventory(array $inventory, array $desired): void {
         [$roots, $files] = self::validateCompiledCodeInventory($inventory);
         if (!hash_equals((string) $inventory['code_revision'], (string) $desired['code_revision'])) {
-            throw new \RuntimeException('duo code release: desired release revision disagrees with compiled plan');
+            throw new \RuntimeException('wprism code release: desired release revision disagrees with compiled plan');
         }
         $expectedRoots = array_map(static fn(string $root): string => 'wp-content/' . $root, $roots);
         if ($desired['owned_roots'] !== $expectedRoots) {
-            throw new \RuntimeException('duo code release: desired release roots disagree with compiled plan');
+            throw new \RuntimeException('wprism code release: desired release roots disagree with compiled plan');
         }
 
         $expected = [];
@@ -558,7 +559,7 @@ final class CodeRelease {
         foreach ($files as $path => $sha256) {
             $releasePath = 'wp-content/' . $path;
             if (isset($expected[$releasePath])) {
-                throw new \RuntimeException('duo code release: compiled plan treats one path as both file and directory');
+                throw new \RuntimeException('wprism code release: compiled plan treats one path as both file and directory');
             }
             $expected[$releasePath] = [
                 'path' => $releasePath,
@@ -568,12 +569,12 @@ final class CodeRelease {
         }
         ksort($expected, SORT_STRING);
         if ($desired['files'] !== array_values($expected)) {
-            throw new \RuntimeException('duo code release: desired release paths or hashes disagree with compiled plan');
+            throw new \RuntimeException('wprism code release: desired release paths or hashes disagree with compiled plan');
         }
     }
 
     /**
-     * Validate the independently signed `duo-code/v1` inventory without
+     * Validate the independently signed `wprism-code/v1` inventory without
      * loading WordPress or agent code into the recovery process.
      *
      * @param array<string,mixed> $inventory
@@ -587,7 +588,7 @@ final class CodeRelease {
         sort($legacy, SORT_STRING);
         sort($current, SORT_STRING);
         if (($keys !== $legacy && $keys !== $current)
-            || ($inventory['format'] ?? '') !== 'duo-code/v1'
+            || ($inventory['format'] ?? '') !== 'wprism-code/v1'
             || ($inventory['layout'] ?? '') !== 'wp-content'
             || ($inventory['source'] ?? '') !== 'code/wp-content'
             || !is_array($inventory['owned_roots'] ?? null)
@@ -598,7 +599,7 @@ final class CodeRelease {
             || !array_is_list($inventory['plugin_main_files'])
             || !is_array($inventory['theme_slugs'] ?? null)
             || !array_is_list($inventory['theme_slugs'])) {
-            throw new \RuntimeException('duo code release: compiled code inventory is malformed');
+            throw new \RuntimeException('wprism code release: compiled code inventory is malformed');
         }
         self::assertHash((string) ($inventory['code_revision'] ?? ''), 'compiled code revision');
 
@@ -609,7 +610,7 @@ final class CodeRelease {
             if (count($parts) !== 2
                 || !in_array($parts[0], ['mu-plugins', 'plugins', 'themes'], true)
                 || isset($roots[$root])) {
-                throw new \RuntimeException('duo code release: compiled owned roots are malformed');
+                throw new \RuntimeException('wprism code release: compiled owned roots are malformed');
             }
             $roots[$root] = true;
         }
@@ -617,19 +618,19 @@ final class CodeRelease {
         $sortedRoots = $rootList;
         sort($sortedRoots, SORT_STRING);
         if ($rootList !== $sortedRoots) {
-            throw new \RuntimeException('duo code release: compiled owned roots are not sorted');
+            throw new \RuntimeException('wprism code release: compiled owned roots are not sorted');
         }
 
         $files = [];
         foreach ($inventory['files'] as $row) {
             if (!is_array($row) || array_keys($row) !== ['path', 'sha256']) {
-                throw new \RuntimeException('duo code release: compiled file inventory is malformed');
+                throw new \RuntimeException('wprism code release: compiled file inventory is malformed');
             }
             $path = $row['path'] ?? null;
             self::assertSafeRelativePath($path, 'compiled file path');
             self::assertHash((string) ($row['sha256'] ?? ''), 'compiled file hash');
             if (isset($files[$path])) {
-                throw new \RuntimeException('duo code release: compiled file inventory contains a duplicate path');
+                throw new \RuntimeException('wprism code release: compiled file inventory contains a duplicate path');
             }
             $owned = false;
             foreach ($rootList as $root) {
@@ -639,7 +640,7 @@ final class CodeRelease {
                 }
             }
             if (!$owned) {
-                throw new \RuntimeException('duo code release: compiled file escapes its owned roots');
+                throw new \RuntimeException('wprism code release: compiled file escapes its owned roots');
             }
             $files[$path] = (string) $row['sha256'];
         }
@@ -647,7 +648,7 @@ final class CodeRelease {
         $sortedPaths = $filePaths;
         sort($sortedPaths, SORT_STRING);
         if ($filePaths !== $sortedPaths) {
-            throw new \RuntimeException('duo code release: compiled files are not sorted');
+            throw new \RuntimeException('wprism code release: compiled files are not sorted');
         }
 
         $withoutRevision = $inventory;
@@ -658,7 +659,7 @@ final class CodeRelease {
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
         ) . "\n";
         if (!hash_equals(hash('sha256', $bytes), (string) $inventory['code_revision'])) {
-            throw new \RuntimeException('duo code release: compiled code revision does not verify');
+            throw new \RuntimeException('wprism code release: compiled code revision does not verify');
         }
         return [$rootList, $files];
     }
@@ -675,7 +676,7 @@ final class CodeRelease {
         if (!is_string($path) || $path === '' || $path[0] === '/' || str_contains($path, "\0")
             || str_contains($path, '\\') || preg_match('#(^|/)\.\.?(?:/|$)#', $path) === 1
             || preg_match('#//+#', $path) === 1) {
-            throw new \RuntimeException("duo code release: $label is unsafe");
+            throw new \RuntimeException("wprism code release: $label is unsafe");
         }
     }
 
@@ -688,7 +689,7 @@ final class CodeRelease {
             $hash = hash_file('sha256', $path);
             if (!is_string($hash) || !hash_equals($hash, (string) $metadata[$role . '_descriptor_sha256'])
                 || !hash_equals((string) $descriptor['release_id'], (string) $metadata[$role . '_release_id'])) {
-                throw new \RuntimeException("duo code release: immutable $role descriptor changed");
+                throw new \RuntimeException("wprism code release: immutable $role descriptor changed");
             }
         }
     }
@@ -709,13 +710,13 @@ final class CodeRelease {
             'prior_descriptor_sha256', 'prior_pointer_sha256', 'prior_release_id', 'provider_id',
             'provider_version', 'receipt_id', 'retention_until', 'target_id',
         ], 'code release metadata');
-        if (($metadata['format'] ?? '') !== self::METADATA_FORMAT) throw new \RuntimeException('duo code release: unsupported metadata format');
+        if (($metadata['format'] ?? '') !== self::METADATA_FORMAT) throw new \RuntimeException('wprism code release: unsupported metadata format');
         self::assertIdentityFields($metadata);
         foreach (['desired_code_revision', 'desired_descriptor_sha256', 'desired_pointer_sha256', 'prior_descriptor_sha256', 'prior_pointer_sha256'] as $key) self::assertHash((string) ($metadata[$key] ?? ''), "metadata $key");
         foreach (['claimant', 'desired_release_id', 'prior_release_id', 'provider_id', 'provider_version'] as $key) self::assertActor((string) ($metadata[$key] ?? ''), "metadata $key");
         self::assertAbsoluteRegularFile((string) ($metadata['desired_descriptor_path'] ?? ''), 'desired descriptor');
         self::assertAbsoluteRegularFile((string) ($metadata['prior_descriptor_path'] ?? ''), 'prior descriptor');
-        if (self::timeValue((string) $metadata['retention_until']) <= self::timeValue((string) $metadata['created_at'])) throw new \RuntimeException('duo code release: retention must end after preparation');
+        if (self::timeValue((string) $metadata['retention_until']) <= self::timeValue((string) $metadata['created_at'])) throw new \RuntimeException('wprism code release: retention must end after preparation');
     }
 
     /** @return array<string,mixed> */
@@ -735,32 +736,33 @@ final class CodeRelease {
         if ($format === self::REQUEST_FORMAT_V2) {
             self::assertExactKeys($payload, ['action', 'artifact_hash', 'claim_epoch', 'claimant', 'desired_code_inventory', 'desired_code_revision', 'format', 'generation', 'owner', 'receipt_id', 'retention_until', 'target_id', 'timestamp'], 'request payload');
             if (($payload['action'] ?? null) !== 'prepare' || !is_array($payload['desired_code_inventory'] ?? null)) {
-                throw new \RuntimeException('duo code release: v2 is only a plan-bound prepare request');
+                throw new \RuntimeException('wprism code release: v2 is only a plan-bound prepare request');
             }
             self::validateCompiledCodeInventory($payload['desired_code_inventory']);
             if (!hash_equals(
                 (string) ($payload['desired_code_revision'] ?? ''),
                 (string) ($payload['desired_code_inventory']['code_revision'] ?? '')
             )) {
-                throw new \RuntimeException('duo code release: request revision disagrees with compiled code inventory');
+                throw new \RuntimeException('wprism code release: request revision disagrees with compiled code inventory');
             }
         } else {
             self::assertExactKeys($payload, ['action', 'artifact_hash', 'claim_epoch', 'claimant', 'desired_code_revision', 'desired_descriptor_sha256', 'format', 'generation', 'owner', 'receipt_id', 'retention_until', 'target_id', 'timestamp'], 'request payload');
             if ($format !== self::REQUEST_FORMAT_V1 || !in_array($payload['action'] ?? null, ['prepare', 'delete'], true)) {
-                throw new \RuntimeException('duo code release: unsupported request');
+                throw new \RuntimeException('wprism code release: unsupported request');
             }
             self::assertHash((string) ($payload['desired_descriptor_sha256'] ?? ''), 'request desired_descriptor_sha256');
         }
         self::assertIdentityFields($payload);
         self::assertHash((string) ($payload['desired_code_revision'] ?? ''), 'request desired_code_revision');
         self::assertActor((string) ($payload['claimant'] ?? ''), 'request claimant');
-        self::timeValue((string) ($payload['timestamp'] ?? '')); self::timeValue((string) ($payload['retention_until'] ?? ''));
+        self::timeValue((string) ($payload['timestamp'] ?? ''));
+        self::timeValue((string) ($payload['retention_until'] ?? ''));
     }
 
     /** @param array<string,mixed> $left @param array<string,mixed> $right */
     private static function assertIdentity(array $left, array $right, bool $claim): void {
-        foreach (['artifact_hash', 'generation', 'owner', 'receipt_id', 'target_id'] as $key) if ((string) ($left[$key] ?? '') !== (string) ($right[$key] ?? '')) throw new \RuntimeException("duo code release: $key identity mismatch");
-        if ($claim && ((string) ($left['claimant'] ?? '') !== (string) ($right['claimant'] ?? '') || (int) ($left['claim_epoch'] ?? 0) !== (int) ($right['claim_epoch'] ?? 0))) throw new \RuntimeException('duo code release: claimant identity mismatch');
+        foreach (['artifact_hash', 'generation', 'owner', 'receipt_id', 'target_id'] as $key) if ((string) ($left[$key] ?? '') !== (string) ($right[$key] ?? '')) throw new \RuntimeException("wprism code release: $key identity mismatch");
+        if ($claim && ((string) ($left['claimant'] ?? '') !== (string) ($right['claimant'] ?? '') || (int) ($left['claim_epoch'] ?? 0) !== (int) ($right['claim_epoch'] ?? 0))) throw new \RuntimeException('wprism code release: claimant identity mismatch');
     }
 
     /** @param array<string,mixed> $value */
@@ -769,7 +771,7 @@ final class CodeRelease {
         self::assertIdentifier((string) ($value['receipt_id'] ?? ''), 'receipt id', 32, 64);
         self::assertIdentifier((string) ($value['target_id'] ?? ''), 'target id', 32, 32);
         self::assertActor((string) ($value['owner'] ?? ''), 'owner');
-        if (!is_int($value['generation'] ?? null) || (int) $value['generation'] < 1 || !is_int($value['claim_epoch'] ?? null) || (int) $value['claim_epoch'] < 1) throw new \RuntimeException('duo code release: generation/claim epoch must be positive integers');
+        if (!is_int($value['generation'] ?? null) || (int) $value['generation'] < 1 || !is_int($value['claim_epoch'] ?? null) || (int) $value['claim_epoch'] < 1) throw new \RuntimeException('wprism code release: generation/claim epoch must be positive integers');
     }
 
     /** @param array<string,mixed> $request @return array<string,mixed> */
@@ -783,38 +785,46 @@ final class CodeRelease {
     /** @return array<string,mixed> */
     private static function call(array $config, array $request): array {
         $command = $config['code_release_provider'] ?? null;
-        if (!is_array($command) || $command === []) throw new \RuntimeException('duo code release: provider is not configured');
+        if (!is_array($command) || $command === []) throw new \RuntimeException('wprism code release: provider is not configured');
         return ProviderClient::request(
             $command,
             $request,
             (int) $config['timeout_seconds'],
-            'duo code release',
-            'duo code release: could not start provider',
-            'duo code release: provider timed out; exclusion remains held',
-            'duo code release: provider output exceeded the redacted evidence limit',
-            'duo code release: provider failed',
+            'wprism code release',
+            'wprism code release: could not start provider',
+            'wprism code release: provider timed out; exclusion remains held',
+            'wprism code release: provider output exceeded the redacted evidence limit',
+            'wprism code release: provider failed',
             true,
-            'duo code release: provider returned malformed JSON',
-            'duo code release: provider returned non-canonical evidence'
+            'wprism code release: provider returned malformed JSON',
+            'wprism code release: provider returned non-canonical evidence'
         );
     }
 
     /** @return array<string,mixed> */
     private static function readCanonical(string $path, string $label): array {
-        return AtomicStore::readCanonical($path, $label, 'duo code release');
+        return AtomicStore::readCanonical($path, $label, 'wprism code release');
     }
 
-    private static function assertAbsoluteRegularFile(string $path, string $label): void { AtomicStore::assertAbsoluteRegularFile($path, $label, 'duo code release'); }
-    private static function assertHash(string $value, string $label): void { if (preg_match('/^[a-f0-9]{64}$/', $value) !== 1) throw new \RuntimeException("duo code release: $label must be a sha256 hex digest"); }
-    private static function assertActor(string $value, string $label): void { if (preg_match('/^[A-Za-z0-9._:@+-]{1,128}$/', $value) !== 1) throw new \RuntimeException("duo code release: $label is invalid"); }
-    private static function assertIdentifier(string $value, string $label, int $min, int $max): void { $length = strlen($value); if ($length < $min || $length > $max || preg_match('/^[a-f0-9]+$/', $value) !== 1) throw new \RuntimeException("duo code release: $label is invalid"); }
-    private static function timeValue(string $value): int { $time = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $value, new \DateTimeZone('UTC')); if (!$time || $time->format('Y-m-d\TH:i:s\Z') !== $value) throw new \RuntimeException('duo code release: timestamp must be canonical UTC seconds'); return $time->getTimestamp(); }
-    private static function assertExactKeys(array $value, array $expected, string $label): void { $actual = array_keys($value); sort($actual, SORT_STRING); sort($expected, SORT_STRING); if ($actual !== $expected) throw new \RuntimeException("duo code release: $label has missing or unknown fields"); }
+    private static function assertAbsoluteRegularFile(string $path, string $label): void { AtomicStore::assertAbsoluteRegularFile($path, $label, 'wprism code release'); }
+    private static function assertHash(string $value, string $label): void { if (preg_match('/^[a-f0-9]{64}$/', $value) !== 1) throw new \RuntimeException("wprism code release: $label must be a sha256 hex digest"); }
+    private static function assertActor(string $value, string $label): void { if (preg_match('/^[A-Za-z0-9._:@+-]{1,128}$/', $value) !== 1) throw new \RuntimeException("wprism code release: $label is invalid"); }
+    private static function assertIdentifier(string $value, string $label, int $min, int $max): void { $length = strlen($value);
+    if ($length < $min || $length > $max || preg_match('/^[a-f0-9]+$/', $value) !== 1) throw new \RuntimeException("wprism code release: $label is invalid"); }
+    private static function timeValue(string $value): int { $time = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $value, new \DateTimeZone('UTC'));
+    if (!$time || $time->format('Y-m-d\TH:i:s\Z') !== $value) throw new \RuntimeException('wprism code release: timestamp must be canonical UTC seconds');
+    return $time->getTimestamp(); }
+    private static function assertExactKeys(array $value, array $expected, string $label): void { $actual = array_keys($value);
+    sort($actual, SORT_STRING);
+    sort($expected, SORT_STRING);
+    if ($actual !== $expected) throw new \RuntimeException("wprism code release: $label has missing or unknown fields"); }
 
-    private static function receiptDirectory(string $root, string $receiptId): string { self::assertIdentifier($receiptId, 'receipt id', 32, 64); return dirname($root) . '/rollback/' . $receiptId; }
-    private static function ensureDirectory(string $path, int $mode): void { AtomicStore::ensureDirectory($path, $mode, 'duo code release'); }
-    private static function syncDirectory(string $path): void { AtomicStore::syncDirectory($path, 'code release directory', 'duo code release'); }
-    private static function atomicWrite(string $path, string $bytes, int $mode, string $label): void { AtomicStore::atomicWrite($path, $bytes, $mode, $label, 'duo code release'); }
+    private static function receiptDirectory(string $root, string $receiptId): string { self::assertIdentifier($receiptId, 'receipt id', 32, 64);
+    return dirname($root) . '/rollback/' . $receiptId; }
+    private static function ensureDirectory(string $path, int $mode): void { AtomicStore::ensureDirectory($path, $mode, 'wprism code release'); }
+    private static function syncDirectory(string $path): void { AtomicStore::syncDirectory($path, 'code release directory', 'wprism code release'); }
+    private static function atomicWrite(string $path, string $bytes, int $mode, string $label): void { AtomicStore::atomicWrite($path, $bytes, $mode, $label, 'wprism code release'); }
     /** @template T @param callable():T $callback @return T */
-    private static function withLock(string $root, callable $callback): mixed { $path = $root . '/code-release.lock'; return ProtocolLock::withExclusive($path, $callback, 'duo code release: lock path is unsafe', 'duo code release: could not acquire lock', 'duo code release: could not acquire lock', 0600); }
+    private static function withLock(string $root, callable $callback): mixed { $path = $root . '/code-release.lock';
+    return ProtocolLock::withExclusive($path, $callback, 'wprism code release: lock path is unsafe', 'wprism code release: could not acquire lock', 'wprism code release: could not acquire lock', 0600); }
 }

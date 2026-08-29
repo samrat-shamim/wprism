@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: declared json_refs/key_refs rewriting is a pure structural
+ * issue #3354: declared json_refs/key_refs rewriting is a pure structural
  * codec seam. This drives it without WordPress or Ledger, then proves the
  * stateful Tokens facade keeps its historic leaf/text responsibility.
  */
@@ -16,9 +16,9 @@ function check(bool $condition, string $message): void {
 
 require __DIR__ . '/../../../../agent/src/Kernel/StructuredReferenceCodec.php';
 
-use Duo\StructuredReferenceCodec;
+use WPrism\StructuredReferenceCodec;
 
-check(!class_exists(\Duo\Ledger::class, false), 'codec standalone load does not load Ledger');
+check(!class_exists(\WPrism\Ledger::class, false), 'codec standalone load does not load Ledger');
 check(!function_exists('get_option'), 'codec standalone load does not need WordPress');
 
 $ids = [
@@ -142,7 +142,7 @@ require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 
 $GLOBALS['wpdb'] = new StructuredCodecFakeWpdb();
-$tokens = new Duo\Tokens();
+$tokens = new WPrism\Tokens();
 $facadeCaptured = $tokens->struct_capture(
     ['post_id' => 11, 'by_term' => [22 => ['url' => 'http://example.test/a']]],
     [['path' => '$.post_id', 'kind' => 'post']],

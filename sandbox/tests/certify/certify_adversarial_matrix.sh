@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Certify adversarial matrix (DUO-3223): houses adversarial certification
+# Certify adversarial matrix (issue #3223): houses adversarial certification
 # cases that don't belong to any single capability's own certification
 # fixture (contrast sandbox/tests/certify/certify_merge.sh, which certifies the
 # merge capability itself). Two parts, one pair (own dedicated "certmatrix"
@@ -14,16 +14,16 @@
 #     identity-export/identity-import (agent/src/Repository/IdentityBackup.php) turns
 #     that refusal into a clean, byte-identical continuation.
 #
-# Provenance, PART 1: DUO-3228's Required-behavior bullet 2 named this case as an
-# axis of DUO-3223's adversarial certification matrix specifically (not an
+# Provenance, PART 1: issue #3228's Required-behavior bullet 2 named this case as an
+# axis of issue #3223's adversarial certification matrix specifically (not an
 # extension of certify_merge.sh — that placement call predates and is
-# independent of DUO-3208's landing status). DUO-3208 (the repository
-# semantic compiler) merged to main during DUO-3228's own development,
+# independent of issue #3208's landing status). issue #3208 (the repository
+# semantic compiler) merged to main during issue #3228's own development,
 # which is what makes this case cheap now: RepositoryCompiler.php already
 # implements exactly the check this needs
 # (validate_natural_identities(), agent/src/Repository/RepositoryCompiler.php). This
 # script only certifies the existing mechanism against the real product
-# path, on core entities alone — no plugin required, matching DUO-3228's
+# path, on core entities alone — no plugin required, matching issue #3228's
 # own sizing note.
 #
 # Why this is a DIFFERENT case from certify_merge.sh's own conflict
@@ -39,7 +39,7 @@
 #
 # TWO real, isolated WordPress environments (own dedicated pair, never
 # mergecert or any other agent's pair) — not one environment abused as
-# both branches: each side mints its own uuid and owns its own duo_map
+# both branches: each side mints its own uuid and owns its own wprism_map
 # ledger, so the collision is exactly what two genuinely independent
 # authors on two genuinely independent installs would produce, and (the
 # concrete bug an earlier draft of this script hit) reusing one
@@ -62,12 +62,12 @@ command -v jq >/dev/null || fail "jq required"
 
 PORT1="${CERTMATRIX_PORT1:-8862}"
 PORT2="${CERTMATRIX_PORT2:-8863}"
-COMPOSE="docker compose -p duo-certmatrix -f pair.yml"
-export DUO_PAIR=certmatrix
+COMPOSE="docker compose -p wprism-certmatrix -f pair.yml"
+export WPRISM_PAIR=certmatrix
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 wp2() { $COMPOSE run --rm -T cli2 wp "$@"; }
-GIT_A="git -C siterepo/certmatrix1 -c user.name=duo-a -c user.email=a@example.test"
-GIT_B="git -C siterepo/certmatrix2 -c user.name=duo-b -c user.email=b@example.test"
+GIT_A="git -C siterepo/certmatrix1 -c user.name=wprism-a -c user.email=a@example.test"
+GIT_B="git -C siterepo/certmatrix2 -c user.name=wprism-b -c user.email=b@example.test"
 
 say "clean-room via pair.sh (own pair, isolated — headless, core entities only)"
 bash bin/pair.sh reset certmatrix
@@ -79,7 +79,7 @@ wp2 site empty --yes >/dev/null
 
 say "init site repo (core only), empty baseline capture on env A, converge env B to it"
 git init --bare -b main siterepo/origin-certmatrix.git >/dev/null
-cat > siterepo/certmatrix1/site.duo.json <<'EOF'
+cat > siterepo/certmatrix1/site.wprism.json <<'EOF'
 {
   "manifests": ["core"],
   "policy": {
@@ -94,11 +94,11 @@ EOF
 cp site-repo.gitignore.template siterepo/certmatrix1/.gitignore
 git -C siterepo/certmatrix1 init -q -b main
 git -C siterepo/certmatrix1 remote add origin ../origin-certmatrix.git
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 $GIT_A add -A && $GIT_A commit -qm "baseline: empty core capture" && $GIT_A push -qu origin main
 
 git clone -q siterepo/origin-certmatrix.git siterepo/certmatrix2
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --format=json | tail -1 | jq .
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --format=json | tail -1 | jq .
 pass "baseline established on env A, env B converged to it"
 
 # ============================================================================
@@ -109,7 +109,7 @@ say "env A (branch add-a): independently ADD a new page, slug 'shared-slug'"
 $GIT_A checkout -qb add-a main
 PAGE_A=$(wp1 post create --post_type=page --post_title='Shared Slug (A)' --post_name=shared-slug --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Added independently on branch A.</p><!-- /wp:paragraph -->' --porcelain)
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 $GIT_A add -A && $GIT_A commit -qm "A: add page shared-slug" && $GIT_A push -q origin add-a
 PAGE_A_FILE=$(ls siterepo/certmatrix1/state/posts/page/*--shared-slug.md)
 PAGE_A_UUID=$(basename "$PAGE_A_FILE" | sed -E 's/--shared-slug\.md$//')
@@ -120,7 +120,7 @@ $GIT_B fetch -q origin
 $GIT_B checkout -qb add-b origin/main
 PAGE_B=$(wp2 post create --post_type=page --post_title='Shared Slug (B)' --post_name=shared-slug --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Added independently on branch B.</p><!-- /wp:paragraph -->' --porcelain)
-wp2 duo capture --repo=/siterepo >/dev/null
+wp2 wprism capture --repo=/siterepo >/dev/null
 $GIT_B add -A && $GIT_B commit -qm "B: add page shared-slug" && $GIT_B push -q origin add-b
 PAGE_B_FILE=$(ls siterepo/certmatrix2/state/posts/page/*--shared-slug.md)
 PAGE_B_UUID=$(basename "$PAGE_B_FILE" | sed -E 's/--shared-slug\.md$//')
@@ -138,13 +138,13 @@ $GIT_A merge origin/add-b >/dev/null \
 $GIT_A push -q origin main
 pass "git auto-merged cleanly — both entity files present, no line-level conflict, no <<<<<<< markers anywhere"
 
-say "THE ACTUAL CASE: wp duo plan against the merged tree — RepositoryCompiler must refuse before any target contact"
+say "THE ACTUAL CASE: wp wprism plan against the merged tree — RepositoryCompiler must refuse before any target contact"
 set +e
-PLAN_OUT=$(wp1 duo plan --repo=/siterepo --format=json 2>&1)
+PLAN_OUT=$(wp1 wprism plan --repo=/siterepo --format=json 2>&1)
 PLAN_RC=$?
 set -e
 echo "$PLAN_OUT"
-[ "$PLAN_RC" -ne 0 ] || fail "expected wp duo plan to refuse (repository_compilation_failed) on a tree with two same-slug pages, got exit 0 — duplicate_natural_identity detection regressed or never ran"
+[ "$PLAN_RC" -ne 0 ] || fail "expected wp wprism plan to refuse (repository_compilation_failed) on a tree with two same-slug pages, got exit 0 — duplicate_natural_identity detection regressed or never ran"
 PLAN_JSON=$(printf '%s\n' "$PLAN_OUT" | tail -1)
 printf '%s\n' "$PLAN_JSON" | jq -e '.error == "repository_compilation_failed"' >/dev/null 2>&1 \
   || fail "expected error=repository_compilation_failed in the refusal payload, got: $PLAN_JSON"
@@ -161,11 +161,11 @@ DIAG_LOCATOR=$(printf '%s' "$DIAG" | jq -r '.locator')
 FOUND_PAIR=$(printf '%s\n%s\n' "$DIAG_PATH" "$DIAG_RELATED" | sort)
 EXPECT_PAIR=$(printf 'posts/page/%s--shared-slug.md\nposts/page/%s--shared-slug.md\n' "$PAGE_A_UUID" "$PAGE_B_UUID" | sort)
 [ "$FOUND_PAIR" = "$EXPECT_PAIR" ] || fail "diagnostic did not name exactly the two colliding entity files (got: $FOUND_PAIR, expected: $EXPECT_PAIR)"
-pass "wp duo plan refuses loudly on the product path — repository_compilation_failed, code=duplicate_natural_identity, locator=slug, naming both colliding entity files exactly — before any target contact is attempted"
+pass "wp wprism plan refuses loudly on the product path — repository_compilation_failed, code=duplicate_natural_identity, locator=slug, naming both colliding entity files exactly — before any target contact is attempted"
 
 say "sanity: this is a repository-level refusal, not an environment-level one — the refused plan did not scramble either page's already-captured ledger mapping on its own owning environment"
-LOCAL_A=$(wp1 db query --skip-column-names "SELECT local_id FROM wp_duo_map WHERE uuid='$PAGE_A_UUID'" 2>/dev/null | tr -d '\r')
-LOCAL_B=$(wp2 db query --skip-column-names "SELECT local_id FROM wp_duo_map WHERE uuid='$PAGE_B_UUID'" 2>/dev/null | tr -d '\r')
+LOCAL_A=$(wp1 db query --skip-column-names "SELECT local_id FROM wp_wprism_map WHERE uuid='$PAGE_A_UUID'" 2>/dev/null | tr -d '\r')
+LOCAL_B=$(wp2 db query --skip-column-names "SELECT local_id FROM wp_wprism_map WHERE uuid='$PAGE_B_UUID'" 2>/dev/null | tr -d '\r')
 require_observed_nonempty "A ledger local id after refused duplicate plan" "$LOCAL_A"
 require_observed_nonempty "B ledger local id after refused duplicate plan" "$LOCAL_B"
 [ "$LOCAL_A" = "$PAGE_A" ] || fail "A's uuid maps to local_id $LOCAL_A on its own environment after the refused plan, expected $PAGE_A"
@@ -177,19 +177,19 @@ pass "PART 1 complete: add/add same-slug -> duplicate_natural_identity"
 say "PART 1 -> PART 2 handoff: resolve the still-colliding merge (editorial decision: keep A's page, drop B's — B's page never existed on env A's own live WordPress anyway, it was only ever real on env B) so PART 2 starts from a genuinely valid repository, same posture as certify_merge.sh resolving its own conflicts between parts"
 git -C siterepo/certmatrix1 rm -q "state/posts/page/${PAGE_B_UUID}--shared-slug.md"
 $GIT_A commit -qm "resolve PART 1: keep A's shared-slug page, drop B's (editorial)" && $GIT_A push -q origin main
-wp1 duo capture --repo=/siterepo >/dev/null || fail "capture still refuses after resolving the collision — resolution did not take"
+wp1 wprism capture --repo=/siterepo >/dev/null || fail "capture still refuses after resolving the collision — resolution did not take"
 pass "PART 1's collision resolved; env A's repo is valid again"
 
 # ============================================================================
 # PART 2 — restored target: identity-export/identity-import disaster recovery
 # ============================================================================
 #
-# DUO-3223's own acceptance criteria name "fresh/mapped/restored target" as
+# issue #3223's own acceptance criteria name "fresh/mapped/restored target" as
 # one axis of the certification matrix. "Fresh" and "mapped" are the two
 # ordinary states every conformance/run.sh pass already exercises (a target
 # with no prior ledger vs. one that's already converged). "Restored" is
 # the third, adversarial one: an environment whose DATABASE was restored
-# from an older backup, but whose wp_duo_map/wp_duo_state identity ledger
+# from an older backup, but whose wp_wprism_map/wp_wprism_state identity ledger
 # — which lives IN that same database — reverted right along with it,
 # while the live content rows it should be mapping may be NEWER (a capture
 # taken after the backup, before the disaster). Snapshot.php's own
@@ -203,16 +203,16 @@ pass "PART 1's collision resolved; env A's repo is valid again"
 #
 # MUST be a typed-snapshot TABLE entity (class: authored_snapshot,
 # identity.mode: mapped — a WooCommerce shipping-zone location, the same
-# fixture DUO-3246 used earlier this session), not an ordinary post: an
+# fixture issue #3246 used earlier this session), not an ordinary post: an
 # earlier draft of this script tried this with a plain page and capture
-# came back clean (exit 0) even after truncating duo_map/duo_state — a
+# came back clean (exit 0) even after truncating wprism_map/wprism_state — a
 # real, load-bearing distinction, not a test bug to route around.
 # assert_mapped_history_present() (Snapshot.php) only iterates
 # row_tables($policy); a post carries its own identity independently, in
-# postmeta (_duo_uuid, spec/repo-format.md's "Identity" section) — capture
-# just re-discovers it from the live row and re-populates duo_map, which
+# postmeta (_wprism_uuid, spec/repo-format.md's "Identity" section) — capture
+# just re-discovers it from the live row and re-populates wprism_map, which
 # is genuinely fine, not a bug. A table row has no such sidecar of its
-# own: duo_map IS its only identity record, which is exactly why
+# own: wprism_map IS its only identity record, which is exactly why
 # assert_mapped_history_present() exists at all and why it's scoped to
 # row_tables() specifically.
 #
@@ -224,7 +224,7 @@ pass "PART 1's collision resolved; env A's repo is valid again"
 
 say "PART 2 — install WooCommerce on env A, pin it into the repo alongside core"
 wp1 plugin install woocommerce --activate >/dev/null
-cat > siterepo/certmatrix1/site.duo.json <<'EOF'
+cat > siterepo/certmatrix1/site.wprism.json <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
@@ -242,7 +242,7 @@ $GIT_A add -A && $GIT_A commit -qm "pin woocommerce alongside core (PART 2 fixtu
 say "PART 2 — seed a shipping-zone location (typed-snapshot table row, identity.mode=mapped) and capture — this is the state the identity export below will be taken FROM"
 ZONE_ID=$(wp1 wc shipping_zone create --name='Restore Drill Zone' --order=1 --user=admin --porcelain)
 wp1 eval "\$z = new WC_Shipping_Zone($ZONE_ID); \$z->add_location('US', 'country'); \$z->save();" >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 $GIT_A add -A && $GIT_A commit -qm "A: seed shipping-zone location" && $GIT_A push -q origin main
 LOC_FILE=$(ls siterepo/certmatrix1/state/tables/woocommerce_shipping_zone_locations/*.json)
 # Table-entity filenames are <uuid>--<local_id>.json (mirroring posts'
@@ -253,23 +253,23 @@ LOC_LOCAL=$(wp1 db query --skip-column-names "SELECT location_id FROM wp_woocomm
 require_fixture_ids LOC_LOCAL
 echo "env A: zone=$ZONE_ID location uuid=$LOC_UUID local_id=$LOC_LOCAL"
 
-say "PART 2 — export the identity ledger (wp duo identity-export) — the disaster-recovery sidecar this drill will restore from"
+say "PART 2 — export the identity ledger (wp wprism identity-export) — the disaster-recovery sidecar this drill will restore from"
 IDENTITY_BACKUP="siterepo/certmatrix1/.tmp-identity-backup.json"
-wp1 duo identity-export --repo=/siterepo --out=/siterepo/.tmp-identity-backup.json
+wp1 wprism identity-export --repo=/siterepo --out=/siterepo/.tmp-identity-backup.json
 [ -s "$IDENTITY_BACKUP" ] || fail "identity-export produced no output file"
-jq -e '.format == "duo-identity-ledger/v1" and (.maps | length) >= 1' "$IDENTITY_BACKUP" >/dev/null \
+jq -e '.format == "wprism-identity-ledger/v1" and (.maps | length) >= 1' "$IDENTITY_BACKUP" >/dev/null \
   || fail "identity-export artifact missing expected format/maps shape"
 pass "identity ledger exported ($(jq '.maps | length' "$IDENTITY_BACKUP") mapping(s))"
 
-say "PART 2 — simulate the disaster: the database was restored from an OLDER backup, reverting wp_duo_map/wp_duo_state -- but the live content rows (from the capture just above) remain, newer than that backup"
-wp1 db query "TRUNCATE TABLE wp_duo_map"
-wp1 db query "TRUNCATE TABLE wp_duo_state"
-[ -z "$(wp1 db query --skip-column-names "SELECT uuid FROM wp_duo_map WHERE uuid='$LOC_UUID'" 2>/dev/null)" ] \
-  || fail "test setup bug: LOC_UUID still present in duo_map after truncate"
+say "PART 2 — simulate the disaster: the database was restored from an OLDER backup, reverting wp_wprism_map/wp_wprism_state -- but the live content rows (from the capture just above) remain, newer than that backup"
+wp1 db query "TRUNCATE TABLE wp_wprism_map"
+wp1 db query "TRUNCATE TABLE wp_wprism_state"
+[ -z "$(wp1 db query --skip-column-names "SELECT uuid FROM wp_wprism_map WHERE uuid='$LOC_UUID'" 2>/dev/null)" ] \
+  || fail "test setup bug: LOC_UUID still present in wprism_map after truncate"
 
 say "PART 2 — THE ADVERSARIAL CASE, proven FIRST: capture must fail closed, not silently mint a replacement uuid for a table row whose ledger history just disappeared"
 set +e
-LOST_OUT=$(wp1 duo capture --repo=/siterepo 2>&1)
+LOST_OUT=$(wp1 wprism capture --repo=/siterepo 2>&1)
 LOST_RC=$?
 set -e
 echo "$LOST_OUT"
@@ -282,16 +282,16 @@ grep -q "$LOC_UUID" <<<"$LOST_OUT" \
   || fail "the failed capture changed the published state tree — a refusal must never publish a partial/corrupted result"
 pass "capture correctly fails closed on lost ledger history, naming the cause and the exact entity, publishing nothing — exactly Snapshot.php's own documented posture for this shape"
 
-say "PART 2 — THE FIX: restore the identity ledger (wp duo identity-import) — this is what turns the refusal above into a clean continuation"
-wp1 duo identity-import --repo=/siterepo --in=/siterepo/.tmp-identity-backup.json
-RESTORED_LOCAL=$(wp1 db query --skip-column-names "SELECT local_id FROM wp_duo_map WHERE uuid='$LOC_UUID'" 2>/dev/null | tr -d '\r')
+say "PART 2 — THE FIX: restore the identity ledger (wp wprism identity-import) — this is what turns the refusal above into a clean continuation"
+wp1 wprism identity-import --repo=/siterepo --in=/siterepo/.tmp-identity-backup.json
+RESTORED_LOCAL=$(wp1 db query --skip-column-names "SELECT local_id FROM wp_wprism_map WHERE uuid='$LOC_UUID'" 2>/dev/null | tr -d '\r')
 require_observed_nonempty "restored ledger local id after identity import" "$RESTORED_LOCAL"
 [ "$RESTORED_LOCAL" = "$LOC_LOCAL" ] \
   || fail "restored ledger does not map LOC_UUID back to its own real local_id (got: '$RESTORED_LOCAL', expected: $LOC_LOCAL)"
 pass "identity ledger restored — the shipping-zone location's uuid maps back to its own real, live local_id"
 
 say "PART 2 — recovery is genuine, not just silent: capture now succeeds cleanly AND is byte-identical to what a capture taken right before the disaster would have produced"
-wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-post-restore >/dev/null \
+wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-post-restore >/dev/null \
   || fail "capture still fails after identity-import — restore did not actually fix the ledger"
 diff -r siterepo/certmatrix1/state siterepo/certmatrix1/.tmp-post-restore \
   || fail "post-restore capture diverged from the pre-disaster state — identity-import restored a ledger, but not the RIGHT one"

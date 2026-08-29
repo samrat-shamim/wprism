@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# Live regression — DUO-3266 + DUO-3275: menu-item meta capture used to read
+# Live regression — issue #3266 + issue #3275: menu-item meta capture used to read
 # a fixed 8-key allowlist from post_meta_map() and silently drop everything
 # else, never calling Policy::meta_rule_for_post() or appending to
 # $this->unclassified[] the way the ordinary post_meta loop already does
 # (Capture.php's build_post()). Plugin-added menu-item meta (mega-menu
 # icons/descriptions etc.) vanished with zero trace: not captured, not in
-# `wp duo pending`, not in any warning — the silent-authored-data-loss class
+# `wp wprism pending`, not in any warning — the silent-authored-data-loss class
 # DESIGN.md's loud/blocking/scoped posture exists to prevent.
 #
 # Runs the FULL canonical core loop this project tests everywhere else
 # (loud gate -> pending -> classify -> clean capture — see e.g. task #52),
 # not just the loud-gate half: a fake mega-menu plugin's meta key
-#   (a) makes `duo capture` refuse loudly, naming it;
-#   (b) surfaces in `wp duo pending --format=json` under section "post_meta"
-#       with "nav_menu_item" in that finding's own post_types (DUO-3275: NOT
+#   (a) makes `wprism capture` refuse loudly, naming it;
+#   (b) surfaces in `wp wprism pending --format=json` under section "post_meta"
+#       with "nav_menu_item" in that finding's own post_types (issue #3275: NOT
 #       a separate "menu_item_meta" section — menu items are posts, and a
 #       distinct section name silently broke pending's own suggested
 #       classify command, since Policy::SECTIONS never had a matching
 #       entry);
-#   (c) classifies via the EXACT `wp duo classify --set` syntax pending's
+#   (c) classifies via the EXACT `wp wprism classify --set` syntax pending's
 #       own success text suggests, verbatim section name included;
 #   (d) captures cleanly afterward, resolving into the item's new `meta`
 #       field as a real {{post:<uuid>}} token (proving actual token
@@ -50,8 +50,8 @@ if [ "$PAIR" != "asub3275" ] && { [ -z "${PORT1:-}" ] || [ -z "${PORT2:-}" ]; };
 fi
 PORT1="${PORT1:-8954}"
 PORT2="${PORT2:-8955}"
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-COMPOSE=(docker compose -p "duo-${PAIR}" -f sandbox/pair.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+COMPOSE=(docker compose -p "wprism-${PAIR}" -f sandbox/pair.yml)
 SITE1="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 SITE2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 
@@ -87,7 +87,7 @@ say "site-repo: core manifest only — the mega-menu key starts genuinely UNCLAS
 repo_host both
 clear_repo "$SITE1"
 clear_repo "$SITE2"
-cat > "$SITE1/site.duo.json" <<'EOF'
+cat > "$SITE1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core"],
   "policy": {
@@ -100,13 +100,13 @@ cat > "$SITE1/site.duo.json" <<'EOF'
 EOF
 cp sandbox/site-repo.gitignore.template "$SITE1/.gitignore"
 git -C "$SITE1" init -q
-git -C "$SITE1" config user.name duo
-git -C "$SITE1" config user.email duo@example.test
+git -C "$SITE1" config user.name wprism
+git -C "$SITE1" config user.email wprism@example.test
 # The repository root is deliberately shared with container uid 33. This
-# policy file is created by the host but `wp duo classify` atomically rewrites
+# policy file is created by the host but `wp wprism classify` atomically rewrites
 # it inside the container, so read-only-for-others mode would strand the live
 # workflow halfway through its own loud-gate proof.
-chmod a+rw "$SITE1/site.duo.json"
+chmod a+rw "$SITE1/site.wprism.json"
 pass "site-repo scaffolded, no policy override for the mega-menu key yet"
 
 say "build the menu + one item, and a real post to use as the ref target"
@@ -122,39 +122,39 @@ KEY=_asub3275_megamenu_icon_post_id
 wp1 post meta add "$ITEM_ID" "$KEY" "$REF_POST_ID" >/dev/null
 pass "fake plugin meta registered: $KEY = $REF_POST_ID (an id-shaped value, exactly the case that used to vanish silently)"
 
-say "(a) genuinely unclassified: duo capture must refuse loudly, naming it"
-if OUT=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
+say "(a) genuinely unclassified: wprism capture must refuse loudly, naming it"
+if OUT=$(wp1 wprism capture --repo=/siterepo --format=json 2>&1); then
   fail "capture succeeded with an unclassified menu-item meta key present (silent-loss regression reproduced): $OUT"
 fi
 grep -q "menu_item_meta:$KEY" <<<"$OUT" \
   || fail "capture refused, but did not name menu_item_meta:$KEY (got: $OUT)"
 pass "(a) capture refuses loudly and names the exact unclassified menu-item meta key — the pre-fix silent-loss defect cannot reproduce"
 
-say "(b) DUO-3275: it must land in wp duo pending under section 'post_meta' with nav_menu_item in post_types — NOT a dead-end 'menu_item_meta' section"
-PENDING_JSON=$(wp1 duo pending --repo=/siterepo --format=json 2>/dev/null | tail -1)
+say "(b) issue #3275: it must land in wp wprism pending under section 'post_meta' with nav_menu_item in post_types — NOT a dead-end 'menu_item_meta' section"
+PENDING_JSON=$(wp1 wprism pending --repo=/siterepo --format=json 2>/dev/null | tail -1)
 python3 -c "
 import json, sys
 items = json.loads('''$PENDING_JSON''')
 hits = [it for it in items if it.get('key') == '$KEY']
-assert hits, f'$KEY not found in wp duo pending output at all: {items}'
+assert hits, f'$KEY not found in wp wprism pending output at all: {items}'
 it = hits[0]
-assert it['section'] == 'post_meta', f\"expected section 'post_meta', got {it['section']!r} — DUO-3275 regressed\"
+assert it['section'] == 'post_meta', f\"expected section 'post_meta', got {it['section']!r} — issue #3275 regressed\"
 post_types = it.get('evidence', {}).get('post_types', [])
 assert 'nav_menu_item' in post_types, f'nav_menu_item missing from post_types evidence: {post_types}'
 print('pending item:', json.dumps(it))
-" || fail "wp duo pending did not correctly surface the menu-item meta key under section=post_meta with nav_menu_item evidence"
+" || fail "wp wprism pending did not correctly surface the menu-item meta key under section=post_meta with nav_menu_item evidence"
 pass "(b) pending surfaces it under section=post_meta, nav_menu_item correctly named in post_types — the real, classify-able section, not a dead end"
 
 say "(c) classify it using the EXACT section name pending showed — the verbatim syntax pending's own success text suggests, no translation needed"
 # Cli.php's own classify() docblock: the '=' form (--set=spec) is required —
 # the space form (--set spec) is NOT equivalent, wp-cli parses it
 # differently. Caught live on the first run of this very script.
-wp1 duo classify --repo=/siterepo --set="post_meta:$KEY=authored,ref=post" >/dev/null \
-  || fail "wp duo classify failed using pending's own suggested section name — DUO-3275's whole point is that this must work verbatim"
-pass "(c) wp duo classify --set 'post_meta:$KEY=authored,ref=post' succeeded — the exact command pending suggested actually works"
+wp1 wprism classify --repo=/siterepo --set="post_meta:$KEY=authored,ref=post" >/dev/null \
+  || fail "wp wprism classify failed using pending's own suggested section name — issue #3275's whole point is that this must work verbatim"
+pass "(c) wp wprism classify --set 'post_meta:$KEY=authored,ref=post' succeeded — the exact command pending suggested actually works"
 
 say "(d) capture now succeeds; the item's new 'meta' field carries a resolved {{post:<uuid>}} token, not the raw local id"
-wp1 duo capture --repo=/siterepo --format=json >/dev/null || fail "capture failed after classify for a fully-classified menu-item meta key"
+wp1 wprism capture --repo=/siterepo --format=json >/dev/null || fail "capture failed after classify for a fully-classified menu-item meta key"
 MENU_FILE=$(find "$SITE1/state/menus" -name '*.json' | head -1)
 [ -n "$MENU_FILE" ] || fail "no menu file captured"
 python3 -c "
@@ -188,7 +188,7 @@ git -C "$SITE1" commit -qm "asub3275 menu-item meta fixture" >/dev/null
 clear_repo "$SITE2"
 cp -R "$SITE1"/. "$SITE2"/
 chmod -R a+rwX "$SITE2"
-wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null \
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null \
   || fail "apply failed on the target environment"
 pass "(f) apply succeeded on env2"
 
@@ -207,7 +207,7 @@ fi
 pass "round-trip proven: env2's applied menu-item meta resolves to env2's OWN local post id ($ENV2_REF_POST_ID), not a raw copied number"
 
 say "(g) recapture env2 and confirm byte-identical item.meta (true round-trip, not just 'apply didn't crash')"
-wp2 duo capture --repo=/siterepo --format=json >/dev/null || fail "recapture on env2 failed"
+wp2 wprism capture --repo=/siterepo --format=json >/dev/null || fail "recapture on env2 failed"
 MENU_FILE_2=$(find "$SITE2/state/menus" -name '*.json' | head -1)
 [ -n "$MENU_FILE_2" ] || fail "no menu file recaptured on env2"
 diff <(python3 -c "import json; print(json.load(open('$MENU_FILE'))['items'][0]['meta'])") \

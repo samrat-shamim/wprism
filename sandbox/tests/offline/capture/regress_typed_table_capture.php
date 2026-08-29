@@ -1,6 +1,6 @@
 <?php
 /**
- * Direct offline certification for DUO-3349's TypedTableCapture boundary.
+ * Direct offline certification for issue #3349's TypedTableCapture boundary.
  *
  * The class is loaded before Snapshot or any runtime service. A wpdb-shaped
  * reader plus injected identity/ledger capabilities exercise ordinary rows,
@@ -15,15 +15,15 @@ if (!defined('ARRAY_A')) {
 
 require_once __DIR__ . '/../../../../agent/src/Capture/TypedTableCapture.php';
 
-use Duo\Canon;
-use Duo\IdentityNotes;
-use Duo\Ledger;
-use Duo\Policy;
-use Duo\Snapshot;
-use Duo\SnapshotIdentity;
-use Duo\Tokens;
-use Duo\TypedTableCapture;
-use Duo\Uuid;
+use WPrism\Canon;
+use WPrism\IdentityNotes;
+use WPrism\Ledger;
+use WPrism\Policy;
+use WPrism\Snapshot;
+use WPrism\SnapshotIdentity;
+use WPrism\Tokens;
+use WPrism\TypedTableCapture;
+use WPrism\Uuid;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {

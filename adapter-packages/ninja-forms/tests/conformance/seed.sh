@@ -34,7 +34,7 @@ set -euo pipefail
 #
 # conf2 needs the identical cleanup for the identical reason, but NOT here:
 # at seed time conf2 has no active Ninja Forms install at all (install_env's
-# role=target is plugin-files-only — `wp duo deploy` is what activates it,
+# role=target is plugin-files-only — `wp wprism deploy` is what activates it,
 # later, after this seed and after conf1's capture/lint), so conf2's own
 # "Contact Me" row doesn't exist yet to remove. That half of this cleanup
 # lives in conformance/postdeploy/ninja-forms.sh, run by run.sh's generic
@@ -61,7 +61,7 @@ if ($id) {
     $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}nf3_forms WHERE id = %d", $id));
     echo "removed this environment's own activation-created 'Contact Me' form (id=$id)\n";
 }
-// DUO-3381: report the POST-CONDITION, not just what was attempted. This
+// issue #3381: report the POST-CONDITION, not just what was attempted. This
 // cleanup is the premise for run.sh's cross-environment byte-diff — a row
 // left behind here surfaces there as "round-trip mismatch between conf1
 // and conf2", an accusation against capture/apply for a fixture this
@@ -123,8 +123,8 @@ $field = Ninja_Forms()->form($formId)->field()->get();
 $field
     ->update_setting('type', 'listselect')
     ->update_setting('parent_id', $formId)
-    ->update_setting('label', 'Duo Disposable Child — 界')
-    ->update_setting('key', 'duo_disposable_child')
+    ->update_setting('label', 'WPrism Disposable Child — 界')
+    ->update_setting('key', 'wprism_disposable_child')
     ->update_setting('order', 24)
     ->update_setting('required', 0)
     ->update_setting('default_value', '')
@@ -152,7 +152,7 @@ if (!is_array($formContent)) {
 $formContent = array_values(array_filter(
     $formContent,
     static function ($key): bool {
-        return (string) $key !== 'duo_disposable_child';
+        return (string) $key !== 'wprism_disposable_child';
     }
 ));
 $insertAt = count($formContent);
@@ -162,15 +162,15 @@ foreach ($formContent as $offset => $key) {
         break;
     }
 }
-array_splice($formContent, $insertAt, 0, ['duo_disposable_child']);
+array_splice($formContent, $insertAt, 0, ['wprism_disposable_child']);
 $form->update_setting('formContentData', $formContent)->save();
 $action = Ninja_Forms()->form($formId)->action()->get();
 $action
     ->update_setting('type', 'successmessage')
     ->update_setting('parent_id', $formId)
-    ->update_setting('label', 'Duo Disposable Action — 界')
-    ->update_setting('title', 'Duo Disposable Action — 界')
-    ->update_setting('key', 'duo_disposable_action')
+    ->update_setting('label', 'WPrism Disposable Action — 界')
+    ->update_setting('title', 'WPrism Disposable Action — 界')
+    ->update_setting('key', 'wprism_disposable_action')
     ->update_setting('message', 'Disposable native action 東京 🚀')
     ->update_setting('active', true)
     ->save();

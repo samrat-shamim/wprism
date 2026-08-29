@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for TaxonomyGrammar (DUO-3348 slice 10: taxonomy
+ * Offline regression for TaxonomyGrammar (issue #3348 slice 10: taxonomy
  * declaration validators extracted from Policy.php).
  *
  * regress_taxonomy_object_keyspace.php already covers the complete product
@@ -11,8 +11,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../../../agent/src/Grammar/TaxonomyGrammar.php';
@@ -20,9 +20,9 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Policy;
-use Duo\TaxonomyGrammar;
-use DuoTest\FrozenPolicy;
+use WPrism\Policy;
+use WPrism\TaxonomyGrammar;
+use WPrismTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {

@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for RepositoryIdentityRegistry (DUO-3348 slice 39).
+ * Offline regression for RepositoryIdentityRegistry (issue #3348 slice 39).
  *
  * UUID ownership and natural-key uniqueness are pure canonical-tree facts.
  * The registry reports through an injected compiler sink; it neither walks
@@ -9,7 +9,7 @@
  */
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Canon {
         public static function encode(mixed $value): string {
             return json_encode($value, JSON_THROW_ON_ERROR);
@@ -114,7 +114,7 @@ namespace {
                     'meta_value_bytes' => (string) strlen($row['meta_value']),
                 ], array_slice(array_values(array_filter(
                     $this->rows,
-                    static fn(array $row): bool => strcasecmp($row['meta_key'], '_duo_uuid') === 0
+                    static fn(array $row): bool => strcasecmp($row['meta_key'], '_wprism_uuid') === 0
                 )), 0, 3));
             }
             if (str_contains($sql, 'meta_id =')) {
@@ -149,7 +149,7 @@ namespace {
     };
 
     $child = proc_open(
-        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Canon::class, false) && class_exists(\\Duo\\Policy::class, false) && class_exists(\\Duo\\Snapshot::class, false) && class_exists(\\Duo\\RepositoryIdentityRegistry::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', $registryPath],
+        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\Canon::class, false) && class_exists(\\WPrism\\Policy::class, false) && class_exists(\\WPrism\\Snapshot::class, false) && class_exists(\\WPrism\\RepositoryIdentityRegistry::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', $registryPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
@@ -170,11 +170,11 @@ namespace {
     require_once $registryPath;
     require_once "$root/agent/src/Repository/IdentityBackup.php";
 
-    use Duo\Policy;
-    use Duo\Db;
-    use Duo\IdentityBackup;
-    use Duo\RepositoryIdentityRegistry;
-    use Duo\Snapshot;
+    use WPrism\Policy;
+    use WPrism\Db;
+    use WPrism\IdentityBackup;
+    use WPrism\RepositoryIdentityRegistry;
+    use WPrism\Snapshot;
 
     $diagnostics = [];
     $registry = new RepositoryIdentityRegistry(
@@ -254,7 +254,7 @@ namespace {
 
     $wpdb = new IdentityBackupFakeWpdb();
     $wpdb->rows = [[
-        'meta_id' => '7', 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid,
+        'meta_id' => '7', 'meta_key' => '_wprism_uuid', 'meta_value' => $identityUuid,
     ]];
     $check(
         $invokeIdentityWitness($wpdb) === null
@@ -266,10 +266,10 @@ namespace {
     );
 
     foreach ([
-        'alias-only' => [['_DUO_UUID', $identityUuid]],
-        'exact-plus-alias' => [['_duo_uuid', $identityUuid], ['_DUO_UUID', $identityUuid]],
-        'duplicate-exact' => [['_duo_uuid', $identityUuid], ['_duo_uuid', $identityUuid]],
-        'oversized' => [['_duo_uuid', $identityUuid . 'x']],
+        'alias-only' => [['_WPRISM_UUID', $identityUuid]],
+        'exact-plus-alias' => [['_wprism_uuid', $identityUuid], ['_WPRISM_UUID', $identityUuid]],
+        'duplicate-exact' => [['_wprism_uuid', $identityUuid], ['_wprism_uuid', $identityUuid]],
+        'oversized' => [['_wprism_uuid', $identityUuid . 'x']],
     ] as $case => $fixtureRows) {
         $wpdb = new IdentityBackupFakeWpdb();
         foreach ($fixtureRows as $index => [$key, $value]) {
@@ -298,7 +298,7 @@ namespace {
 
     $wpdb = new IdentityBackupFakeWpdb();
     $wpdb->rows = [[
-        'meta_id' => '7', 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid,
+        'meta_id' => '7', 'meta_key' => '_wprism_uuid', 'meta_value' => $identityUuid,
     ]];
     $wpdb->mutatePayload = true;
     $failure = $invokeIdentityWitness($wpdb);
@@ -333,11 +333,11 @@ namespace {
         Db::start('identity transaction outcome accidental retry');
         $identityRetryBlocked = false;
     } catch (Throwable $failure) {
-        $identityRetryBlocked = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+        $identityRetryBlocked = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
     }
     $check(
-        $commitFailure instanceof \Duo\DatabaseTransactionOutcomeException
-            && $identityRecovery instanceof \Duo\DatabaseTransactionOutcomeException
+        $commitFailure instanceof \WPrism\DatabaseTransactionOutcomeException
+            && $identityRecovery instanceof \WPrism\DatabaseTransactionOutcomeException
             && $identityRecovery->getPrevious() === $commitFailure
             && $transactionWpdb->rollbackQueries === 0
             && $identityRetryBlocked,

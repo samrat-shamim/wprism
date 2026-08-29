@@ -1,18 +1,18 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/NextAction.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * How one `duo release` run ended — `duo-release-outcome/v1` (round-3 MUP
+ * How one `wprism release` run ended — `wprism-release-outcome/v1` (round-3 MUP
  * §2.3; product spec *Release and verify*).
  *
  * ## The invariant this class exists to hold
@@ -50,7 +50,7 @@ use Duo\CommandRefusalException;
  * were re-observed against the live target first.
  */
 final class ReleaseOutcome {
-    public const FORMAT = 'duo-release-outcome/v1';
+    public const FORMAT = 'wprism-release-outcome/v1';
 
     /** Released cleanly, with verification attached. */
     public const RELEASED = 'released';
@@ -67,7 +67,7 @@ final class ReleaseOutcome {
     /**
      * A clean release.
      *
-     * @param array<string,mixed> $verify a `duo-verify-report/v1`. MUP §2.3
+     * @param array<string,mixed> $verify a `wprism-verify-report/v1`. MUP §2.3
      *        step 5 always runs verification, so `[]` here renders as
      *        `verify: null` — an explicit "not verified", never an implied
      *        pass. The spec's own rule applies: absence of an error is never
@@ -324,7 +324,7 @@ final class ReleaseOutcome {
         return new CommandRefusalException(
             $code,
             $message,
-            'do not act on this outcome; inspect private operator evidence and the frozen plan under .duo/releases'
+            'do not act on this outcome; inspect private operator evidence and the frozen plan under .wprism/releases'
         );
     }
 }

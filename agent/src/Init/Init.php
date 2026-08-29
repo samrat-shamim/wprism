@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/InitPlanner.php';
 require_once __DIR__ . '/InitConfirmation.php';
@@ -13,7 +13,7 @@ final class Init {
     public const FORMAT = InitProtocol::PLAN_FORMAT;
 
     /**
-     * $allowUnmanagedPlugins is `wp duo init --allow-unmanaged-plugins`, and
+     * $allowUnmanagedPlugins is `wp wprism init --allow-unmanaged-plugins`, and
      * the same value must be supplied to confirm(): it is inside the proposal
      * digest (InitPlanner::ALLOW_UNMANAGED_PLUGINS).
      *
@@ -28,7 +28,7 @@ final class Init {
     }
 
     /**
-     * $lockPlan is `wp duo init --code-lock-b64`, and like
+     * $lockPlan is `wp wprism init --code-lock-b64`, and like
      * $allowUnmanagedPlugins it must be supplied identically to proposal():
      * the classification is inside the digest (InitPlanner::CODE_LOCK_ARGUMENT).
      *

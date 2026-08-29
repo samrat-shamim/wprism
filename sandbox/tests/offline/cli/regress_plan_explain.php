@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Offline DUO-3345 regression for the value-free explanation model.
+ * Offline issue #3345 regression for the value-free explanation model.
  * Product routing and the strict live observation boundary have their own
  * driver/live assertions; this fixture locks the pure report projected from
  * compiler, policy, reference-graph, and exact action-selection evidence.
@@ -24,11 +24,11 @@ require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php
 require_once __DIR__ . '/../../../../agent/src/Delete/Deletion.php';
 require_once __DIR__ . '/../../../../agent/src/Review/PlanExplanation.php';
 
-use Duo\CommandRefusalException;
-use Duo\CompiledRepository;
-use Duo\OptionState;
-use Duo\PlanExplanation;
-use Duo\Policy;
+use WPrism\CommandRefusalException;
+use WPrism\CompiledRepository;
+use WPrism\OptionState;
+use WPrism\PlanExplanation;
+use WPrism\Policy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -147,7 +147,7 @@ $report = PlanExplanation::build(
     ['adopt_by_slug' => [], 'force_unresolved_refs' => false, 'compiled_artifact_provided' => false]
 );
 
-$check(($report['format'] ?? null) === 'duo-explain/v1' && ($report['ok'] ?? null) === true,
+$check(($report['format'] ?? null) === 'wprism-explain/v1' && ($report['ok'] ?? null) === true,
     'report is an unambiguous versioned success');
 $check(
     ($report['selector']['copyable'] ?? null) === PlanExplanation::selectorForOutput('update', $post)
@@ -265,7 +265,7 @@ $deletionCompiled = CompiledRepository::create([
         'type' => 'deletion', 'path' => 'deletions/' . $post . '.json',
         'hash' => hash('sha256', 'tombstone'), 'content' => $secret,
         'data' => [
-            'format' => 'duo-deletion/v1', 'uuid' => $post, 'kind' => 'post', 'type' => 'product',
+            'format' => 'wprism-deletion/v1', 'uuid' => $post, 'kind' => 'post', 'type' => 'product',
             'expected_hash' => hash('sha256', 'low entropy'), 'expected_revision' => hash('sha256', 'old'),
             'source_path' => $postEntity['path'],
         ],
@@ -301,7 +301,7 @@ $check(
 );
 
 echo "\n== strict observation owns no repair, provider, or action authority ==\n";
-$privateIdentityFailure = 'duo: duplicate _duo_uuid 11111111-1111-7111-8111-111111111111 is attached to post:12, post:99';
+$privateIdentityFailure = 'wprism: duplicate _wprism_uuid 11111111-1111-7111-8111-111111111111 is attached to post:12, post:99';
 $identityRefusal = CommandRefusalException::explainObservationPrecondition(
     new RuntimeException($privateIdentityFailure)
 );
@@ -359,7 +359,7 @@ $check(
         && str_contains($buildPost, '$this->mediaCapture->capture(')
         && str_contains($buildPost, '$strictReadOnly')
         && str_contains((string) $mediaCaptureSource, 'if (!$strictReadOnly) {')
-        && str_contains((string) $mediaCaptureSource, "'duo_attachment_capture_source'")
+        && str_contains((string) $mediaCaptureSource, "'wprism_attachment_capture_source'")
         && str_contains((string) $mediaCaptureSource, 'external offload hook is deliberately not invoked by explain'),
     'strict attachment observation uses only local bytes and refuses rather than invoking an offload provider hook'
 );

@@ -113,14 +113,14 @@ function menu_item(int $id, string $status, int $position, string $uuid, string 
         'post_title' => $title,
         'post_content' => "$title body",
         'post_excerpt' => "$title attr",
-        'duo_uuid' => $uuid,
+        'wprism_uuid' => $uuid,
     ];
 }
 
 $root = dirname(__DIR__, 4);
 require_once "$root/agent/src/Capture/MenuCapture.php";
 
-use Duo\MenuCapture;
+use WPrism\MenuCapture;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -133,10 +133,10 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 };
 
 $check(class_exists(MenuCapture::class, false), 'MenuCapture loads as a direct offline boundary');
-$check(!class_exists(Duo\Capture::class, false), 'MenuCapture does not load Duo\\Capture');
-$check(!class_exists(Duo\Policy::class, false), 'MenuCapture does not load Duo\\Policy');
-$check(!class_exists(Duo\Tokens::class, false), 'MenuCapture does not load Duo\\Tokens');
-$check(!class_exists(Duo\Ledger::class, false), 'MenuCapture does not load Duo\\Ledger');
+$check(!class_exists(WPrism\Capture::class, false), 'MenuCapture does not load WPrism\\Capture');
+$check(!class_exists(WPrism\Policy::class, false), 'MenuCapture does not load WPrism\\Policy');
+$check(!class_exists(WPrism\Tokens::class, false), 'MenuCapture does not load WPrism\\Tokens');
+$check(!class_exists(WPrism\Ledger::class, false), 'MenuCapture does not load WPrism\\Ledger');
 
 $wpdb = new MenuCaptureFakeWpdb();
 $GLOBALS['wpdb'] = $wpdb;
@@ -354,7 +354,7 @@ $normalizedMenuSql = 'SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.
     . ' FROM wp_terms t JOIN wp_term_taxonomy tt ON tt.term_id = t.term_id'
     . " WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC";
 $normalizedItemSql = 'SELECT p.*, (SELECT pm.meta_value FROM wp_postmeta pm'
-    . " WHERE pm.post_id = p.ID AND pm.meta_key = '_duo_uuid' ORDER BY pm.meta_id ASC LIMIT 1) AS duo_uuid"
+    . " WHERE pm.post_id = p.ID AND pm.meta_key = '_wprism_uuid' ORDER BY pm.meta_id ASC LIMIT 1) AS wprism_uuid"
     . ' FROM wp_posts p JOIN wp_term_relationships tr ON tr.object_id = p.ID'
     . " WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item'"
     . ' ORDER BY p.menu_order ASC, p.ID ASC';
@@ -400,7 +400,7 @@ $postRefRejected = false;
 try {
     $capture->capture(false, false);
 } catch (Throwable $e) {
-    $postRefRejected = $e->getMessage() === "duo: menu 'primary-menu' item 101 points at unmanaged post 9";
+    $postRefRejected = $e->getMessage() === "wprism: menu 'primary-menu' item 101 points at unmanaged post 9";
 }
 $check($postRefRejected, 'a menu-item post target outside canonical identity still refuses exactly');
 $tokens->refs['post'][9] = '{{post:post-nine}}';
@@ -409,7 +409,7 @@ $termRefRejected = false;
 try {
     $capture->capture(false, false);
 } catch (Throwable $e) {
-    $termRefRejected = $e->getMessage() === "duo: menu 'primary-menu' item 102 points at unmanaged term 5";
+    $termRefRejected = $e->getMessage() === "wprism: menu 'primary-menu' item 102 points at unmanaged term 5";
 }
 $check($termRefRejected, 'a menu-item taxonomy target outside canonical identity still refuses exactly');
 $tokens->refs['term'][5] = '{{term:term-five}}';

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3408: every premise/answer assertion helper the conformance
+# Regression — issue #3408: every premise/answer assertion helper the conformance
 # seeds and postdeploy hooks call must be DEFINED in the shared fragment
 # (sandbox/conformance/asserts.sh), and every harness that sources those hooks
 # must source the fragment. The defect class this pins: a helper added to one
@@ -79,7 +79,7 @@ pass "capture-plan mode is closed, convention-hooked, and terminates explicitly 
 # retired so adding an adapter never edits conformance infrastructure.
 for manifest in ../adapter-packages/*; do
   name=${manifest##*/}
-  [ "$name" = duo-agency-cpt ] && continue
+  [ "$name" = wprism-agency-cpt ] && continue
   [ -f "$manifest/tests/conformance/entry.json" ] \
     && [ -f "$manifest/tests/conformance/seed.sh" ] \
     && [ -f "$manifest/tests/conformance/check.sh" ] \
@@ -120,7 +120,7 @@ pass 'exact-version workflows and boundary helpers are package-owned and selecte
 # hazard: it must be completely invisible to ACF. The same probe proves a new
 # valid package runs without a driver edit and an incomplete capsule refuses
 # before Docker or any pair mutation can begin.
-MATRIX_PROBE=$(mktemp -d "${TMPDIR:-/tmp}/duo-certify-capsule.XXXXXX")
+MATRIX_PROBE=$(mktemp -d "${TMPDIR:-/tmp}/wprism-certify-capsule.XXXXXX")
 trap 'rm -rf -- "$MATRIX_PROBE"' EXIT
 mkdir -p "$MATRIX_PROBE/sandbox/tests/certify" "$MATRIX_PROBE/sandbox/conformance"
 cp tests/certify/certify_version_matrix.sh "$MATRIX_PROBE/sandbox/tests/certify/"
@@ -167,7 +167,7 @@ PROBE_OUT=$(VMATRIX_MANIFEST=missing-workflow bash "$MATRIX_PROBE/sandbox/tests/
   || fail "a package without a workflow did not refuse before pair startup: rc=$PROBE_RC output=$PROBE_OUT"
 pass 'selected capsule isolation, registry-free package addition, and missing-workflow refusal are executable offline contracts'
 
-# DUO-3391: wiring is necessary but not sufficient for require_duo_answered.
+# issue #3391: wiring is necessary but not sufficient for require_wprism_answered.
 # Its whole safety argument is that the "answered" marker is BROAD — a narrow
 # marker demotes a real, differently-shaped engine answer into an
 # "infrastructure failure:" signal, which silently weakens the engine assertion
@@ -178,7 +178,7 @@ probe() { # probe <mode> <capture> — prints the helper's verdict; exit 1 = it 
   (
     fail() { printf '%s\n' "$*"; exit 1; }
     . "$FRAGMENT"
-    require_duo_answered 'unit probe' "$1" "$2"
+    require_wprism_answered 'unit probe' "$1" "$2"
     printf 'ANSWERED\n'
   )
 }
@@ -186,29 +186,29 @@ expect_answered() { # expect_answered <label> <mode> <capture>
   local out rc=0
   out=$(probe "$2" "$3") || rc=$?
   [ "$rc" -eq 0 ] && [ "$out" = ANSWERED ] \
-    || fail "require_duo_answered $2 mode rejected $1 — a narrow marker turns a healthy engine answer into an infrastructure signal: $out"
+    || fail "require_wprism_answered $2 mode rejected $1 — a narrow marker turns a healthy engine answer into an infrastructure signal: $out"
 }
 expect_infrastructure() { # expect_infrastructure <label> <mode> <capture>
   local out rc=0
   out=$(probe "$2" "$3") || rc=$?
   [ "$rc" -ne 0 ] \
-    || fail "require_duo_answered $2 mode accepted $1 as an answer — a dead invocation would still reach the engine accusation"
+    || fail "require_wprism_answered $2 mode accepted $1 as an answer — a dead invocation would still reach the engine accusation"
   case "$out" in
     'infrastructure failure: '*) : ;;
-    *) fail "require_duo_answered $2 mode failed on $1 without the grep-able 'infrastructure failure:' prefix: $out" ;;
+    *) fail "require_wprism_answered $2 mode failed on $1 without the grep-able 'infrastructure failure:' prefix: $out" ;;
   esac
 }
 
-REFUSAL_ENVELOPE='{"format":"duo-command-refusal/v1","ok":false,"command":"capture","reason_code":"unsupported_deletion"}'
-COMPOSE_DEATH=' Container duo-pair-cli1-1  Creating
+REFUSAL_ENVELOPE='{"format":"wprism-command-refusal/v1","ok":false,"command":"capture","reason_code":"unsupported_deletion"}'
+COMPOSE_DEATH=' Container wprism-pair-cli1-1  Creating
 Error response from daemon: could not create container: context deadline exceeded'
 
-expect_answered 'a duo-command-refusal/v1 envelope' json "$REFUSAL_ENVELOPE"
+expect_answered 'a wprism-command-refusal/v1 envelope' json "$REFUSAL_ENVELOPE"
 expect_answered 'a plan success summary object' json '{"create":[],"update":[],"conflict":[]}'
-# The widening this pins: `wp duo pending --format=json` answers with a LIST,
+# The widening this pins: `wp wprism pending --format=json` answers with a LIST,
 # and empty is its healthy answer (conformance/checks/core.sh asserts exactly
 # `[]`). Object-only would report that engine as dead infrastructure.
-expect_answered 'an empty JSON array (duo pending answers [] when clean)' json '[]'
+expect_answered 'an empty JSON array (wprism pending answers [] when clean)' json '[]'
 expect_answered 'a populated JSON array' json '[{"section":"widgets","key":"regress_fake_type"}]'
 # ...without changing the mode's read: still the LAST non-empty line.
 expect_answered 'an envelope followed by blank lines' json "$REFUSAL_ENVELOPE
@@ -222,26 +222,26 @@ expect_infrastructure 'a whitespace-only capture' json $' \t\n\n '
 expect_infrastructure 'multiple JSON values on one last non-empty line' json '{"first":true} {"second":true}'
 expect_infrastructure 'a bare JSON scalar' json '"refused"'
 
-expect_answered "wp-cli's Error: framing" human 'Error: duo: deletion intent for table:nf3_forms is unsupported'
+expect_answered "wp-cli's Error: framing" human 'Error: wprism: deletion intent for table:nf3_forms is unsupported'
 expect_answered "wp-cli's Success: framing" human 'Success: captured 12 posts, 4 terms -> /siterepo/state'
 expect_answered "wp-cli's Warning: framing" human 'Warning: regen_pending markers outstanding'
-expect_answered "duo's own message prefix without wp-cli framing" human 'duo: mapped identity history is missing'
+expect_answered "wprism's own message prefix without wp-cli framing" human 'wprism: mapped identity history is missing'
 expect_answered "PHP's own fatal framing" human 'PHP Fatal error:  Uncaught RuntimeException'
 expect_infrastructure 'compose container-creation chatter' human "$COMPOSE_DEATH"
 expect_infrastructure 'an empty capture' human ''
-pass "require_duo_answered accepts every shape a live duo answer takes (json: object OR array; human: wp-cli/duo/PHP framing) and only fires on a capture with no answer in it"
+pass "require_wprism_answered accepts every shape a live wprism answer takes (json: object OR array; human: wp-cli/wprism/PHP framing) and only fires on a capture with no answer in it"
 
 capture_probe() { # <success|refusal|dead>
   (
     fail() { printf '%s\n' "$*"; exit 1; }
     . "$FRAGMENT"
-    fake_duo() {
+    fake_wprism() {
       case "$1" in
         success)
           printf 'compose prelude\n{"canary":"clean"}\n'
           ;;
         refusal)
-          printf '{"format":"duo-command-refusal/v1","ok":false,"command":"apply"}\n'
+          printf '{"format":"wprism-command-refusal/v1","ok":false,"command":"apply"}\n'
           return 7
           ;;
         dead)
@@ -251,30 +251,30 @@ capture_probe() { # <success|refusal|dead>
       esac
     }
     RESULT=unset
-    capture_duo_json_success RESULT 'unit Duo apply' fake_duo "$1"
+    capture_wprism_json_success RESULT 'unit WPrism apply' fake_wprism "$1"
     printf 'RESULT=%s\n' "$RESULT"
   ) 2>&1
 }
 CAPTURE_SUCCESS=$(capture_probe success)
 [ "$CAPTURE_SUCCESS" = 'RESULT={"canary":"clean"}' ] \
-  || fail "capture_duo_json_success did not return the exact final success envelope: $CAPTURE_SUCCESS"
+  || fail "capture_wprism_json_success did not return the exact final success envelope: $CAPTURE_SUCCESS"
 CAPTURE_REFUSAL=$(capture_probe refusal) && CAPTURE_REFUSAL_RC=0 || CAPTURE_REFUSAL_RC=$?
 [ "$CAPTURE_REFUSAL_RC" -ne 0 ] \
-  && grep -Fq '"format":"duo-command-refusal/v1"' <<<"$CAPTURE_REFUSAL" \
-  && grep -Fq 'unit Duo apply failed with exit 7' <<<"$CAPTURE_REFUSAL" \
-  || fail "capture_duo_json_success swallowed or misclassified a nonzero Duo envelope: $CAPTURE_REFUSAL"
+  && grep -Fq '"format":"wprism-command-refusal/v1"' <<<"$CAPTURE_REFUSAL" \
+  && grep -Fq 'unit WPrism apply failed with exit 7' <<<"$CAPTURE_REFUSAL" \
+  || fail "capture_wprism_json_success swallowed or misclassified a nonzero WPrism envelope: $CAPTURE_REFUSAL"
 CAPTURE_DEAD=$(capture_probe dead) && CAPTURE_DEAD_RC=0 || CAPTURE_DEAD_RC=$?
 [ "$CAPTURE_DEAD_RC" -ne 0 ] \
-  && grep -Fq 'infrastructure failure: unit Duo apply was never answered' <<<"$CAPTURE_DEAD" \
-  && ! grep -Fq 'unit Duo apply failed with exit 9' <<<"$CAPTURE_DEAD" \
-  || fail "capture_duo_json_success accused the engine after a dead transport: $CAPTURE_DEAD"
-grep -q '^capture_duo_json_success ' conformance/run.sh \
+  && grep -Fq 'infrastructure failure: unit WPrism apply was never answered' <<<"$CAPTURE_DEAD" \
+  && ! grep -Fq 'unit WPrism apply failed with exit 9' <<<"$CAPTURE_DEAD" \
+  || fail "capture_wprism_json_success accused the engine after a dead transport: $CAPTURE_DEAD"
+grep -q '^capture_wprism_json_success ' conformance/run.sh \
   || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
-grep -Eq 'require_duo_answered capture_duo_json_success require_observed_nonempty' conformance/run.sh \
+grep -Eq 'require_wprism_answered capture_wprism_json_success require_observed_nonempty' conformance/run.sh \
   || fail "manifest check subprocesses cannot call the refusal-preserving JSON command wrapper"
 grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode' conformance/run.sh \
   || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
-grep -q '^export DUO_ARTIFACT_LIBRARY_ROOT$' conformance/run.sh \
+grep -q '^export WPRISM_ARTIFACT_LIBRARY_ROOT$' conformance/run.sh \
   || fail "package check subprocesses do not receive a stable artifact-library repository root"
 grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_library_participant_context' conformance/run.sh \
   && grep -Eq 'artifact_library_emit' conformance/run.sh \
@@ -283,18 +283,18 @@ grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_l
 grep -Fq 'archive_root=$(artifact_library_platform_jq -r --arg slug "$slug" --arg version "$version"' \
   conformance/run.sh \
   || fail "conformance theme archive roots are not resolved from the explicit platform library"
-! grep -q 'APPLY_JSON=.*duo apply.*| tail -1' conformance/run.sh \
+! grep -q 'APPLY_JSON=.*wprism apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
 pass "conformance children receive assertion, lifecycle, and artifact-library helpers; apply preserves answered refusals"
 
 # A mode typo must be a caller bug, never an infrastructure verdict: it may not
 # borrow the prefix operators grep to route a failure away from the engine.
 TYPO_OUT=$(probe jsonn "$REFUSAL_ENVELOPE") && TYPO_RC=0 || TYPO_RC=$?
-[ "$TYPO_RC" -ne 0 ] || fail "require_duo_answered accepted an unknown mode silently"
+[ "$TYPO_RC" -ne 0 ] || fail "require_wprism_answered accepted an unknown mode silently"
 case "$TYPO_OUT" in
   'infrastructure failure: '*) fail "an unknown mode reported itself as an infrastructure failure: $TYPO_OUT" ;;
 esac
-grep -q "^require_duo_answered: unknown mode 'jsonn' (expected human|json)$" <<<"$TYPO_OUT" \
+grep -q "^require_wprism_answered: unknown mode 'jsonn' (expected human|json)$" <<<"$TYPO_OUT" \
   || fail "an unknown mode did not name itself as a caller bug: $TYPO_OUT"
 pass "an unknown mode fails loudly as a caller bug, outside the infrastructure-failure grammar"
 

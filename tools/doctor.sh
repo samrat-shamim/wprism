@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# tools/doctor.sh -- fresh-checkout diagnosis for the duo-wp developer loop.
+# tools/doctor.sh -- fresh-checkout diagnosis for the wprism developer loop.
 #
 # WHY THIS EXISTS
 # ---------------
@@ -47,7 +47,7 @@ usage() {
     cat <<'TXT'
 usage: bash tools/doctor.sh [--fix] [--no-pairs] [--no-color]
 
-Diagnoses a duo-wp checkout for the developer loop and prints one ok/WARN/FAIL
+Diagnoses a wprism checkout for the developer loop and prints one ok/WARN/FAIL
 line per check, each failure carrying the exact remedy command.
 
   --fix        apply the two safe remedies: `composer install` and
@@ -154,7 +154,7 @@ if ! have git; then
     git_ok=0
 elif ! git rev-parse --git-dir >/dev/null 2>&1; then
     fail "$REPO_ROOT is not a Git working tree"
-    remedy "git clone https://github.com/duotronic-ai/duo-wp && bash duo-wp/tools/doctor.sh"
+    remedy "git clone https://github.com/duotronic-ai/wprism && bash wprism/tools/doctor.sh"
     git_ok=0
 fi
 
@@ -175,11 +175,11 @@ fi
 
 # ---------------------------------------------------------- repository anchor
 
-# Cheapest proof that $REPO_ROOT is duo-wp and not some parent directory the
+# Cheapest proof that $REPO_ROOT is wprism and not some parent directory the
 # script was copied into: both roots of the source adapter library the engine
 # resolves at Policy::load() time. Every check below reads paths relative to it.
 if [ ! -d adapter-packages ] || [ ! -d platform/adapter-library ]; then
-    fail "adapter-packages/ or platform/adapter-library/ is missing -- this is not a duo-wp checkout"
+    fail "adapter-packages/ or platform/adapter-library/ is missing -- this is not a wprism checkout"
     remedy "re-clone the repository"
 fi
 
@@ -417,7 +417,7 @@ cat <<'TXT'
   php tools/offline.php -j8         the whole offline corpus in parallel, one log per suite
   php tools/offline.php --changed   only the suites your diff can affect (iteration only)
   php tools/affected.php --explain  why each suite was selected
-  make regress-offline-all          THE canonical merge gate -- unconditional (DUO-3285)
+  make regress-offline-all          THE canonical merge gate -- unconditional (issue #3285)
   make release-gate                 capability sources validate; generated artifacts match their source
 
   New here? docs/dev-setup.md, then docs/agents/linear-loop.md.

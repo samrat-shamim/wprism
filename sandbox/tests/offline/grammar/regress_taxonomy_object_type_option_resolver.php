@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for pure taxonomy option-derived object-type
- * declaration resolution (DUO-3348 slice 51).
+ * declaration resolution (issue #3348 slice 51).
  */
 declare(strict_types=1);
 
@@ -16,7 +16,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\TaxonomyObjectTypeOptionResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\TaxonomyObjectTypeOptionResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -36,7 +36,7 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\TaxonomyObjectTypeOptionResolver;
+use WPrism\TaxonomyObjectTypeOptionResolver;
 
 $resolverSource = (string) file_get_contents($resolverPath);
 $check(
@@ -89,7 +89,7 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->object_type_option_refs('first_wins') === $firstRows

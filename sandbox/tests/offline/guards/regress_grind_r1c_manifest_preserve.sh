@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regression — DUO-3362: grind_r1c_agency.sh must NOT regenerate the committed
-# adapter-packages/duo-agency-cpt/package/manifest.json wholesale from `policy-to-manifest` output. Since
-# DUO-3338 that manifest carries hand-authored `providers`/`actions` (the shipped
-# proof a custom plugin can advertise a provider via the `duo_providers` filter)
+# Regression — issue #3362: grind_r1c_agency.sh must NOT regenerate the committed
+# adapter-packages/wprism-agency-cpt/package/manifest.json wholesale from `policy-to-manifest` output. Since
+# issue #3338 that manifest carries hand-authored `providers`/`actions` (the shipped
+# proof a custom plugin can advertise a provider via the `wprism_providers` filter)
 # plus rationale `notes`, none of which policy-to-manifest emits — a wholesale
 # overwriting the package manifest silently deleted them, and nothing failed
 # until the live provider-contract regression next ran. The grind must instead
@@ -15,7 +15,7 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 G=tests/grind/grind_r1c_agency.sh
-M=../adapter-packages/duo-agency-cpt/package/manifest.json
+M=../adapter-packages/wprism-agency-cpt/package/manifest.json
 [ -f "$G" ] || fail "$G is missing"
 [ -f "$M" ] || fail "$M is missing"
 
@@ -26,7 +26,7 @@ jq -e '(.providers // [] | length) > 0 and (.actions // [] | length) > 0' "$M" >
 
 # The grind must NOT redirect policy-to-manifest output over the committed file
 # (comment lines that merely describe the old bug are excluded).
-if grep -nE '>[[:space:]]*\.\./adapter-packages/duo-agency-cpt/package/manifest\.json' "$G" | grep -vE '^[0-9]+:[[:space:]]*#'; then
+if grep -nE '>[[:space:]]*\.\./adapter-packages/wprism-agency-cpt/package/manifest\.json' "$G" | grep -vE '^[0-9]+:[[:space:]]*#'; then
   fail "$G still overwrites the committed manifest wholesale (deletes hand-authored providers/actions)"
 fi
 

@@ -3,7 +3,7 @@
 # (free) + WooCommerce + Storefront, two languages (en default / de),
 # translated Home/About pages, a translated product category, translated
 # pa_color attribute terms, one translated simple product, and an
-# UNTRANSLATED variable product (Duo Tee: pa_size x pa_color, 4 variations)
+# UNTRANSLATED variable product (WPrism Tee: pa_size x pa_color, 4 variations)
 # — deliberately kept English-only so its round-trip findings aren't
 # confounded with the translation-mechanism findings. Own pair.sh-managed
 # pair r3a (8850/8851; see docs/sandbox.md) — this script never runs
@@ -25,9 +25,9 @@
 #  3. Per-language menus: a purpose-built second-language menu's own
 #     structure/items always round-tripped correctly; whether it's actually
 #     USED at its location on a fresh target used to depend on the
-#     polylang option's `nav_menus` sub-key, which was excluded from Duo
+#     polylang option's `nav_menus` sub-key, which was excluded from WPrism
 #     capture entirely, separate from core.json's language-blind theme_mods
-#     capture. DUO-3233's sub_keys mechanism (task #121) now declares
+#     capture. issue #3233's sub_keys mechanism (task #121) now declares
 #     `nav_menus` (alongside post_types/taxonomies) an authored, captured/
 #     applied sub-key of the SAME option (manifests/polylang.json) — this
 #     means the second menu lands at its per-language location on a fresh
@@ -40,14 +40,14 @@
 #     global phase-1 pass creates every typed-table and term row before any
 #     phase-2 post relationship write, so the first taxesByObjectType()
 #     lookup deterministically sees pa_size/pa_color in the live table.
-#     DUO-3280 separately adds the compiled polylang.post_types value to the
+#     issue #3280 separately adds the compiled polylang.post_types value to the
 #     frozen `language` taxonomy object_type, so the same first apply writes
 #     language relationships too. This fixture now asserts exact first-
 #     apply convergence and contains no manual config/content-change retry.
 #
 # Re-run safety: r3a1/r3a2 are never torn down (pair.sh destroy is off-
 # limits for a script re-run — other agents may share the fleet), so every
-# run wipes WP content, Polylang's own language/option state, the duo
+# run wipes WP content, Polylang's own language/option state, the wprism
 # ledger tables, and the site-repo git state from scratch. WordPress core
 # install and the WooCommerce/Polylang/Storefront installs are skipped on
 # repeat runs (pair.sh's own idempotent `up`, plus is-active guards here).
@@ -61,8 +61,8 @@ PORT1=8850
 PORT2=8851
 R3A1="http://localhost:$PORT1"
 R3A2="http://localhost:$PORT2"
-export DUO_PAIR=r3a DUO_PORT1=$PORT1 DUO_PORT2=$PORT2
-COMPOSE="docker compose -p duo-r3a -f pair.yml -f pair.http.yml"
+export WPRISM_PAIR=r3a WPRISM_PORT1=$PORT1 WPRISM_PORT2=$PORT2
+COMPOSE="docker compose -p wprism-r3a -f pair.yml -f pair.http.yml"
 
 wp_env() { # wp_env <1|2> <wp args...>
   local side="$1"; shift
@@ -71,7 +71,7 @@ wp_env() { # wp_env <1|2> <wp args...>
 wp_1() { wp_env 1 "$@"; }
 wp_2() { wp_env 2 "$@"; }
 
-# DUO-3300: Polylang's `language` term descriptions are plugin-owned,
+# issue #3300: Polylang's `language` term descriptions are plugin-owned,
 # PHP-serialized configuration records. Read them through raw SQL so this
 # assertion cannot be fooled by WP_Term's in-process cache. The historical
 # R3-A repair hid the first failing boundary; every durable checkpoint now
@@ -134,10 +134,10 @@ reset_env_state() { # reset_env_state <1|2>
   wp_env "$side" db query "DELETE FROM wp_woocommerce_attribute_taxonomies" >/dev/null 2>&1 || true
   wp_env "$side" transient delete wc_attribute_taxonomies >/dev/null 2>&1 || true
   wp_env "$side" theme activate twentytwentyone >/dev/null 2>&1 || true
-  wp_env "$side" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
-  wp_env "$side" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
-  wp_env "$side" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
-  wp_env "$side" db query "TRUNCATE TABLE wp_duo_journal" >/dev/null 2>&1 || true
+  wp_env "$side" db query "TRUNCATE TABLE wp_wprism_map" >/dev/null 2>&1 || true
+  wp_env "$side" db query "TRUNCATE TABLE wp_wprism_state" >/dev/null 2>&1 || true
+  wp_env "$side" db query "TRUNCATE TABLE wp_wprism_kv" >/dev/null 2>&1 || true
+  wp_env "$side" db query "TRUNCATE TABLE wp_wprism_journal" >/dev/null 2>&1 || true
   # Matching WooCommerce/Polylang's own re-registration needs on a re-run
   # (r1b's exact finding: activate_plugin() on an ALREADY-active plugin is a
   # no-op, so a deactivate+reactivate cycle is what actually re-runs setup).
@@ -154,7 +154,7 @@ reset_env_state 1
 reset_env_state 2
 pass "both envs installed; content/ledger/Polylang state clean"
 
-say "activate Storefront on r3a1 (real admin action — exercises wp duo deploy's switch_theme() path on r3a2 later); r3a2 stays on twentytwentyone until deploy"
+say "activate Storefront on r3a1 (real admin action — exercises wp wprism deploy's switch_theme() path on r3a2 later); r3a2 stays on twentytwentyone until deploy"
 wp_1 theme activate storefront
 [ "$(wp_1 theme list --status=active --field=name)" = "storefront" ] || fail "storefront did not activate on r3a1"
 pass "storefront active on r3a1"
@@ -200,7 +200,7 @@ echo 'configured' . PHP_EOL;
 # option's post_types/taxonomies sub-arrays back to empty rather than fixing
 # anything -- a single update_option() call above is what actually needs to
 # happen, and it correctly takes effect on the very next fresh wp-cli
-# process, checked below via the SAME signal Duo's own engine reads
+# process, checked below via the SAME signal WPrism's own engine reads
 # (get_taxonomy()->object_type), not Polylang's separate (and, in earlier
 # investigation, flaky-seeming) pll_is_translated_post_type() cache.
 # Even the single-write approach isn't 100% immediate in every run (observed
@@ -246,35 +246,35 @@ pass "Apparel ($APPAREL_EN) / Bekleidung ($APPAREL_DE)"
 
 say "translated pages: Home/Startseite, About/Uber uns"
 PAGE_IDS=$(wp_1 eval "
-\$home_en = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'Home','post_content'=>'<!-- wp:paragraph --><p>Welcome to the Duo multilingual shop.</p><!-- /wp:paragraph -->','post_author'=>1], 'en');
-\$home_de = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'Startseite','post_content'=>'<!-- wp:paragraph --><p>Willkommen im mehrsprachigen Duo-Shop.</p><!-- /wp:paragraph -->','post_author'=>1,'translations'=>['en'=>\$home_en]], 'de');
-\$about_en = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'About','post_content'=>'<!-- wp:paragraph --><p>Duo is a small shop selling apparel in two languages.</p><!-- /wp:paragraph -->','post_author'=>1], 'en');
-\$about_de = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'Uber uns','post_content'=>'<!-- wp:paragraph --><p>Duo ist ein kleiner Laden.</p><!-- /wp:paragraph -->','post_author'=>1,'translations'=>['en'=>\$about_en]], 'de');
+\$home_en = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'Home','post_content'=>'<!-- wp:paragraph --><p>Welcome to the WPrism multilingual shop.</p><!-- /wp:paragraph -->','post_author'=>1], 'en');
+\$home_de = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'Startseite','post_content'=>'<!-- wp:paragraph --><p>Willkommen im mehrsprachigen WPrism-Shop.</p><!-- /wp:paragraph -->','post_author'=>1,'translations'=>['en'=>\$home_en]], 'de');
+\$about_en = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'About','post_content'=>'<!-- wp:paragraph --><p>WPrism is a small shop selling apparel in two languages.</p><!-- /wp:paragraph -->','post_author'=>1], 'en');
+\$about_de = pll_insert_post(['post_type'=>'page','post_status'=>'publish','post_title'=>'Uber uns','post_content'=>'<!-- wp:paragraph --><p>WPrism ist ein kleiner Laden.</p><!-- /wp:paragraph -->','post_author'=>1,'translations'=>['en'=>\$about_en]], 'de');
 echo \"\$home_en \$home_de \$about_en \$about_de\";
 ")
 read -r HOME_EN HOME_DE ABOUT_EN ABOUT_DE <<< "$PAGE_IDS"
 pass "Home ($HOME_EN/$HOME_DE) About ($ABOUT_EN/$ABOUT_DE)"
 
-say "shop: Duo Mug + Duo Cap (simple), Duo Tee (variable, pa_size x pa_color, 4 variations, UNTRANSLATED)"
-MUG_ID=$(wp_1 wc product create --name='Duo Mug' --slug=duo-mug --type=simple --status=publish --sku=DUO-MUG --regular_price=9.99 --manage_stock=true --stock_quantity=40 --user=admin --porcelain)
-CAP_ID=$(wp_1 wc product create --name='Duo Cap' --slug=duo-cap --type=simple --status=publish --sku=DUO-CAP --regular_price=14.99 --manage_stock=true --stock_quantity=30 --featured=true --user=admin --porcelain)
-TEE_ID=$(wp_1 wc product create --name='Duo Tee' --slug=duo-tee --type=variable --status=publish \
+say "shop: WPrism Mug + WPrism Cap (simple), WPrism Tee (variable, pa_size x pa_color, 4 variations, UNTRANSLATED)"
+MUG_ID=$(wp_1 wc product create --name='WPrism Mug' --slug=wprism-mug --type=simple --status=publish --sku=WPRISM-MUG --regular_price=9.99 --manage_stock=true --stock_quantity=40 --user=admin --porcelain)
+CAP_ID=$(wp_1 wc product create --name='WPrism Cap' --slug=wprism-cap --type=simple --status=publish --sku=WPRISM-CAP --regular_price=14.99 --manage_stock=true --stock_quantity=30 --featured=true --user=admin --porcelain)
+TEE_ID=$(wp_1 wc product create --name='WPrism Tee' --slug=wprism-tee --type=variable --status=publish \
   --attributes="[{\"id\":$SIZE_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Medium\"]},{\"id\":$COLOR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" \
   --user=admin --porcelain)
-V1=$(wp_1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-S-RED --regular_price=19.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" --manage_stock=true --stock_quantity=15 --user=admin --porcelain)
-wp_1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-S-BLUE --regular_price=19.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" --manage_stock=true --stock_quantity=12 --user=admin --porcelain >/dev/null
-wp_1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-M-RED --regular_price=21.99 --sale_price=18.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" --manage_stock=true --stock_quantity=10 --user=admin --porcelain >/dev/null
-wp_1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-M-BLUE --regular_price=21.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
+V1=$(wp_1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-S-RED --regular_price=19.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" --manage_stock=true --stock_quantity=15 --user=admin --porcelain)
+wp_1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-S-BLUE --regular_price=19.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" --manage_stock=true --stock_quantity=12 --user=admin --porcelain >/dev/null
+wp_1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-M-RED --regular_price=21.99 --sale_price=18.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" --manage_stock=true --stock_quantity=10 --user=admin --porcelain >/dev/null
+wp_1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-M-BLUE --regular_price=21.99 --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
 wp_1 eval "wc_get_product($TEE_ID)->set_default_attributes(['pa_size'=>'small','pa_color'=>'red']); wc_get_product($TEE_ID)->save();" >/dev/null
 pass "Mug=$MUG_ID Cap=$CAP_ID Tee=$TEE_ID (+4 variations, V1=$V1)"
 
-say "tag products with language + Apparel category; translate Duo Cap -> Duo Kappe (attempt product translation under free Polylang)"
+say "tag products with language + Apparel category; translate WPrism Cap -> WPrism Kappe (attempt product translation under free Polylang)"
 # NOTE: pll_set_post_language() -- Polylang's OWN documented API function --
 # was found to SILENTLY NO-OP for a just-enabled custom post type in this
 # exact scenario (confirmed by direct SQL: the wp_term_relationships row was
 # simply never written, no error) despite pll_is_translated_post_type() and
 # get_taxonomy('language')->object_type independently verifying correct
-# moments earlier -- a genuine Polylang write-path quirk, not a Duo issue
+# moments earlier -- a genuine Polylang write-path quirk, not a WPrism issue
 # (task #121, finding 7). wp_set_object_terms() directly is the reliable
 # workaround: it only depends on the taxonomy being registered (reliable),
 # not on Polylang's separate internal "is this type translated" cache
@@ -286,11 +286,11 @@ wp_set_object_terms($TEE_ID, 'en', 'language');
 wp_set_object_terms($MUG_ID, [$APPAREL_EN], 'product_cat');
 wp_set_object_terms($CAP_ID, [$APPAREL_EN], 'product_cat');
 wp_set_object_terms($TEE_ID, [$APPAREL_EN], 'product_cat');
-\$cap_de = wp_insert_post(['post_type'=>'product','post_status'=>'publish','post_title'=>'Duo Kappe','post_author'=>1], true);
+\$cap_de = wp_insert_post(['post_type'=>'product','post_status'=>'publish','post_title'=>'WPrism Kappe','post_author'=>1], true);
 wp_set_object_terms(\$cap_de, 'de', 'language');
 pll_save_post_translations(['en'=>$CAP_ID, 'de'=>\$cap_de]);
 wp_set_object_terms(\$cap_de, [$APPAREL_DE], 'product_cat');
-update_post_meta(\$cap_de, '_sku', 'DUO-CAP-DE');
+update_post_meta(\$cap_de, '_sku', 'WPRISM-CAP-DE');
 update_post_meta(\$cap_de, '_regular_price', '14.99');
 update_post_meta(\$cap_de, '_price', '14.99');
 update_post_meta(\$cap_de, '_manage_stock', 'yes');
@@ -301,10 +301,10 @@ update_post_meta(\$cap_de, '_downloadable', 'no');
 wp_set_object_terms(\$cap_de, ['simple'], 'product_type');
 echo \$cap_de;
 ")
-pass "Duo Kappe created ($CAP_DE), linked translation of Duo Cap ($CAP_ID)"
+pass "WPrism Kappe created ($CAP_DE), linked translation of WPrism Cap ($CAP_ID)"
 LANG_CHECK=$(wp_1 eval "var_export(['mug'=>pll_get_post_language($MUG_ID),'cap'=>pll_get_post_language($CAP_ID),'tee'=>pll_get_post_language($TEE_ID),'kappe'=>pll_get_post_language($CAP_DE)]);")
-grep -q "'mug' => 'en'" <<<"$LANG_CHECK" || fail "Duo Mug language tag did not take (see task #121 finding 7)"
-grep -q "'tee' => 'en'" <<<"$LANG_CHECK" || fail "Duo Tee language tag did not take (see task #121 finding 7)"
+grep -q "'mug' => 'en'" <<<"$LANG_CHECK" || fail "WPrism Mug language tag did not take (see task #121 finding 7)"
+grep -q "'tee' => 'en'" <<<"$LANG_CHECK" || fail "WPrism Tee language tag did not take (see task #121 finding 7)"
 pass "language tags verified to have actually landed (not just called)"
 
 say "per-language menus: Main Menu (en) / Hauptmenu (de), both assigned primary via Polylang's own per-language mapping"
@@ -322,14 +322,14 @@ wp_1 eval "
 \$o['nav_menus'] = ['storefront' => ['primary' => ['en' => $MENU_EN, 'de' => $MENU_DE]]];
 update_option('polylang', \$o);
 "
-pass "Main Menu ($MENU_EN) / Hauptmenu ($MENU_DE) — flat theme_mods names Main Menu only (core.json's language-blind capture); Polylang's OWN nav_menus option correctly names both per-language (DUO-3233's sub_keys mechanism now captures/applies this SAME sub-key — see task #121 and the render-check comments below)"
+pass "Main Menu ($MENU_EN) / Hauptmenu ($MENU_DE) — flat theme_mods names Main Menu only (core.json's language-blind capture); Polylang's OWN nav_menus option correctly names both per-language (issue #3233's sub_keys mechanism now captures/applies this SAME sub-key — see task #121 and the render-check comments below)"
 assert_language_descriptions 1 "after all source-side content and menu seeding"
 
 say "init site repo (own origin, own clones)"
-rm -rf siterepo/origin-r3a.git siterepo/r3a1/.git siterepo/r3a2 siterepo/r3a1/state siterepo/r3a1/site.duo.json
+rm -rf siterepo/origin-r3a.git siterepo/r3a1/.git siterepo/r3a2 siterepo/r3a1/state siterepo/r3a1/site.wprism.json
 git init --bare -b main siterepo/origin-r3a.git >/dev/null
 mkdir -p siterepo/r3a1
-cat > siterepo/r3a1/site.duo.json <<'EOF'
+cat > siterepo/r3a1/site.wprism.json <<'EOF'
 {
   "manifests": ["core", "woocommerce", "polylang"],
   "policy": {
@@ -344,39 +344,39 @@ EOF
 cp site-repo.gitignore.template siterepo/r3a1/.gitignore
 git -C siterepo/r3a1 init -q -b main
 git -C siterepo/r3a1 remote add origin ../origin-r3a.git
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test add -A
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test commit -qm "policy: multilingual WooCommerce shop scope"
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test push -qu origin main
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test add -A
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test commit -qm "policy: multilingual WooCommerce shop scope"
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test push -qu origin main
 pass "site repo initialized"
 
 say "core loop: capture -> pending -> classify the one real gap (product_count_product_cat term_meta) -> clean capture"
-wp_1 duo capture --repo=/siterepo >/dev/null
-PENDING_N=$(wp_1 duo pending --repo=/siterepo --format=json | tail -1 | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+wp_1 wprism capture --repo=/siterepo >/dev/null
+PENDING_N=$(wp_1 wprism pending --repo=/siterepo --format=json | tail -1 | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 if [ "$PENDING_N" != "0" ]; then
-  wp_1 duo classify --repo=/siterepo --set='term_meta:product_count_product_cat=runtime' >/dev/null
-  wp_1 duo capture --repo=/siterepo >/dev/null
+  wp_1 wprism classify --repo=/siterepo --set='term_meta:product_count_product_cat=runtime' >/dev/null
+  wp_1 wprism capture --repo=/siterepo >/dev/null
 fi
-PENDING_N2=$(wp_1 duo pending --repo=/siterepo --format=json | tail -1 | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+PENDING_N2=$(wp_1 wprism pending --repo=/siterepo --format=json | tail -1 | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 [ "$PENDING_N2" = "0" ] || fail "pending queue not clean after classify (got $PENDING_N2 items)"
 assert_language_descriptions 1 "after capture/classify/capture"
 pass "clean capture, zero pending items"
 
 say "hard lint gate + capture-twice determinism"
-wp_1 duo lint --repo=/siterepo
-wp_1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+wp_1 wprism lint --repo=/siterepo
+wp_1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r siterepo/r3a1/state siterepo/r3a1/.tmp-state2 || fail "capture is not deterministic"
 rm -rf siterepo/r3a1/.tmp-state2
 assert_language_descriptions 1 "after deterministic second capture"
 pass "lint clean, capture-twice diff empty"
 
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test add -A
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test commit -qm "capture: multilingual WooCommerce shop on r3a1" --allow-empty
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test push -q origin main
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test add -A
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test commit -qm "capture: multilingual WooCommerce shop on r3a1" --allow-empty
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test push -q origin main
 
-say "round-trip: clone into r3a2 (deliberately NO manual Polylang config — a genuinely fresh target), deploy (DUO-3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), apply"
+say "round-trip: clone into r3a2 (deliberately NO manual Polylang config — a genuinely fresh target), deploy (issue #3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), apply"
 rm -rf siterepo/r3a2
 git clone -q siterepo/origin-r3a.git siterepo/r3a2
-# DUO-3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
+# issue #3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
 # finding (theme/plugin installed but not active) that Apply::apply()'s
 # refuse-gate (agent/src/Apply/Apply.php:592) hard-blocks on unconditionally, with
 # no subset filtering -- every code_mismatch row blocks apply, unlike
@@ -388,18 +388,18 @@ git clone -q siterepo/origin-r3a.git siterepo/r3a2
 # reset_env_state) vs r3a1's captured stylesheet (storefront, activated for
 # real earlier in this script) is a real mismatch apply refuses outright.
 # Deploy first, same fix as grind_r1b_shop.sh's identical finding.
-DEPLOY0_JSON=$(wp_2 duo deploy --repo=/siterepo --format=json | tail -1)
+DEPLOY0_JSON=$(wp_2 wprism deploy --repo=/siterepo --format=json | tail -1)
 grep -q '"theme_switched":"storefront"' <<<"$DEPLOY0_JSON" || fail "deploy did not switch to storefront (got: $DEPLOY0_JSON)"
 [ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r3a2 after deploy"
-pass "r3a2 switched to Storefront via a real wp duo deploy — required BEFORE apply under DUO-3216"
+pass "r3a2 switched to Storefront via a real wp wprism deploy — required BEFORE apply under issue #3216"
 REV=$(git -C siterepo/r3a2 rev-parse HEAD)
-DUO3305_REPAIR=0
+WPRISM_ADAPTER_REPAIR=0
 set +e
-APPLY1_OUT=$(wp_env 2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
+APPLY1_OUT=$(wp_env 2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
 APPLY1_RC=$?
 set -e
 
-# DUO-3305, discovered by DUO-3274's current-main sweep: product_type is a
+# issue #3305, discovered by issue #3274's current-main sweep: product_type is a
 # derived Woo taxonomy and is therefore absent from captured state. When an
 # adopted variation receives a lower local id than its parent, the fresh
 # target loads the parent as simple. The sorted batch can then delete rows for
@@ -407,33 +407,33 @@ set -e
 # even when every child sorts later and all four rows exist, exact verification
 # still rightly fails because the simple parent object excludes its variation
 # graph from the expected projection. Keep this diagnostic branch until
-# DUO-3305 lands: it proves the exact failure, applies a narrowly labeled
+# issue #3305 lands: it proves the exact failure, applies a narrowly labeled
 # target-side repair so the rest of this independent grind can still run, and
 # automatically becomes a no-op when the engine closes the gap. This is not
-# claimed as Duo behavior.
+# claimed as WPrism behavior.
 if [ "$APPLY1_RC" -ne 0 ]; then
   grep -q "WooCommerce product attributes lookup verification failed" <<<"$APPLY1_OUT" \
     || fail "fresh-target apply failed for an unexpected reason (exit $APPLY1_RC): $APPLY1_OUT"
-  TEE_B2=$(wp_2 post list --post_type=product --name=duo-tee --field=ID)
-  [ -n "$TEE_B2" ] || fail "DUO-3305 diagnostic could not resolve the applied Duo Tee after the verifier refusal"
+  TEE_B2=$(wp_2 post list --post_type=product --name=wprism-tee --field=ID)
+  [ -n "$TEE_B2" ] || fail "issue #3305 diagnostic could not resolve the applied WPrism Tee after the verifier refusal"
   PRODUCT_TYPE_ROWS=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id JOIN wp_terms t ON t.term_id=tt.term_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy='product_type' AND t.slug='variable'" --skip-column-names)
-  [ "$PRODUCT_TYPE_ROWS" = "0" ] || fail "DUO-3305 expected the fresh target's uncaptured variable product_type relationship to be absent (got $PRODUCT_TYPE_ROWS)"
+  [ "$PRODUCT_TYPE_ROWS" = "0" ] || fail "issue #3305 expected the fresh target's uncaptured variable product_type relationship to be absent (got $PRODUCT_TYPE_ROWS)"
   TARGET_PRODUCT_TYPE=$(wp_2 eval "echo wc_get_product($TEE_B2)->get_type();")
-  [ "$TARGET_PRODUCT_TYPE" = "simple" ] || fail "DUO-3305 expected Woo to misclassify the fresh-target parent as simple without product_type (got $TARGET_PRODUCT_TYPE)"
+  [ "$TARGET_PRODUCT_TYPE" = "simple" ] || fail "issue #3305 expected Woo to misclassify the fresh-target parent as simple without product_type (got $TARGET_PRODUCT_TYPE)"
   LOOKUP_VARIATIONS=$(wp_2 db query "SELECT COUNT(DISTINCT product_id) FROM wp_wc_product_attributes_lookup WHERE product_or_parent_id=$TEE_B2 AND product_id<>$TEE_B2" --skip-column-names)
-  [ "$LOOKUP_VARIATIONS" -ge 0 ] && [ "$LOOKUP_VARIATIONS" -le 4 ] || fail "DUO-3305 diagnostic read an impossible variation lookup count (got $LOOKUP_VARIATIONS)"
+  [ "$LOOKUP_VARIATIONS" -ge 0 ] && [ "$LOOKUP_VARIATIONS" -le 4 ] || fail "issue #3305 diagnostic read an impossible variation lookup count (got $LOOKUP_VARIATIONS)"
   RELS_BEFORE_REPAIR=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
   LANG_BEFORE_REPAIR=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
-  pass "DUO-3305 reproduced exactly: uncaptured variable product_type made Woo load the parent as simple (lookup held $LOOKUP_VARIATIONS/4 child projections under this run's local-id ordering; post-refusal diagnostic state had $RELS_BEFORE_REPAIR/4 pa_* relationships and language=$LANG_BEFORE_REPAIR)"
+  pass "issue #3305 reproduced exactly: uncaptured variable product_type made Woo load the parent as simple (lookup held $LOOKUP_VARIATIONS/4 child projections under this run's local-id ordering; post-refusal diagnostic state had $RELS_BEFORE_REPAIR/4 pa_* relationships and language=$LANG_BEFORE_REPAIR)"
 
   wp_2 eval "wp_set_object_terms($TEE_B2, 'variable', 'product_type', false); clean_object_term_cache($TEE_B2, 'product'); clean_post_cache($TEE_B2);" >/dev/null
-  DUO3305_REPAIR=1
+  WPRISM_ADAPTER_REPAIR=1
   set +e
-  APPLY1_OUT=$(wp_env 2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
+  APPLY1_OUT=$(wp_env 2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
   APPLY1_RC=$?
   set -e
-  [ "$APPLY1_RC" -eq 0 ] || fail "DUO-3305's labeled product_type diagnostic repair did not allow the retry to converge (exit $APPLY1_RC): $APPLY1_OUT"
-  pass "DUO-3305 diagnostic repair confirmed: assigning the missing variable product_type makes the retry converge; the engine fix remains owned by DUO-3305"
+  [ "$APPLY1_RC" -eq 0 ] || fail "issue #3305's labeled product_type diagnostic repair did not allow the retry to converge (exit $APPLY1_RC): $APPLY1_OUT"
+  pass "issue #3305 diagnostic repair confirmed: assigning the missing variable product_type makes the retry converge; the engine fix remains owned by issue #3305"
 fi
 echo "$APPLY1_OUT"
 # Task #92 gave Apply::taxes_by_object_type() the same pattern_object_type()
@@ -454,44 +454,44 @@ assert_language_descriptions 2 "after initial target apply"
 pass "apply succeeded, canary clean, no unregistered-taxonomy warning"
 
 say "first-apply convergence: typed pa_* definitions, product relationships, and Polylang language all land with zero target-side repair"
-TEE_B2=$(wp_2 post list --post_type=product --name=duo-tee --field=ID)
+TEE_B2=$(wp_2 post list --post_type=product --name=wprism-tee --field=ID)
 REGISTERED_B2=$(wp_2 eval "var_export(['pa_size'=>taxonomy_exists('pa_size'),'pa_color'=>taxonomy_exists('pa_color')]);")
 grep -q "'pa_size' => true" <<<"$REGISTERED_B2" || fail "pa_size did not self-register on the fresh target (task #75 regression)"
 RELS_FIRST=$(wp_2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN ('pa_size','pa_color')" --skip-column-names)
 [ "$RELS_FIRST" = "4" ] || fail "expected all 4 pa_size/pa_color relationships on the first apply (got $RELS_FIRST) — the global phase-1 pass must land typed-table and term rows before phase-2 relationship writes"
 LANG_FIRST=$(wp_2 eval "var_export(pll_get_post_language($TEE_B2));")
-[ "$LANG_FIRST" = "'en'" ] || fail "expected Duo Tee language=en on the single, unretried first apply (got $LANG_FIRST) — DUO-3280's compiled object_type_from_option path must bypass the frozen registry"
-MUG_B2=$(wp_2 post list --post_type=product --name=duo-mug --field=ID)
-CAP_B2=$(wp_2 post list --post_type=product --name=duo-cap --field=ID)
-KAPPE_B2=$(wp_2 post list --post_type=product --name=duo-kappe --field=ID)
+[ "$LANG_FIRST" = "'en'" ] || fail "expected WPrism Tee language=en on the single, unretried first apply (got $LANG_FIRST) — issue #3280's compiled object_type_from_option path must bypass the frozen registry"
+MUG_B2=$(wp_2 post list --post_type=product --name=wprism-mug --field=ID)
+CAP_B2=$(wp_2 post list --post_type=product --name=wprism-cap --field=ID)
+KAPPE_B2=$(wp_2 post list --post_type=product --name=wprism-kappe --field=ID)
 LANG_ALL=$(wp_2 eval "var_export(['mug'=>pll_get_post_language($MUG_B2),'cap'=>pll_get_post_language($CAP_B2),'kappe'=>pll_get_post_language($KAPPE_B2)]);")
-grep -q "'mug' => 'en'" <<<"$LANG_ALL" || fail "expected Duo Mug language=en on first apply (got: $LANG_ALL)"
-grep -q "'cap' => 'en'" <<<"$LANG_ALL" || fail "expected Duo Cap language=en on first apply (got: $LANG_ALL)"
-grep -q "'kappe' => 'de'" <<<"$LANG_ALL" || fail "expected Duo Kappe language=de on first apply (got: $LANG_ALL)"
-if [ "$DUO3305_REPAIR" = "1" ]; then
-  pass "4/4 pa_* and all product languages converged after the explicitly labeled DUO-3305 diagnostic repair; DUO-3305 blocks this run from claiming a clean first-success proof"
+grep -q "'mug' => 'en'" <<<"$LANG_ALL" || fail "expected WPrism Mug language=en on first apply (got: $LANG_ALL)"
+grep -q "'cap' => 'en'" <<<"$LANG_ALL" || fail "expected WPrism Cap language=en on first apply (got: $LANG_ALL)"
+grep -q "'kappe' => 'de'" <<<"$LANG_ALL" || fail "expected WPrism Kappe language=de on first apply (got: $LANG_ALL)"
+if [ "$WPRISM_ADAPTER_REPAIR" = "1" ]; then
+  pass "4/4 pa_* and all product languages converged after the explicitly labeled issue #3305 diagnostic repair; issue #3305 blocks this run from claiming a clean first-success proof"
 else
   pass "single first apply is fully converged: 4/4 pa_* relationships and all product language relationships landed from captured configuration, with zero manual target config or forced content change"
 fi
 
-say "wp duo deploy on r3a2 again — DUO-3216 idempotency contract: already reconciled by the early deploy above, so this must be a genuine no-op"
-DEPLOY_JSON=$(wp_2 duo deploy --repo=/siterepo --format=json | tail -1)
+say "wp wprism deploy on r3a2 again — issue #3216 idempotency contract: already reconciled by the early deploy above, so this must be a genuine no-op"
+DEPLOY_JSON=$(wp_2 wprism deploy --repo=/siterepo --format=json | tail -1)
 grep -q '"theme_switched":null' <<<"$DEPLOY_JSON" || fail "expected a no-op re-deploy (theme already switched by the early deploy above) — got: $DEPLOY_JSON"
 grep -q '"activated":\[\]' <<<"$DEPLOY_JSON" || fail "expected zero plugin activations on an idempotent re-deploy — got: $DEPLOY_JSON"
 grep -q '"deactivated":\[\]' <<<"$DEPLOY_JSON" || fail "expected zero plugin deactivations on an idempotent re-deploy — got: $DEPLOY_JSON"
 [ "$(wp_2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not active on r3a2"
-pass "confirmed: re-running wp duo deploy once everything is already reconciled is a true no-op (zero hook fires)"
+pass "confirmed: re-running wp wprism deploy once everything is already reconciled is a true no-op (zero hook fires)"
 
 # task #88 (POST FIELD derived classification) landed mid-round and closes
 # #72 for real: product_variation.title is now classified 'derived' in
 # manifests/woocommerce.json (Policy::field_class()/Canon::post_hash_basis()).
 # Two things to prove here, not one, mirroring grind_r1b_shop.sh's own
 # post-#88 validation exactly (task #112) -- this round's own fixture
-# (Duo Tee, seeded pa_size x pa_color, i.e. NOT alphabetical order) is an
+# (WPrism Tee, seeded pa_size x pa_color, i.e. NOT alphabetical order) is an
 # INDEPENDENT check of the same fix on a different attribute ordering.
-say "acceptance (task #88, criterion 3): a title-ONLY self-heal on r3a2 alone (WooCommerce's own wc_get_product() read -- hook-free, raw \$wpdb, zero duo involvement) must NOT surface as drift/update/conflict in duo plan"
+say "acceptance (task #88, criterion 3): a title-ONLY self-heal on r3a2 alone (WooCommerce's own wc_get_product() read -- hook-free, raw \$wpdb, zero wprism involvement) must NOT surface as drift/update/conflict in wprism plan"
 wp_2 eval 'foreach (get_posts(["post_type"=>"product_variation","numberposts"=>-1,"post_status"=>"any"]) as $p) { wc_get_product($p->ID); }' >/dev/null
-PLAN_AFTER_HEAL=$(wp_2 duo plan --repo=/siterepo --format=json | tail -1)
+PLAN_AFTER_HEAL=$(wp_2 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN_AFTER_HEAL" | python3 -c "
 import json,sys
 p = json.load(sys.stdin)
@@ -500,10 +500,10 @@ sys.exit(1 if bad else 0)
 " || fail "a product_variation entity showed up in plan's drift/update/conflict after a title-ONLY self-heal (got: $PLAN_AFTER_HEAL) -- Canon::post_hash_basis() should make plan's hash comparison blind to a field classified derived"
 pass "confirmed: plan stays silent on a title-only divergence -- task #88's hash-basis mechanism verified on an INDEPENDENT fixture (multilingual + pa_size x pa_color, not the ordering #88 was developed against)"
 
-say "force WooCommerce's own title self-heal on r3a1 too (same real wc_get_product() mechanism, not a duo mechanism) then final byte-identity"
+say "force WooCommerce's own title self-heal on r3a1 too (same real wc_get_product() mechanism, not a wprism mechanism) then final byte-identity"
 wp_1 eval 'foreach (get_posts(["post_type"=>"product_variation","numberposts"=>-1,"post_status"=>"any"]) as $p) { wc_get_product($p->ID); }' >/dev/null
-wp_1 duo capture --repo=/siterepo >/dev/null
-wp_2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
+wp_1 wprism capture --repo=/siterepo >/dev/null
+wp_2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
 assert_language_descriptions 1 "after source WooCommerce read and final capture"
 assert_language_descriptions 2 "after target final capture"
 DIFF_OUT=$(diff -rq siterepo/r3a1/state siterepo/r3a2/.tmp-final || true)
@@ -520,11 +520,11 @@ echo "$DIFF_OUT"
 # section used to carve out with an anagram check: the parent's
 # _product_attributes array order -- which WooCommerce's variation-title
 # generator reads directly -- now survives capture/apply byte-for-byte, so
-# the generated title converges byte-identically too. DUO-3249
+# the generated title converges byte-identically too. issue #3249
 # (manifests/polylang.json reclassifying default_category to `derived`
 # once Polylang is pinned, per the owner ruling on that issue) closed the
 # THIRD, separate divergence this section used to carve out: Polylang
-# manages default_category PER LANGUAGE once DUO-3233's sub_keys
+# manages default_category PER LANGUAGE once issue #3233's sub_keys
 # propagation (task #121) completes its config on the target, so a
 # captured `authored` value from one environment was never actually safe
 # to replay onto another's own per-language default -- excluding it from
@@ -536,11 +536,11 @@ echo "$DIFF_OUT"
 # independent attribute ordering from grind_r1b_shop.sh's own fixture, PLUS
 # the multilingual Polylang setup this script's own name promises) is
 # exactly the confirmation #123's own acceptance criteria called for, now
-# joined by DUO-3249's own live proof on the same run.
-[ -z "$DIFF_OUT" ] || fail "unexpected byte differences after an identical forced self-heal on both sides -- with #88, #123, and DUO-3249 all closed, the entire tree must be byte-identical, zero exceptions (see diff output above)"
-pass "task #88, task #123, AND DUO-3249 all CLOSED for real -- TRUE zero-exclusion byte identity, including product_variation.title and options/core.json's default_category, no carve-outs anywhere"
-[ -e "siterepo/r3a1/state/posts/product_variation" ] && ls siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md >/dev/null 2>&1 \
-  || fail "expected product_variation files under siterepo/r3a1/state/posts/product_variation/*duo-tee-*.md, found none -- this assertion proves nothing about #123 if the fixture it depends on is missing"
+# joined by issue #3249's own live proof on the same run.
+[ -z "$DIFF_OUT" ] || fail "unexpected byte differences after an identical forced self-heal on both sides -- with #88, #123, and issue #3249 all closed, the entire tree must be byte-identical, zero exceptions (see diff output above)"
+pass "task #88, task #123, AND issue #3249 all CLOSED for real -- TRUE zero-exclusion byte identity, including product_variation.title and options/core.json's default_category, no carve-outs anywhere"
+[ -e "siterepo/r3a1/state/posts/product_variation" ] && ls siterepo/r3a1/state/posts/product_variation/*wprism-tee-*.md >/dev/null 2>&1 \
+  || fail "expected product_variation files under siterepo/r3a1/state/posts/product_variation/*wprism-tee-*.md, found none -- this assertion proves nothing about #123 if the fixture it depends on is missing"
 rm -rf siterepo/r3a2/.tmp-final
 
 # Commit r3a1's post-self-heal capture NOW, on main, before the divergent-
@@ -550,16 +550,16 @@ rm -rf siterepo/r3a2/.tmp-final
 # producing spurious extra merge conflicts on the variation files that have
 # nothing to do with the divergent-edit test itself (a real bug this script
 # hit once; fixed here, not worked around later).
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test add -A
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test commit -qm "capture: r3a1 post-self-heal state (task #88/#123 validation)" --allow-empty
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test push -q origin main
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test add -A
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test commit -qm "capture: r3a1 post-self-heal state (task #88/#123 validation)" --allow-empty
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test push -q origin main
 
 say "lint (final, hard gate, both sides)"
-wp_1 duo lint --repo=/siterepo
-wp_2 duo lint --repo=/siterepo
+wp_1 wprism lint --repo=/siterepo
+wp_2 wprism lint --repo=/siterepo
 pass "lint: 0 findings both sides"
 
-# DUO-3300 ruling: a fresh, action-boundary-instrumented run on pinned
+# issue #3300 ruling: a fresh, action-boundary-instrumented run on pinned
 # Polylang 3.8.6 never reproduced the old empty-description observation.
 # Source descriptions stayed valid through language/config writes, every
 # content/menu mutation, repeated capture/lint, and WooCommerce reads; target
@@ -582,13 +582,13 @@ assert_complete_html "$BODY1_EN" "r3a1 EN homepage"
 assert_complete_html "$BODY1_DE" "r3a1 DE homepage"
 assert_complete_html "$BODY2_EN" "r3a2 EN homepage"
 assert_complete_html "$BODY2_DE" "r3a2 DE homepage"
-grep -qi 'Duo' <<<"$BODY1_EN" || fail "r3a1 EN homepage missing expected content (${#BODY1_EN} bytes)"
+grep -qi 'WPrism' <<<"$BODY1_EN" || fail "r3a1 EN homepage missing expected content (${#BODY1_EN} bytes)"
 grep -q "$PORT2" <<<"$BODY1_EN" && fail "r3a1 output leaks r3a2's host:port" || true
 grep -qiE 'Hauptmenu|Startseite' <<<"$BODY1_DE" || fail "r3a1 DE homepage missing German content (${#BODY1_DE} bytes)"
-grep -qi 'Duo' <<<"$BODY2_EN" || fail "r3a2 EN homepage missing expected content (${#BODY2_EN} bytes)"
+grep -qi 'WPrism' <<<"$BODY2_EN" || fail "r3a2 EN homepage missing expected content (${#BODY2_EN} bytes)"
 grep -q "$PORT1" <<<"$BODY2_EN" && fail "r3a2 output leaks r3a1's host:port" || true
 grep -qi 'Startseite' <<<"$BODY2_DE" || fail "r3a2 DE homepage missing Startseite (${#BODY2_DE} bytes; per-item auto-translate surfaces it via post_translations regardless of whether the second menu is separately wired)"
-# DUO-3233's sub_keys mechanism (task #121) now captures/applies nav_menus
+# issue #3233's sub_keys mechanism (task #121) now captures/applies nav_menus
 # as a declared sub-key of the SAME polylang option, so Hauptmenu rendering
 # is required rather than merely reported.
 grep -qi 'Hauptmenu' <<<"$BODY2_DE" || fail "r3a2 DE homepage did not render Hauptmenu (${#BODY2_DE} bytes)"
@@ -597,7 +597,7 @@ pass "render checks complete: no host:port leaks either direction; per-item tran
 say "runtime isolation: place a real anonymous order on r3a1 via the Store API, confirm absent on r3a2"
 wp_1 option update woocommerce_cod_settings --format=json '{"enabled":"yes","title":"Cash on delivery","description":"","instructions":"","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null 2>&1
 JAR=$(mktemp)
-curl -s -o /dev/null -c "$JAR" "$R3A1/product/duo-mug/"
+curl -s -o /dev/null -c "$JAR" "$R3A1/product/wprism-mug/"
 NONCE=$(curl -s -D - -o /dev/null -c "$JAR" -b "$JAR" "$R3A1/wp-json/wc/store/v1/cart")
 NONCE=$(grep -i '^Nonce:' <<<"$NONCE" | tr -d '\r' | cut -d' ' -f2)
 [ -n "$NONCE" ] || fail "did not get a Store API nonce"
@@ -613,27 +613,27 @@ ORDERS_B2=$(wp_2 db query 'SELECT COUNT(*) FROM wp_wc_orders' --skip-column-name
 pass "real order #$ORDER_ID placed on r3a1; r3a2 has zero orders (HPOS custom tables never touched by capture/apply)"
 
 say "divergent-edit merge: conflicting edits to the SAME translated page (About) on both environments"
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test checkout -qb about-r3a1 main
-wp_1 post update "$ABOUT_EN" --post_excerpt="Founded in 2020, Duo ships apparel worldwide." >/dev/null
-wp_1 duo capture --repo=/siterepo >/dev/null
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test add -A
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test commit -qm "content: About excerpt (r3a1 edit)"
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test push -qu origin about-r3a1
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test checkout -qb about-r3a1 main
+wp_1 post update "$ABOUT_EN" --post_excerpt="Founded in 2020, WPrism ships apparel worldwide." >/dev/null
+wp_1 wprism capture --repo=/siterepo >/dev/null
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test add -A
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test commit -qm "content: About excerpt (r3a1 edit)"
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test push -qu origin about-r3a1
 
 ABOUT_B2=$(wp_2 post list --post_type=page --name=about --field=ID)
 git -C siterepo/r3a2 fetch -q origin
-git -C siterepo/r3a2 -c user.name=duo-r3a2 -c user.email=r3a2@example.test checkout -qb about-r3a2 origin/main
-wp_2 post update "$ABOUT_B2" --post_excerpt="Duo is your local apparel shop, family-run since day one." >/dev/null
-wp_2 duo capture --repo=/siterepo >/dev/null
-git -C siterepo/r3a2 -c user.name=duo-r3a2 -c user.email=r3a2@example.test add -A
-git -C siterepo/r3a2 -c user.name=duo-r3a2 -c user.email=r3a2@example.test commit -qm "content: About excerpt (r3a2 edit)"
-git -C siterepo/r3a2 -c user.name=duo-r3a2 -c user.email=r3a2@example.test push -qu origin about-r3a2
+git -C siterepo/r3a2 -c user.name=wprism-r3a2 -c user.email=r3a2@example.test checkout -qb about-r3a2 origin/main
+wp_2 post update "$ABOUT_B2" --post_excerpt="WPrism is your local apparel shop, family-run since day one." >/dev/null
+wp_2 wprism capture --repo=/siterepo >/dev/null
+git -C siterepo/r3a2 -c user.name=wprism-r3a2 -c user.email=r3a2@example.test add -A
+git -C siterepo/r3a2 -c user.name=wprism-r3a2 -c user.email=r3a2@example.test commit -qm "content: About excerpt (r3a2 edit)"
+git -C siterepo/r3a2 -c user.name=wprism-r3a2 -c user.email=r3a2@example.test push -qu origin about-r3a2
 
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test checkout -q main
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test merge -q about-r3a1
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test checkout -q main
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test merge -q about-r3a1
 git -C siterepo/r3a1 fetch -q origin about-r3a2
 set +e
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test merge origin/about-r3a2 >/tmp/r3a_merge.txt 2>&1
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test merge origin/about-r3a2 >/tmp/r3a_merge.txt 2>&1
 MERGE_RC=$?
 set -e
 [ "$MERGE_RC" -ne 0 ] || fail "expected a merge conflict on About's excerpt"
@@ -645,11 +645,11 @@ else
   # Same broad pattern as task #121's finding 7 (pll_set_post_language
   # silently no-op'ing), now seen on pll_insert_post's own 'translations'
   # argument: About's own post_translations relationship is sometimes never
-  # written at seed time, independent of anything Duo does (capture/apply
+  # written at seed time, independent of anything WPrism does (capture/apply
   # faithfully round-trip whatever relationship does or doesn't exist).
   # Reported, not hidden -- the conflict-scoping proof (excerpt/modified_gmt
   # only, no collateral conflict) still holds regardless.
-  echo "NOTE: no post_translations reference on About this run -- Polylang's pll_insert_post() translations link did not take at seed time (same write-path reliability pattern as task #121 finding 7, not a Duo issue). Conflict scoping itself (checked next) is unaffected."
+  echo "NOTE: no post_translations reference on About this run -- Polylang's pll_insert_post() translations link did not take at seed time (same write-path reliability pattern as task #121 finding 7, not a WPrism issue). Conflict scoping itself (checked next) is unaffected."
   pass "conflict surfaced as a plain git conflict, scoped to excerpt/modified_gmt"
 fi
 
@@ -657,30 +657,30 @@ python3 - "$ABOUT_FILE" <<'PYEOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
-# DUO-3207 added a "modified" field (alongside the pre-existing
+# issue #3207 added a "modified" field (alongside the pre-existing
 # "modified_gmt") to Capture.php's post representation -- the trailing
 # timestamp portion of this hunk is now 1-OR-2 lines, not always exactly
 # one. Matches either shape; keeps HEAD's (r3a1's own) timestamp block,
 # same as before -- only the excerpt itself is an editorial override.
 s = re.sub(r'<<<<<<< HEAD\n    "excerpt": "[^"]+",\n    "menu_order": 0,\n    "meta": \{\},\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)=======\n    "excerpt": "[^"]+",\n    "menu_order": 0,\n    "meta": \{\},\n(?:    "(?:modified|modified_gmt)": "[^"]+",\n)+>>>>>>> origin/about-r3a2\n',
-           '    "excerpt": "Founded in 2020, Duo is your local apparel shop shipping worldwide.",\n    "menu_order": 0,\n    "meta": {},\n\\1', s)
+           '    "excerpt": "Founded in 2020, WPrism is your local apparel shop shipping worldwide.",\n    "menu_order": 0,\n    "meta": {},\n\\1', s)
 open(p, 'w').write(s)
 PYEOF
 grep -q '<<<<<<<' "$ABOUT_FILE" && fail "conflict markers remain after resolution" || true
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test add -A
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test commit -qm "merge about-r3a2 into main (editorial resolution)"
-git -C siterepo/r3a1 -c user.name=duo-r3a1 -c user.email=r3a1@example.test push -q origin main
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test add -A
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test commit -qm "merge about-r3a2 into main (editorial resolution)"
+git -C siterepo/r3a1 -c user.name=wprism-r3a1 -c user.email=r3a1@example.test push -q origin main
 pass "conflict resolved editorially, committed, pushed"
 
 say "apply the merged content to both environments; confirm convergence"
 REV4=$(git -C siterepo/r3a1 rev-parse HEAD)
-wp_1 duo apply --repo=/siterepo --default-author=admin --revision="$REV4" >/dev/null
-[ "$(wp_1 post get "$ABOUT_EN" --field=post_excerpt)" = "Founded in 2020, Duo is your local apparel shop shipping worldwide." ] || fail "r3a1 did not converge"
-git -C siterepo/r3a2 -c user.name=duo-r3a2 -c user.email=r3a2@example.test checkout -q main
+wp_1 wprism apply --repo=/siterepo --default-author=admin --revision="$REV4" >/dev/null
+[ "$(wp_1 post get "$ABOUT_EN" --field=post_excerpt)" = "Founded in 2020, WPrism is your local apparel shop shipping worldwide." ] || fail "r3a1 did not converge"
+git -C siterepo/r3a2 -c user.name=wprism-r3a2 -c user.email=r3a2@example.test checkout -q main
 git -C siterepo/r3a2 pull -q origin main
 REV5=$(git -C siterepo/r3a2 rev-parse HEAD)
-wp_2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV5" >/dev/null
-[ "$(wp_2 post get "$ABOUT_B2" --field=post_excerpt)" = "Founded in 2020, Duo is your local apparel shop shipping worldwide." ] || fail "r3a2 did not converge"
+wp_2 wprism apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV5" >/dev/null
+[ "$(wp_2 post get "$ABOUT_B2" --field=post_excerpt)" = "Founded in 2020, WPrism is your local apparel shop shipping worldwide." ] || fail "r3a2 did not converge"
 pass "both environments converged on the editorially-merged About excerpt"
 
 printf '\n\033[1;32m\xe2\x9c\x94 GRIND R3-A PASSED\033[0m\n'

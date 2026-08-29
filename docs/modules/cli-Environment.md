@@ -13,6 +13,6 @@
 **Known debts.**
 
 - Only two files, but `EnvironmentLifecycle.php` is the provider seam (CommandEnvironmentProvider) that round 3's Rehearse module builds on.
-- The `.duo-envs.json` binding format is unversioned prose today.
+- The `.wprism-envs.json` binding format is unversioned prose today.
 
-**Sub-namespace plan.** Target `Duo\Orchestrator\Environment\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.
+**Sub-namespace plan.** Target `WPrism\Orchestrator\Environment\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.

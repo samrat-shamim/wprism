@@ -1,6 +1,6 @@
 <?php
 /**
- * Write a `duo-reference-env-provider-config/v1` config for
+ * Write a `wprism-reference-env-provider-config/v1` config for
  * tools/reference-env-provider.php. The plan fixture may point it at a pair
  * that does not exist; the reusable-slot fixtures supply isolated fake pair,
  * Docker and Git boundaries for live protocol calls.
@@ -18,13 +18,13 @@ $withheld = isset($argv[2]) && $argv[2] !== '' ? explode(',', $argv[2]) : [];
 $sandbox = dirname(__DIR__, 3);
 
 $config = [
-    'format' => 'duo-reference-env-provider-config/v1',
+    'format' => 'wprism-reference-env-provider-config/v1',
     'pair' => 'mup',
     'pair_script' => $sandbox . '/bin/pair.sh',
     'compose_dir' => $sandbox,
     'compose_files' => [$sandbox . '/pair.yml', $sandbox . '/pair.http.yml'],
     'controller_repo' => $sandbox . '/tmp/reference-env-provider/origin.git',
-    'db_container' => 'duo-shared-db',
+    'db_container' => 'wprism-shared-db',
     'state_root' => $sandbox . '/tmp/reference-env-provider/mup',
     'source_environment' => 'mup1',
     'destroy_scope' => 'side',
@@ -32,12 +32,12 @@ $config = [
     'environments' => [
         'mup1' => [
             'role' => 'source', 'side' => 1, 'port' => 8181,
-            'container' => 'duo-mup-wp1-1', 'service' => 'cli1',
+            'container' => 'wprism-mup-wp1-1', 'service' => 'cli1',
             'database' => 'wp_mup1', 'repo' => $sandbox . '/siterepo/mup1',
         ],
         'mup2' => [
             'role' => 'target', 'side' => 2, 'port' => 8182,
-            'container' => 'duo-mup-wp2-1', 'service' => 'cli2',
+            'container' => 'wprism-mup-wp2-1', 'service' => 'cli2',
             'database' => 'wp_mup2', 'repo' => $sandbox . '/siterepo/mup2',
         ],
     ],

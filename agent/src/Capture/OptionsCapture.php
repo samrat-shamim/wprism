@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
@@ -146,7 +146,7 @@ final class OptionsCapture {
                     ? (string) $dynamicResolverValues['active_stylesheet']
                     : (string) get_option('stylesheet'),
                 default => throw new \RuntimeException(
-                    "duo: dynamic_options.$key declares unsupported resolver '{$decl['resolver']}'"
+                    "wprism: dynamic_options.$key declares unsupported resolver '{$decl['resolver']}'"
                 ),
             };
             $resolved = $this->policy->resolve_dynamic_option($key, $resolvedValue);
@@ -181,7 +181,7 @@ final class OptionsCapture {
             $id = Policy::strict_positive_local_id($rawId);
             if ($id === null) {
                 throw new \RuntimeException(
-                    "duo: option '$name' captures an invalid local id in option_name_refs; refusing capture"
+                    "wprism: option '$name' captures an invalid local id in option_name_refs; refusing capture"
                 );
             }
             $offset = (int) $m['id'][1];
@@ -212,7 +212,7 @@ final class OptionsCapture {
                 $secretLabel = Secrets::hard_match_deep($v);
                 if ($secretLabel !== null) {
                     throw new \RuntimeException(
-                        "duo: secret guard tripped — option '$name' looks like a $secretLabel but is classified "
+                        "wprism: secret guard tripped — option '$name' looks like a $secretLabel but is classified "
                         . "authored (option_name_refs); refusing to capture it into state/.\n"
                         . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
                         . 'If this is a false positive, declare "allow_secret": true on its option_name_refs rule.'
@@ -352,7 +352,7 @@ final class OptionsCapture {
             PlainData::assert($live, "option $name");
             if (!is_array($live)) {
                 throw new \RuntimeException(
-                    "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
+                    "wprism: option '$name' declares sub_keys but its live value is not array-shaped (got "
                     . get_debug_type($live) . ') — sub_keys assumes the option decodes to a plain '
                     . 'PHP-serialized map (an associative array keyed by sub-key name), not a scalar or object'
                 );
@@ -391,14 +391,14 @@ final class OptionsCapture {
         if ($row === null && $sourceAutoload === null) {
             if ($rawAuthored !== []) {
                 throw new \RuntimeException(
-                    "duo: absent mixed option '$name' normalized to authored defaults without an exact "
+                    "wprism: absent mixed option '$name' normalized to authored defaults without an exact "
                     . 'absent_autoload declaration'
                 );
             }
             return;
         }
         if (!is_string($sourceAutoload)) {
-            throw new \RuntimeException("duo: mixed option '$name' has no exact capture storage value");
+            throw new \RuntimeException("wprism: mixed option '$name' has no exact capture storage value");
         }
         $captured = [];
         foreach ($rawAuthored as $subKey => $subVal) {
@@ -410,7 +410,7 @@ final class OptionsCapture {
                 $secretLabel = Secrets::hard_match_deep($subVal);
                 if ($secretLabel !== null) {
                     throw new \RuntimeException(
-                        "duo: secret guard tripped — option '$ctx' looks like a $secretLabel but is classified "
+                        "wprism: secret guard tripped — option '$ctx' looks like a $secretLabel but is classified "
                         . "authored (sub_keys); refusing to capture it into state/.\n"
                         . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
                         . 'If this is a false positive, declare "allow_secret": true on its sub_keys rule.'
@@ -445,10 +445,10 @@ final class OptionsCapture {
         if (!is_array($sizes)
             || !array_is_list($sizes)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: exact option size preflight failed');
+            throw new \RuntimeException('wprism: exact option size preflight failed');
         }
         if (count($sizes) > 1) {
-            throw new \RuntimeException('duo: exact option read found duplicate option_name rows');
+            throw new \RuntimeException('wprism: exact option read found duplicate option_name rows');
         }
         if ($sizes === []) {
             return null;
@@ -470,10 +470,10 @@ final class OptionsCapture {
             || $autoloadHash === null
             || $valueBytes > self::MAX_OPTION_VALUE_BYTES
             || $autoloadBytes > 20) {
-            throw new \RuntimeException('duo: exact option size preflight returned a malformed or oversized row');
+            throw new \RuntimeException('wprism: exact option size preflight returned a malformed or oversized row');
         }
         if (!hash_equals($name, $size['option_name'])) {
-            throw new \RuntimeException('duo: exact option read found a collation-equal option_name alias');
+            throw new \RuntimeException('wprism: exact option read found a collation-equal option_name alias');
         }
 
         $wpdb->last_error = '';
@@ -483,10 +483,10 @@ final class OptionsCapture {
             $name
         ), ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: exact option read failed');
+            throw new \RuntimeException('wprism: exact option read failed');
         }
         if (count($rows) > 1) {
-            throw new \RuntimeException('duo: exact option read found duplicate option_name rows');
+            throw new \RuntimeException('wprism: exact option read found duplicate option_name rows');
         }
         if ($rows === []) {
             return null;
@@ -501,10 +501,10 @@ final class OptionsCapture {
             || strlen($row['autoload']) !== $autoloadBytes
             || !hash_equals($valueHash, hash('sha256', $row['option_value']))
             || !hash_equals($autoloadHash, hash('sha256', $row['autoload']))) {
-            throw new \RuntimeException('duo: exact option read returned a malformed or oversized row');
+            throw new \RuntimeException('wprism: exact option read returned a malformed or oversized row');
         }
         if (!hash_equals($name, $row['option_name'])) {
-            throw new \RuntimeException('duo: exact option read found a collation-equal option_name alias');
+            throw new \RuntimeException('wprism: exact option read found a collation-equal option_name alias');
         }
         return ['option_value' => $row['option_value'], 'autoload' => $row['autoload']];
     }
@@ -526,7 +526,7 @@ final class OptionsCapture {
             || !array_is_list($statsRows)
             || count($statsRows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: bounded option namespace size preflight failed');
+            throw new \RuntimeException('wprism: bounded option namespace size preflight failed');
         }
         $stats = $statsRows[0];
         $rowCount = is_array($stats) ? self::canonical_size($stats['row_count'] ?? null) : null;
@@ -545,16 +545,16 @@ final class OptionsCapture {
             || $maxNameBytes === null
             || $maxNameCharacters === null
             || $maxValueBytes === null) {
-            throw new \RuntimeException('duo: option namespace size preflight returned malformed statistics');
+            throw new \RuntimeException('wprism: option namespace size preflight returned malformed statistics');
         }
         if ($rowCount > self::MAX_DISCOVERED_OPTIONS) {
-            throw new \RuntimeException('duo: option namespace discovery exceeds the bounded row limit');
+            throw new \RuntimeException('wprism: option namespace discovery exceeds the bounded row limit');
         }
         if ($maxNameBytes > self::MAX_OPTION_NAME_BYTES
             || $maxNameCharacters > self::MAX_OPTION_NAME_CHARACTERS
             || $maxValueBytes > self::MAX_OPTION_VALUE_BYTES
             || $totalBytes > self::MAX_DISCOVERY_BYTES) {
-            throw new \RuntimeException('duo: option namespace discovery exceeds the bounded byte frontier');
+            throw new \RuntimeException('wprism: option namespace discovery exceeds the bounded byte frontier');
         }
 
         $wpdb->last_error = '';
@@ -564,10 +564,10 @@ final class OptionsCapture {
             ARRAY_A
         );
         if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: bounded option namespace discovery read failed');
+            throw new \RuntimeException('wprism: bounded option namespace discovery read failed');
         }
         if (count($rows) !== $rowCount) {
-            throw new \RuntimeException('duo: option namespace rows changed after the bounded size preflight');
+            throw new \RuntimeException('wprism: option namespace rows changed after the bounded size preflight');
         }
         $out = [];
         $aggregateBytes = 0;
@@ -577,24 +577,24 @@ final class OptionsCapture {
                 || !is_string($row['option_name'] ?? null)
                 || !is_string($row['option_value'] ?? null)) {
                 throw new \RuntimeException(
-                    "duo: option namespace discovery returned a malformed row at bounded position $position"
+                    "wprism: option namespace discovery returned a malformed row at bounded position $position"
                 );
             }
             self::assert_option_name($row['option_name'], 'option namespace discovery');
             if (strlen($row['option_value']) > self::MAX_OPTION_VALUE_BYTES) {
-                throw new \RuntimeException('duo: option namespace discovery found an oversized option value');
+                throw new \RuntimeException('wprism: option namespace discovery found an oversized option value');
             }
             if (array_key_exists($row['option_name'], $out)) {
-                throw new \RuntimeException('duo: option namespace discovery found duplicate option_name rows');
+                throw new \RuntimeException('wprism: option namespace discovery found duplicate option_name rows');
             }
             $aggregateBytes += strlen($row['option_name']) + strlen($row['option_value']);
             if ($aggregateBytes > self::MAX_DISCOVERY_BYTES) {
-                throw new \RuntimeException('duo: option namespace discovery exceeds the bounded byte limit');
+                throw new \RuntimeException('wprism: option namespace discovery exceeds the bounded byte limit');
             }
             $out[$row['option_name']] = $row['option_value'];
         }
         if ($aggregateBytes !== $totalBytes) {
-            throw new \RuntimeException('duo: option namespace values disagree with the bounded size preflight');
+            throw new \RuntimeException('wprism: option namespace values disagree with the bounded size preflight');
         }
         return $out;
     }
@@ -609,7 +609,7 @@ final class OptionsCapture {
             || $characters > self::MAX_OPTION_NAME_CHARACTERS
             || preg_match('//u', $name) !== 1
             || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
-            throw new \RuntimeException("duo: $purpose received a malformed or oversized option name");
+            throw new \RuntimeException("wprism: $purpose received a malformed or oversized option name");
         }
     }
 

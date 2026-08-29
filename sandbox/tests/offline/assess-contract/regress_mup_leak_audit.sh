@@ -2,7 +2,7 @@
 # Regression — round-3 MUP §5.1, §5.2, §5.3 (the phase-A leak closures) as a
 # gate, per §6.2's row: "no internal identifier in the human view of
 # assess/release/verify/recover unless a documented command consumes it;
-# every `wp duo` command is either host-driven or named in
+# every `wp wprism` command is either host-driven or named in
 # docs/guides/internals.md".
 #
 # Five independent properties. Each one closes a leak the product spec names
@@ -12,12 +12,12 @@
 # session cleanly" — and each one is checked against OUTPUT or SOURCE, never
 # against a promise in a docblock.
 #
-#   (a) INTERNAL IDENTIFIERS (§5.2). The human view of `duo assess`,
-#       `duo release --plan-only`, `duo verify`, `duo recover --list`,
-#       `duo recover --restore`, `duo rehearse`, `duo pending` and
-#       `duo contract show` may print an internal identifier only where a
+#   (a) INTERNAL IDENTIFIERS (§5.2). The human view of `wprism assess`,
+#       `wprism release --plan-only`, `wprism verify`, `wprism recover --list`,
+#       `wprism recover --restore`, `wprism rehearse`, `wprism pending` and
+#       `wprism contract show` may print an internal identifier only where a
 #       documented command consumes it. The last two joined the set in
-#       DUO-3521: the rule was never about six particular verbs, it is about
+#       issue #3521: the rule was never about six particular verbs, it is about
 #       every host-rendered view with an obtainable `--format=json` twin, and
 #       leaving two of them out made the gate look narrower than the rule.
 #
@@ -30,12 +30,12 @@
 #
 #       The allowlist
 #       is closed and is exactly §5.2's: the `<bucket>:<uuid>` selector
-#       `duo explain` takes, the receipt ids `duo recover --restore=<id>`
-#       takes, and the `plan_digest` `duo verify --plan=<digest>` takes.
+#       `wprism explain` takes, the receipt ids `wprism recover --restore=<id>`
+#       takes, and the `plan_digest` `wprism verify --plan=<digest>` takes.
 #       Artifact hashes, lease owners, operation ids and session ids are
 #       `--format=json` only.
 #
-#       The views are produced by running the REAL `php cli/duo` verbs
+#       The views are produced by running the REAL `php cli/wprism` verbs
 #       against the fixture sites the T2/T3 suites already build — which is
 #       the point of reusing them rather than writing a sixth: an audit that
 #       rendered its own view would be auditing the audit. Each view is
@@ -43,7 +43,7 @@
 #       machine document is the authority on what an identifier is and the
 #       human view is the thing on trial.
 #
-#   (b) COMMAND SURFACE (§5.1). Every public `wp duo` subcommand is either
+#   (b) COMMAND SURFACE (§5.1). Every public `wp wprism` subcommand is either
 #       driven by a host verb or named in `docs/guides/internals.md` with
 #       §5.1's literal sentence. Neither is a value judgement about the
 #       command; the point is that an operator can never find one that is
@@ -52,18 +52,18 @@
 #   (c) RAW RECOVERY (§5.3), in the guides AND in the product. The
 #       four-ordered-commands recipe — abort, re-begin, isolated import,
 #       mandatory final abort — is gone from `docs/guides/**` except
-#       `internals.md`, replaced by `duo recover <env> --restore=<id>
+#       `internals.md`, replaced by `wprism recover <env> --restore=<id>
 #       --writers-excluded`. Naming the runtime in prose is still allowed and
 #       is in fact required: §5.3 retires it as an ENTRY POINT, and saying so
 #       is documentation. What is forbidden is a runnable recipe.
 #
-#       Until DUO-3525 this part scanned prose only, which left the one
-#       surface that mattered most unaudited: `cli/duo`'s
+#       Until issue #3525 this part scanned prose only, which left the one
+#       surface that mattered most unaudited: `cli/wprism`'s
 #       `print_promotion_recovery()` printed the recipe itself, and it is the
 #       source the pattern list below was written FROM. The second half now
 #       renders a real post-checkpoint promotion failure with the real `php
-#       cli/duo` and scans its human view with the same patterns, then proves
-#       the remedy it prints instead is a verb `duo` actually publishes in its
+#       cli/wprism` and scans its human view with the same patterns, then proves
+#       the remedy it prints instead is a verb `wprism` actually publishes in its
 #       own Usage block. A gate that forbids a recipe in the documentation
 #       while the product emits it is a gate that measures the wrong file.
 #
@@ -85,17 +85,17 @@
 #       `apply`, `coverage` — are deliberately out of scope for a HOST bound,
 #       and this is the sentence that says so rather than leaving the surface
 #       unexplained. `PassthroughCommand::run()` forwards the verb verbatim
-#       and streams the target's own output (`streamWp(['duo', $verb, …])`,
+#       and streams the target's own output (`streamWp(['wprism', $verb, …])`,
 #       cli/src/Command/PassthroughCommand.php:34); bounding there would mean
 #       the host parsing target stdout, which is the exact boundary that class
 #       exists to hold. Their bound is the agent's: `coverage` and `scope` are
 #       cut at `Coverage::LARGE_LISTING_THRESHOLD` through `Cli::scope_listing()`
 #       (agent/src/Command/Cli.php:2570-2582), `plan` carries `PlanView`'s
-#       `--limit`, and `wp duo pending` joined the same helper in DUO-3521.
+#       `--limit`, and `wp wprism pending` joined the same helper in issue #3521.
 #
-#   (e) VERB SYMMETRY. Every verb `duo`'s Usage block publishes is dispatched
+#   (e) VERB SYMMETRY. Every verb `wprism`'s Usage block publishes is dispatched
 #       by `main()`, and every verb `main()` dispatches is published. Part (b)
-#       gates that disjunction for `wp duo` commands; the host half had the
+#       gates that disjunction for `wp wprism` commands; the host half had the
 #       same failure mode and no gate. Measured when this landed, the two
 #       sides already agree — so this LOCKS an invariant rather than fixing a
 #       bug, and the self-test drives it in both directions so it stays one.
@@ -119,7 +119,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 FIX="$ROOT/sandbox/tests/fixtures/mup-leak"
 GUIDES="$ROOT/docs/guides"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-mup-leak-audit.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-mup-leak-audit.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -127,10 +127,10 @@ pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 say()  { printf '\n== %s ==\n' "$*"; }
 
-# The four ordered raw-recovery commands, in the exact spellings cli/duo's
+# The four ordered raw-recovery commands, in the exact spellings cli/wprism's
 # print_promotion_recovery() USED to emit them (built from
 # CodeDeploy::abortArgs / beginArgs / recoveryDbImportArgs; the function is at
-# cli/duo:3317-3394 and since DUO-3525 emits none of them — the second half of
+# cli/wprism:3317-3394 and since issue #3525 emits none of them — the second half of
 # part (c) is what keeps that true). Steps 1 and 4 are
 # the same command, so three patterns cover four steps; the fourth pattern is
 # an INVOCATION of the runtime itself, which is what §5.3 retires. A bare
@@ -138,8 +138,8 @@ say()  { printf '\n== %s ==\n' "$*"; }
 # because "driving `recovery/rollback-control.php` by hand is no longer an
 # operator path" is exactly the sentence §5.3 wants the guides to carry.
 RECOVERY_RECIPE_PATTERNS=(
-  'wp duo promotion-abort'
-  'wp duo promotion-begin'
+  'wp wprism promotion-abort'
+  'wp wprism promotion-begin'
   'wp db import'
   'php [^[:space:]]*rollback-control\.php'
 )
@@ -147,15 +147,15 @@ RECOVERY_RECIPE_PATTERNS=(
 # The same four steps as they look when the PRODUCT renders them rather than
 # when prose writes them. `EnvironmentDriver::wpInstruction()` emits one
 # shell-quoted argv per line — `'wp' '--path=…' '--exec=…' '--skip-plugins'
-# '--skip-themes' 'duo' 'promotion-abort' '--promotion-owner=…'` — with the
-# whole control-plane bootstrap sitting between `wp` and `duo`. Measured
-# against the pre-DUO-3525 `cli/duo`, whose output printed all four steps, the
+# '--skip-themes' 'wprism' 'promotion-abort' '--promotion-owner=…'` — with the
+# whole control-plane bootstrap sitting between `wp` and `wprism`. Measured
+# against the pre-issue #3525 `cli/wprism`, whose output printed all four steps, the
 # prose patterns above found ZERO hits. A rendered gate that inherited them
 # would be a gate that cannot fail, which is the one thing this suite exists
 # not to be. Both sets are applied to a rendered view.
 RECOVERY_RENDERED_PATTERNS=(
-  "duo'?[[:space:]]+'?promotion-abort"
-  "duo'?[[:space:]]+'?promotion-begin"
+  "wprism'?[[:space:]]+'?promotion-abort"
+  "wprism'?[[:space:]]+'?promotion-begin"
   "'?db'?[[:space:]]+'?import'?[[:space:]/]"
   'rollback-control\.php'
 )
@@ -177,7 +177,7 @@ scan_guides_recovery() {
       while IFS= read -r hit; do
         [ -n "$hit" ] || continue
         printf 'RECIPE: %s:%s\n' "$base" "${hit%%:*}"
-        printf '        cites the retired raw-recovery step /%s/ — MUP §5.3 replaces it with `duo recover <env> --restore=<id> --writers-excluded`\n' "$pattern"
+        printf '        cites the retired raw-recovery step /%s/ — MUP §5.3 replaces it with `wprism recover <env> --restore=<id> --writers-excluded`\n' "$pattern"
       done <<< "$hits"
       status=1
     done
@@ -202,7 +202,7 @@ scan_rendered_recovery() {
     while IFS= read -r hit; do
       [ -n "$hit" ] || continue
       printf 'RECIPE: %s:%s\n' "$label" "${hit%%:*}"
-      printf '        the product printed the retired raw-recovery step /%s/ — MUP §5.3 replaces it with `duo recover <env> --restore=<id> --writers-excluded`\n' "$pattern"
+      printf '        the product printed the retired raw-recovery step /%s/ — MUP §5.3 replaces it with `wprism recover <env> --restore=<id> --writers-excluded`\n' "$pattern"
     done <<< "$hits"
     status=1
   done
@@ -244,7 +244,7 @@ self_test() {
   echo 'self-test A: a leaking human view must fail the identifier scan'
   mkdir -p "$scratch/a"
   cat > "$scratch/a/doc.json" <<'JSON'
-{"format":"duo-fake/v1",
+{"format":"wprism-fake/v1",
  "artifact_hash":"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
  "owner":"a-friendly-owner-name",
  "code_revision_from":"ecad25e20897df04d4e37d639b1a9c92ceb88cfe",
@@ -285,12 +285,12 @@ TXT
   fi
 
   # An internal value that appears ONLY inside an allowlisted id is that id
-  # being printed, not a leak (`duo recover --list`'s retained checkpoint id
+  # being printed, not a leak (`wprism recover --list`'s retained checkpoint id
   # is `promote-<lease owner>` by construction); the same value printed on
   # its own anywhere else on the page still is one. Both halves are checked.
   mkdir -p "$scratch/a2"
   cat > "$scratch/a2/doc.json" <<'JSON'
-{"format":"duo-fake/v1","rows":[{"id":"promote-20260817-091402-0123456789abcdef0123456789abcdef","owner":"20260817-091402-0123456789abcdef0123456789abcdef"}]}
+{"format":"wprism-fake/v1","rows":[{"id":"promote-20260817-091402-0123456789abcdef0123456789abcdef","owner":"20260817-091402-0123456789abcdef0123456789abcdef"}]}
 JSON
   printf 'checkpoints: 1\n  promote-20260817-091402-0123456789abcdef0123456789abcdef  retained  600s old\n' > "$scratch/a2/human.txt"
   if php "$FIX/identifier-scan.php" 'fake view' "$scratch/a2/human.txt" "$scratch/a2/doc.json" --allow-key=id >/dev/null 2>&1; then
@@ -319,17 +319,17 @@ JSON
   # (b) removing a row from internals.md must fail the disposition gate, and
   #     a row naming a command that does not exist must fail it too.
   echo 'self-test B: an internals.md missing a row must fail the disposition gate'
-  grep -v '`wp duo orphans`' "$GUIDES/internals.md" > "$scratch/internals-short.md"
+  grep -v '`wp wprism orphans`' "$GUIDES/internals.md" > "$scratch/internals-short.md"
   out="$(php "$FIX/command-dispositions.php" "$ROOT" --internals="$scratch/internals-short.md" 2>&1)"
   rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'wp duo orphans'; then
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'wp wprism orphans'; then
     pass 'self-test B: a command dropped from the table is reported by name'
   else
     fail 'self-test B: dropping a documented internal did not fail the gate'
     printf '%s\n' "$out" >&2
   fi
 
-  sed 's/`wp duo orphans`/`wp duo not-a-real-command`/' "$GUIDES/internals.md" > "$scratch/internals-stale.md"
+  sed 's/`wp wprism orphans`/`wp wprism not-a-real-command`/' "$GUIDES/internals.md" > "$scratch/internals-stale.md"
   out="$(php "$FIX/command-dispositions.php" "$ROOT" --internals="$scratch/internals-stale.md" 2>&1)"
   rc=$?
   if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'not-a-real-command'; then
@@ -350,9 +350,9 @@ JSON
   local corpus
   for corpus in "$scratch/guides-bad" "$scratch/guides-good"; do
     cat > "$corpus/internals.md" <<'MD'
-# Internal wp duo commands
+# Internal wp wprism commands
 
-The raw recovery steps `wp duo promotion-abort`, `wp duo promotion-begin` and
+The raw recovery steps `wp wprism promotion-abort`, `wp wprism promotion-begin` and
 `wp db import <checkpoint>` are named here, which is this page's whole job.
 MD
   done
@@ -365,7 +365,7 @@ MD
   cat > "$scratch/guides-good/daily-workflow.md" <<'MD'
 # Daily workflow
 
-Recover with `duo recover production --restore=<receipt-id> --writers-excluded`;
+Recover with `wprism recover production --restore=<receipt-id> --writers-excluded`;
 the raw actions it drives are named in internals.md.
 MD
   out="$(scan_guides_recovery "$scratch/guides-bad" 2>&1)"
@@ -384,7 +384,7 @@ MD
   out="$(scan_guides_recovery "$scratch/guides-good" 2>&1)"
   rc=$?
   if [ "$rc" -eq 0 ]; then
-    pass 'self-test C: a corpus that publishes only duo recover passes'
+    pass 'self-test C: a corpus that publishes only wprism recover passes'
   else
     fail 'self-test C: a clean corpus was rejected'
     printf '%s\n' "$out" >&2
@@ -404,10 +404,10 @@ MD
   # make it pass or fail for reasons that have nothing to do with the checker.
   echo 'self-test C: an injected raw-recovery step in a RENDERED view must fail the output scan'
   cat > "$scratch/rendered-bad.human" <<'TXT'
-duo: promote: apply failed (exit 1); later phases were not run
-duo: promote: promotion lease cleanup confirmed
-database checkpoint: /srv/site/.duo/checkpoints/promote-owner.sql
-  3. wp db import /srv/site/.duo/checkpoints/promote-owner.sql
+wprism: promote: apply failed (exit 1); later phases were not run
+wprism: promote: promotion lease cleanup confirmed
+database checkpoint: /srv/site/.wprism/checkpoints/promote-owner.sql
+  3. wp db import /srv/site/.wprism/checkpoints/promote-owner.sql
 TXT
   out="$(scan_rendered_recovery 'fake failure view' "$scratch/rendered-bad.human" 2>&1)"
   rc=$?
@@ -418,7 +418,7 @@ TXT
     printf '%s\n' "$out" >&2
   fi
 
-  # The form the product ACTUALLY used before DUO-3525: one shell-quoted argv
+  # The form the product ACTUALLY used before issue #3525: one shell-quoted argv
   # per numbered step, with the control-plane bootstrap between `wp` and the
   # subcommand. The prose patterns match none of these lines, which is why
   # RECOVERY_RENDERED_PATTERNS exists; each of the three steps is injected
@@ -426,11 +426,11 @@ TXT
   # neighbours.
   local rendered_step
   for rendered_step in \
-    "  1. 'wp' '--path=/srv/site' '--exec=\$duoWpRoot = …' '--skip-plugins' 'duo' 'promotion-abort' '--promotion-owner=o'" \
-    "  2. 'wp' '--path=/srv/site' '--exec=\$duoWpRoot = …' '--skip-plugins' 'duo' 'promotion-begin' '--promotion-owner=o'" \
-    "  3. 'wp' '--path=/srv/site' '--exec=\$duoWpRoot = …' '--skip-plugins' 'db' 'import' '/srv/site/.duo/checkpoints/promote-o.sql'"
+    "  1. 'wp' '--path=/srv/site' '--exec=\$wprismWpRoot = …' '--skip-plugins' 'wprism' 'promotion-abort' '--promotion-owner=o'" \
+    "  2. 'wp' '--path=/srv/site' '--exec=\$wprismWpRoot = …' '--skip-plugins' 'wprism' 'promotion-begin' '--promotion-owner=o'" \
+    "  3. 'wp' '--path=/srv/site' '--exec=\$wprismWpRoot = …' '--skip-plugins' 'db' 'import' '/srv/site/.wprism/checkpoints/promote-o.sql'"
   do
-    printf 'database checkpoint: /srv/site/.duo/checkpoints/promote-o.sql\n%s\n' "$rendered_step" \
+    printf 'database checkpoint: /srv/site/.wprism/checkpoints/promote-o.sql\n%s\n' "$rendered_step" \
       > "$scratch/rendered-argv.human"
     if scan_rendered_recovery 'fake failure view' "$scratch/rendered-argv.human" >/dev/null 2>&1; then
       fail "self-test C: the argv-form step was accepted: $rendered_step"
@@ -439,12 +439,12 @@ TXT
     fi
   done
   cat > "$scratch/rendered-good.human" <<'TXT'
-duo: promote: apply failed (exit 1); later phases were not run
-database checkpoint: /srv/site/.duo/checkpoints/promote-owner.sql
-duo: promote: once that exclusion is in place, recover with: duo recover production --restore=promote-owner --writers-excluded --operator-directed
+wprism: promote: apply failed (exit 1); later phases were not run
+database checkpoint: /srv/site/.wprism/checkpoints/promote-owner.sql
+wprism: promote: once that exclusion is in place, recover with: wprism recover production --restore=promote-owner --writers-excluded --operator-directed
 TXT
   if scan_rendered_recovery 'fake failure view' "$scratch/rendered-good.human" >/dev/null 2>&1; then
-    pass 'self-test C: a rendered view that publishes only duo recover passes'
+    pass 'self-test C: a rendered view that publishes only wprism recover passes'
   else
     fail 'self-test C: a clean rendered view was rejected'
   fi
@@ -490,18 +490,18 @@ TXT
   # (e) the symmetry gate must fail in BOTH directions. It passes today, so
   #     without this it is a `true` with paperwork.
   echo 'self-test E: the host-verb symmetry gate must fail in both directions'
-  php "$ROOT/cli/duo" > "$scratch/usage.txt" 2>&1
-  grep -v '^  duo pending ' "$scratch/usage.txt" > "$scratch/usage-missing.txt"
+  php "$ROOT/cli/wprism" > "$scratch/usage.txt" 2>&1
+  grep -v '^  wprism pending ' "$scratch/usage.txt" > "$scratch/usage-missing.txt"
   out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage-missing.txt" 2>&1)"
   rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'duo pending'; then
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'wprism pending'; then
     pass 'self-test E: a dispatched verb missing from the Usage block is reported by name'
   else
     fail 'self-test E: dropping a verb from the Usage block did not fail the symmetry gate'
     printf '%s\n' "$out" >&2
   fi
 
-  { cat "$scratch/usage.txt"; printf '  duo not-a-real-verb <env>\n'; } > "$scratch/usage-extra.txt"
+  { cat "$scratch/usage.txt"; printf '  wprism not-a-real-verb <env>\n'; } > "$scratch/usage-extra.txt"
   out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage-extra.txt" 2>&1)"
   rc=$?
   if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'not-a-real-verb'; then
@@ -513,10 +513,10 @@ TXT
 
   # The dispatch half is read from SOURCE, so mutate the source and prove
   # that half is really being read rather than inferred from the Usage block.
-  sed "s/\$verb === 'envs'/\$verb === 'not-dispatched-any-more'/" "$ROOT/cli/duo" > "$scratch/duo-source"
-  out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage.txt" --source="$scratch/duo-source" 2>&1)"
+  sed "s/\$verb === 'envs'/\$verb === 'not-dispatched-any-more'/" "$ROOT/cli/wprism" > "$scratch/wprism-source"
+  out="$(php "$FIX/host-verb-symmetry.php" "$ROOT" --usage="$scratch/usage.txt" --source="$scratch/wprism-source" 2>&1)"
   rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'duo envs'; then
+  if [ "$rc" -ne 0 ] && printf '%s\n' "$out" | grep -Fq 'wprism envs'; then
     pass 'self-test E: removing a dispatch arm reports the verb the Usage block still publishes'
   else
     fail 'self-test E: a Usage line whose dispatch arm was deleted was accepted'
@@ -561,16 +561,16 @@ php "$ROOT/sandbox/tests/fixtures/release/make-recover-site.php" "$TMP/rec" >/de
 
 RSITE="$TMP/rel/repo"
 
-# rel <name> <args...> — one `php cli/duo` run against the release fixture.
+# rel <name> <args...> — one `php cli/wprism` run against the release fixture.
 # stdout and stderr are BOTH the human view: an operator reads the terminal,
 # not one stream of it, and a refusal is exactly where a renderer is most
 # tempted to interpolate an operation id.
 rel() {
   local name="$1"; shift
   ( cd "$RSITE" \
-    && DUO_FIXTURES="$TMP/rel/fixtures" DUO_SITE_REPO="$RSITE" DUO_CALLS="$TMP/calls.txt" \
+    && WPRISM_FIXTURES="$TMP/rel/fixtures" WPRISM_SITE_REPO="$RSITE" WPRISM_CALLS="$TMP/calls.txt" \
        PATH="$TMP/rel/bin:$PATH" \
-       php "$ROOT/cli/duo" --envs-file="$TMP/rel/envs.json" "$@" ) \
+       php "$ROOT/cli/wprism" --envs-file="$TMP/rel/envs.json" "$@" ) \
     > "$TMP/$name.out" 2> "$TMP/$name.err"
   local status=$?
   cat "$TMP/$name.out" "$TMP/$name.err" > "$TMP/$name.human"
@@ -581,18 +581,18 @@ rel() {
 rec() {
   local name="$1" statusFixture="$2"; shift 2
   ( cd "$TMP/rec/site" \
-    && DUO_RECOVERY_RUNTIME_SOURCE="$ROOT/recovery/rollback-control.php" \
-       DUO_WP_CALLS="$TMP/wp-calls.txt" \
-       DUO_RECOVER_STATUS="$TMP/rec/status/$statusFixture.json" \
+    && WPRISM_RECOVERY_RUNTIME_SOURCE="$ROOT/recovery/rollback-control.php" \
+       WPRISM_WP_CALLS="$TMP/wp-calls.txt" \
+       WPRISM_RECOVER_STATUS="$TMP/rec/status/$statusFixture.json" \
        PATH="$TMP/rec/bin:$PATH" \
-       php "$ROOT/cli/duo" --envs-file="$TMP/rec/envs.json" "$@" ) \
+       php "$ROOT/cli/wprism" --envs-file="$TMP/rec/envs.json" "$@" ) \
     > "$TMP/$name.out" 2> "$TMP/$name.err"
   local status=$?
   cat "$TMP/$name.out" "$TMP/$name.err" > "$TMP/$name.human"
   return $status
 }
 
-# json_only <raw> <out> — `duo release` prints the human authorization plan
+# json_only <raw> <out> — `wprism release` prints the human authorization plan
 # BEFORE the machine document even under --format=json, because §2.3 requires
 # the plan to be presented before anything else happens. Take the document
 # from the first line that opens it.
@@ -634,10 +634,10 @@ foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
 }
 $proposal["contract"] = $contract;
 file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-' "$RSITE/.duo/contract/fixture/proposed.json"
+' "$RSITE/.wprism/contract/fixture/proposed.json"
 rel 'accept' contract fixture accept || { fail 'contract accept failed'; cat "$TMP/accept.err" >&2; }
 
-# `duo contract <env> show` reads the two committed review artifacts off disk
+# `wprism contract <env> show` reads the two committed review artifacts off disk
 # and contacts nothing, so it renders only after accept has written them.
 rel 'contract-show'      contract fixture show
 rel 'contract-show-one'  contract fixture show --limit=1
@@ -646,10 +646,10 @@ rel 'contract-show-json' contract fixture show --format=json
 rel 'assess'      assess fixture
 rel 'assess-json' assess fixture --format=json
 
-# The review queue, at a size this suite chooses. `duo pending` renders
+# The review queue, at a size this suite chooses. `wprism pending` renders
 # host-side (PendingCommand -> Pending::render()), so its human view is on
 # trial here exactly like the other seven; the fixture's fake wp answers
-# `duo pending` from $DUO_PENDING (make-release-site.php).
+# `wprism pending` from $WPRISM_PENDING (make-release-site.php).
 PENDING_ROWS=4
 php -r '
 $rows = [];
@@ -663,14 +663,14 @@ for ($i = 0; $i < (int) $argv[2]; $i++) {
 }
 file_put_contents($argv[1], json_encode($rows, JSON_UNESCAPED_SLASHES));
 ' "$TMP/pending-queue.json" "$PENDING_ROWS"
-DUO_PENDING="$TMP/pending-queue.json" rel 'pending'      pending fixture
-DUO_PENDING="$TMP/pending-queue.json" rel 'pending-one'  pending fixture --limit=1
-DUO_PENDING="$TMP/pending-queue.json" rel 'pending-json' pending fixture --format=json
+WPRISM_PENDING="$TMP/pending-queue.json" rel 'pending'      pending fixture
+WPRISM_PENDING="$TMP/pending-queue.json" rel 'pending-one'  pending fixture --limit=1
+WPRISM_PENDING="$TMP/pending-queue.json" rel 'pending-json' pending fixture --format=json
 rel 'assess-one' assess fixture --limit=1
 rel 'release'      release fixture --plan-only
 rel 'release-json' release fixture --plan-only --format=json
-DUO_PLAN=plan-converged rel 'verify'      verify fixture
-DUO_PLAN=plan-converged rel 'verify-json' verify fixture --format=json
+WPRISM_PLAN=plan-converged rel 'verify'      verify fixture
+WPRISM_PLAN=plan-converged rel 'verify-json' verify fixture --format=json
 rel 'rehearse-verb' rehearse fixture --reap
 
 rec 'recover-list'      code recover fixture --list
@@ -717,31 +717,31 @@ scan() {
 # `probable_owner` is allowlisted for assess and only assess. It is not an
 # internal identifier at all: it holds an ACTIVE PLUGIN SLUG, which the human
 # view already prints as the `plugin:<slug>` surface id an operator types back
-# into `duo contract accept` — so the value the scanner sees "leaked" is that
+# into `wprism contract accept` — so the value the scanner sees "leaked" is that
 # same documented id, arriving through a second field. Coverage's own
 # attribution for an undeclared table is the other value it can hold, and that
 # is a plugin slug too. Leaving it out would make T6 §3.6's row unshippable
 # for a reason §5.2 does not actually state.
-scan 'duo assess <env>'                  assess --allow-key=probable_owner
-scan 'duo release <env> --plan-only'     release --allow-key=plan_digest
-scan 'duo verify <env>'                  verify
-scan 'duo recover <env> --list'          recover-list    --allow-key=id
-scan 'duo recover <env> --restore=<id>'  recover-restore --allow-key=id
-scan 'duo rehearse <env> (disclosure and provider refusal)' rehearse-verb
-scan 'duo rehearse <env> (preview)'      rehearse-preview
-# DUO-3521 widened the set past §5.2's original six. `pending`'s rows are
-# `section:key` pairs an operator types straight back into `duo classify`, and
-# `contract show` prints surface ids `duo contract accept` consumes; neither
+scan 'wprism assess <env>'                  assess --allow-key=probable_owner
+scan 'wprism release <env> --plan-only'     release --allow-key=plan_digest
+scan 'wprism verify <env>'                  verify
+scan 'wprism recover <env> --list'          recover-list    --allow-key=id
+scan 'wprism recover <env> --restore=<id>'  recover-restore --allow-key=id
+scan 'wprism rehearse <env> (disclosure and provider refusal)' rehearse-verb
+scan 'wprism rehearse <env> (preview)'      rehearse-preview
+# issue #3521 widened the set past §5.2's original six. `pending`'s rows are
+# `section:key` pairs an operator types straight back into `wprism classify`, and
+# `contract show` prints surface ids `wprism contract accept` consumes; neither
 # is an internal identifier, so neither needs an allowlist entry — which is
 # the point of running them through the same scanner rather than assuming it.
-scan 'duo pending <env>'                 pending
+scan 'wprism pending <env>'                 pending
 # `probable_owner` for the same reason it is allowlisted for assess above and
 # for no other view: it holds an ACTIVE PLUGIN SLUG, and `contract show`
 # prints that slug as the `plugin:<slug>` surface id an operator types into
-# `duo contract accept`. The "leak" the scanner sees is that documented id
+# `wprism contract accept`. The "leak" the scanner sees is that documented id
 # arriving through a second field. This view carries the projection assess
 # generated, so it inherits assess's exemption and nothing else.
-scan 'duo contract <env> show'           contract-show --allow-key=probable_owner
+scan 'wprism contract <env> show'           contract-show --allow-key=probable_owner
 
 # ------------------------------------------- the allowlist is exercised, not
 # assumed. An audit that passed because every view printed nothing would be
@@ -753,9 +753,9 @@ $d = json_decode((string) file_get_contents($argv[1]), true);
 echo (string) ($d["rows"][0]["id"] ?? "");
 ' "$TMP/recover-list.json")"
 if [ -n "$RECEIPT" ] && grep -Fq -- "$RECEIPT" "$TMP/recover-list.human"; then
-  pass "duo recover --list prints the receipt id --restore=<id> consumes ($RECEIPT)"
+  pass "wprism recover --list prints the receipt id --restore=<id> consumes ($RECEIPT)"
 else
-  fail 'duo recover --list did not print the receipt id its own --restore consumes'
+  fail 'wprism recover --list did not print the receipt id its own --restore consumes'
 fi
 if grep -Fq -- "--restore=$RECEIPT" "$TMP/recover-restore.human" \
    || grep -Fq 'recover fixture: recovered' "$TMP/recover-restore.human"; then
@@ -770,9 +770,9 @@ fi
 # checked here is the RENDERING rule, and that is a property of one run.
 PLAN_ELISION="$(grep -oE 'sha256:[0-9a-f]{12}…' "$TMP/release.human" | head -1)"
 if [ -n "$PLAN_ELISION" ]; then
-  pass "duo release prints the plan digest duo verify --plan=<digest> consumes, elided to 12 hex ($PLAN_ELISION)"
+  pass "wprism release prints the plan digest wprism verify --plan=<digest> consumes, elided to 12 hex ($PLAN_ELISION)"
 else
-  fail 'duo release did not print an elided plan digest'
+  fail 'wprism release did not print an elided plan digest'
 fi
 PLAN_DIGEST="$(php -r '
 $d = json_decode((string) file_get_contents($argv[1]), true);
@@ -785,26 +785,26 @@ else
   fail "the machine document did not publish a 64-hex plan digest (got '${PLAN_DIGEST}')"
 fi
 if grep -qE '(^|[^0-9a-f])[0-9a-f]{64}([^0-9a-f]|$)' "$TMP/release.human"; then
-  fail 'duo release printed a full 64-hex digest in its human view; §5.2 allows the digest, §4.6 bounds it'
+  fail 'wprism release printed a full 64-hex digest in its human view; §5.2 allows the digest, §4.6 bounds it'
 else
-  pass 'the full 64-hex digest stays in --format=json and in .duo/releases/<digest>.json'
+  pass 'the full 64-hex digest stays in --format=json and in .wprism/releases/<digest>.json'
 fi
 
-# The UUID class is allowlisted only because `duo explain` documents a
+# The UUID class is allowlisted only because `wprism explain` documents a
 # selector that takes one. Prove the documented consumer exists rather than
 # taking §5.2's word for it.
-if grep -Fq 'duo explain <env> <bucket>:<entity-key>' "$ROOT/cli/duo"; then
-  pass 'duo explain documents the <bucket>:<entity-key> selector that allowlists the UUID class'
+if grep -Fq 'wprism explain <env> <bucket>:<entity-key>' "$ROOT/cli/wprism"; then
+  pass 'wprism explain documents the <bucket>:<entity-key> selector that allowlists the UUID class'
 else
   fail 'no documented command consumes a <bucket>:<uuid> selector, so the UUID allowlist has no basis'
 fi
 
 # ============================================================ part (b)
-say '(b) every wp duo command is host-driven or a documented internal'
+say '(b) every wp wprism command is host-driven or a documented internal'
 if php "$FIX/command-dispositions.php" "$ROOT"; then
-  pass 'every public wp duo subcommand is driven by a host verb or named in docs/guides/internals.md'
+  pass 'every public wp wprism subcommand is driven by a host verb or named in docs/guides/internals.md'
 else
-  fail 'a public wp duo subcommand is neither host-driven nor documented (MUP §5.1)'
+  fail 'a public wp wprism subcommand is neither host-driven nor documented (MUP §5.1)'
 fi
 
 # internals.md is one table, not several: §5.1 says "a single
@@ -826,22 +826,22 @@ else
   printf '%s\n' "$RECIPE_FINDINGS" >&2
 fi
 
-if grep -Fq 'duo recover' "$GUIDES/recovery.md" 2>/dev/null; then
-  pass 'docs/guides/recovery.md publishes duo recover as the replacement entry point'
+if grep -Fq 'wprism recover' "$GUIDES/recovery.md" 2>/dev/null; then
+  pass 'docs/guides/recovery.md publishes wprism recover as the replacement entry point'
 else
-  fail 'docs/guides/recovery.md does not publish duo recover as the recovery entry point'
+  fail 'docs/guides/recovery.md does not publish wprism recover as the recovery entry point'
 fi
 
 # ---------------------------------------- part (c), the product's own output
 say '(c) the product itself never prints the raw-recovery recipe'
 
-# A REAL post-checkpoint promotion failure, rendered by the real `php cli/duo`
-# through the same rel() helper part (a) uses. `DUO_APPLY_EXIT=1` is enough:
-# the release fixture's fake wp already answers `duo apply`
+# A REAL post-checkpoint promotion failure, rendered by the real `php cli/wprism`
+# through the same rel() helper part (a) uses. `WPRISM_APPLY_EXIT=1` is enough:
+# the release fixture's fake wp already answers `wprism apply`
 # (make-release-site.php:299), and an apply failure is the one that happens
 # AFTER the checkpoint, which is exactly when print_promotion_recovery() runs
-# (cli/duo:2502 -> promote_failed() -> the one chokepoint).
-if DUO_APPLY_EXIT=1 rel 'promote-failed' promote fixture; then
+# (cli/wprism:2502 -> promote_failed() -> the one chokepoint).
+if WPRISM_APPLY_EXIT=1 rel 'promote-failed' promote fixture; then
   fail 'the seeded post-checkpoint promote failure exited 0; no recovery guidance was rendered'
 fi
 if grep -Fq 'database checkpoint: ' "$TMP/promote-failed.human"; then
@@ -851,7 +851,7 @@ else
   cat "$TMP/promote-failed.human" >&2
 fi
 
-if RENDERED_FINDINGS="$(scan_rendered_recovery 'duo promote <env> (post-checkpoint failure)' \
+if RENDERED_FINDINGS="$(scan_rendered_recovery 'wprism promote <env> (post-checkpoint failure)' \
       "$TMP/promote-failed.human" 2>&1)"; then
   pass 'the promote failure view publishes no abort/begin/import/abort recipe and no runtime invocation'
 else
@@ -860,29 +860,29 @@ else
 fi
 
 # What it prints INSTEAD has to be real. Take the remedy out of the rendered
-# view, take its verb, and require that verb of `duo`'s own Usage block —
-# rendered by running `php cli/duo` with no arguments, not by reading the
+# view, take its verb, and require that verb of `wprism`'s own Usage block —
+# rendered by running `php cli/wprism` with no arguments, not by reading the
 # heredoc, so a verb that is documented but unreachable cannot satisfy this.
-REMEDY="$(sed -n 's/^duo: promote: .*recover with: //p' "$TMP/promote-failed.human" | head -1)"
+REMEDY="$(sed -n 's/^wprism: promote: .*recover with: //p' "$TMP/promote-failed.human" | head -1)"
 if [ -n "$REMEDY" ]; then
   pass "the promote failure names a remedy instead of a recipe ($REMEDY)"
 else
   fail 'the promote failure view named no remedy at all'
 fi
 case "$REMEDY" in
-  'duo recover '*' --restore='*' --writers-excluded --operator-directed')
-    pass 'the remedy is the documented duo recover --restore/--writers-excluded/--operator-directed form' ;;
-  *) fail "the remedy is not the documented duo recover form: $REMEDY" ;;
+  'wprism recover '*' --restore='*' --writers-excluded --operator-directed')
+    pass 'the remedy is the documented wprism recover --restore/--writers-excluded/--operator-directed form' ;;
+  *) fail "the remedy is not the documented wprism recover form: $REMEDY" ;;
 esac
 REMEDY_VERB="$(printf '%s\n' "$REMEDY" | awk '{print $2}')"
-php "$ROOT/cli/duo" > "$TMP/usage.txt" 2>&1
-if [ -n "$REMEDY_VERB" ] && grep -qE "^  duo $REMEDY_VERB( |\$)" "$TMP/usage.txt"; then
-  pass "the remedy's verb is published in duo's own Usage block (duo $REMEDY_VERB)"
+php "$ROOT/cli/wprism" > "$TMP/usage.txt" 2>&1
+if [ -n "$REMEDY_VERB" ] && grep -qE "^  wprism $REMEDY_VERB( |\$)" "$TMP/usage.txt"; then
+  pass "the remedy's verb is published in wprism's own Usage block (wprism $REMEDY_VERB)"
 else
-  fail "the remedy names 'duo $REMEDY_VERB', which duo's Usage block does not publish"
+  fail "the remedy names 'wprism $REMEDY_VERB', which wprism's Usage block does not publish"
 fi
 
-# The `<id>` it hands the operator has to be the id `duo recover --list`
+# The `<id>` it hands the operator has to be the id `wprism recover --list`
 # publishes, not a path or an invented token: RetainedCheckpoints builds both
 # from one `<prefix><owner>` stem (RetainedCheckpoints.php:287, :342).
 REMEDY_ID="$(printf '%s\n' "$REMEDY" | tr ' ' '\n' | sed -n 's/^--restore=//p')"
@@ -898,9 +898,9 @@ fi
 # document-diffing scanner has nothing to diff against. The two identifier
 # classes it could plausibly carry are checked directly instead of the view
 # being skipped. The lease owner is allowed ONLY as part of the checkpoint's
-# `promote-<owner>` stem — that stem is the `<id>` `duo recover --restore=<id>`
+# `promote-<owner>` stem — that stem is the `<id>` `wprism recover --restore=<id>`
 # consumes, which is exactly §5.2's second allowlist entry, and part (a)'s own
-# self-test pins the same distinction for `duo recover --list`.
+# self-test pins the same distinction for `wprism recover --list`.
 if grep -qE '(^|[^0-9a-f])[0-9a-f]{64}([^0-9a-f]|$)' "$TMP/promote-failed.human"; then
   fail 'the promote failure view printed a 64-hex artifact hash; §5.2 keeps it to --format=json'
 else
@@ -935,50 +935,50 @@ echo is_array($d) ? count($d) : 0;
 ' "$1" "$2"
 }
 
-# duo pending — the view that had NO ceiling at all before DUO-3521.
+# wprism pending — the view that had NO ceiling at all before issue #3521.
 PENDING_TOTAL="$(json_rows "$TMP/pending.json" '')"
 if [ "$PENDING_TOTAL" = "$PENDING_ROWS" ]; then
-  pass "duo pending --format=json publishes the complete queue ($PENDING_TOTAL row(s), unbounded)"
+  pass "wprism pending --format=json publishes the complete queue ($PENDING_TOTAL row(s), unbounded)"
 else
-  fail "duo pending --format=json published $PENDING_TOTAL row(s) for a queue of $PENDING_ROWS"
+  fail "wprism pending --format=json published $PENDING_TOTAL row(s) for a queue of $PENDING_ROWS"
 fi
-if BOUND_FINDINGS="$(assert_bounded 'duo pending <env> --limit=1' "$TMP/pending-one.human" "$PENDING_TOTAL" 1 2>&1)"; then
-  pass 'duo pending --limit=1 prints one row and a tail naming the true remainder'
+if BOUND_FINDINGS="$(assert_bounded 'wprism pending <env> --limit=1' "$TMP/pending-one.human" "$PENDING_TOTAL" 1 2>&1)"; then
+  pass 'wprism pending --limit=1 prints one row and a tail naming the true remainder'
 else
-  fail 'duo pending --limit=1 did not cut, or its tail does not name what was withheld'
+  fail 'wprism pending --limit=1 did not cut, or its tail does not name what was withheld'
   printf '%s\n' "$BOUND_FINDINGS" >&2
 fi
 # The count line beside a cut table is the TRUE total. A truncated sample is
 # honest; a truncated count is a lie about the site.
 if grep -Fq -- "$PENDING_TOTAL item(s) in the review queue" "$TMP/pending-one.human"; then
-  pass 'duo pending keeps the true queue size in its count line under --limit=1'
+  pass 'wprism pending keeps the true queue size in its count line under --limit=1'
 else
-  fail 'duo pending reported a truncated count instead of the true queue size'
+  fail 'wprism pending reported a truncated count instead of the true queue size'
 fi
 
-# duo assess — bounded before this change; the check is that delegating the
+# wprism assess — bounded before this change; the check is that delegating the
 # grammar to HumanViewLimit did not move the rendering.
 ASSESS_SURFACES="$(json_rows "$TMP/assess.json" 'surfaces')"
-if BOUND_FINDINGS="$(assert_bounded 'duo assess <env> --limit=1' "$TMP/assess-one.human" "$ASSESS_SURFACES" 1 2>&1)"; then
-  pass "duo assess --limit=1 cuts its $ASSESS_SURFACES-surface table and names the remainder"
+if BOUND_FINDINGS="$(assert_bounded 'wprism assess <env> --limit=1' "$TMP/assess-one.human" "$ASSESS_SURFACES" 1 2>&1)"; then
+  pass "wprism assess --limit=1 cuts its $ASSESS_SURFACES-surface table and names the remainder"
 else
-  fail 'duo assess --limit=1 did not cut its surface table'
+  fail 'wprism assess --limit=1 did not cut its surface table'
   printf '%s\n' "$BOUND_FINDINGS" >&2
 fi
 
-# duo contract show — bounded at a hardcoded 50 before this change; what it
+# wprism contract show — bounded at a hardcoded 50 before this change; what it
 # gained is the flag every other bounded view already published.
 CONTRACT_SURFACES="$(json_rows "$TMP/contract-show.json" 'projection.surfaces')"
-if BOUND_FINDINGS="$(assert_bounded 'duo contract <env> show --limit=1' "$TMP/contract-show-one.human" "$CONTRACT_SURFACES" 1 2>&1)"; then
-  pass "duo contract show --limit=1 cuts its $CONTRACT_SURFACES-surface projection and names the remainder"
+if BOUND_FINDINGS="$(assert_bounded 'wprism contract <env> show --limit=1' "$TMP/contract-show-one.human" "$CONTRACT_SURFACES" 1 2>&1)"; then
+  pass "wprism contract show --limit=1 cuts its $CONTRACT_SURFACES-surface projection and names the remainder"
 else
-  fail 'duo contract show --limit=1 did not cut its projection listing'
+  fail 'wprism contract show --limit=1 did not cut its projection listing'
   printf '%s\n' "$BOUND_FINDINGS" >&2
 fi
 if [ "$CONTRACT_SURFACES" -gt 1 ]; then
-  pass "duo contract show --format=json publishes the complete projection ($CONTRACT_SURFACES surface(s))"
+  pass "wprism contract show --format=json publishes the complete projection ($CONTRACT_SURFACES surface(s))"
 else
-  fail 'duo contract show --format=json published no complete projection to compare against'
+  fail 'wprism contract show --format=json published no complete projection to compare against'
 fi
 
 # ------------------------------------------- the shared grammar, per verb.
@@ -1011,21 +1011,21 @@ check_limit_refusal() {
   pass "$label refuses 0, 201, +5, 1e2, 050, a bare --limit and a repeated one, in its own words"
 }
 
-check_limit_refusal 'duo assess <env>' \
+check_limit_refusal 'wprism assess <env>' \
   'assess accepts at most one canonical --limit=<1..200>' assess fixture
-check_limit_refusal 'duo release <env> --plan-only' \
+check_limit_refusal 'wprism release <env> --plan-only' \
   '--limit must be given once as --limit=N with N between 1 and 200' release fixture --plan-only
-check_limit_refusal 'duo contract <env> show' \
+check_limit_refusal 'wprism contract <env> show' \
   '--limit must be given once as --limit=N with N between 1 and 200' contract fixture show
-check_limit_refusal 'duo pending <env>' \
-  'duo: pending: --limit must be given once as --limit=N with N between 1 and 200' pending fixture
+check_limit_refusal 'wprism pending <env>' \
+  'wprism: pending: --limit must be given once as --limit=N with N between 1 and 200' pending fixture
 
 # ============================================================ part (e)
-say '(e) every published duo verb is dispatched, and every dispatched verb is published'
+say '(e) every published wprism verb is dispatched, and every dispatched verb is published'
 if SYMMETRY_FINDINGS="$(php "$FIX/host-verb-symmetry.php" "$ROOT" 2>&1 >/dev/null)"; then
-  pass "duo's Usage block and main()'s three dispatch sources name exactly the same verbs"
+  pass "wprism's Usage block and main()'s three dispatch sources name exactly the same verbs"
 else
-  fail "duo publishes a verb it does not dispatch, or dispatches one it does not publish (MUP §5.1)"
+  fail "wprism publishes a verb it does not dispatch, or dispatches one it does not publish (MUP §5.1)"
   printf '%s\n' "$SYMMETRY_FINDINGS" >&2
 fi
 

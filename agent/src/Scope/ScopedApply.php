@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
@@ -8,7 +8,7 @@ require_once __DIR__ . '/../Policy/ScopeClosure.php';
 require_once __DIR__ . '/../Repository/CanonicalMapWitness.php';
 require_once __DIR__ . '/ScopedApplySession.php';
 
-/** Atomic duo_kv adapter for the generic scoped-session protocol. */
+/** Atomic wprism_kv adapter for the generic scoped-session protocol. */
 final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage {
     private static function assert_key(string $key): void {
         if ($key === ScopedApplySession::STORAGE_KEY) {
@@ -25,7 +25,7 @@ final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage
             }
         }
         if (preg_match('/^[a-f0-9]{64}$/', $suffix) !== 1) {
-            throw new \RuntimeException('duo: scoped apply session storage key is outside the closed vocabulary');
+            throw new \RuntimeException('wprism: scoped apply session storage key is outside the closed vocabulary');
         }
     }
 
@@ -37,10 +37,10 @@ final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage
     public function compare_and_swap(string $key, ?string $expected, ?string $replacement): bool {
         self::assert_key($key);
         if ($replacement === '') {
-            throw new \RuntimeException('duo: scoped apply session storage request is malformed');
+            throw new \RuntimeException('wprism: scoped apply session storage request is malformed');
         }
         global $wpdb;
-        $table = $wpdb->prefix . 'duo_kv';
+        $table = $wpdb->prefix . 'wprism_kv';
         if ($expected === null) {
             if ($replacement === null) {
                 return $this->read($key) === null;
@@ -70,7 +70,7 @@ final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage
 /**
  * Pure projection and target-observation boundary for scoped plan/apply.
  *
- * `duo-scope-contract/v1` remains immutable source evidence. This class never
+ * `wprism-scope-contract/v1` remains immutable source evidence. This class never
  * turns its potential action/effect rows into authority; it only resolves the
  * complete contract against the frozen artifact, projects the ordinary
  * three-way plan to its selected identities, and compiles a complete target
@@ -78,8 +78,8 @@ final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage
  * the single source of truth.
  */
 final class ScopedApply {
-    public const PLAN_FORMAT = 'duo-scoped-plan/v1';
-    public const CONVERGENCE_FORMAT = 'duo-scoped-convergence/v1';
+    public const PLAN_FORMAT = 'wprism-scoped-plan/v1';
+    public const CONVERGENCE_FORMAT = 'wprism-scoped-convergence/v1';
 
     /** @return array<string,mixed> */
     public static function resolve_contract(
@@ -95,10 +95,10 @@ final class ScopedApply {
         $keys = array_keys($request);
         sort($keys, SORT_STRING);
         if ($keys !== ['format', 'scope_hash', 'selectors']
-            || ($request['format'] ?? null) !== 'duo-scope-request/v1'
+            || ($request['format'] ?? null) !== 'wprism-scope-request/v1'
             || !is_array($request['selectors'] ?? null)
             || !array_is_list($request['selectors'])) {
-            throw new \RuntimeException('duo: scoped plan/apply request has an unexpected schema');
+            throw new \RuntimeException('wprism: scoped plan/apply request has an unexpected schema');
         }
         $contract = ScopedStateOverlay::resolve_request(
             $compiled,
@@ -138,7 +138,7 @@ final class ScopedApply {
     }
 
     /**
-     * `duo_state.uuid` is deliberately limited to 64 characters, while an
+     * `wprism_state.uuid` is deliberately limited to 64 characters, while an
      * authored wp_options name can be longer than a virtual
      * `options/core#<name>` identity. Keep option bases in the same durable
      * table using a disjoint, domain-separated 252-bit token. The leading
@@ -146,9 +146,9 @@ final class ScopedApply {
      */
     public static function option_state_identity(string $name): string {
         if ($name === '' || str_contains($name, "\0")) {
-            throw new \RuntimeException('duo: scoped option state identity has an invalid option name');
+            throw new \RuntimeException('wprism: scoped option state identity has an invalid option name');
         }
-        return 'o' . substr(hash('sha256', "duo:scoped-option-state/v1\0" . $name), 0, 63);
+        return 'o' . substr(hash('sha256', "wprism:scoped-option-state/v1\0" . $name), 0, 63);
     }
 
     /** @return array<string,array<string,mixed>> selected name => canonical record */
@@ -157,7 +157,7 @@ final class ScopedApply {
         $out = [];
         foreach (self::option_root_names($contract) as $name) {
             if (!array_key_exists($name, $records)) {
-                throw new \RuntimeException("duo: scoped option '$name' disappeared from the frozen carrier");
+                throw new \RuntimeException("wprism: scoped option '$name' disappeared from the frozen carrier");
             }
             $out[$name] = $records[$name];
         }
@@ -175,7 +175,7 @@ final class ScopedApply {
         foreach (OptionState::records($document) as $name => $record) {
             if (!isset($allowed[$name])) {
                 if ($wanted !== null) {
-                    throw new \RuntimeException('duo: scoped option state row escaped its selected records');
+                    throw new \RuntimeException('wprism: scoped option state row escaped its selected records');
                 }
                 continue;
             }
@@ -187,7 +187,7 @@ final class ScopedApply {
             $documentRecords = OptionState::records($document);
             foreach (array_keys($wanted) as $name) {
                 if (!isset($allowed[$name]) || !array_key_exists($name, $documentRecords)) {
-                    throw new \RuntimeException('duo: scoped option state row omitted a selected record');
+                    throw new \RuntimeException('wprism: scoped option state row omitted a selected record');
                 }
             }
         }
@@ -209,7 +209,7 @@ final class ScopedApply {
         $out = [];
         foreach ($requested as $name) {
             if (!is_string($name) || !isset($allowed[$name]) || !isset($records[$name])) {
-                throw new \RuntimeException('duo: scoped option plan row escaped its selected records');
+                throw new \RuntimeException('wprism: scoped option plan row escaped its selected records');
             }
             $out[$name] = $records[$name];
         }
@@ -230,7 +230,7 @@ final class ScopedApply {
         $names = array_values(array_unique(array_map('strval', $names)));
         sort($names, SORT_STRING);
         if ($names === []) {
-            throw new \RuntimeException('duo: scoped option recovery has no selected records');
+            throw new \RuntimeException('wprism: scoped option recovery has no selected records');
         }
         $row = $plannedRow ?? [
             'uuid' => 'options/core',
@@ -238,7 +238,7 @@ final class ScopedApply {
             'path' => (string) ($sourceRow['path'] ?? ''),
         ];
         if (($row['uuid'] ?? null) !== 'options/core' || ($row['type'] ?? null) !== 'options') {
-            throw new \RuntimeException('duo: scoped option recovery row is not the options carrier');
+            throw new \RuntimeException('wprism: scoped option recovery row is not the options carrier');
         }
         unset($row['retry']);
         $row['rebuild_option_names'] = $names;
@@ -260,11 +260,11 @@ final class ScopedApply {
             $source = OptionState::records(Canon::decode((string) ($sourceRow['content'] ?? '')));
             $target = OptionState::records(Canon::decode((string) ($targetRow['content'] ?? '')));
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: scoped options carrier is malformed during target observation', 0, $failure);
+            throw new \RuntimeException('wprism: scoped options carrier is malformed during target observation', 0, $failure);
         }
         foreach (self::option_root_names($contract) as $name) {
             if (!array_key_exists($name, $source)) {
-                throw new \RuntimeException("duo: selected option '$name' disappeared from the scoped target carrier");
+                throw new \RuntimeException("wprism: selected option '$name' disappeared from the scoped target carrier");
             }
             // `absent` is explicit no-value/no-delete intent. It is not a
             // request to erase a target-owned value, so the projected
@@ -273,7 +273,7 @@ final class ScopedApply {
                 continue;
             }
             if (!array_key_exists($name, $target)) {
-                throw new \RuntimeException("duo: selected option '$name' disappeared from the scoped target carrier");
+                throw new \RuntimeException("wprism: selected option '$name' disappeared from the scoped target carrier");
             }
             $target[$name] = $source[$name];
         }
@@ -289,12 +289,12 @@ final class ScopedApply {
     private static function option_observation_rows(array $actual, array $contract, bool $selected): array {
         $carrier = $actual['options/core'] ?? null;
         if (!is_array($carrier)) {
-            throw new \RuntimeException('duo: scoped options target observation could not read options/core');
+            throw new \RuntimeException('wprism: scoped options target observation could not read options/core');
         }
         try {
             $records = OptionState::records(Canon::decode((string) ($carrier['content'] ?? '')));
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: scoped options target observation has malformed options/core', 0, $failure);
+            throw new \RuntimeException('wprism: scoped options target observation has malformed options/core', 0, $failure);
         }
         $roots = array_fill_keys(self::option_root_names($contract), true);
         $rows = [];
@@ -341,7 +341,7 @@ final class ScopedApply {
             try {
                 $observedRecords = OptionState::records(Canon::decode((string) ($observed['content'] ?? '')));
             } catch (\Throwable $failure) {
-                throw new \RuntimeException('duo: scoped options target observation is malformed', 0, $failure);
+                throw new \RuntimeException('wprism: scoped options target observation is malformed', 0, $failure);
             }
         }
 
@@ -509,7 +509,7 @@ final class ScopedApply {
             if ($recordScopedOptions && (string) $identity === 'options/core') {
                 $targetCarrier = $actual['options/core'] ?? null;
                 if (!is_array($targetCarrier)) {
-                    throw new \RuntimeException('duo: scoped options target observation could not read options/core');
+                    throw new \RuntimeException('wprism: scoped options target observation could not read options/core');
                 }
                 $rows[] = self::target_option_candidate_row($row, $targetCarrier, $contract);
                 continue;
@@ -567,7 +567,7 @@ final class ScopedApply {
             if ($recordScopedOptions && ScopeClosure::is_option_root($identity)) {
                 $key = hash('sha256', $identity);
                 if (!isset($selectedRows[$key])) {
-                    throw new \RuntimeException("duo: selected option '$identity' disappeared from the target observation");
+                    throw new \RuntimeException("wprism: selected option '$identity' disappeared from the target observation");
                 }
                 continue;
             }
@@ -576,7 +576,7 @@ final class ScopedApply {
                     'identity_hash' => hash('sha256', $identity),
                     'state' => 'absent',
                     'type' => '',
-                    'content_hash' => hash('sha256', 'duo:absent'),
+                    'content_hash' => hash('sha256', 'wprism:absent'),
                 ];
             }
         }
@@ -768,9 +768,9 @@ final class ScopedApply {
         $selectedLedgerMapRoot = $observation['selected_ledger_map_root'] ?? null;
         if (!is_string($selectedLedgerMapRoot)
             || preg_match('/^[a-f0-9]{64}$/D', $selectedLedgerMapRoot) !== 1) {
-            throw new \RuntimeException('duo: scoped authored readback has a malformed selected ledger-map root');
+            throw new \RuntimeException('wprism: scoped authored readback has a malformed selected ledger-map root');
         }
-        return hash('sha256', "duo-scoped-authored-map-witness/v1\0" . $selectedLedgerMapRoot);
+        return hash('sha256', "wprism-scoped-authored-map-witness/v1\0" . $selectedLedgerMapRoot);
     }
 
     /**
@@ -1074,12 +1074,12 @@ final class ScopedApply {
             throw CommandRefusalException::scopedIdentityRecoveryRequired();
         }
         return self::checked_target_rows($wpdb->prepare(
-            "SELECT p.ID, p.post_type, p.post_status, pm.meta_value AS duo_uuid FROM {$wpdb->posts} p"
+            "SELECT p.ID, p.post_type, p.post_status, pm.meta_value AS wprism_uuid FROM {$wpdb->posts} p"
             . " JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID AND tr.term_taxonomy_id = %d"
             . " LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = %s"
             . " WHERE p.post_type = 'nav_menu_item' ORDER BY p.ID ASC, pm.meta_id ASC",
             $termTaxonomyId,
-            '_duo_uuid'
+            '_wprism_uuid'
         ));
     }
 
@@ -1156,13 +1156,13 @@ final class ScopedApply {
                 throw CommandRefusalException::scopedIdentityRecoveryRequired();
             }
             $physical = self::checked_target_row($wpdb->prepare(
-                'SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS duo_uuid'
+                'SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS wprism_uuid'
                 . " FROM {$wpdb->terms} t"
                 . " JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id"
                 . " LEFT JOIN {$wpdb->termmeta} tm ON tm.term_id = t.term_id AND tm.meta_key = %s"
                 . ' WHERE t.term_id = %d AND tt.term_taxonomy_id = %d'
                 . ' ORDER BY tm.meta_id ASC LIMIT 1',
-                '_duo_uuid',
+                '_wprism_uuid',
                 $termId,
                 $ttId
             ));
@@ -1170,7 +1170,7 @@ final class ScopedApply {
                 || (int) ($physical['term_id'] ?? 0) !== $termId
                 || (int) ($physical['term_taxonomy_id'] ?? 0) !== $ttId
                 || (string) ($physical['taxonomy'] ?? '') !== 'nav_menu'
-                || (string) ($physical['duo_uuid'] ?? '') !== $menuUuid) {
+                || (string) ($physical['wprism_uuid'] ?? '') !== $menuUuid) {
                 throw CommandRefusalException::scopedIdentityRecoveryRequired();
             }
             try {
@@ -1192,7 +1192,7 @@ final class ScopedApply {
             $physicalRows = self::physical_menu_item_rows($ttId);
             foreach ($physicalRows as $physical) {
                 $localId = (int) ($physical['ID'] ?? 0);
-                $sidecarUuid = (string) ($physical['duo_uuid'] ?? '');
+                $sidecarUuid = (string) ($physical['wprism_uuid'] ?? '');
                 if ($localId <= 0
                     || (string) ($physical['post_type'] ?? '') !== 'nav_menu_item'
                     || isset($physicalItemsByLocal[$localId])) {
@@ -1398,7 +1398,7 @@ final class ScopedApply {
             $seenLocalIds = [];
             foreach ($physicalRows as $physical) {
                 $localId = (int) ($physical['ID'] ?? 0);
-                $sidecarUuid = (string) ($physical['duo_uuid'] ?? '');
+                $sidecarUuid = (string) ($physical['wprism_uuid'] ?? '');
                 if ($localId <= 0
                     || (string) ($physical['post_type'] ?? '') !== 'nav_menu_item'
                     || isset($seenLocalIds[$localId])) {
@@ -1626,14 +1626,14 @@ final class ScopedApply {
                 $data = Canon::decode((string) ($row['content'] ?? ''));
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    "duo: scoped target observation has malformed selected $type owner '$identity'",
+                    "wprism: scoped target observation has malformed selected $type owner '$identity'",
                     0,
                     $failure
                 );
             }
             if (!is_array($data)) {
                 throw new \RuntimeException(
-                    "duo: scoped target observation has non-object selected $type owner '$identity'"
+                    "wprism: scoped target observation has non-object selected $type owner '$identity'"
                 );
             }
             $tree[$identity] = ['type' => $type, 'data' => $data];
@@ -1646,7 +1646,7 @@ final class ScopedApply {
         $out = [];
         foreach ($identityHashes as $identityHash) {
             if (!is_string($identityHash) || preg_match('/^[a-f0-9]{64}$/D', $identityHash) !== 1) {
-                throw new \RuntimeException('duo: scoped ledger map selection has an invalid opaque identity hash');
+                throw new \RuntimeException('wprism: scoped ledger map selection has an invalid opaque identity hash');
             }
             $out[$identityHash] = true;
         }
@@ -1737,7 +1737,7 @@ final class ScopedApply {
                         'identity_hash' => hash('sha256', $identity),
                         'state' => 'absent',
                         'type' => '',
-                        'content_hash' => hash('sha256', 'duo:absent'),
+                        'content_hash' => hash('sha256', 'wprism:absent'),
                     ];
                 } else {
                     $rows[$identity] = [
@@ -1762,7 +1762,7 @@ final class ScopedApply {
                     'identity_hash' => hash('sha256', $identity),
                     'state' => 'absent',
                     'type' => '',
-                    'content_hash' => hash('sha256', 'duo:absent'),
+                    'content_hash' => hash('sha256', 'wprism:absent'),
                 ];
             }
         }

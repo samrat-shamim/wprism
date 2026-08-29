@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
@@ -20,15 +20,15 @@ final class ScopedStateOverlay {
     /** @return array<string,mixed> */
     public static function load_contract(string $path): array {
         if ($path === '' || str_contains($path, "\0") || !is_file($path)) {
-            throw new \RuntimeException('duo: --scope-contract must name a readable canonical contract file');
+            throw new \RuntimeException('wprism: --scope-contract must name a readable canonical contract file');
         }
         $size = filesize($path);
         if (!is_int($size) || $size <= 0 || $size > 4 * 1024 * 1024) {
-            throw new \RuntimeException('duo: --scope-contract must be a non-empty file no larger than 4 MiB');
+            throw new \RuntimeException('wprism: --scope-contract must be a non-empty file no larger than 4 MiB');
         }
         $decoded = Canon::decode(Canon::read_file($path));
         if (!is_array($decoded)) {
-            throw new \RuntimeException('duo: --scope-contract must contain one JSON object');
+            throw new \RuntimeException('wprism: --scope-contract must contain one JSON object');
         }
         return ScopeContract::from_array($decoded);
     }
@@ -47,12 +47,12 @@ final class ScopedStateOverlay {
         string $scopeHash
     ): array {
         if (preg_match('/^[a-f0-9]{64}$/D', $scopeHash) !== 1) {
-            throw new \RuntimeException('duo: scoped operation has no valid scope_hash');
+            throw new \RuntimeException('wprism: scoped operation has no valid scope_hash');
         }
         $contract = ScopeContract::resolve($compiled, $policy, $selectors);
         if (!hash_equals($scopeHash, (string) $contract['scope_hash'])) {
             throw new \RuntimeException(
-                'duo: scoped operation contract is stale, tampered, or associated with a different repository/policy'
+                'wprism: scoped operation contract is stale, tampered, or associated with a different repository/policy'
             );
         }
         return $contract;
@@ -113,11 +113,11 @@ final class ScopedStateOverlay {
             return [];
         }
         if (isset($deleted[$identity])) {
-            throw new \RuntimeException('duo: scoped inactive-widget deauthorization cannot carry a deletion');
+            throw new \RuntimeException('wprism: scoped inactive-widget deauthorization cannot carry a deletion');
         }
         if (($old['type'] ?? null) !== SidebarState::ENTITY_TYPE
             || ($old['path'] ?? null) !== SidebarState::path('wp_inactive_widgets')) {
-            throw new \RuntimeException('duo: scoped inactive-widget deauthorization has no exact source carrier');
+            throw new \RuntimeException('wprism: scoped inactive-widget deauthorization has no exact source carrier');
         }
         if (!is_array($scan)
             || array_keys($scan) !== ['selected_post_uuids', 'reference_count']
@@ -125,7 +125,7 @@ final class ScopedStateOverlay {
             || !array_is_list($scan['selected_post_uuids'])
             || !is_int($scan['reference_count'] ?? null)
             || $scan['reference_count'] !== 0) {
-            throw new \RuntimeException('duo: scoped inactive-widget deauthorization lacks a zero-reference scan');
+            throw new \RuntimeException('wprism: scoped inactive-widget deauthorization lacks a zero-reference scan');
         }
 
         $expectedPosts = [];
@@ -142,7 +142,7 @@ final class ScopedStateOverlay {
         ksort($expectedPosts, SORT_STRING);
         if ($expectedPosts === [] || array_keys($expectedPosts) !== $scan['selected_post_uuids']) {
             throw new \RuntimeException(
-                'duo: scoped inactive-widget deauthorization did not scan the complete selected block-post closure'
+                'wprism: scoped inactive-widget deauthorization did not scan the complete selected block-post closure'
             );
         }
 
@@ -159,19 +159,19 @@ final class ScopedStateOverlay {
         }
         if (!$causalClosure) {
             throw new \RuntimeException(
-                'duo: scoped inactive-widget deauthorization lacks selected-post closure provenance'
+                'wprism: scoped inactive-widget deauthorization lacks selected-post closure provenance'
             );
         }
         foreach ((array) ($contract['live']['inbound'] ?? []) as $row) {
             if (($row['target'] ?? null) === $identity) {
                 throw new \RuntimeException(
-                    'duo: scoped inactive-widget deauthorization would discard an excluded inbound reference'
+                    'wprism: scoped inactive-widget deauthorization would discard an excluded inbound reference'
                 );
             }
         }
 
         return [[
-            'format' => 'duo-inactive-overlay-deauthorization/v1',
+            'format' => 'wprism-inactive-overlay-deauthorization/v1',
             'entity' => $identity,
             'previous_hash' => (string) $old['hash'],
             'source_revision' => $previous->revision_hash(),
@@ -211,7 +211,7 @@ final class ScopedStateOverlay {
         foreach ((array) ($contract['live']['inbound'] ?? []) as $row) {
             if (($row['target'] ?? null) === $identity) {
                 throw new \RuntimeException(
-                    'duo: scoped inactive-widget overlay changed a shared row with an excluded inbound owner'
+                    'wprism: scoped inactive-widget overlay changed a shared row with an excluded inbound owner'
                 );
             }
         }
@@ -236,7 +236,7 @@ final class ScopedStateOverlay {
         self::assert_shared_row_mutation_bounded($previous, $contract, $observedEntities);
         if ($selectedDeauthorizations !== []) {
             if ($policy === null) {
-                throw new \RuntimeException('duo: scoped deauthorization projection requires exact policy evidence');
+                throw new \RuntimeException('wprism: scoped deauthorization projection requires exact policy evidence');
             }
             $scan = $selectedDeauthorizations[0]['scanned_selected_post_uuids'] ?? null;
             $reproved = self::selected_deauthorizations(
@@ -248,7 +248,7 @@ final class ScopedStateOverlay {
                 is_array($scan) ? ['selected_post_uuids' => $scan, 'reference_count' => 0] : null
             );
             if (Canon::encode($reproved) !== Canon::encode($selectedDeauthorizations)) {
-                throw new \RuntimeException('duo: scoped deauthorization projection evidence changed');
+                throw new \RuntimeException('wprism: scoped deauthorization projection evidence changed');
             }
         }
         $selected = array_fill_keys(self::selected_identities($contract), true);
@@ -285,14 +285,14 @@ final class ScopedStateOverlay {
                 foreach ((array) ($contract['live']['inbound'] ?? []) as $inbound) {
                     if ((string) ($inbound['target'] ?? '') === $identity) {
                         throw new \RuntimeException(
-                            "duo: selected deletion '$identity' would strand an out-of-scope inbound reference"
+                            "wprism: selected deletion '$identity' would strand an out-of-scope inbound reference"
                         );
                     }
                 }
                 $deletions[] = $deleted[$identity];
             } else {
                 throw new \RuntimeException(
-                    "duo: selected live entity '$identity' disappeared without bounded deletion evidence"
+                    "wprism: selected live entity '$identity' disappeared without bounded deletion evidence"
                 );
             }
         }
@@ -304,13 +304,13 @@ final class ScopedStateOverlay {
             }
             if (isset($live[$identity])) {
                 throw new \RuntimeException(
-                    "duo: selected tombstone '$identity' reappeared; duo-scope-contract/v1 grants no resurrection authority"
+                    "wprism: selected tombstone '$identity' reappeared; wprism-scope-contract/v1 grants no resurrection authority"
                 );
             }
             if (isset($deleted[$identity])) {
                 $deletions[] = $deleted[$identity];
             } else {
-                throw new \RuntimeException("duo: selected tombstone '$identity' disappeared from the scoped candidate");
+                throw new \RuntimeException("wprism: selected tombstone '$identity' disappeared from the scoped candidate");
             }
         }
 
@@ -340,7 +340,7 @@ final class ScopedStateOverlay {
             try {
                 [$front] = Canon::parse_post_file((string) $entity['content']);
             } catch (\Throwable $failure) {
-                throw new \RuntimeException('duo: selected media projection received malformed canonical post state', 0, $failure);
+                throw new \RuntimeException('wprism: selected media projection received malformed canonical post state', 0, $failure);
             }
             if (($front['type'] ?? null) !== 'attachment') {
                 continue;
@@ -369,7 +369,7 @@ final class ScopedStateOverlay {
                 $bytes = self::candidate_media_bytes((string) $name, $source);
                 $path = $view . '/' . (string) $name;
                 if (is_file($path) && !hash_equals(Canon::read_file($path), $bytes)) {
-                    throw new \RuntimeException("duo: candidate media '$name' conflicts with an existing blob");
+                    throw new \RuntimeException("wprism: candidate media '$name' conflicts with an existing blob");
                 }
                 if (!is_file($path)) {
                     Canon::write_file($path, $bytes);
@@ -408,7 +408,7 @@ final class ScopedStateOverlay {
         }
         foreach ($deleted as $identity => $row) {
             if (isset($live[$identity])) {
-                throw new \RuntimeException("duo: target observation is both live and deleted for '$identity'");
+                throw new \RuntimeException("wprism: target observation is both live and deleted for '$identity'");
             }
             $rows[] = $row;
         }
@@ -418,9 +418,9 @@ final class ScopedStateOverlay {
 
     /** @param list<array<string,mixed>> $rows */
     public static function stage_state_view(array $rows): string {
-        $path = rtrim(sys_get_temp_dir(), '/') . '/duo-scope-state-' . bin2hex(random_bytes(12));
+        $path = rtrim(sys_get_temp_dir(), '/') . '/wprism-scope-state-' . bin2hex(random_bytes(12));
         if (!mkdir($path, 0700)) {
-            throw new \RuntimeException('duo: cannot stage immutable scoped target evidence');
+            throw new \RuntimeException('wprism: cannot stage immutable scoped target evidence');
         }
         try {
             foreach ($rows as $row) {
@@ -428,7 +428,7 @@ final class ScopedStateOverlay {
                 if ($relative === '' || str_contains($relative, "\0") || str_starts_with($relative, '/')
                     || preg_match('#(^|/)\.\.(/|$)#', $relative) === 1
                     || !is_string($row['content'] ?? null)) {
-                    throw new \RuntimeException('duo: scoped target evidence has an unsafe canonical path');
+                    throw new \RuntimeException('wprism: scoped target evidence has an unsafe canonical path');
                 }
                 Canon::write_file($path . '/' . $relative, (string) $row['content']);
             }
@@ -443,7 +443,7 @@ final class ScopedStateOverlay {
         $tmp = realpath(sys_get_temp_dir());
         $parent = realpath(dirname($view));
         if ($tmp === false || $parent === false || !hash_equals($tmp, $parent)
-            || !str_starts_with(basename($view), 'duo-scope-state-') || !is_dir($view)) {
+            || !str_starts_with(basename($view), 'wprism-scope-state-') || !is_dir($view)) {
             return;
         }
         $iterator = new \RecursiveIteratorIterator(
@@ -484,30 +484,30 @@ final class ScopedStateOverlay {
                     $bytes = self::verified_media_file($file->getPathname(), $name);
                     if (array_key_exists($name, $expectedCatalog)) {
                         if (!hash_equals((string) $expectedCatalog[$name], hash('sha256', $bytes))) {
-                            throw new \RuntimeException("duo: scoped capture source media '$name' changed");
+                            throw new \RuntimeException("wprism: scoped capture source media '$name' changed");
                         }
                         Canon::write_file($view . '/' . $name, $bytes);
                         $seen[$name] = true;
                         continue;
                     }
                     if (!array_key_exists($name, $allowed) || !hash_equals($allowed[$name], $bytes)) {
-                        throw new \RuntimeException('duo: scoped capture source media inventory changed before publication');
+                        throw new \RuntimeException('wprism: scoped capture source media inventory changed before publication');
                     }
                     $seen[$name] = true;
                 }
             }
             foreach ($expectedCatalog as $name => $expected) {
                 if (!isset($seen[(string) $name])) {
-                    throw new \RuntimeException("duo: scoped capture source media '$name' disappeared before publication");
+                    throw new \RuntimeException("wprism: scoped capture source media '$name' disappeared before publication");
                 }
                 if (preg_match('/^[a-f0-9]{64}\.[A-Za-z0-9]+$/D', (string) $name) !== 1
                     || !is_string($expected) || preg_match('/^[a-f0-9]{64}$/D', $expected) !== 1) {
-                    throw new \RuntimeException('duo: scoped capture source media catalog is malformed');
+                    throw new \RuntimeException('wprism: scoped capture source media catalog is malformed');
                 }
             }
             foreach ($allowed as $name => $_bytes) {
                 if (!isset($seen[$name])) {
-                    throw new \RuntimeException("duo: scoped capture candidate media '$name' was not written durably");
+                    throw new \RuntimeException("wprism: scoped capture candidate media '$name' was not written durably");
                 }
             }
             return $view;
@@ -521,7 +521,7 @@ final class ScopedStateOverlay {
         $tmp = realpath(sys_get_temp_dir());
         $parent = realpath(dirname($view));
         if ($tmp === false || $parent === false || !hash_equals($tmp, $parent)
-            || !str_starts_with(basename($view), 'duo-scope-media-') || !is_dir($view)) {
+            || !str_starts_with(basename($view), 'wprism-scope-media-') || !is_dir($view)) {
             return;
         }
         foreach (new \FilesystemIterator($view, \FilesystemIterator::SKIP_DOTS) as $file) {
@@ -559,14 +559,14 @@ final class ScopedStateOverlay {
                 || (string) $after[$identity]['path'] !== (string) $row['path']
                 || (string) $after[$identity]['content'] !== (string) $row['content']) {
                 throw new \RuntimeException(
-                    "duo: scoped overlay changed or removed excluded canonical row '$identity'"
+                    "wprism: scoped overlay changed or removed excluded canonical row '$identity'"
                 );
             }
         }
         foreach ($after as $identity => $_row) {
             if (!isset($before[$identity]) && !isset($selected[$identity])) {
                 throw new \RuntimeException(
-                    "duo: scoped overlay introduced out-of-contract identity '$identity'"
+                    "wprism: scoped overlay introduced out-of-contract identity '$identity'"
                 );
             }
         }
@@ -589,20 +589,20 @@ final class ScopedStateOverlay {
         array $selectedOptions
     ): array {
         if ($observedRow === null) {
-            throw new \RuntimeException('duo: selected option capture could not observe options/core');
+            throw new \RuntimeException('wprism: selected option capture could not observe options/core');
         }
         try {
             $sourceRecords = OptionState::records(Canon::decode((string) ($sourceRow['content'] ?? '')));
             $observedRecords = OptionState::records(Canon::decode((string) ($observedRow['content'] ?? '')));
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: selected option capture has malformed options/core state', 0, $failure);
+            throw new \RuntimeException('wprism: selected option capture has malformed options/core state', 0, $failure);
         }
         foreach ($selectedOptions as $name => $_selected) {
             if (!array_key_exists($name, $sourceRecords)) {
-                throw new \RuntimeException("duo: selected option '$name' disappeared from the associated source carrier");
+                throw new \RuntimeException("wprism: selected option '$name' disappeared from the associated source carrier");
             }
             if (!array_key_exists($name, $observedRecords)) {
-                throw new \RuntimeException("duo: selected option '$name' disappeared from the capture observation");
+                throw new \RuntimeException("wprism: selected option '$name' disappeared from the capture observation");
             }
             $sourceRecords[$name] = $observedRecords[$name];
         }
@@ -630,13 +630,13 @@ final class ScopedStateOverlay {
             || (string) ($sourceRow['kind'] ?? '') !== 'live'
             || (string) ($candidateRow['kind'] ?? '') !== 'live'
             || (string) ($candidateRow['path'] ?? '') !== (string) ($sourceRow['path'] ?? '')) {
-            throw new \RuntimeException("duo: scoped overlay changed or removed excluded canonical row 'options/core'");
+            throw new \RuntimeException("wprism: scoped overlay changed or removed excluded canonical row 'options/core'");
         }
         try {
             $sourceRecords = OptionState::records(Canon::decode((string) ($sourceRow['content'] ?? '')));
             $candidateRecords = OptionState::records(Canon::decode((string) ($candidateRow['content'] ?? '')));
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: scoped overlay has malformed options/core state', 0, $failure);
+            throw new \RuntimeException('wprism: scoped overlay has malformed options/core state', 0, $failure);
         }
         foreach ($sourceRecords as $name => $record) {
             if (isset($selectedOptions[$name])) {
@@ -644,12 +644,12 @@ final class ScopedStateOverlay {
             }
             if (!array_key_exists($name, $candidateRecords)
                 || Canon::encode($candidateRecords[$name]) !== Canon::encode($record)) {
-                throw new \RuntimeException("duo: scoped overlay changed or removed excluded option '$name'");
+                throw new \RuntimeException("wprism: scoped overlay changed or removed excluded option '$name'");
             }
         }
         foreach ($candidateRecords as $name => $_record) {
             if (!isset($selectedOptions[$name]) && !array_key_exists($name, $sourceRecords)) {
-                throw new \RuntimeException("duo: scoped overlay introduced excluded option '$name'");
+                throw new \RuntimeException("wprism: scoped overlay introduced excluded option '$name'");
             }
         }
     }
@@ -661,7 +661,7 @@ final class ScopedStateOverlay {
             $identity = (string) ($row['uuid'] ?? '');
             if ($identity === '' || isset($out[$identity])
                 || !is_string($row['path'] ?? null) || !is_string($row['content'] ?? null)) {
-                throw new \RuntimeException("duo: scoped overlay has malformed or duplicate $label row");
+                throw new \RuntimeException("wprism: scoped overlay has malformed or duplicate $label row");
             }
             $out[$identity] = $row;
         }
@@ -706,7 +706,7 @@ final class ScopedStateOverlay {
         ), true);
         foreach ($live as $identity => $_row) {
             if (isset($selected[$identity]) && !isset($known[$identity])) {
-                throw new \RuntimeException("duo: scoped overlay cannot mint new identity '$identity'");
+                throw new \RuntimeException("wprism: scoped overlay cannot mint new identity '$identity'");
             }
         }
     }
@@ -717,16 +717,16 @@ final class ScopedStateOverlay {
         foreach ($rows as $row) {
             $path = (string) ($row['path'] ?? '');
             if ($path === '' || isset($paths[$path])) {
-                throw new \RuntimeException('duo: scoped overlay produced an empty or duplicate canonical path');
+                throw new \RuntimeException('wprism: scoped overlay produced an empty or duplicate canonical path');
             }
             $paths[$path] = true;
         }
     }
 
     private static function new_media_view(): string {
-        $path = rtrim(sys_get_temp_dir(), '/') . '/duo-scope-media-' . bin2hex(random_bytes(12));
+        $path = rtrim(sys_get_temp_dir(), '/') . '/wprism-scope-media-' . bin2hex(random_bytes(12));
         if (!mkdir($path, 0700)) {
-            throw new \RuntimeException('duo: cannot stage immutable scoped media evidence');
+            throw new \RuntimeException('wprism: cannot stage immutable scoped media evidence');
         }
         return $path;
     }
@@ -747,7 +747,7 @@ final class ScopedStateOverlay {
             MediaPayloadAuthority::parseMediaName($name);
             return MediaPayloadAuthority::readCatalogBlob($path, $name);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException("duo: scoped media inventory contains unsafe entry '$name'");
+            throw new \RuntimeException("wprism: scoped media inventory contains unsafe entry '$name'");
         }
     }
 
@@ -756,7 +756,7 @@ final class ScopedStateOverlay {
         try {
             return MediaPayloadAuthority::sourceBytes($name, $source);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException("duo: candidate media '$name' does not match its bounded capture witness", 0, $failure);
+            throw new \RuntimeException("wprism: candidate media '$name' does not match its bounded capture witness", 0, $failure);
         }
     }
 

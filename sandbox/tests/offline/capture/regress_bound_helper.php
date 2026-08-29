@@ -1,5 +1,5 @@
 <?php
-// Offline regression for DUO-3425's persistent inode-bound filesystem helper
+// Offline regression for issue #3425's persistent inode-bound filesystem helper
 // (Publish\BoundHelper). Pure filesystem + subprocess, zero WordPress/docker --
 // the same "real code against real temp dirs" idiom as regress_init_contract.php.
 //
@@ -20,9 +20,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../agent/src/Publication/Publish.php';
 
-use Duo\BoundHelper;
-use Duo\InitialStateBoundaryException;
-use Duo\Publish;
+use WPrism\BoundHelper;
+use WPrism\InitialStateBoundaryException;
+use WPrism\Publish;
 
 function fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -38,7 +38,7 @@ function check(bool $ok, string $message): void {
 $cleanupDirs = [];
 function make_dir(string $label): string {
     global $cleanupDirs;
-    $path = sys_get_temp_dir() . '/duo-bound-' . $label . '-' . bin2hex(random_bytes(6));
+    $path = sys_get_temp_dir() . '/wprism-bound-' . $label . '-' . bin2hex(random_bytes(6));
     if (!mkdir($path, 0777, true) && !is_dir($path)) {
         fail("could not create temp dir $path");
     }
@@ -168,7 +168,7 @@ check($idA['type'] === 'directory' && $idA['dev'] . ':' . $idA['ino'] === inode_
     'op 1 returns the created directory inode');
 
 // op 2: write in dirB (a DIFFERENT parent inode than op 1)
-$payload = str_repeat('duo-3425-', 4096) . "\x00\x01\x02binary-tail";
+$payload = str_repeat('capture-bound-', 4096) . "\x00\x01\x02binary-tail";
 $idB = Publish::write_file_fresh($dirB . '/file.bin', $payload, 'unit write', dir_ident($dirB), $helper);
 check(is_file($dirB . '/file.bin') && file_get_contents($dirB . '/file.bin') === $payload,
     'op 2 write landed the exact bytes in dirB (a different inode than op 1)');
@@ -247,7 +247,7 @@ check($mutantNoCsc !== $script && !str_contains($mutantNoCsc, 'clearstatcache(tr
 // (b) Probe whether THIS platform caches '.' across chdir the way the loop
 // would experience it (identity stat on '.', then a $name stat, then re-enter).
 $probeDotHazard = static function (): bool {
-    $r = sys_get_temp_dir() . '/duo-dothz-' . bin2hex(random_bytes(6));
+    $r = sys_get_temp_dir() . '/wprism-dothz-' . bin2hex(random_bytes(6));
     if (!@mkdir($r) || !@mkdir("$r/a") || !@mkdir("$r/b")) { rrmdir($r); return false; }
     $base = getcwd();
     chdir($base); chdir("$r/a");

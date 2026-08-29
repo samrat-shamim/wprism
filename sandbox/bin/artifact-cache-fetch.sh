@@ -10,17 +10,17 @@ offline="${4:?offline flag required}"
 slug="${5:?slug required}"
 version="${6:?version required}"
 kind="${7:?kind required}"
-force_php="${DUO_ARTIFACT_FORCE_PHP_LOCK:-0}"
-test_mode="${DUO_ARTIFACT_TEST_MODE:-0}"
-case "$test_mode" in 0|1) ;; *) echo "FAIL: DUO_ARTIFACT_TEST_MODE must be 0 or 1" >&2; exit 1 ;; esac
+force_php="${WPRISM_ARTIFACT_FORCE_PHP_LOCK:-0}"
+test_mode="${WPRISM_ARTIFACT_TEST_MODE:-0}"
+case "$test_mode" in 0|1) ;; *) echo "FAIL: WPRISM_ARTIFACT_TEST_MODE must be 0 or 1" >&2; exit 1 ;; esac
 if [ "$test_mode" = 1 ]; then
-  cache_root="${DUO_ARTIFACT_TEST_CACHE_ROOT:?test cache root required}"
+  cache_root="${WPRISM_ARTIFACT_TEST_CACHE_ROOT:?test cache root required}"
 else
   cache_root=/artifacts-cache
 fi
 
 case "$offline" in 0|1) ;; *) echo "FAIL: artifact cache runner received an invalid offline flag" >&2; exit 1 ;; esac
-case "$force_php" in 0|1) ;; *) echo "FAIL: DUO_ARTIFACT_FORCE_PHP_LOCK must be 0 or 1" >&2; exit 1 ;; esac
+case "$force_php" in 0|1) ;; *) echo "FAIL: WPRISM_ARTIFACT_FORCE_PHP_LOCK must be 0 or 1" >&2; exit 1 ;; esac
 case "$kind" in plugin|theme) ;; *) echo "FAIL: artifact cache runner received an invalid kind" >&2; exit 1 ;; esac
 case "$slug" in ''|*[!a-z0-9._-]*|[!a-z0-9]*|*[!a-z0-9]) echo "FAIL: artifact cache runner received an invalid slug" >&2; exit 1 ;; esac
 case "$version" in ''|*[!0-9A-Za-z._-]*|[!0-9A-Za-z]*) echo "FAIL: artifact cache runner received an invalid version" >&2; exit 1 ;; esac
@@ -97,7 +97,7 @@ if [ -f "$physical_path" ]; then
   exit 0
 fi
 if [ "$offline" = 1 ]; then
-  echo "FAIL: fetch_artifact: cache miss for $slug $version while DUO_ARTIFACT_OFFLINE=1 — refusing every network fetch" >&2
+  echo "FAIL: fetch_artifact: cache miss for $slug $version while WPRISM_ARTIFACT_OFFLINE=1 — refusing every network fetch" >&2
   exit 1
 fi
 

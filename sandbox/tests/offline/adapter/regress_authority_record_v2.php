@@ -17,8 +17,8 @@
  *
  * THE INVARIANT EVERY CASE HERE IS MEASURED AGAINST
  * ------------------------------------------------
- * `DUO_SPEC_VERSION` stays 2 and no shipped byte moves. So every rule below is
- * gated on a document declaring `duo-adapter-authorities/v2` (and on each
+ * `WPRISM_SPEC_VERSION` stays 2 and no shipped byte moves. So every rule below is
+ * gated on a document declaring `wprism-adapter-authorities/v2` (and on each
  * record restating that with `record_version: 2`), and the FIRST section of
  * this suite is the control: the identical v1 document, key for key, keeps
  * today's verdict byte for byte — including the ids, names and absent window
@@ -33,11 +33,11 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
+if (!defined('WPRISM_AGENT_VERSION')) {
+    define('WPRISM_AGENT_VERSION', '0.5.0');
 }
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../lib/check.php';
@@ -46,10 +46,10 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\WithdrawnAuthoritySiteAdapterCertificate;
+use WPrism\AdapterCertification;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\WithdrawnAuthoritySiteAdapterCertificate;
 
 $repo = dirname(__DIR__, 4);
 $root = $repo . '/sandbox/tmp/authority-record-v2-' . getmypid();
@@ -158,16 +158,16 @@ $sign = static function (array $keys, string $signerId, string $signerSecret): a
 
 echo "\n== the shipped precondition, re-checked on every run ==\n";
 
-duo_check_same(
-    ['format' => 'duo-adapter-authorities/v1', 'keys' => []],
+wprism_check_same(
+    ['format' => 'wprism-adapter-authorities/v1', 'keys' => []],
     (array) json_decode((string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'), true),
     'platform/adapter-library/capabilities/adapter-authorities.json is still the EMPTY v1 registry — the flag day\'s standing '
     . 'precondition, and the reason the platform root may still choose its binding (register row R-08)'
 );
-duo_check_same(
+wprism_check_same(
     2,
-    (int) DUO_SPEC_VERSION,
-    'and DUO_SPEC_VERSION is still 2: every rule below is gated on the authorities DOCUMENT format, never on '
+    (int) WPRISM_SPEC_VERSION,
+    'and WPRISM_SPEC_VERSION is still 2: every rule below is gated on the authorities DOCUMENT format, never on '
     . 'the manifest wire version, so the flip stays WP-4.12\'s alone'
 );
 
@@ -176,43 +176,43 @@ echo "\n== the v1 control: identical keys, today's verdict, byte for byte ==\n";
 // Every one of these v1 documents would be refused at v2 — a squatted id, a
 // namespace pattern, no window, no signature. Each is ACCEPTED here, which is
 // what proves the five rules are gated rather than global.
-$v1Squatted = ['format' => 'duo-adapter-authorities/v1', 'keys' => (object) [
+$v1Squatted = ['format' => 'wprism-adapter-authorities/v1', 'keys' => (object) [
     'wordpress-security-team' => $v1Record(base64_encode($public)),
 ]];
-duo_check_same(
+wprism_check_same(
     ['wordpress-security-team'],
     array_keys($readAuthorities($v1Squatted)),
     'a v1 key id that derives from NO key material still loads: `keyId()` is the shared identity slug grammar '
     . 'and v1 asks nothing more of it'
 );
-$v1Unsigned = ['format' => 'duo-adapter-authorities/v1', 'keys' => (object) [
+$v1Unsigned = ['format' => 'wprism-adapter-authorities/v1', 'keys' => (object) [
     $keyId => $v1Record(base64_encode($public)),
     $otherId => $v1Record(base64_encode($otherPublic), ['acme-forms', 'zeta-catalog']),
 ]];
-duo_check_same(
+wprism_check_same(
     [$keyId, $otherId],
     array_keys($readAuthorities($v1Unsigned)),
     'a v1 document carries no envelope signature and is not asked for one — `{format, keys}` stays closed in '
     . 'both directions (register row R-10)'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $refusal(static fn() => $readAuthorities($v1Unsigned)),
     'and a v1 record with no window is never judged against a clock: no expiry vocabulary reaches a v1 record '
     . 'at all'
 );
-$v1Pattern = ['format' => 'duo-adapter-authorities/v1', 'keys' => (object) [
+$v1Pattern = ['format' => 'wprism-adapter-authorities/v1', 'keys' => (object) [
     $keyId => $v1Record(base64_encode($public), ['acme-*']),
 ]];
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($v1Pattern)), 'adapter certification name'),
     'a namespace PATTERN inside a v1 record is refused by the exact-name grammar, exactly as it is today — the '
     . 'pattern is a v2 vocabulary and does not leak backwards'
 );
-$v1WithWindow = ['format' => 'duo-adapter-authorities/v1', 'keys' => (object) [
+$v1WithWindow = ['format' => 'wprism-adapter-authorities/v1', 'keys' => (object) [
     $keyId => ['not_after' => '2027-01-01T00:00:00Z'] + $v1Record(base64_encode($public)),
 ]];
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($v1WithWindow)), 'must contain exactly'),
     'and a v1 record that grows a window member is refused by the closed key set rather than honoured — an '
     . 'unenforced expiry in front of a reader who thinks it is enforced is the failure this refuses'
@@ -221,10 +221,10 @@ duo_check(
 echo "\n== change (a): a v2 key id derives from its own key material ==\n";
 
 $signedGood = $sign([$keyId => $v2Record(base64_encode($public))], $keyId, $secret);
-duo_check_same(
+wprism_check_same(
     [$keyId],
     array_keys($readAuthorities($signedGood)),
-    "a v2 key id ending in its own '-$fingerprint' fingerprint loads — the id `duo adapter keygen` already "
+    "a v2 key id ending in its own '-$fingerprint' fingerprint loads — the id `wprism adapter keygen` already "
     . 'derives by default is now the grammar'
 );
 $squatted = $signedGood;
@@ -233,7 +233,7 @@ $squattedKeys['wordpress-security-team'] = $squattedKeys[$keyId];
 unset($squattedKeys[$keyId]);
 $squatted['keys'] = (object) $squattedKeys;
 $squattedRefusal = (string) $refusal(static fn() => $readAuthorities($squatted));
-duo_check(
+wprism_check(
     str_contains($squattedRefusal, 'does not derive from its own key material')
         && str_contains($squattedRefusal, "'-$fingerprint'"),
     'a SQUATTED v2 id — a name nobody holding that key material could honestly claim — is refused, and the '
@@ -243,12 +243,12 @@ $swapped = $signedGood;
 $swappedKeys = (array) $swapped['keys'];
 $swappedKeys[$keyId]['public_key'] = base64_encode($otherPublic);
 $swapped['keys'] = (object) $swappedKeys;
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($swapped)), 'does not derive from its own key material'),
     'and swapping the KEY under a legitimate id is the same refusal read from the other end: the id and the '
     . 'key material are one fact, not two'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::signAuthorities(
             Canon::encode((object) [
@@ -283,14 +283,14 @@ $expiryEpoch = (int) strtotime('2027-01-01T00:00:00Z');
 $issuedEpoch = (int) strtotime('2026-01-01T00:00:00Z');
 
 $setClock($openEpoch);
-duo_check_same(null, $refusal($inScope), 'inside its window a v2 key certifies');
+wprism_check_same(null, $refusal($inScope), 'inside its window a v2 key certifies');
 $setClock($issuedEpoch);
-duo_check_same(null, $refusal($inScope), 'the window is closed at the TOP only: the issuance instant itself is inside it');
+wprism_check_same(null, $refusal($inScope), 'the window is closed at the TOP only: the issuance instant itself is inside it');
 $setClock($expiryEpoch - 1);
-duo_check_same(null, $refusal($inScope), 'one second before not_after the key still certifies');
+wprism_check_same(null, $refusal($inScope), 'one second before not_after the key still certifies');
 $setClock($expiryEpoch);
 $atBoundary = (string) $refusal($inScope);
-duo_check(
+wprism_check(
     str_contains($atBoundary, "authority key '$keyId' expired at 2027-01-01T00:00:00Z")
         && str_contains($atBoundary, "judged against this host's own wall clock, which reads 2027-01-01T00:00:00Z")
         && str_contains($atBoundary, 'no skew allowance in either direction'),
@@ -298,13 +298,13 @@ duo_check(
     . 'clock and states the no-skew posture (' . $atBoundary . ')'
 );
 $setClock($expiryEpoch + 86400);
-duo_check(
+wprism_check(
     str_contains((string) $refusal($inScope), 'expired at 2027-01-01T00:00:00Z'),
     'and past it, still refused, still naming the instant rather than the interval'
 );
 $setClock($issuedEpoch - 1);
 $implausible = (string) $refusal($inScope);
-duo_check(
+wprism_check(
     str_contains($implausible, "this host's own wall clock reads 2025-12-31T23:59:59Z")
         && str_contains($implausible, "before authority key '$keyId' was issued at 2026-01-01T00:00:00Z")
         && str_contains($implausible, 'refuses rather than resurrecting an expired record'),
@@ -322,7 +322,7 @@ duo_check(
 // no reordering could have removed.
 $setClock(0);
 $epochRefusal = (string) $refusal($inScope);
-duo_check(
+wprism_check(
     str_contains($epochRefusal, "this host's own wall clock reads 1970-01-01T00:00:00Z")
         && str_contains($epochRefusal, "before authority key '$keyId' was issued at 2026-01-01T00:00:00Z")
         && !str_contains($epochRefusal, 'expired at'),
@@ -334,7 +334,7 @@ duo_check(
 // expiry refusal was a bare \RuntimeException: `guarded()` re-threw it,
 // `discover()` refused the whole site source and `Policy::load()` propagated it
 // uncaught, so every site holding a certificate under a v2 key lost every
-// command — including the `duo adapter certify --pin` that repairs it — at that
+// command — including the `wprism adapter certify --pin` that repairs it — at that
 // key's own expiry, with no operator act in between. A DATED fleet-brick.
 //
 // The routing itself (typed signal → uncertified, live and frozen) is driven
@@ -348,7 +348,7 @@ try {
 } catch (Throwable $t) {
     $expiredTyped = $t;
 }
-duo_check(
+wprism_check(
     $expiredTyped instanceof WithdrawnAuthoritySiteAdapterCertificate
         && $expiredTyped->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_WINDOW,
     'an EXPIRED authority raises the typed withdrawal carrying the `' . AdapterSources::WITHDRAWN_AUTHORITY_WINDOW
@@ -362,7 +362,7 @@ try {
 } catch (Throwable $t) {
     $implausibleTyped = $t;
 }
-duo_check(
+wprism_check(
     $implausibleTyped instanceof WithdrawnAuthoritySiteAdapterCertificate
         && $implausibleTyped->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_WINDOW,
     'and so does the implausible-clock arm beside it — a host with a wrong clock withdraws claims rather than '
@@ -382,7 +382,7 @@ $revokedRecord = $revokedKeys[$keyId];
 $revokedAndExpired = (string) $refusal(
     static fn() => $scope->invoke(null, $revokedRecord, $keyId, 'acme-forms', 'declarative_manifest')
 );
-duo_check(
+wprism_check(
     str_contains($revokedAndExpired, "authority key '$keyId' is revoked and cannot certify adapters")
         && !str_contains($revokedAndExpired, 'expired at'),
     'revocation still answers before the window does, asked on a record that is BOTH revoked and expired: an '
@@ -396,19 +396,19 @@ $badWindow = [
     'a local-time instant' => ['2026-01-01T00:00:00+01:00', '2027-01-01T00:00:00Z', 'one unambiguous ISO-8601 UTC instant'],
 ];
 foreach ($badWindow as $label => [$before, $after, $needle]) {
-    $document = ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) [
+    $document = ['format' => 'wprism-adapter-authorities/v2', 'keys' => (object) [
         $keyId => $v2Record(base64_encode($public), ['acme-forms'], $before, $after),
     ], 'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))]];
-    duo_check(
+    wprism_check(
         str_contains((string) $refusal(static fn() => $readAuthorities($document)), $needle),
         "a v2 record with $label is refused by the window grammar, before any signature byte is read"
     );
 }
 $noWindow = $v2Record(base64_encode($public));
 unset($noWindow['not_after']);
-$noWindowDocument = ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) [$keyId => $noWindow],
+$noWindowDocument = ['format' => 'wprism-adapter-authorities/v2', 'keys' => (object) [$keyId => $noWindow],
     'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))]];
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($noWindowDocument)), 'must contain exactly'),
     'and the window is MANDATORY at v2: a record that omits an end is refused by the closed key set, because '
     . 'an optional member has no honest home in a set that refuses missing and unknown alike'
@@ -426,11 +426,11 @@ $setClock($openEpoch);
 $scopeVerdict = static fn(string $name): ?string => $refusal(
     static fn() => $scope->invoke(null, $namespacedRecord, $keyId, $name, 'declarative_manifest')
 );
-duo_check_same(null, $scopeVerdict('acme-forms'), 'a namespace-scoped key certifies INSIDE its pattern');
-duo_check_same(null, $scopeVerdict('acme-forms-pro'), 'and anywhere deeper inside it');
-duo_check_same(null, $scopeVerdict('legacy-shop'), 'while an exact name listed beside the pattern still matches exactly');
+wprism_check_same(null, $scopeVerdict('acme-forms'), 'a namespace-scoped key certifies INSIDE its pattern');
+wprism_check_same(null, $scopeVerdict('acme-forms-pro'), 'and anywhere deeper inside it');
+wprism_check_same(null, $scopeVerdict('legacy-shop'), 'while an exact name listed beside the pattern still matches exactly');
 foreach (['zeta-forms', 'acme', 'acmex-forms', 'legacy-shop-pro'] as $outside) {
-    duo_check(
+    wprism_check(
         str_contains((string) $scopeVerdict($outside), "is not scoped to site adapter '$outside'"),
         "and '$outside' is OUTSIDE it: the pattern is `<vendor>-` and nothing looser — no prefix-of-a-prefix, "
         . 'no bare name, no widening of an exact entry'
@@ -438,10 +438,10 @@ foreach (['zeta-forms', 'acme', 'acmex-forms', 'legacy-shop-pro'] as $outside) {
 }
 $setClock(null);
 foreach (['*', '*-forms', 'acme-*-pro', 'ac*me', 'acme-**'] as $illegal) {
-    $document = ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) [
+    $document = ['format' => 'wprism-adapter-authorities/v2', 'keys' => (object) [
         $keyId => $v2Record(base64_encode($public), [$illegal]),
     ], 'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))]];
-    duo_check(
+    wprism_check(
         str_contains(
             (string) $refusal(static fn() => $readAuthorities($document)),
             "neither an exact adapter name nor a '<vendor>-*' namespace"
@@ -467,19 +467,19 @@ $readAs = static function (array $document, bool $platformRoot) use ($root, $rea
     return (array) $readRoot->invoke(null, $file, 'adapter certification authorities', $platformRoot);
 };
 $patternDocument = static fn(string $entry): array => [
-    'format' => 'duo-adapter-authorities/v2',
+    'format' => 'wprism-adapter-authorities/v2',
     'keys' => (object) [$keyId => $v2Record(base64_encode($public), [$entry])],
     'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))],
 ];
 foreach ([
     'ninja-*' => 'ninja-forms',
     'yoast-*' => 'yoast-duplicate-post',
-    'duo-*' => 'duo-agency-cpt',
+    'wprism-*' => 'wprism-agency-cpt',
     'code-*' => 'code-snippets',
     'paid-*' => 'paid-memberships-pro',
 ] as $entry => $covered) {
     $reserved = (string) $refusal(static fn() => $readAs($patternDocument($entry), false));
-    duo_check(
+    wprism_check(
         str_contains($reserved, "entry '$entry' covers '$covered'")
             && str_contains($reserved, 'adapter names the shipped library reserves')
             && str_contains($reserved, 'inherits that adapter\'s interpreter, regenerator and'),
@@ -495,7 +495,7 @@ foreach ([
 // the separate, weaker fact it is.
 $framer = new ReflectionMethod(AdapterCertification::class, 'authoritiesSignatureBytes');
 $forgeAuthorities = static function (array $keys) use ($framer, $keyId, $secret): array {
-    $document = (object) ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) $keys];
+    $document = (object) ['format' => 'wprism-adapter-authorities/v2', 'keys' => (object) $keys];
 
     return [
         'format' => $document->format,
@@ -509,13 +509,13 @@ $forgeAuthorities = static function (array $keys) use ($framer, $keyId, $secret)
         ],
     ];
 };
-duo_check_same(
+wprism_check_same(
     [$keyId],
     array_keys($readAs($forgeAuthorities([$keyId => $v2Record(base64_encode($public), ['ninja-*'])]), true)),
     'the PLATFORM root is exempt: it is the reviewed library, so a record this project ships may say `ninja-*` '
     . 'and mean it'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $sign([$keyId => $v2Record(base64_encode($public), ['ninja-*'])], $keyId, $secret)),
         "entry 'ninja-*' covers 'ninja-forms'"
@@ -524,7 +524,7 @@ duo_check(
     . 'for, so it holds every record to the stricter rule — the guard rail in front of the boundary, never '
     . 'instead of it'
 );
-duo_check_same(
+wprism_check_same(
     [$keyId],
     array_keys($readAs(
         $sign([$keyId => $v2Record(base64_encode($public), ['acme-*', 'woocommerce'])], $keyId, $secret),
@@ -532,20 +532,20 @@ duo_check_same(
     )),
     'an EXACT reserved name is still admitted under a site key, and that is the decision rather than the gap: '
     . 'out of tree a shipped name is reachable only as the reviewed {name, source:"site"} override (T6 §3.3), '
-    . 'which `duo adapter certify` records by exact name. Naming one is deliberate; a namespace sweeping one up '
+    . 'which `wprism adapter certify` records by exact name. Naming one is deliberate; a namespace sweeping one up '
     . 'is an accident of shape, and only the accident is refused'
 );
-duo_check_same(
+wprism_check_same(
     [$keyId],
     array_keys($readAs($sign([$keyId => $v2Record(base64_encode($public), ['ninjax-*'])], $keyId, $secret), false)),
     'and the coverage test is the shipped `<vendor>-` one, not a string prefix: `ninjax-*` reaches no reserved '
     . 'name and is admitted'
 );
 $v1Reserved = $refusal(static fn() => $readAs([
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => (object) [$keyId => $v1Record(base64_encode($public), ['yoast-duplicate-post'])],
 ], false));
-duo_check_same(
+wprism_check_same(
     null,
     $v1Reserved,
     'a v1 record naming a reserved adapter EXACTLY still loads byte for byte — v1 has no pattern vocabulary at '
@@ -554,10 +554,10 @@ duo_check_same(
 
 echo "\n== change (d): the v2 document attests to itself ==\n";
 
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $readAuthorities([
-            'format' => 'duo-adapter-authorities/v2',
+            'format' => 'wprism-adapter-authorities/v2',
             'keys' => (object) [$keyId => $v2Record(base64_encode($public))],
         ])),
         'must contain exactly format, keys, signature'
@@ -568,7 +568,7 @@ $tampered = $signedGood;
 $tamperedKeys = (array) $tampered['keys'];
 $tamperedKeys[$keyId]['adapter_names'] = ['acme-forms', 'acme-invoices'];
 $tampered['keys'] = (object) $tamperedKeys;
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($tampered)), 'does not verify under key'),
     'a TAMPERED v2 document refuses: widening a scope list in a signed registry needs the signing key, which '
     . 'is the whole property enrollment needs from this envelope'
@@ -577,14 +577,14 @@ $appended = $signedGood;
 $appendedKeys = (array) $appended['keys'];
 $appendedKeys[$otherId] = $v2Record(base64_encode($otherPublic), ['zeta-*']);
 $appended['keys'] = (object) $appendedKeys;
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($appended)), 'does not verify under key'),
     'and APPENDING a key to a signed registry refuses for the same reason — the signature covers `{format, '
     . 'keys}` whole, not each record separately'
 );
 $foreign = $signedGood;
 $foreign['signature'] = (object) ['key_id' => $otherId, 'value' => $signedGood['signature']['value']];
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($foreign)), 'is signed by a key it carries itself'),
     'a signature naming a key the document does not carry refuses by name, rather than by failing to verify '
     . 'against nothing'
@@ -603,7 +603,7 @@ $revokedSignerRefusal = (string) $refusal(static fn() => $readAuthorities($revok
 // two tests — which is exactly the thing worth pinning: the STATUS is asked
 // first, so an operator reading the refusal is told the signer is revoked
 // rather than being sent to look for a tampered document.
-duo_check(
+wprism_check(
     str_contains($revokedSignerRefusal, "envelope signature was made by revoked key '$keyId'")
         && !str_contains($revokedSignerRefusal, 'does not verify under key'),
     'and a revoked signer cannot attest the registry it sits in, and is told SO — the status test runs ahead of '
@@ -614,28 +614,28 @@ $twoKeys = $sign(
     $otherId,
     $otherSecret
 );
-duo_check_same(
+wprism_check_same(
     [$keyId, $otherId],
     array_keys($readAuthorities($twoKeys)),
     'any key the document carries may sign it: the registry attests to itself, and which member did so is in '
     . 'the document rather than in a convention'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $readAuthorities([
-            'format' => 'duo-adapter-authorities/v2',
+            'format' => 'wprism-adapter-authorities/v2',
             'keys' => (object) [],
             'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))],
         ])),
-        'an empty registry stays duo-adapter-authorities/v1'
+        'an empty registry stays wprism-adapter-authorities/v1'
     ),
     'an EMPTY v2 registry is unrepresentable, which is exactly what lets the shipped empty file stay v1 and '
     . 'byte-identical through the flag day'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::signAuthorities(
-            Canon::encode((object) ['format' => 'duo-adapter-authorities/v1', 'keys' => (object) [
+            Canon::encode((object) ['format' => 'wprism-adapter-authorities/v1', 'keys' => (object) [
                 $keyId => $v1Record(base64_encode($public)),
             ]]),
             $keyId,
@@ -646,7 +646,7 @@ duo_check(
     'and the producer refuses to sign a v1 document: a signature on a document nothing checks it against would '
     . 'be decoration'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::signAuthorities(
             Canon::encode((object) [
@@ -691,13 +691,13 @@ if (is_resource($process)) {
     fclose($pipes[2]);
     $cliExit = proc_close($process);
 }
-duo_check(
+wprism_check(
     $cliExit === 0 && str_contains($cliOut, AdapterCertification::AUTHORITIES_FORMAT_V2),
     'the reviewer verb `authorities-sign` signs a v2 registry in place and reports what it signed ('
     . trim($cliErr === '' ? $cliOut : $cliErr) . ')'
 );
 $method = new ReflectionMethod(AdapterCertification::class, 'authorityKeys');
-duo_check_same(
+wprism_check_same(
     [$keyId],
     array_keys((array) $method->invoke(null, $cliPath, 'adapter certification authorities')),
     'and the SHIPPED READER accepts exactly what that verb wrote — the producer and the verifier agree on '
@@ -706,28 +706,28 @@ duo_check_same(
 
 echo "\n== the version member, and the two statements of one grammar ==\n";
 
-$mixedV1 = ['format' => 'duo-adapter-authorities/v1', 'keys' => (object) [
+$mixedV1 = ['format' => 'wprism-adapter-authorities/v1', 'keys' => (object) [
     $keyId => $v2Record(base64_encode($public)),
 ]];
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($mixedV1)), 'the envelope and the record must state one grammar'),
     'a v2 RECORD inside a v1 envelope refuses: the two must state one grammar, so a windowed record can never '
     . 'sit in front of a reader that would not enforce its window'
 );
-$mixedV2 = ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) [
+$mixedV2 = ['format' => 'wprism-adapter-authorities/v2', 'keys' => (object) [
     $keyId => $v1Record(base64_encode($public)),
 ], 'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))]];
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($mixedV2)), 'the envelope and the record must state one grammar'),
     'and a v1 record inside a v2 envelope refuses the same way — the disagreement is the finding, in either '
     . 'direction'
 );
 $futureVersion = $v2Record(base64_encode($public));
 $futureVersion['record_version'] = 3;
-$futureDocument = ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) [$keyId => $futureVersion],
+$futureDocument = ['format' => 'wprism-adapter-authorities/v2', 'keys' => (object) [$keyId => $futureVersion],
     'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))]];
 $futureRefusal = (string) $refusal(static fn() => $readAuthorities($futureDocument));
-duo_check(
+wprism_check(
     str_contains($futureRefusal, 'declares authority record_version 3')
         && str_contains($futureRefusal, 'refused by version'),
     'a record version this agent does not implement is refused BY VERSION rather than read as a v2 record with '
@@ -735,17 +735,17 @@ duo_check(
 );
 $stringVersion = $v2Record(base64_encode($public));
 $stringVersion['record_version'] = '2';
-$stringDocument = ['format' => 'duo-adapter-authorities/v2', 'keys' => (object) [$keyId => $stringVersion],
+$stringDocument = ['format' => 'wprism-adapter-authorities/v2', 'keys' => (object) [$keyId => $stringVersion],
     'signature' => (object) ['key_id' => $keyId, 'value' => base64_encode(str_repeat("\x00", SODIUM_CRYPTO_SIGN_BYTES))]];
-duo_check(
+wprism_check(
     str_contains((string) $refusal(static fn() => $readAuthorities($stringDocument)), 'refused by version'),
     "and `record_version: '2'` is not `record_version: 2`: a JSON string is a different wire value and is not "
     . 'coerced into agreement'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $readAuthorities([
-            'format' => 'duo-adapter-authorities/v9',
+            'format' => 'wprism-adapter-authorities/v9',
             'keys' => (object) [$keyId => $v1Record(base64_encode($public))],
         ])),
         'have an unsupported or malformed root'
@@ -766,7 +766,7 @@ $baseIdentity = Canon::encode($identity->invoke(null, $base));
 $scopeMoved = $base;
 $scopeMoved['adapter_names'] = ['acme-*', 'acme-forms'];
 $scopeMoved['trust_tiers'] = ['declarative_manifest', 'plugin_provider'];
-duo_check_same(
+wprism_check_same(
     $baseIdentity,
     Canon::encode($identity->invoke(null, $scopeMoved)),
     'growing the two SCOPE LISTS leaves the bound identity byte-identical — this is the enrollment case, and '
@@ -775,7 +775,7 @@ duo_check_same(
 foreach (['record_version', 'public_key', 'status', 'algorithm', 'scope'] as $member) {
     $moved = $base;
     $moved[$member] = $member === 'record_version' ? 3 : 'moved-' . $member;
-    duo_check(
+    wprism_check(
         Canon::encode($identity->invoke(null, $moved)) !== $baseIdentity,
         "moving `$member` MOVES the bound identity: it says WHO this key is, so it cannot be edited under a "
         . 'signature that covered the old one'
@@ -798,7 +798,7 @@ echo "\n== M1: the WINDOW is a scope, so a key can be RENEWED ==\n";
 // on the same record rather than assumed.
 $renewed = $base;
 $renewed['not_after'] = '2030-01-01T00:00:00Z';
-duo_check_same(
+wprism_check_same(
     $baseIdentity,
     Canon::encode($identity->invoke(null, $renewed)),
     'EXTENDING `not_after` leaves the bound identity byte-identical: a certificate signed before the renewal '
@@ -806,7 +806,7 @@ duo_check_same(
 );
 $reissued = $base;
 $reissued['not_before'] = '2026-06-01T00:00:00Z';
-duo_check_same(
+wprism_check_same(
     $baseIdentity,
     Canon::encode($identity->invoke(null, $reissued)),
     'and so does moving `not_before` — the window is one scope and both ends leave the binding together, so a '
@@ -816,7 +816,7 @@ $setClock((int) strtotime('2030-06-01T00:00:00Z'));
 $renewedRefusal = (string) $refusal(
     static fn() => $scope->invoke(null, $renewed, $keyId, 'acme-forms', 'declarative_manifest')
 );
-duo_check(
+wprism_check(
     str_contains($renewedRefusal, "authority key '$keyId' expired at 2030-01-01T00:00:00Z")
         && !str_contains($renewedRefusal, 'not scoped'),
     'NOTHING WAS LAUNDERED: the renewed window is still enforced live, at its own new instant and by the same '
@@ -830,7 +830,7 @@ $setClock(null);
 // depends on that refusal — and the shipped platform root has still signed
 // nothing. The `{"keys": {}}` assertion at the head of this suite is that fact;
 // this restates what it licenses, at the change it licenses.
-duo_check_same(
+wprism_check_same(
     [],
     (array) (json_decode(
         (string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'),
@@ -841,4 +841,4 @@ duo_check_same(
     . 'signature, never after)'
 );
 
-duo_check_summary('authority record v2');
+wprism_check_summary('authority record v2');

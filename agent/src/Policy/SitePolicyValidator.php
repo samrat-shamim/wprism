@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Policy remains the standalone entry point for the pure site-policy grammar
 // collaborators used below. Requiring it here preserves the existing direct
@@ -25,7 +25,7 @@ require_once __DIR__ . '/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/AdapterClaimResolutions.php';
 
 /**
- * Pure validation of the repository-owned site.duo.json policy envelope.
+ * Pure validation of the repository-owned site.wprism.json policy envelope.
  *
  * Policy::load() and Policy::from_snapshot() must validate the same ten
  * site-level declarations in the same order, differing only in the label
@@ -33,7 +33,7 @@ require_once __DIR__ . '/AdapterClaimResolutions.php';
  * entry points easy to drift while the per-manifest sequence already had a
  * dedicated ManifestValidator. This collaborator owns only the shared site
  * grammar composition; loading, pin resolution, and runtime policy queries
- * remain on Policy (DUO-3348 slice 29).
+ * remain on Policy (issue #3348 slice 29).
  */
 final class SitePolicyValidator {
     /**
@@ -77,7 +77,7 @@ final class SitePolicyValidator {
         // exists (PolicyLoadFinalizer), not here.
         AdapterClaimResolutions::validate($site['policy'] ?? [], $label);
         // Top-level, not under `policy`: this declares nothing about which
-        // WordPress state Duo owns — it records probe outcomes about upstream
+        // WordPress state WPrism owns — it records probe outcomes about upstream
         // releases, which is why it is a sibling of `manifests`/`code` rather
         // than a classification rule.
         VersionEvidenceGrammar::validate_site_version_evidence($site, $label);

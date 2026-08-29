@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 if (!class_exists(Db::class, false)) {
@@ -38,7 +38,7 @@ final class CacheInvalidationTransaction {
 
     public static function begin(): void {
         if (self::$active) {
-            throw new \RuntimeException('duo: cache invalidation transaction was already active');
+            throw new \RuntimeException('wprism: cache invalidation transaction was already active');
         }
         self::$active = true;
         self::$cacheKeys = [];
@@ -56,7 +56,7 @@ final class CacheInvalidationTransaction {
     public static function assert_local_cache(string $purpose): void {
         if (function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache()) {
             throw new \RuntimeException(
-                "duo: $purpose refuses raw authored transaction mutation while a persistent external "
+                "wprism: $purpose refuses raw authored transaction mutation while a persistent external "
                 . 'object cache is active; WordPress exposes no backend-independent version/CAS fence across '
                 . 'options, sidebars/widgets, terms, term metadata, taxonomy relationships, and user/post metadata'
             );
@@ -88,7 +88,7 @@ final class CacheInvalidationTransaction {
     public static function queue_post(int $postId, string $postType, string $purpose): void {
         self::assert_positive_id($postId, $purpose);
         if (preg_match('/^[a-z0-9_-]{1,20}$/D', $postType) !== 1) {
-            throw new \RuntimeException("duo: $purpose requested post cache invalidation for a malformed post type");
+            throw new \RuntimeException("wprism: $purpose requested post cache invalidation for a malformed post type");
         }
         $entries = [
             [$postId, 'posts'],
@@ -134,23 +134,23 @@ final class CacheInvalidationTransaction {
     /**
      * Lock every potentially touched taxonomy hierarchy option before the
      * first authored row mutation. WordPress's clean_taxonomy_cache() deletes
-     * these rows but also fires hooks and runs undeclared SQL, so Duo performs
+     * these rows but also fires hooks and runs undeclared SQL, so WPrism performs
      * only the exact row delete under its own transaction and cache receipt.
      *
      * @param array<string,bool> $taxonomies taxonomy => native hierarchical flag
      */
     public static function prepare_term_hierarchy_options(array $taxonomies): void {
         if (!self::$active) {
-            throw new \RuntimeException('duo: term hierarchy option preparation requires the authored transaction');
+            throw new \RuntimeException('wprism: term hierarchy option preparation requires the authored transaction');
         }
         if (array_is_list($taxonomies)) {
-            throw new \RuntimeException('duo: term hierarchy option preparation requires an explicit taxonomy=>bool roster');
+            throw new \RuntimeException('wprism: term hierarchy option preparation requires an explicit taxonomy=>bool roster');
         }
         $names = [];
         foreach ($taxonomies as $taxonomy => $hierarchical) {
             self::assert_taxonomy($taxonomy, 'term hierarchy option preparation');
             if (!is_bool($hierarchical) || array_key_exists($taxonomy, self::$termTaxonomyHierarchy)) {
-                throw new \RuntimeException('duo: term hierarchy option preparation received a malformed/duplicate roster');
+                throw new \RuntimeException('wprism: term hierarchy option preparation received a malformed/duplicate roster');
             }
             self::$termTaxonomyHierarchy[$taxonomy] = $hierarchical;
             if ($hierarchical) {
@@ -172,11 +172,11 @@ final class CacheInvalidationTransaction {
     public static function assert_term_taxonomy_prepared(string $taxonomy, string $purpose): void {
         self::assert_taxonomy($taxonomy, $purpose);
         if (!array_key_exists($taxonomy, self::$termTaxonomyHierarchy)) {
-            throw new \RuntimeException("duo: $purpose lacks the pre-mutation taxonomy hierarchy classification");
+            throw new \RuntimeException("wprism: $purpose lacks the pre-mutation taxonomy hierarchy classification");
         }
         if (self::$termTaxonomyHierarchy[$taxonomy]
             && !array_key_exists($taxonomy . '_children', self::$hierarchyOptionRows)) {
-            throw new \RuntimeException("duo: $purpose lacks the pre-mutation hierarchical taxonomy option lock");
+            throw new \RuntimeException("wprism: $purpose lacks the pre-mutation hierarchical taxonomy option lock");
         }
     }
 
@@ -200,7 +200,7 @@ final class CacheInvalidationTransaction {
     public static function lock_option_row(string $name, string $purpose): ?array {
         global $wpdb;
         if (!self::$active) {
-            throw new \RuntimeException("duo: $purpose attempted option row locking outside the authored transaction");
+            throw new \RuntimeException("wprism: $purpose attempted option row locking outside the authored transaction");
         }
         self::assert_local_cache($purpose);
         self::assert_option_name($name, $purpose);
@@ -228,10 +228,10 @@ final class CacheInvalidationTransaction {
         if (!is_array($sizes)
             || !array_is_list($sizes)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose compact option lock read failed");
+            throw new \RuntimeException("wprism: $purpose compact option lock read failed");
         }
         if (count($sizes) > 1) {
-            throw new \RuntimeException("duo: $purpose found ambiguous collation-equal option rows");
+            throw new \RuntimeException("wprism: $purpose found ambiguous collation-equal option rows");
         }
         if ($sizes === []) return null;
         $size = $sizes[0];
@@ -245,7 +245,7 @@ final class CacheInvalidationTransaction {
             || $autoloadBytes === null
             || $valueBytes > self::MAX_OPTION_VALUE_BYTES
             || $autoloadBytes > self::MAX_AUTOLOAD_BYTES) {
-            throw new \RuntimeException("duo: $purpose compact option lock row is malformed, aliased, or oversized");
+            throw new \RuntimeException("wprism: $purpose compact option lock row is malformed, aliased, or oversized");
         }
         $wpdb->last_error = '';
         $hashRows = $wpdb->get_results($wpdb->prepare(
@@ -257,7 +257,7 @@ final class CacheInvalidationTransaction {
             || !array_is_list($hashRows)
             || count($hashRows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose bounded option hash witness failed or changed");
+            throw new \RuntimeException("wprism: $purpose bounded option hash witness failed or changed");
         }
         $hashRow = $hashRows[0];
         $valueHash = is_array($hashRow)
@@ -272,7 +272,7 @@ final class CacheInvalidationTransaction {
             || !hash_equals($name, $hashRow['option_name'])
             || $valueHash === null
             || $autoloadHash === null) {
-            throw new \RuntimeException("duo: $purpose bounded option hash witness is malformed or aliased");
+            throw new \RuntimeException("wprism: $purpose bounded option hash witness is malformed or aliased");
         }
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -283,7 +283,7 @@ final class CacheInvalidationTransaction {
             || !array_is_list($rows)
             || count($rows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose bounded option payload read failed");
+            throw new \RuntimeException("wprism: $purpose bounded option payload read failed");
         }
         $row = $rows[0];
         if (!is_array($row)
@@ -296,7 +296,7 @@ final class CacheInvalidationTransaction {
             || strlen($row['autoload']) !== $autoloadBytes
             || !hash_equals($valueHash, hash('sha256', $row['option_value']))
             || !hash_equals($autoloadHash, hash('sha256', $row['autoload']))) {
-            throw new \RuntimeException("duo: $purpose option payload disagrees with its locked compact witness");
+            throw new \RuntimeException("wprism: $purpose option payload disagrees with its locked compact witness");
         }
         return $row;
     }
@@ -311,7 +311,7 @@ final class CacheInvalidationTransaction {
         if ($row === null
             || !hash_equals($value, $row['option_value'])
             || !hash_equals($autoload, $row['autoload'])) {
-            throw new \RuntimeException("duo: $purpose did not persist the exact option row");
+            throw new \RuntimeException("wprism: $purpose did not persist the exact option row");
         }
     }
 
@@ -324,7 +324,7 @@ final class CacheInvalidationTransaction {
         $second = $first === [] ? [] : self::attempt_pending();
         if ($second !== []) {
             throw new \RuntimeException(
-                'duo: authored cache invalidation remained incomplete after exhaustive post-outcome retry; '
+                'wprism: authored cache invalidation remained incomplete after exhaustive post-outcome retry; '
                 . implode('; ', $second)
             );
         }
@@ -371,12 +371,12 @@ final class CacheInvalidationTransaction {
      */
     private static function queue_roster(array $entries, array $generations, string $purpose): void {
         if (!self::$active) {
-            throw new \RuntimeException("duo: $purpose attempted cache invalidation outside the authored transaction");
+            throw new \RuntimeException("wprism: $purpose attempted cache invalidation outside the authored transaction");
         }
         self::assert_local_cache($purpose);
         foreach ($entries as $entry) {
             if (!is_array($entry) || count($entry) !== 2) {
-                throw new \RuntimeException("duo: $purpose requested a malformed cache invalidation roster");
+                throw new \RuntimeException("wprism: $purpose requested a malformed cache invalidation roster");
             }
             [$key, $group] = $entry;
             self::assert_cache_group($group, $purpose);
@@ -390,7 +390,7 @@ final class CacheInvalidationTransaction {
         $failures = self::attempt_roster($entries, $generations);
         if ($failures !== []) {
             throw new \RuntimeException(
-                "duo: $purpose cache invalidation failed after attempting the complete composite; "
+                "wprism: $purpose cache invalidation failed after attempting the complete composite; "
                 . implode('; ', $failures)
             );
         }
@@ -436,7 +436,7 @@ final class CacheInvalidationTransaction {
             || $group === ''
             || strlen($group) > 191
             || preg_match('/[\x00-\x1F\x7F]/', $group) === 1) {
-            throw new \RuntimeException("duo: $purpose requested a malformed cache group");
+            throw new \RuntimeException("wprism: $purpose requested a malformed cache group");
         }
     }
 
@@ -454,7 +454,7 @@ final class CacheInvalidationTransaction {
             || $characters < 1
             || $characters > 191
             || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
-            throw new \RuntimeException("duo: $purpose requested a malformed option name");
+            throw new \RuntimeException("wprism: $purpose requested a malformed option name");
         }
     }
 
@@ -470,14 +470,14 @@ final class CacheInvalidationTransaction {
 
     private static function assert_positive_id(int $id, string $purpose): void {
         if ($id <= 0) {
-            throw new \RuntimeException("duo: $purpose requested cache invalidation for a nonpositive identity");
+            throw new \RuntimeException("wprism: $purpose requested cache invalidation for a nonpositive identity");
         }
     }
 
     private static function invalidate_term_hierarchy(string $taxonomy, string $purpose): void {
         self::assert_term_taxonomy_prepared($taxonomy, $purpose);
         if (!self::$termTaxonomyHierarchy[$taxonomy]) {
-            throw new \LogicException("duo: $purpose attempted hierarchy invalidation for a non-hierarchical taxonomy");
+            throw new \LogicException("wprism: $purpose attempted hierarchy invalidation for a non-hierarchical taxonomy");
         }
         $name = $taxonomy . '_children';
         if (isset(self::$invalidatedHierarchyOptions[$name])) {
@@ -495,14 +495,14 @@ final class CacheInvalidationTransaction {
         }
         self::queue_option($name, "$purpose invalidate taxonomy hierarchy option");
         if (self::lock_option_row($name, "$purpose hierarchy option readback") !== null) {
-            throw new \RuntimeException("duo: $purpose failed to remove the exact taxonomy hierarchy option");
+            throw new \RuntimeException("wprism: $purpose failed to remove the exact taxonomy hierarchy option");
         }
         self::$invalidatedHierarchyOptions[$name] = true;
     }
 
     private static function assert_taxonomy(mixed $taxonomy, string $purpose): void {
         if (!is_string($taxonomy) || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1) {
-            throw new \RuntimeException("duo: $purpose received a malformed taxonomy identity");
+            throw new \RuntimeException("wprism: $purpose received a malformed taxonomy identity");
         }
     }
 }

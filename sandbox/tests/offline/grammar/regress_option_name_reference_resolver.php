@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for the pure manifest-declared option-name
- * reference resolver (DUO-3348 slice 45).
+ * reference resolver (issue #3348 slice 45).
  */
 declare(strict_types=1);
 
@@ -25,7 +25,7 @@ $assertThrows = static function (callable $fn, string $needle, string $label) us
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\Duo\OptionNameReferenceResolver::class, false) && !class_exists(\Duo\Policy::class, false) && !class_exists(\Duo\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\WPrism\OptionNameReferenceResolver::class, false) && !class_exists(\WPrism\Policy::class, false) && !class_exists(\WPrism\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -45,7 +45,7 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\OptionNameReferenceResolver;
+use WPrism\OptionNameReferenceResolver;
 
 $normalize = static function (array $rule, array $source): array {
     if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
@@ -200,14 +200,14 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->option_name_ref_rules() === $rules
         && $policy->option_name_ref_match_details('thing_7') === $details
         && $policy->canonical_option_name_ref_details("thing_{{thing:$uuid}}") === $canonical
         && $policy->match_option_name_ref('thing_7') === ($details['rule'] ?? null)
-        && Duo\Policy::strict_positive_local_id('7') === OptionNameReferenceResolver::strict_positive_local_id('7'),
+        && WPrism\Policy::strict_positive_local_id('7') === OptionNameReferenceResolver::strict_positive_local_id('7'),
     'Policy retains byte-equivalent public facades over the pure resolver, including the static id parser'
 );
 $policy->manifests[0]['option_name_refs'][0]['match'] = '^changed_(?<id>[1-9][0-9]*)$';

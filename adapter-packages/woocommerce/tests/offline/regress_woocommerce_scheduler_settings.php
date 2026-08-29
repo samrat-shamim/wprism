@@ -197,8 +197,8 @@ namespace {
     use Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer;
     use Automattic\WooCommerce\Internal\Features\FeaturesController;
     use Automattic\WooCommerce\Internal\StockNotifications\DataRetentionController;
-    use Duo\Policy;
-    use DuoTest\FakeWpdb;
+    use WPrism\Policy;
+    use WPrismTest\FakeWpdb;
 
     foreach (['MINUTE_IN_SECONDS' => 60, 'DAY_IN_SECONDS' => 86400] as $constant => $value) {
         if (!defined($constant)) {
@@ -207,7 +207,7 @@ namespace {
     }
     define('WOOCOMMERCE_BIS_ALPHA_ENABLED', true);
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
-    duo_test_define_agent_versions();
+    wprism_test_define_agent_versions();
 
     final class WP_Hook {
         /** @var array<int,array<string,array{function:callable,accepted_args:int}>> */
@@ -766,7 +766,7 @@ namespace {
     function woo_scheduler_put_option(string $name, string|int $value, ?string $autoload = null): bool {
         global $wpdb;
         $value = (string) $value;
-        $autoload ??= $name === '_duo_woocommerce_scheduler_settings_state' ? 'off' : 'no';
+        $autoload ??= $name === '_wprism_woocommerce_scheduler_settings_state' ? 'off' : 'no';
         foreach (woo_scheduler_option_rows() as $row) {
             if (($row['option_name'] ?? null) === $name) {
                 $result = $wpdb->update('options', ['option_value' => $value, 'autoload' => $autoload], [
@@ -792,7 +792,7 @@ namespace {
         $value = apply_filters('pre_update_option_' . $name, $value, $old, $name);
         $value = apply_filters('pre_update_option', $value, $name, $old);
         $raw = (string) $value;
-        $isMarker = $name === '_duo_woocommerce_scheduler_settings_state';
+        $isMarker = $name === '_wprism_woocommerce_scheduler_settings_state';
         $point = null;
         if ($isMarker && str_contains($raw, '"phase":"intent"')) {
             $point = 'marker_intent';
@@ -1330,11 +1330,11 @@ namespace {
         return $wpdb;
     }
 
-    function woo_scheduler_provider(Policy $policy): \Duo\Providers\WoocommerceSchedulerSettings {
-        return new \Duo\Providers\WoocommerceSchedulerSettings($policy);
+    function woo_scheduler_provider(Policy $policy): \WPrism\Providers\WoocommerceSchedulerSettings {
+        return new \WPrism\Providers\WoocommerceSchedulerSettings($policy);
     }
 
-    function woo_scheduler_prepare_no_to_yes(Policy $policy): \Duo\Providers\WoocommerceSchedulerSettings {
+    function woo_scheduler_prepare_no_to_yes(Policy $policy): \WPrism\Providers\WoocommerceSchedulerSettings {
         woo_scheduler_reset('no');
         $provider = woo_scheduler_provider($policy);
         $provider->invoke('reconcile_analytics_import_schedule', []);
@@ -1374,17 +1374,17 @@ namespace {
         $db = woo_scheduler_reset('yes');
         $mutate($db);
         $provider = woo_scheduler_provider($policy);
-        duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+        wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
             "$label removes analytics scheduling capability before mutation");
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$label is a loud exact-storage refusal",
             'scheduler'
         );
-        duo_check(woo_scheduler_action_count('recurring') === 0
+        wprism_check(woo_scheduler_action_count('recurring') === 0
             && woo_scheduler_claim_count() === 0
-            && woo_scheduler_option_value('_duo_woocommerce_scheduler_settings_state', false) === false,
+            && woo_scheduler_option_value('_wprism_woocommerce_scheduler_settings_state', false) === false,
             "$label refusal precedes marker, action, and claim mutation");
     }
 
@@ -1458,7 +1458,7 @@ namespace {
         ['woocommerce'],
         false,
         null,
-        \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+        \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
     );
     $manifest = json_decode(
         (string) file_get_contents($root . '/adapter-packages/woocommerce/package/manifest.json'),
@@ -1468,7 +1468,7 @@ namespace {
     woo_scheduler_reset();
     $provider = woo_scheduler_provider($policy);
 
-    duo_check_same([
+    wprism_check_same([
         'id' => 'woocommerce-scheduler-settings',
         'plugin' => 'woocommerce/woocommerce.php',
         'version' => '1.0.0',
@@ -1480,7 +1480,7 @@ namespace {
             break;
         }
     }
-    duo_check_same(
+    wprism_check_same(
         ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention'],
         $providerDeclaration['capabilities'] ?? null,
         'the shipped manifest binds both scheduler capabilities to this exact provider file'
@@ -1488,20 +1488,20 @@ namespace {
     foreach ([
         'woocommerce_analytics_scheduled_import' => 'authored',
         'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold' => 'authored',
-        '_duo_woocommerce_scheduler_settings_state' => 'runtime',
+        '_wprism_woocommerce_scheduler_settings_state' => 'runtime',
         'woocommerce_admin_scheduler_last_processed_order_id' => 'runtime',
         'woocommerce_admin_scheduler_last_processed_order_modified_date' => 'runtime',
     ] as $option => $class) {
-        duo_check_same($class, $policy->option_rule($option)['class'] ?? null,
+        wprism_check_same($class, $policy->option_rule($option)['class'] ?? null,
             "$option has its exact scheduler ownership classification");
     }
     $initialCapabilities = $provider->capabilities();
-    duo_check_same(
+    wprism_check_same(
         ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention'],
         array_keys($initialCapabilities),
         'both exact native scheduler capabilities negotiate when stock WordPress reports its local cache as null'
     );
-    duo_check(in_array(
+    wprism_check(in_array(
         'table:actionscheduler_claims',
         $initialCapabilities['reconcile_analytics_import_schedule']['writes'],
         true
@@ -1513,17 +1513,17 @@ namespace {
             $schedulerActions[(string) $action['capability']] = $action;
         }
     }
-    duo_check_same(
+    wprism_check_same(
         ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention'],
         array_keys($schedulerActions),
         'the manifest contains exactly the two scheduler post-commit actions'
     );
-    duo_check_same(
+    wprism_check_same(
         ['option:woocommerce_analytics_scheduled_import'],
         $schedulerActions['reconcile_analytics_import_schedule']['triggers'] ?? null,
         'analytics native scheduling is selected only by its authored setting'
     );
-    duo_check_same(
+    wprism_check_same(
         ['option:woocommerce_customer_stock_notifications_unverified_deletions_days_threshold'],
         $schedulerActions['reconcile_stock_notification_retention']['triggers'] ?? null,
         'stock-retention cron repair is selected only by its authored threshold'
@@ -1537,22 +1537,22 @@ namespace {
             $selector = (array) ($effect['selector'] ?? []);
             $surface = (string) ($selector['type'] ?? '')
                 . ':' . (string) ($selector['value'] ?? '');
-            $declaredDatabaseWrites[] = $surface === 'option:_duo_woocommerce_scheduler_settings_state'
+            $declaredDatabaseWrites[] = $surface === 'option:_wprism_woocommerce_scheduler_settings_state'
                 ? 'entity:woocommerce-analytics-scheduler-marker'
                 : $surface;
         }
         sort($declaredDatabaseWrites, SORT_STRING);
         $capabilityWrites = $initialCapabilities[$capability]['writes'];
         sort($capabilityWrites, SORT_STRING);
-        duo_check_same($capabilityWrites, $declaredDatabaseWrites,
+        wprism_check_same($capabilityWrites, $declaredDatabaseWrites,
             "$capability action checkpoints every database surface its capability advertises");
     }
-    duo_check_same(
+    wprism_check_same(
         ['reconcile_analytics_import_schedule'],
         array_column($policy->actions_for(['option:woocommerce_analytics_scheduled_import']), 'capability'),
         'policy trigger projection selects only analytics repair for an analytics option apply'
     );
-    duo_check_same(
+    wprism_check_same(
         ['reconcile_stock_notification_retention'],
         array_column($policy->actions_for([
             'option:woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
@@ -1563,30 +1563,30 @@ namespace {
     $initialNo = $provider->invoke_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(1)
     );
-    duo_check_same(0, woo_scheduler_action_count('recurring'),
+    wprism_check_same(0, woo_scheduler_action_count('recurring'),
         'initial adoption of immediate analytics mode does not invent a recurring action');
-    duo_check_same(0, woo_scheduler_action_count('catchup'),
+    wprism_check_same(0, woo_scheduler_action_count('catchup'),
         'initial adoption of already-immediate mode does not replay a transitional catch-up');
-    duo_check(str_contains((string) get_option('_duo_woocommerce_scheduler_settings_state'), '"state":"no"'),
+    wprism_check(str_contains((string) get_option('_wprism_woocommerce_scheduler_settings_state'), '"state":"no"'),
         'initial adoption durably records a verified immediate-mode marker');
-    duo_check_same('off', woo_scheduler_option_autoload('_duo_woocommerce_scheduler_settings_state'),
-        'Duo-owned analytics markers use the exact non-autoloaded platform wire');
-    duo_check_same('off', $initialNo['after']['marker_autoload'] ?? null,
-        'analytics recovery evidence binds the Duo marker autoload bytes');
+    wprism_check_same('off', woo_scheduler_option_autoload('_wprism_woocommerce_scheduler_settings_state'),
+        'WPrism-owned analytics markers use the exact non-autoloaded platform wire');
+    wprism_check_same('off', $initialNo['after']['marker_autoload'] ?? null,
+        'analytics recovery evidence binds the WPrism marker autoload bytes');
     $writesAfterInitial = count($GLOBALS['wooSchedulerOptionWrites']);
     $reconciledNo = $provider->reconcile_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(1)
     );
-    duo_check_same($initialNo['after'], $reconciledNo['after'],
+    wprism_check_same($initialNo['after'], $reconciledNo['after'],
         'analytics recovery is a read-only reproduction of the stored stable projection');
-    duo_check_same($writesAfterInitial, count($GLOBALS['wooSchedulerOptionWrites']),
+    wprism_check_same($writesAfterInitial, count($GLOBALS['wooSchedulerOptionWrites']),
         'analytics reconcile performs no marker, cursor, or schedule mutation');
     $againNo = $provider->invoke_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(2)
     );
-    duo_check_same($initialNo['after'], $againNo['after'],
+    wprism_check_same($initialNo['after'], $againNo['after'],
         'repeated immediate-mode invocation is semantically idempotent');
-    duo_check_same($writesAfterInitial, count($GLOBALS['wooSchedulerOptionWrites']),
+    wprism_check_same($writesAfterInitial, count($GLOBALS['wooSchedulerOptionWrites']),
         'an already-stable analytics invocation fires no option hooks again');
 
     woo_scheduler_reset('yes');
@@ -1596,11 +1596,11 @@ namespace {
     $adoptYes = $provider->invoke_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(3)
     );
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'initial scheduled-mode adoption creates one exact native recurring action');
-    duo_check_same('2025-01-02 03:04:05', get_option('woocommerce_admin_scheduler_last_processed_order_modified_date'),
+    wprism_check_same('2025-01-02 03:04:05', get_option('woocommerce_admin_scheduler_last_processed_order_modified_date'),
         'initial scheduled-mode adoption conservatively preserves an existing date cursor');
-    duo_check_same('9876543210', get_option('woocommerce_admin_scheduler_last_processed_order_id'),
+    wprism_check_same('9876543210', get_option('woocommerce_admin_scheduler_last_processed_order_id'),
         'initial scheduled-mode adoption conservatively preserves an existing ID cursor');
 
     woo_scheduler_reset('no');
@@ -1612,14 +1612,14 @@ namespace {
     $transitionYes = $provider->invoke_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(5)
     );
-    duo_check_same('0', get_option('woocommerce_admin_scheduler_last_processed_order_id'),
+    wprism_check_same('0', get_option('woocommerce_admin_scheduler_last_processed_order_id'),
         'proved no-to-yes transition resets the compound cursor ID exactly once');
-    duo_check((string) get_option('woocommerce_admin_scheduler_last_processed_order_modified_date')
+    wprism_check((string) get_option('woocommerce_admin_scheduler_last_processed_order_modified_date')
         !== '2024-01-01 00:00:00',
         'proved no-to-yes transition resets the date cursor through the reviewed native operation');
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'proved no-to-yes transition converges to exactly one recurring action');
-    duo_check_same(0, woo_scheduler_action_count('catchup'),
+    wprism_check_same(0, woo_scheduler_action_count('catchup'),
         'proved no-to-yes transition leaves no stale catch-up action');
 
     woo_scheduler_reset('no');
@@ -1627,10 +1627,10 @@ namespace {
     $provider->invoke('reconcile_analytics_import_schedule', []);
     woo_scheduler_put_option('woocommerce_analytics_scheduled_import', 'yes');
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check_same('auto', woo_scheduler_option_autoload(
+    wprism_check_same('auto', woo_scheduler_option_autoload(
         'woocommerce_admin_scheduler_last_processed_order_modified_date'
     ), 'a missing date cursor uses the exact native automatic-autoload wire');
-    duo_check_same('auto', woo_scheduler_option_autoload(
+    wprism_check_same('auto', woo_scheduler_option_autoload(
         'woocommerce_admin_scheduler_last_processed_order_id'
     ), 'a missing ID cursor uses the exact native automatic-autoload wire');
 
@@ -1645,10 +1645,10 @@ namespace {
     );
     woo_scheduler_put_option('woocommerce_admin_scheduler_last_processed_order_id', '41', 'off');
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check_same('auto-off', woo_scheduler_option_autoload(
+    wprism_check_same('auto-off', woo_scheduler_option_autoload(
         'woocommerce_admin_scheduler_last_processed_order_modified_date'
     ), 'native cursor reset preserves an existing automatic-autoload preimage');
-    duo_check_same('off', woo_scheduler_option_autoload(
+    wprism_check_same('off', woo_scheduler_option_autoload(
         'woocommerce_admin_scheduler_last_processed_order_id'
     ), 'native cursor reset preserves an existing explicit-autoload preimage');
 
@@ -1661,7 +1661,7 @@ namespace {
         woo_scheduler_put_option('woocommerce_admin_scheduler_last_processed_order_id', '44');
         $GLOBALS['wooSchedulerFailPoint'] = $failurePoint;
         $crashedOperation = woo_scheduler_operation(11 + $index * 2);
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke_scoped(
                 'reconcile_analytics_import_schedule', [], $crashedOperation
             ),
@@ -1669,7 +1669,7 @@ namespace {
             "$failurePoint crash leaves a loud durable transition state",
             'injected Woo scheduler failure'
         );
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke_scoped(
                 'reconcile_analytics_import_schedule', [], woo_scheduler_operation(12 + $index * 2)
             ),
@@ -1680,7 +1680,7 @@ namespace {
         $retry = $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], $crashedOperation
         );
-        duo_check(($retry['verified'] ?? false) === true
+        wprism_check(($retry['verified'] ?? false) === true
             && woo_scheduler_action_count('recurring') === 1
             && get_option('woocommerce_admin_scheduler_last_processed_order_id') === '0',
             "$failurePoint residual state is resumable only by its exact originating operation");
@@ -1691,7 +1691,7 @@ namespace {
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(20));
     woo_scheduler_put_option('woocommerce_analytics_scheduled_import', 'no');
     $GLOBALS['wooSchedulerFailPoint'] = 'unschedule';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(21)
         ),
@@ -1699,17 +1699,17 @@ namespace {
         'crash after exact recurring unschedule leaves a loud transition intent',
         'injected Woo scheduler failure'
     );
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'unschedule callback failure rolls exact cancellation and its log back atomically');
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(21));
-    duo_check_same(1, woo_scheduler_action_count('catchup'),
+    wprism_check_same(1, woo_scheduler_action_count('catchup'),
         'a new operation resumes the post-unschedule phase with one catch-up action');
     $canceledClaimRows = array_values(array_filter(
         $GLOBALS['wpdb']->rows('actionscheduler_actions'),
         static fn(array $row): bool => ($row['status'] ?? null) === 'canceled'
             && (int) ($row['claim_id'] ?? 0) > 0
     ));
-    duo_check(count($canceledClaimRows) === 1 && woo_scheduler_claim_count() === 0,
+    wprism_check(count($canceledClaimRows) === 1 && woo_scheduler_claim_count() === 0,
         'native canceled rows retain their historical claim ID while the claim row is exactly released');
 
     woo_scheduler_reset('yes');
@@ -1717,7 +1717,7 @@ namespace {
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(23));
     woo_scheduler_put_option('woocommerce_analytics_scheduled_import', 'no');
     $GLOBALS['wooSchedulerFailPoint'] = 'schedule';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(24)
         ),
@@ -1725,10 +1725,10 @@ namespace {
         'crash after catch-up scheduling leaves a loud transition intent',
         'injected Woo scheduler failure'
     );
-    duo_check_same(0, woo_scheduler_action_count('catchup'),
+    wprism_check_same(0, woo_scheduler_action_count('catchup'),
         'schedule callback failure rolls the native catch-up action and log back atomically');
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(24));
-    duo_check_same(1, woo_scheduler_action_count('catchup'),
+    wprism_check_same(1, woo_scheduler_action_count('catchup'),
         'retry after a schedule crash finalizes without duplicating catch-up work');
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
@@ -1742,34 +1742,34 @@ namespace {
         return null;
     });
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check($commitApplied && woo_scheduler_action_count('recurring') === 1,
+    wprism_check($commitApplied && woo_scheduler_action_count('recurring') === 1,
         'an applied COMMIT with a lost acknowledgement is accepted only by exact native readback');
-    duo_check_same(0, woo_scheduler_claim_count(),
+    wprism_check_same(0, woo_scheduler_claim_count(),
         'applied-but-unacknowledged COMMIT releases its promoted native claim');
-    duo_check_same(1, woo_scheduler_log_count(),
+    wprism_check_same(1, woo_scheduler_log_count(),
         'applied-but-unacknowledged COMMIT retains exactly one native action log');
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
     $GLOBALS['wpdb']->failNextQuery('simulated COMMIT not applied', 'COMMIT');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a failed COMMIT that did not apply rolls the transaction back loudly',
         'provider checked mutation failed'
     );
-    duo_check(woo_scheduler_action_count('recurring') === 0
+    wprism_check(woo_scheduler_action_count('recurring') === 0
         && woo_scheduler_claim_count() === 0
         && woo_scheduler_log_count() === 0,
         'COMMIT-not-applied leaves no action, claim, or log residue');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'ordinary invocation never trusts an attacker-computable residual intent',
         'unscoped invocation cannot adopt'
     );
-    woo_scheduler_delete_option('_duo_woocommerce_scheduler_settings_state');
+    woo_scheduler_delete_option('_wprism_woocommerce_scheduler_settings_state');
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'manual intent clearance permits conservative retry to one native action');
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
@@ -1782,13 +1782,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'inactive COMMIT failure recognizes the exact rolled-back scheduler preimage',
         'provider checked mutation failed'
     );
-    duo_check($commitRolledBack
+    wprism_check($commitRolledBack
         && woo_scheduler_action_count('recurring') === 0
         && woo_scheduler_claim_count() === 0
         && woo_scheduler_log_count() === 0,
@@ -1804,26 +1804,26 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'an applied START with a lost acknowledgement is rolled back before refusal',
         'provider checked mutation failed'
     );
-    duo_check_same('0', $GLOBALS['wpdb']->get_var('SELECT @@in_transaction'),
+    wprism_check_same('0', $GLOBALS['wpdb']->get_var('SELECT @@in_transaction'),
         'lost START acknowledgement cleanup leaves no live transaction');
-    duo_check(woo_scheduler_action_count('recurring') === 0 && woo_scheduler_claim_count() === 0,
+    wprism_check(woo_scheduler_action_count('recurring') === 0 && woo_scheduler_claim_count() === 0,
         'lost START acknowledgement leaves no native action or claim');
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
     $GLOBALS['wpdb']->failNextQuery('simulated START not applied', 'START TRANSACTION');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a START failure that did not apply is refused after a safe blind rollback',
         'provider checked mutation failed'
     );
-    duo_check_same('0', $GLOBALS['wpdb']->get_var('SELECT @@in_transaction'),
+    wprism_check_same('0', $GLOBALS['wpdb']->get_var('SELECT @@in_transaction'),
         'START-not-applied cleanup also proves transaction inactivity');
 
     foreach (['foreign-next-read-committed', 'session-read-committed'] as $isolationCase) {
@@ -1837,7 +1837,7 @@ namespace {
         }
         $provider = woo_scheduler_provider($policy);
         $provider->invoke('reconcile_analytics_import_schedule', []);
-        duo_check($GLOBALS['wooSchedulerTransactionIsolations'] !== []
+        wprism_check($GLOBALS['wooSchedulerTransactionIsolations'] !== []
             && array_unique($GLOBALS['wooSchedulerTransactionIsolations']) === ['REPEATABLE-READ'],
             "$isolationCase is replaced by the provider's own one-shot REPEATABLE READ");
     }
@@ -1846,13 +1846,13 @@ namespace {
     woo_scheduler_add_action('recurring', [], 43200);
     $provider = woo_scheduler_provider($policy);
     $GLOBALS['wpdb']->failNextQuery('simulated isolation SET failure', 'SET TRANSACTION');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a failed isolation SET refuses before native claim mutation',
         'provider checked mutation failed'
     );
-    duo_check(woo_scheduler_claim_count() === 0
+    wprism_check(woo_scheduler_claim_count() === 0
         && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
         'failed isolation SET cleanup leaves no claim or live transaction');
 
@@ -1873,13 +1873,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'an applied isolation SET with lost acknowledgement is consumed before refusal',
         'provider checked mutation failed'
     );
-    duo_check($lostIsolationAck
+    wprism_check($lostIsolationAck
         && woo_scheduler_claim_count() === 0
         && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
         'lost isolation acknowledgement leaves neither pending work nor an active transaction');
@@ -1904,7 +1904,7 @@ namespace {
     });
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check($primaryIsolationReads > 0 && $fallbackIsolationReads === $primaryIsolationReads,
+    wprism_check($primaryIsolationReads > 0 && $fallbackIsolationReads === $primaryIsolationReads,
         'MariaDB transaction isolation falls back exactly to @@tx_isolation');
 
     woo_scheduler_reset('yes');
@@ -1916,13 +1916,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'unreadable isolation variables roll back before native claim mutation',
         'could not read the native transaction-isolation variable'
     );
-    duo_check(woo_scheduler_claim_count() === 0
+    wprism_check(woo_scheduler_claim_count() === 0
         && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
         'isolation probe failure leaves no transaction or claim residue');
 
@@ -1941,13 +1941,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'reconnect during START refuses before any locked scheduler read or mutation',
         'mutex'
     );
-    duo_check($reconnectedDuringStart
+    wprism_check($reconnectedDuringStart
         && woo_scheduler_claim_count() === 0
         && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
         'reconnect-during-START cleanup leaves no transaction or claim residue');
@@ -1971,13 +1971,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'the atomic session witness rejects a replacement session that reports an active transaction',
         'mutex'
     );
-    duo_check($reconnectedAtomicWitness
+    wprism_check($reconnectedAtomicWitness
         && woo_scheduler_claim_count() === 0
         && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
         'replacement-session cleanup rolls back the crafted active transaction without a native claim');
@@ -1993,13 +1993,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'an applied ROLLBACK with a lost acknowledgement preserves the work failure',
         'injected Woo scheduler failure at schedule'
     );
-    duo_check($rollbackApplied && woo_scheduler_action_count('recurring') === 0
+    wprism_check($rollbackApplied && woo_scheduler_action_count('recurring') === 0
         && woo_scheduler_claim_count() === 0
         && woo_scheduler_log_count() === 0,
         'applied-but-unacknowledged ROLLBACK removes every transactional row');
@@ -2013,30 +2013,30 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a non-applied ROLLBACK retries without masking the work failure',
         'injected Woo scheduler failure at schedule'
     );
-    duo_check($rollbackAttempts === 2
+    wprism_check($rollbackAttempts === 2
         && woo_scheduler_action_count('recurring') === 0
         && woo_scheduler_claim_count() === 0,
         'ROLLBACK retry converges without transactional claim residue');
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
     $GLOBALS['wpdb']->failNextQuery('simulated committed log read failure', 'LENGTH(message) AS message_bytes');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a post-COMMIT action-log read failure remains loud',
         'provider checked read failed'
     );
-    duo_check(woo_scheduler_action_count('recurring') === 1 && woo_scheduler_claim_count() === 0,
+    wprism_check(woo_scheduler_action_count('recurring') === 1 && woo_scheduler_claim_count() === 0,
         'post-COMMIT log proof failure releases the promoted claim without deleting the action');
-    woo_scheduler_delete_option('_duo_woocommerce_scheduler_settings_state');
+    woo_scheduler_delete_option('_wprism_woocommerce_scheduler_settings_state');
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'manual recovery after committed log-proof failure never duplicates native work');
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
@@ -2051,13 +2051,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a committed native-fence read failure remains loud',
         'provider checked read failed'
     );
-    duo_check($failedFenceRead && woo_scheduler_claim_count() === 0,
+    wprism_check($failedFenceRead && woo_scheduler_claim_count() === 0,
         'committed fence-read failure still exhaustively releases the promoted claim');
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
@@ -2079,13 +2079,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'applied-COMMIT proof failure remains loud after claim promotion',
         'provider checked read failed'
     );
-    duo_check($lostCommit && $failedLostCommitProof && woo_scheduler_claim_count() === 0,
+    wprism_check($lostCommit && $failedLostCommitProof && woo_scheduler_claim_count() === 0,
         'applied-COMMIT proof failure cannot strand the newly committed native claim');
 
     foreach (['truthy-no-apply', 'probe-throw', 'reconnect'] as $commitMode) {
@@ -2119,13 +2119,13 @@ namespace {
                 return null;
             });
         }
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$commitMode initial-claim COMMIT frontier remains loud",
-            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'duo:'
+            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'wprism:'
         );
-        duo_check(woo_scheduler_action_count('recurring') === 1
+        wprism_check(woo_scheduler_action_count('recurring') === 1
             && woo_scheduler_claim_count() === 0
             && (int) ($GLOBALS['wpdb']->rows('actionscheduler_actions')[0]['claim_id'] ?? -1) === 0
             && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
@@ -2161,14 +2161,14 @@ namespace {
                 return null;
             });
         }
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$commitMode new-schedule COMMIT frontier remains loud",
-            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'duo:'
+            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'wprism:'
         );
         $expectedActions = $commitMode === 'probe-throw' ? 1 : 0;
-        duo_check(woo_scheduler_action_count('recurring') === $expectedActions
+        wprism_check(woo_scheduler_action_count('recurring') === $expectedActions
             && woo_scheduler_claim_count() === 0
             && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
             "$commitMode new-schedule frontier has an exact inactive, unclaimed outcome");
@@ -2179,13 +2179,13 @@ namespace {
         woo_scheduler_add_action('recurring', [], 43200);
         $provider = woo_scheduler_provider($policy);
         $GLOBALS['wooSchedulerFailPoint'] = $claimFailurePoint;
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$claimFailurePoint failure rolls back the initial native claim transaction",
             'injected Woo scheduler failure'
         );
-        duo_check(woo_scheduler_claim_count() === 0
+        wprism_check(woo_scheduler_claim_count() === 0
             && woo_scheduler_action_count('recurring') === 1
             && (int) ($GLOBALS['wpdb']->rows('actionscheduler_actions')[0]['claim_id'] ?? -1) === 0,
             "$claimFailurePoint leaves the pre-existing action pending and unclaimed");
@@ -2193,13 +2193,13 @@ namespace {
 
     $provider = woo_scheduler_prepare_no_to_yes($policy);
     $GLOBALS['wooSchedulerFailPoint'] = 'schedule_before_claim';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'failure after a new action row but before its claim rolls the whole transaction back',
         'injected Woo scheduler failure'
     );
-    duo_check(woo_scheduler_action_count('recurring') === 0
+    wprism_check(woo_scheduler_action_count('recurring') === 0
         && woo_scheduler_claim_count() === 0
         && woo_scheduler_log_count() === 0,
         'new-row-before-claim failure cannot leave an unowned runnable action');
@@ -2208,7 +2208,7 @@ namespace {
         $provider = woo_scheduler_prepare_no_to_yes($policy);
         $GLOBALS['wooSchedulerFailPoint'] = $releaseFailurePoint;
         $provider->invoke('reconcile_analytics_import_schedule', []);
-        duo_check(woo_scheduler_action_count('recurring') === 1
+        wprism_check(woo_scheduler_action_count('recurring') === 1
             && woo_scheduler_claim_count() === 0
             && (int) ($GLOBALS['wpdb']->rows('actionscheduler_actions')[0]['claim_id'] ?? -1) === 0,
             "$releaseFailurePoint is retried through exact native claim release readback");
@@ -2226,7 +2226,7 @@ namespace {
         $GLOBALS['wpdb']->rows('actionscheduler_actions'),
         static fn(array $row): bool => (int) ($row['action_id'] ?? 0) === $existingAction
     ))[0] ?? [];
-    duo_check_same(
+    wprism_check_same(
         ['2025-07-08 09:10:11', '2025-07-08 09:10:12'],
         [$attemptProjection['last_attempt_gmt'] ?? null, $attemptProjection['last_attempt_local'] ?? null],
         'native claim fencing restores exact pre-existing last-attempt runtime bytes'
@@ -2236,7 +2236,7 @@ namespace {
         $GLOBALS['wpdb']->rows('actionscheduler_actions'),
         static fn(array $row): bool => (int) ($row['action_id'] ?? 0) === $existingAction
     ))[0] ?? [];
-    duo_check_same(
+    wprism_check_same(
         ['2025-07-08 09:10:11', '2025-07-08 09:10:12'],
         [$attemptProjection['last_attempt_gmt'] ?? null, $attemptProjection['last_attempt_local'] ?? null],
         'repeated stable reconciliation does not churn Action Scheduler attempt state'
@@ -2249,7 +2249,7 @@ namespace {
         $GLOBALS['wpdb']->rows('actionscheduler_actions'),
         static fn(array $row): bool => ($row['status'] ?? null) === 'pending'
     ))[0] ?? [];
-    duo_check_same(
+    wprism_check_same(
         ['0000-00-00 00:00:00', '0000-00-00 00:00:00'],
         [$createdRow['last_attempt_gmt'] ?? null, $createdRow['last_attempt_local'] ?? null],
         'transaction-fencing a newly scheduled action restores its untouched attempt preimage'
@@ -2267,7 +2267,7 @@ namespace {
     );
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check_same($preservedClaimState, woo_scheduler_native_claim_state(),
+    wprism_check_same($preservedClaimState, woo_scheduler_native_claim_state(),
         'provider claims restore the exact pre-existing DBStore singleton filters');
     $unrelatedId = woo_scheduler_add_action(
         'single',
@@ -2283,21 +2283,21 @@ namespace {
         [],
         ''
     );
-    duo_check(in_array($unrelatedId, $nativeClaim->get_actions(), true),
-        'a same-process native runner remains able to claim unrelated work after Duo');
+    wprism_check(in_array($unrelatedId, $nativeClaim->get_actions(), true),
+        'a same-process native runner remains able to claim unrelated work after WPrism');
     ActionScheduler::store()->release_claim($nativeClaim);
 
     woo_scheduler_reset('yes');
     woo_scheduler_add_action('recurring', [], 43200);
     $provider = woo_scheduler_provider($policy);
     $GLOBALS['wooSchedulerFailPoint'] = 'claim_after';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a throwing native claim still restores its same-process singleton state',
         'injected Woo scheduler failure'
     );
-    duo_check_same([
+    wprism_check_same([
         'before' => null,
         'filters' => ['group' => '', 'hooks' => '', 'exclude-groups' => ''],
     ], woo_scheduler_native_claim_state(),
@@ -2315,7 +2315,7 @@ namespace {
         woo_scheduler_add_action('recurring', [], 43200);
         woo_scheduler_set_native_claim_state($beforeDate, $filters);
         $provider = woo_scheduler_provider($policy);
-        duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+        wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
             "$label removes analytics capability before native claim mutation");
     }
 
@@ -2324,7 +2324,7 @@ namespace {
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(26));
     woo_scheduler_put_option('woocommerce_analytics_scheduled_import', 'no');
     $GLOBALS['wooSchedulerFailPoint'] = 'final_marker_before';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(27)
         ),
@@ -2332,12 +2332,12 @@ namespace {
         'failure before final-marker persistence leaves completed external state under intent',
         'injected Woo scheduler failure'
     );
-    duo_check(str_contains((string) get_option('_duo_woocommerce_scheduler_settings_state'), '"phase":"intent"'),
+    wprism_check(str_contains((string) get_option('_wprism_woocommerce_scheduler_settings_state'), '"phase":"intent"'),
         'the pre-final-marker crash retains the durable intent rather than forging verification');
-    duo_check_same(0, woo_scheduler_claim_count(),
+    wprism_check_same(0, woo_scheduler_claim_count(),
         'failure before terminal marker persistence still releases every native claim');
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(27));
-    duo_check(str_contains((string) get_option('_duo_woocommerce_scheduler_settings_state'), '"phase":"verified"'),
+    wprism_check(str_contains((string) get_option('_wprism_woocommerce_scheduler_settings_state'), '"phase":"verified"'),
         'a new operation recognizes exact completed state and finalizes the marker');
 
     woo_scheduler_reset('no');
@@ -2352,7 +2352,7 @@ namespace {
     } catch (RuntimeException $ignored) {
     }
     woo_scheduler_put_option('woocommerce_admin_scheduler_last_processed_order_id', '777');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(31)
         ),
@@ -2379,9 +2379,9 @@ namespace {
     $consumed = $provider->reconcile_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(34)
     );
-    duo_check_same($immediate['after'], $consumed['after'],
+    wprism_check_same($immediate['after'], $consumed['after'],
         'natural one-time catch-up consumption preserves the durable immediate projection');
-    duo_check_same($writesBeforeNaturalReconcile, count($GLOBALS['wooSchedulerOptionWrites']),
+    wprism_check_same($writesBeforeNaturalReconcile, count($GLOBALS['wooSchedulerOptionWrites']),
         'reconcile after natural action consumption remains strictly observational');
 
     woo_scheduler_reset('yes');
@@ -2397,27 +2397,27 @@ namespace {
         }
     }
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(36));
-    duo_check_same('2021-02-03 04:05:06', get_option('woocommerce_admin_scheduler_last_processed_order_modified_date'),
+    wprism_check_same('2021-02-03 04:05:06', get_option('woocommerce_admin_scheduler_last_processed_order_modified_date'),
         'steady scheduled-mode repair never resets the merchant runtime date cursor');
-    duo_check_same('88', get_option('woocommerce_admin_scheduler_last_processed_order_id'),
+    wprism_check_same('88', get_option('woocommerce_admin_scheduler_last_processed_order_id'),
         'steady scheduled-mode repair never resets the merchant runtime ID cursor');
 
     woo_scheduler_add_action('single', ['foreign'], null, 'pending', 'foreign-group');
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'foreign same-hook group/arguments remove analytics capability before mutation');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'foreign same-hook topology is loud at invoke',
         'foreign'
     );
-    duo_check(!str_contains((string) get_option('_duo_woocommerce_scheduler_settings_state', ''), '"phase":"intent"'),
+    wprism_check(!str_contains((string) get_option('_wprism_woocommerce_scheduler_settings_state', ''), '"phase":"intent"'),
         'foreign topology refusal occurs before an intent or external mutation');
 
     woo_scheduler_reset('yes');
     woo_scheduler_add_action('recurring', [], 43200, 'in-progress');
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'an in-progress analytics action blocks capability negotiation before mutation');
 
     woo_scheduler_reset('yes');
@@ -2429,13 +2429,13 @@ namespace {
     $workProjection = $provider->invoke_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(41)
     );
-    duo_check_same(1, woo_scheduler_action_count('work'),
+    wprism_check_same(1, woo_scheduler_action_count('work'),
         'a bounded exact native continuation is preserved rather than mistaken for foreign work');
     $GLOBALS['wpdb']->update('actionscheduler_actions', ['status' => 'complete'], ['action_id' => $workId]);
     $workConsumed = $provider->reconcile_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(41)
     );
-    duo_check_same($workProjection['after'], $workConsumed['after'],
+    wprism_check_same($workProjection['after'], $workConsumed['after'],
         'natural continuation consumption preserves normalized recovery evidence');
 
     woo_scheduler_reset('yes');
@@ -2443,9 +2443,9 @@ namespace {
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(42));
     woo_scheduler_add_action('recurring', [], 43200);
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(43));
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'duplicate recurring actions converge to one exact scoped action');
-    duo_check(count($GLOBALS['wooSchedulerCanceledActionIds']) === 2
+    wprism_check(count($GLOBALS['wooSchedulerCanceledActionIds']) === 2
         && count(array_unique($GLOBALS['wooSchedulerCanceledActionIds'])) === 2,
         'duplicate repair cancels only the two exact natively claimed action identities');
 
@@ -2488,14 +2488,14 @@ namespace {
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(441)
         );
         $GLOBALS['wooSchedulerDuringCancel'] = null;
-        duo_check($attempted
+        wprism_check($attempted
             && $insertResult === false
             && str_contains($insertError, 'row lock wait timeout'),
             "$position cancellation range-lock blocks a newly inserted matching native action");
         $GLOBALS['wpdb'] = $second;
         $retryInsert = $second->insert('actionscheduler_actions', $candidate);
         $GLOBALS['wpdb'] = $primary;
-        duo_check($retryInsert === 1 && woo_scheduler_action_count('recurring') === 2,
+        wprism_check($retryInsert === 1 && woo_scheduler_action_count('recurring') === 2,
             "$position competing action survives by retrying after exact cancellation commit");
     }
 
@@ -2512,7 +2512,7 @@ namespace {
         'simulated ignored native cancellation-log insert failure',
         'INSERT INTO `wp_actionscheduler_logs`'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(451)
         ),
@@ -2520,7 +2520,7 @@ namespace {
         'ignored native cancellation-log insert failure rolls cancellation back loudly',
         'did not append exactly one owner-bound log'
     );
-    duo_check(woo_scheduler_action_count('recurring') === 1
+    wprism_check(woo_scheduler_action_count('recurring') === 1
         && count(array_filter(
             $GLOBALS['wpdb']->rows('actionscheduler_logs'),
             static fn(array $row): bool => (int) ($row['action_id'] ?? 0) === $targetId
@@ -2529,7 +2529,7 @@ namespace {
     $provider->invoke_scoped(
         'reconcile_analytics_import_schedule', [], woo_scheduler_operation(451)
     );
-    duo_check(woo_scheduler_action_count('recurring') === 0,
+    wprism_check(woo_scheduler_action_count('recurring') === 0,
         'same-operation retry converges after cancellation-log insert recovery');
 
     woo_scheduler_reset('yes');
@@ -2544,7 +2544,7 @@ namespace {
             'log_date_local' => gmdate('Y-m-d H:i:s'),
         ]);
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(453)
         ),
@@ -2552,7 +2552,7 @@ namespace {
         'multiple same-owner cancellation logs roll back as a non-native append',
         'did not append exactly one owner-bound log'
     );
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'multiple-log refusal rolls the canceled action back to pending');
 
     woo_scheduler_reset('yes');
@@ -2569,7 +2569,7 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(455)
         ),
@@ -2577,7 +2577,7 @@ namespace {
         'partial two-owner cancellation-log append rolls the whole transaction back',
         'did not append exactly one owner-bound log'
     );
-    duo_check($cancelLogInserts === 2 && woo_scheduler_action_count('recurring') === 2,
+    wprism_check($cancelLogInserts === 2 && woo_scheduler_action_count('recurring') === 2,
         'partial cancellation-log append preserves both pending action preimages');
 
     woo_scheduler_reset('yes');
@@ -2611,7 +2611,7 @@ namespace {
         $GLOBALS['wpdb'] = $primary;
     };
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(457));
-    duo_check($sameOwnerInsert === false && str_contains($sameOwnerError, 'row lock wait timeout'),
+    wprism_check($sameOwnerInsert === false && str_contains($sameOwnerError, 'row lock wait timeout'),
         'cancellation-log owner range blocks a concurrent same-action append');
 
     woo_scheduler_reset('yes');
@@ -2644,7 +2644,7 @@ namespace {
         $GLOBALS['wpdb'] = $primary;
     };
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], woo_scheduler_operation(459));
-    duo_check($foreignLogInsert === 1 && count(array_filter(
+    wprism_check($foreignLogInsert === 1 && count(array_filter(
         $GLOBALS['wpdb']->rows('actionscheduler_logs'),
         static fn(array $row): bool => (int) ($row['action_id'] ?? 0) === $foreignId
     )) === 2, 'unrelated Action Scheduler logs remain concurrent and byte-preserved');
@@ -2686,20 +2686,20 @@ namespace {
             }
             return null;
         });
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke_scoped(
                 'reconcile_analytics_import_schedule', [], woo_scheduler_operation(461)
             ),
             RuntimeException::class,
             "$commitMode cancellation COMMIT frontier remains loud",
-            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'duo:'
+            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'wprism:'
         );
         $expectedRecurring = $commitMode === 'probe-throw' ? 0 : 1;
-        duo_check(woo_scheduler_action_count('recurring') === $expectedRecurring,
+        wprism_check(woo_scheduler_action_count('recurring') === $expectedRecurring,
             "$commitMode cancellation frontier has its exact action outcome");
-        duo_check(woo_scheduler_claim_count() === 0,
+        wprism_check(woo_scheduler_claim_count() === 0,
             "$commitMode cancellation frontier strands no native claim");
-        duo_check($GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
+        wprism_check($GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
             "$commitMode cancellation frontier leaves no live transaction");
     }
 
@@ -2708,7 +2708,7 @@ namespace {
     for ($i = 0; $i < 17; $i++) {
         woo_scheduler_add_action('recurring', [], 43200);
     }
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'seventeen pending actions exceed the bounded Action Scheduler transfer');
 
     woo_scheduler_reset('yes');
@@ -2731,15 +2731,15 @@ namespace {
             'action_id' => $actionId,
         ]);
         $provider = woo_scheduler_provider($policy);
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$label refuses before native Action Scheduler hydration",
             $expectedMessage
         );
-        duo_check_same(0, $GLOBALS['wooSchedulerNativeHydrations'],
+        wprism_check_same(0, $GLOBALS['wooSchedulerNativeHydrations'],
             "$label is rejected by the bounded raw roster before hookable getters");
-        duo_check_same(0, WooSchedulerWakeupCanary::$wakeups,
+        wprism_check_same(0, WooSchedulerWakeupCanary::$wakeups,
             "$label executes no serialized object wakeup hook");
     }
 
@@ -2752,13 +2752,13 @@ namespace {
         $actionId = woo_scheduler_add_action('recurring', [], 43200);
         $GLOBALS['wpdb']->update('actionscheduler_actions', ['args' => $rawArgs], ['action_id' => $actionId]);
         $provider = woo_scheduler_provider($policy);
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$label is a loud raw action boundary",
             'raw action'
         );
-        duo_check_same(0, $GLOBALS['wooSchedulerNativeHydrations'],
+        wprism_check_same(0, $GLOBALS['wooSchedulerNativeHydrations'],
             "$label refuses before native action construction");
     }
 
@@ -2772,7 +2772,7 @@ namespace {
         $stored->get_schedule()
     );
     $provider = woo_scheduler_provider($policy);
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a method-compatible non-native action class is never trusted after raw preflight',
@@ -2793,13 +2793,13 @@ namespace {
         ], ['action_id' => $actionId]);
     };
     $provider = woo_scheduler_provider($policy);
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'same-length raw roster drift across native hydration is refused',
         'raw action roster changed'
     );
-    duo_check($rawRaceInjected && $GLOBALS['wooSchedulerNativeHydrations'] > 0,
+    wprism_check($rawRaceInjected && $GLOBALS['wooSchedulerNativeHydrations'] > 0,
         'raw roster drift is injected strictly after bounded preflight and before native readback');
 
     $hostileSchemaAuthorities = [
@@ -2826,15 +2826,15 @@ namespace {
             woo_scheduler_put_option('schema-ActionScheduler_StoreSchema', $schemaAuthority);
         }
         $provider = woo_scheduler_provider($policy);
-        duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+        wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
             "$label Action Scheduler schema authority closes negotiation");
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$label schema authority refuses before synchronous analytics fallback",
             'schema'
         );
-        duo_check($GLOBALS['wooSchedulerSynchronousAnalyticsRuns'] === 0
+        wprism_check($GLOBALS['wooSchedulerSynchronousAnalyticsRuns'] === 0
             && woo_scheduler_action_count('recurring') === 0
             && woo_scheduler_claim_count() === 0,
             "$label schema refusal executes no synchronous job or scheduler mutation");
@@ -2871,7 +2871,7 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule',
             [],
@@ -2881,7 +2881,7 @@ namespace {
         'same-length schema drift before its transaction lock refuses native scheduling',
         'schema authority'
     );
-    duo_check($schemaRaceInjected
+    wprism_check($schemaRaceInjected
         && $schemaRaceWrite === 1
         && $GLOBALS['wooSchedulerSynchronousAnalyticsRuns'] === 0
         && woo_scheduler_action_count('recurring') === 0
@@ -2894,7 +2894,7 @@ namespace {
         [],
         woo_scheduler_operation(471)
     );
-    duo_check(woo_scheduler_action_count('recurring') === 1,
+    wprism_check(woo_scheduler_action_count('recurring') === 1,
         'the exact originating operation retries after schema authority recovery');
 
     woo_scheduler_reset('no');
@@ -2923,11 +2923,11 @@ namespace {
         $GLOBALS['wpdb'] = $primary;
     };
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check($lockedSchemaWrite === false
+    wprism_check($lockedSchemaWrite === false
         && str_contains($lockedSchemaError, 'row lock wait timeout')
         && $GLOBALS['wooSchedulerSynchronousAnalyticsRuns'] === 0,
         'the exact schema row remains locked across the native scheduling callback');
-    duo_check(woo_scheduler_action_count('recurring') === 1,
+    wprism_check(woo_scheduler_action_count('recurring') === 1,
         'blocked schema drift cannot divert native scheduling into synchronous fallback');
     $GLOBALS['wooSchedulerBeforeActionInsert'] = null;
 
@@ -2938,20 +2938,20 @@ namespace {
         'slug' => 'unrelated-native-group',
     ]);
     $provider = woo_scheduler_provider($policy);
-    duo_check(isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'an absent wc-admin-data group with an empty action roster is clean derived state');
     $provider->invoke_scoped(
         'reconcile_analytics_import_schedule',
         [],
         woo_scheduler_operation(472)
     );
-    duo_check(count(array_filter(
+    wprism_check(count(array_filter(
         $GLOBALS['wpdb']->rows('actionscheduler_groups'),
         static fn(array $row): bool => ($row['slug'] ?? null) === 'wc-admin-data'
     )) === 0, 'immediate-mode adoption does not invent an unused native scheduler group');
     woo_scheduler_put_option('woocommerce_analytics_scheduled_import', 'yes');
     $GLOBALS['wooSchedulerFailPoint'] = 'schedule';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule',
             [],
@@ -2961,7 +2961,7 @@ namespace {
         'failure after native group creation rolls the derived group and action back together',
         'injected Woo scheduler failure at schedule'
     );
-    duo_check(count(array_filter(
+    wprism_check(count(array_filter(
         $GLOBALS['wpdb']->rows('actionscheduler_groups'),
         static fn(array $row): bool => ($row['slug'] ?? null) === 'wc-admin-data'
     )) === 0
@@ -2982,7 +2982,7 @@ namespace {
         $GLOBALS['wpdb']->rows('actionscheduler_actions'),
         static fn(array $row): bool => ($row['status'] ?? null) === 'pending'
     ));
-    duo_check(count($nativeGroups) === 1
+    wprism_check(count($nativeGroups) === 1
         && (int) $nativeGroups[0]['group_id'] > 9000000001
         && count($nativeActions) === 1
         && $nativeActions[0]['group_id'] === $nativeGroups[0]['group_id'],
@@ -2992,7 +2992,7 @@ namespace {
     woo_scheduler_add_action('recurring', [], 43200);
     $GLOBALS['wpdb']->delete('actionscheduler_groups', ['slug' => 'wc-admin-data']);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'an active analytics action referencing a missing group remains loud');
 
     woo_scheduler_reset('yes');
@@ -3001,7 +3001,7 @@ namespace {
         'slug' => 'wc-admin-data',
     ]);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'duplicate native analytics groups remain a loud dirty-target boundary');
 
     woo_scheduler_reset('no');
@@ -3017,7 +3017,7 @@ namespace {
         'simulated native group insert failure',
         'INSERT INTO `wp_actionscheduler_groups`'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule',
             [],
@@ -3027,7 +3027,7 @@ namespace {
         'native group insert failure remains atomic and retryable',
         'native scheduler group creation failed'
     );
-    duo_check($GLOBALS['wpdb']->rows('actionscheduler_groups') === []
+    wprism_check($GLOBALS['wpdb']->rows('actionscheduler_groups') === []
         && woo_scheduler_action_count('recurring') === 0,
         'failed native group creation leaves no partial group or action');
     $provider->invoke_scoped(
@@ -3035,7 +3035,7 @@ namespace {
         [],
         woo_scheduler_operation(475)
     );
-    duo_check(woo_scheduler_action_count('recurring') === 1,
+    wprism_check(woo_scheduler_action_count('recurring') === 1,
         'same-operation retry converges after native group insertion recovers');
 
     woo_scheduler_reset('no');
@@ -3060,10 +3060,10 @@ namespace {
         $GLOBALS['wpdb'] = $primary;
     };
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check($concurrentGroupInsert === false
+    wprism_check($concurrentGroupInsert === false
         && str_contains($concurrentGroupError, 'row lock wait timeout'),
         'the exact group-slug range lock blocks a concurrent native duplicate insertion');
-    duo_check(count(array_filter(
+    wprism_check(count(array_filter(
         $GLOBALS['wpdb']->rows('actionscheduler_groups'),
         static fn(array $row): bool => ($row['slug'] ?? null) === 'wc-admin-data'
     )) === 1, 'concurrent group creation cannot produce a duplicate after commit');
@@ -3191,13 +3191,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'DDL-shaped schema drift between preflight and transaction lock is re-proved and refused',
         'index'
     );
-    duo_check($schemaChangedBeforeLock
+    wprism_check($schemaChangedBeforeLock
         && woo_scheduler_action_count('recurring') === 0
         && woo_scheduler_claim_count() === 0,
         'pre-lock schema race rolls back before native scheduling');
@@ -3234,7 +3234,7 @@ namespace {
         return null;
     });
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check_same([
+    wprism_check_same([
         'wp_options',
         'wp_actionscheduler_actions',
         'wp_actionscheduler_claims',
@@ -3242,7 +3242,7 @@ namespace {
         'wp_actionscheduler_logs',
     ], array_keys(array_filter($blockedDdl)),
         'transactional metadata locks block concurrent DDL on every native scheduler table');
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'schema-lock proof still permits one exact native scheduled action');
 
     foreach ([
@@ -3256,9 +3256,9 @@ namespace {
         woo_scheduler_reset('yes');
         add_filter($hook, static fn(mixed $value = null): mixed => $value, $priority, 1);
         $provider = woo_scheduler_provider($policy);
-        duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+        wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
             "$position callback injection on $hook closes negotiation before START TRANSACTION");
-        duo_check_same('0', $GLOBALS['wpdb']->get_var('SELECT @@in_transaction'),
+        wprism_check_same('0', $GLOBALS['wpdb']->get_var('SELECT @@in_transaction'),
             "$position callback injection on $hook leaves no native transaction or mutation frontier");
     }
 
@@ -3281,14 +3281,14 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a verified GET_LOCK followed by a driver failure runs exhaustive acquisition cleanup',
         'provider checked read failed'
     );
     $GLOBALS['wpdb']->onQuery(null);
-    duo_check($verificationFailed && $acquiredLock !== ''
+    wprism_check($verificationFailed && $acquiredLock !== ''
         && $GLOBALS['wpdb']->get_var("SELECT IS_USED_LOCK('$acquiredLock')") === null,
         'post-acquisition verification failure strands no named lock');
 
@@ -3322,14 +3322,14 @@ namespace {
             }
             return null;
         });
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
             "$releaseFailure mutex frontier remains loud after bounded cleanup",
             'mutex'
         );
         $GLOBALS['wpdb']->onQuery(null);
-        duo_check($releaseInjected && $lockName !== ''
+        wprism_check($releaseInjected && $lockName !== ''
             && $GLOBALS['wpdb']->get_var("SELECT IS_USED_LOCK('$lockName')") === null,
             "$releaseFailure mutex frontier leaves no named-lock residue");
     }
@@ -3345,7 +3345,7 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'provider mutex cleanup never masks the original scheduler work failure',
@@ -3364,13 +3364,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'same-length setting replacement between compact witnesses is refused',
         'bounded digest'
     );
-    duo_check_same(2, $witnesses,
+    wprism_check_same(2, $witnesses,
         'same-length race is injected before any LONGTEXT payload can be trusted');
 
     woo_scheduler_reset('yes');
@@ -3385,13 +3385,13 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'oversized scheduler settings refuse on their length-only witness',
         'bounded byte grammar'
     );
-    duo_check_same(0, $oversizedHashes,
+    wprism_check_same(0, $oversizedHashes,
         'an oversized scheduler LONGTEXT is never hashed or returned by the bounded observer');
 
     woo_scheduler_reset('yes');
@@ -3401,15 +3401,15 @@ namespace {
         return $value;
     });
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'even a same-value analytics option filter closes capability negotiation');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'same-value option filters refuse before raw/native option comparison',
         'extension callback'
     );
-    duo_check_same(0, $spoofReads,
+    wprism_check_same(0, $spoofReads,
         'unreviewed analytics option filters are never executed by the provider');
 
     woo_scheduler_reset('yes');
@@ -3420,7 +3420,7 @@ namespace {
         2
     );
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'an alternate-priority duplicate of the native analytics callback is refused');
 
     woo_scheduler_reset('yes');
@@ -3430,47 +3430,47 @@ namespace {
         return $value;
     });
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'an unknown generic option callback closes analytics capability negotiation');
-    duo_check_same(0, $hostileGenericWrites,
+    wprism_check_same(0, $hostileGenericWrites,
         'generic option extensions are refused before their callback can run');
 
     woo_scheduler_reset('yes');
     $nativeFeatures = $GLOBALS['wooSchedulerContainer']->features;
     add_action('updated_option', [$nativeFeatures, 'process_updated_option'], 999, 3);
     $provider = woo_scheduler_provider($policy);
-    duo_check(isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'the exact container-owned generic option callback remains admissible');
     $GLOBALS['wp_filter']['updated_option']->callbacks[999]['duplicate-native-service'] = [
         'function' => [$nativeFeatures, 'process_updated_option'],
         'accepted_args' => 3,
     ];
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'duplicate copies of an otherwise exact native service callback are refused');
 
     woo_scheduler_reset('yes');
     add_action('updated_option', [new FeaturesController(), 'process_updated_option'], 999, 3);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'a same-class callback from a substituted service instance is refused');
 
     woo_scheduler_reset('no');
     $throwingMarkerCallback = 0;
-    add_action('update_option__duo_woocommerce_scheduler_settings_state', static function () use (
+    add_action('update_option__wprism_woocommerce_scheduler_settings_state', static function () use (
         &$throwingMarkerCallback
     ): void {
         $throwingMarkerCallback++;
         throw new RuntimeException('hostile marker callback executed');
     }, 10, 3);
     $provider = woo_scheduler_provider($policy);
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'a throwing post-write marker callback is refused before marker persistence',
         'extension callback'
     );
-    duo_check($throwingMarkerCallback === 0
-        && woo_scheduler_option_value('_duo_woocommerce_scheduler_settings_state', false) === false,
+    wprism_check($throwingMarkerCallback === 0
+        && woo_scheduler_option_value('_wprism_woocommerce_scheduler_settings_state', false) === false,
         'post-write option callbacks cannot run or leave undeclared marker effects');
 
     woo_scheduler_reset('yes', '30');
@@ -3480,14 +3480,14 @@ namespace {
         return $value;
     });
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'pre_get_scheduled_event closes retention capability before cron observation');
-    duo_check_same(0, $preEventCalls,
+    wprism_check_same(0, $preEventCalls,
         'the retention provider refuses rather than executing pre_get_scheduled_event');
 
     woo_scheduler_reset('yes', '30');
     $provider = woo_scheduler_provider($policy);
-    duo_check(isset($provider->capabilities()['reconcile_stock_notification_retention']),
+    wprism_check(isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'stock Woo controller, cron-schedule, and global option callbacks negotiate exactly');
     $provider->invoke('reconcile_stock_notification_retention', []);
     $cronCallbackMethods = array_values(array_unique(array_map(
@@ -3506,13 +3506,13 @@ namespace {
         FeaturesController::class . '::process_updated_option',
     ];
     sort($expectedCronCallbackMethods, SORT_STRING);
-    duo_check_same($expectedCronCallbackMethods, $cronCallbackMethods,
+    wprism_check_same($expectedCronCallbackMethods, $cronCallbackMethods,
         'every stock global option callback is a proved no-op around the exact cron write');
     $foreignDailyCalls = 0;
     add_action('customer_stock_notifications_daily', static function () use (&$foreignDailyCalls): void {
         $foreignDailyCalls++;
     });
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention'])
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention'])
         && $foreignDailyCalls === 0,
         'an extra daily-retention callback closes negotiation without being executed');
 
@@ -3533,7 +3533,7 @@ namespace {
         2
     );
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'a same-class substituted retention controller instance is refused');
 
     woo_scheduler_reset('yes', '30');
@@ -3543,7 +3543,7 @@ namespace {
     $foreignRunner = (new ReflectionClass(ActionScheduler_QueueRunner::class))->newInstanceWithoutConstructor();
     add_filter('cron_schedules', [$foreignRunner, 'add_wp_cron_schedule'], 10, 1);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'a same-class substituted Action Scheduler cron owner is refused');
 
     woo_scheduler_reset('yes', '30');
@@ -3553,7 +3553,7 @@ namespace {
         return $schedules;
     });
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention'])
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention'])
         && $foreignScheduleCalls === 0,
         'an extra cron-schedule callback is refused before its code can execute');
 
@@ -3567,43 +3567,43 @@ namespace {
     } catch (Throwable $failure) {
         $message = $failure->getMessage();
     }
-    duo_check(str_contains($message, 'provider checked read failed')
+    wprism_check(str_contains($message, 'provider checked read failed')
         && !str_contains($message, 'SCHEDULER_DRIVER_MARKER')
         && strlen($message) < 256,
         'failed compact option witness is loud, bounded, and redacted');
 
     woo_scheduler_reset('yes');
-    woo_scheduler_put_option('_duo_woocommerce_scheduler_settings_state', '{"format":"duo-woocommerce-scheduler-state/v1","phase":"verified","state":"yes","unknown":1}');
+    woo_scheduler_put_option('_wprism_woocommerce_scheduler_settings_state', '{"format":"wprism-woocommerce-scheduler-state/v1","phase":"verified","state":"yes","unknown":1}');
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'unknown marker fields remain loud instead of widening provider state');
-    woo_scheduler_put_option('_duo_woocommerce_scheduler_settings_state', 'not-json secret=MARKER_SECRET');
+    woo_scheduler_put_option('_wprism_woocommerce_scheduler_settings_state', 'not-json secret=MARKER_SECRET');
     $markerMessage = '';
     try {
         $provider->invoke('reconcile_analytics_import_schedule', []);
     } catch (Throwable $failure) {
         $markerMessage = $failure->getMessage();
     }
-    duo_check(!str_contains($markerMessage, 'MARKER_SECRET') && strlen($markerMessage) < 256,
+    wprism_check(!str_contains($markerMessage, 'MARKER_SECRET') && strlen($markerMessage) < 256,
         'corrupt marker diagnostics remain bounded and never echo marker bytes');
 
     foreach (['no', 'on', 'auto-on'] as $hostileAutoload) {
         woo_scheduler_reset('no');
         $provider = woo_scheduler_provider($policy);
         $provider->invoke('reconcile_analytics_import_schedule', []);
-        $markerRaw = (string) woo_scheduler_option_value('_duo_woocommerce_scheduler_settings_state');
+        $markerRaw = (string) woo_scheduler_option_value('_wprism_woocommerce_scheduler_settings_state');
         woo_scheduler_put_option(
-            '_duo_woocommerce_scheduler_settings_state',
+            '_wprism_woocommerce_scheduler_settings_state',
             $markerRaw,
             $hostileAutoload
         );
         $provider = woo_scheduler_provider($policy);
-        duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
-            "Duo marker autoload $hostileAutoload is a loud dirty-target boundary");
-        duo_check_throws(
+        wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+            "WPrism marker autoload $hostileAutoload is a loud dirty-target boundary");
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
             RuntimeException::class,
-            "Duo marker autoload $hostileAutoload cannot be silently converted",
+            "WPrism marker autoload $hostileAutoload cannot be silently converted",
             'non-autoloaded platform wire'
         );
     }
@@ -3614,23 +3614,23 @@ namespace {
     $markerRow = array_values(array_filter(
         woo_scheduler_option_rows(),
         static fn(array $row): bool => ($row['option_name'] ?? null)
-            === '_duo_woocommerce_scheduler_settings_state'
+            === '_wprism_woocommerce_scheduler_settings_state'
     ))[0];
     $markerRow['option_id'] = 9001;
     $GLOBALS['wpdb']->insert('options', $markerRow);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
-        'duplicate Duo marker aliases are refused before transition recovery');
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+        'duplicate WPrism marker aliases are refused before transition recovery');
 
     woo_scheduler_reset('no');
     $provider = woo_scheduler_provider($policy);
     $GLOBALS['wooSchedulerAfterOptionWrite'] = static function (string $name, string $value): void {
-        if ($name === '_duo_woocommerce_scheduler_settings_state'
+        if ($name === '_wprism_woocommerce_scheduler_settings_state'
             && str_contains($value, '"phase":"intent"')) {
             woo_scheduler_put_option($name, $value, 'on');
         }
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'same-value marker autoload drift is refused by durable readback',
@@ -3646,7 +3646,7 @@ namespace {
             woo_scheduler_put_option($name, $value, 'on');
         }
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'missing-cursor autoload drift cannot masquerade as the native automatic wire',
@@ -3657,7 +3657,7 @@ namespace {
     $provider = woo_scheduler_provider($policy);
     $forgedOrigin = woo_scheduler_operation(900);
     $GLOBALS['wooSchedulerFailPoint'] = 'marker_intent';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], $forgedOrigin
         ),
@@ -3665,7 +3665,7 @@ namespace {
         'first-adoption crash leaves an origin-bound intent',
         'injected Woo scheduler failure'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke_scoped(
             'reconcile_analytics_import_schedule', [], woo_scheduler_operation(901)
         ),
@@ -3674,18 +3674,18 @@ namespace {
         'belongs to another operation'
     );
     $provider->invoke_scoped('reconcile_analytics_import_schedule', [], $forgedOrigin);
-    duo_check_same(1, woo_scheduler_action_count('recurring'),
+    wprism_check_same(1, woo_scheduler_action_count('recurring'),
         'only the exact originating operation can complete first-adoption provider state');
 
     woo_scheduler_reset('no');
     $provider = woo_scheduler_provider($policy);
     $GLOBALS['wooSchedulerAfterOptionWrite'] = static function (string $name, string $value): void {
-        if ($name === '_duo_woocommerce_scheduler_settings_state'
+        if ($name === '_wprism_woocommerce_scheduler_settings_state'
             && str_contains($value, '"phase":"intent"')) {
-            woo_scheduler_put_option($name, '{"format":"duo-woocommerce-scheduler-state/v1","phase":"verified","state":"yes"}');
+            woo_scheduler_put_option($name, '{"format":"wprism-woocommerce-scheduler-state/v1","phase":"verified","state":"yes"}');
         }
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'concurrent marker replacement cannot cross the durable intent readback',
@@ -3696,35 +3696,35 @@ namespace {
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_analytics_import_schedule', []);
     $flattenedHooks = array_merge(...$GLOBALS['wooSchedulerOptionHooks']);
-    duo_check(in_array('add_option__duo_woocommerce_scheduler_settings_state', $flattenedHooks, true)
-        && in_array('update_option__duo_woocommerce_scheduler_settings_state', $flattenedHooks, true)
+    wprism_check(in_array('add_option__wprism_woocommerce_scheduler_settings_state', $flattenedHooks, true)
+        && in_array('update_option__wprism_woocommerce_scheduler_settings_state', $flattenedHooks, true)
         && in_array('updated_option', $flattenedHooks, true),
         'marker lifecycle fires the exact native add/update option hook families');
-    duo_check($GLOBALS['wooSchedulerOptionCacheEvents'] >= 2,
+    wprism_check($GLOBALS['wooSchedulerOptionCacheEvents'] >= 2,
         'marker intent and terminal writes exercise the external WordPress option-cache boundary');
-    woo_scheduler_delete_option('_duo_woocommerce_scheduler_settings_state');
+    woo_scheduler_delete_option('_wprism_woocommerce_scheduler_settings_state');
     woo_scheduler_put_option('woocommerce_analytics_scheduled_import', 'yes');
     woo_scheduler_put_option('woocommerce_admin_scheduler_last_processed_order_modified_date', '2020-02-03 04:05:06');
     woo_scheduler_put_option('woocommerce_admin_scheduler_last_processed_order_id', '55');
     $provider->invoke('reconcile_analytics_import_schedule', []);
-    duo_check_same('2020-02-03 04:05:06', get_option('woocommerce_admin_scheduler_last_processed_order_modified_date'),
+    wprism_check_same('2020-02-03 04:05:06', get_option('woocommerce_admin_scheduler_last_processed_order_modified_date'),
         'marker cleanup/reinstall falls back to conservative adoption without replaying cursor reset');
     Features::$enabled = false;
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'a retained marker never widens behavior while the target feature is disabled');
 
     woo_scheduler_reset('yes', '30');
     wp_using_ext_object_cache(true);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
+    wprism_check(!isset($provider->capabilities()['reconcile_analytics_import_schedule']),
         'external object-cache publication independently removes analytics repair capability');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_analytics_import_schedule', []),
         RuntimeException::class,
         'analytics refuses external-cache option publication before scheduler mutation',
         'external object-cache publication'
     );
-    duo_check(woo_scheduler_option_value('_duo_woocommerce_scheduler_settings_state', false) === false
+    wprism_check(woo_scheduler_option_value('_wprism_woocommerce_scheduler_settings_state', false) === false
         && woo_scheduler_action_count('recurring') === 0
         && woo_scheduler_claim_count() === 0
         && $GLOBALS['wooSchedulerSynchronousAnalyticsRuns'] === 0,
@@ -3733,15 +3733,15 @@ namespace {
     woo_scheduler_reset('yes', '30');
     wp_using_ext_object_cache(true);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'external object-cache publication removes retention repair capability before mutation');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_stock_notification_retention', []),
         RuntimeException::class,
         'external object-cache targets refuse before native cron publication',
         'external object-cache publication'
     );
-    duo_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
+    wprism_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
         'external-cache refusal occurs before any native cron option write');
 
     foreach (['invalid', str_repeat('x', 21)] as $index => $malformedAutoload) {
@@ -3752,15 +3752,15 @@ namespace {
             $malformedAutoload
         );
         $provider = woo_scheduler_provider($policy);
-        duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+        wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
             "malformed cron autoload wire $index removes retention capability");
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_stock_notification_retention', []),
             RuntimeException::class,
             "malformed cron autoload wire $index is a loud pre-mutation boundary",
             'malformed witness'
         );
-        duo_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
+        wprism_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
             "malformed cron autoload wire $index reaches no native cron mutation");
     }
 
@@ -3768,13 +3768,13 @@ namespace {
     $GLOBALS['wooSchedulerCacheResidue']['options']['cron'] = 'stale';
     $GLOBALS['wooSchedulerCacheDeleteFails'] = ['options', 'cron'];
     $provider = woo_scheduler_provider($policy);
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_stock_notification_retention', []),
         RuntimeException::class,
         'retention repair refuses when local option-cache deletion cannot be read back',
         'cache deletion did not persist'
     );
-    duo_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
+    wprism_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
         'cache readback failure rolls back before native retention scheduling');
 
     foreach ([time() - DAY_IN_SECONDS - 301, time() + (2 * DAY_IN_SECONDS)] as $hostileTimestamp) {
@@ -3788,7 +3788,7 @@ namespace {
                 $timestamps[] = (int) $timestamp;
             }
         }
-        duo_check(count($timestamps) === 1
+        wprism_check(count($timestamps) === 1
             && $timestamps[0] >= time() - 300
             && $timestamps[0] <= time() + DAY_IN_SECONDS + 300,
             'stale or far-future daily retention work is cleared and natively rescheduled in horizon');
@@ -3809,16 +3809,16 @@ namespace {
         }
         return null;
     });
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_stock_notification_retention', []),
         RuntimeException::class,
         'inactive retention COMMIT failure recognizes the exact cron preimage',
         'provider checked mutation failed'
     );
-    duo_check($retentionCommitRolledBack && $GLOBALS['wooSchedulerCron'] === [],
+    wprism_check($retentionCommitRolledBack && $GLOBALS['wooSchedulerCron'] === [],
         'server-rolled-back retention COMMIT refreshes cache to the empty preimage');
     $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check_same(1, count($GLOBALS['wooSchedulerCron']),
+    wprism_check_same(1, count($GLOBALS['wooSchedulerCron']),
         'retention retries safely after a server-side COMMIT rollback');
 
     foreach (['truthy-no-apply', 'probe-throw', 'reconnect'] as $commitMode) {
@@ -3851,14 +3851,14 @@ namespace {
                 return null;
             });
         }
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_stock_notification_retention', []),
             RuntimeException::class,
             "$commitMode retention COMMIT frontier remains loud",
-            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'duo:'
+            $commitMode === 'probe-throw' ? 'provider checked read failed' : 'wprism:'
         );
         $expectedEvents = $commitMode === 'probe-throw' ? 1 : 0;
-        duo_check(count($GLOBALS['wooSchedulerCron']) === $expectedEvents
+        wprism_check(count($GLOBALS['wooSchedulerCron']) === $expectedEvents
             && $GLOBALS['wpdb']->get_var('SELECT @@in_transaction') === '0',
             "$commitMode retention COMMIT frontier has an exact inactive cron outcome");
     }
@@ -3868,14 +3868,14 @@ namespace {
     $retention = $provider->invoke_scoped(
         'reconcile_stock_notification_retention', [], woo_scheduler_operation(50)
     );
-    duo_check_same(1, count($GLOBALS['wooSchedulerCron']),
+    wprism_check_same(1, count($GLOBALS['wooSchedulerCron']),
         'positive whole-day retention schedules exactly one native daily cron event');
-    duo_check(($retention['before']['cron_autoload'] ?? null) === 'on'
+    wprism_check(($retention['before']['cron_autoload'] ?? null) === 'on'
         && ($retention['after']['cron_autoload'] ?? null) === 'on',
         'retention receipts bind the exact cron autoload preimage and committed wire');
     $cronWrites = $GLOBALS['wooSchedulerCronWrites'];
     $provider->invoke_scoped('reconcile_stock_notification_retention', [], woo_scheduler_operation(51));
-    duo_check_same($cronWrites, $GLOBALS['wooSchedulerCronWrites'],
+    wprism_check_same($cronWrites, $GLOBALS['wooSchedulerCronWrites'],
         'repeated retention invoke is idempotent and does not churn stable cron');
 
     $cronTimestamp = (int) array_key_first($GLOBALS['wooSchedulerCron']);
@@ -3886,7 +3886,7 @@ namespace {
     $retentionReconciled = $provider->reconcile_scoped(
         'reconcile_stock_notification_retention', [], woo_scheduler_operation(50)
     );
-    duo_check_same($retention['after'], $retentionReconciled['after'],
+    wprism_check_same($retention['after'], $retentionReconciled['after'],
         'natural daily cron timestamp movement preserves semantic recovery evidence');
 
     woo_scheduler_put_option(
@@ -3897,7 +3897,7 @@ namespace {
     $autoloadDrift = $provider->reconcile_scoped(
         'reconcile_stock_notification_retention', [], woo_scheduler_operation(50)
     );
-    duo_check(($autoloadDrift['after']['cron_autoload'] ?? null) === 'off'
+    wprism_check(($autoloadDrift['after']['cron_autoload'] ?? null) === 'off'
         && $autoloadDrift['after'] !== $retention['after'],
         'same-value cron autoload-only drift cannot reproduce the stored scoped receipt');
 
@@ -3908,18 +3908,18 @@ namespace {
             woo_scheduler_put_option($name, $raw, 'off');
         }
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reconcile_stock_notification_retention', []),
         RuntimeException::class,
         'same-value cron autoload drift during native scheduling rolls back loudly',
         'cron autoload'
     );
-    duo_check(woo_scheduler_option_autoload('cron') === 'on'
+    wprism_check(woo_scheduler_option_autoload('cron') === 'on'
         && $GLOBALS['wooSchedulerCron'] === [],
         'cron autoload drift rollback restores the exact option and topology preimage');
     $GLOBALS['wooSchedulerAfterOptionWrite'] = null;
     $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check(woo_scheduler_option_autoload('cron') === 'on'
+    wprism_check(woo_scheduler_option_autoload('cron') === 'on'
         && count($GLOBALS['wooSchedulerCron']) === 1,
         'retention retry converges after cron autoload interference is removed');
 
@@ -3934,9 +3934,9 @@ namespace {
     }
     unset($hooks);
     $unrelatedAfter = array_filter($unrelatedAfter);
-    duo_check_same($unrelatedBefore, $unrelatedAfter,
+    wprism_check_same($unrelatedBefore, $unrelatedAfter,
         'locked native retention scheduling preserves every unrelated cron event byte');
-    duo_check(count(array_filter(
+    wprism_check(count(array_filter(
         $GLOBALS['wooSchedulerCacheDeletes'],
         static fn(array $event): bool => $event[0] === 'options'
             && in_array($event[1], ['cron', 'alloptions', 'notoptions'], true)
@@ -3971,9 +3971,9 @@ namespace {
     };
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check_same(false, $concurrentWrite,
+    wprism_check_same(false, $concurrentWrite,
         'a second database connection cannot overwrite the locked whole cron option');
-    duo_check(str_contains($concurrentError, 'row lock wait timeout'),
+    wprism_check(str_contains($concurrentError, 'row lock wait timeout'),
         'the concurrent whole-option writer is refused by the exact cron-row lock');
     $GLOBALS['wpdb'] = $second;
     $latest = unserialize((string) woo_scheduler_option_value('cron'), ['allowed_classes' => false]);
@@ -3987,13 +3987,13 @@ namespace {
     ]);
     $GLOBALS['wpdb'] = $primary;
     wp_cache_delete('cron', 'options');
-    duo_check_same(1, $secondWrite,
+    wprism_check_same(1, $secondWrite,
         'the competing writer can retry from the committed bytes after the row lock releases');
-    duo_check_same(1, count(array_filter(
+    wprism_check_same(1, count(array_filter(
         $GLOBALS['wooSchedulerCron'],
         static fn(array $hooks): bool => isset($hooks['customer_stock_notifications_daily'])
     )), 'the post-lock merged cron state retains the native retention event');
-    duo_check(count(array_filter(
+    wprism_check(count(array_filter(
         $GLOBALS['wooSchedulerCron'],
         static fn(array $hooks): bool => isset($hooks['concurrent_product_job'])
     )) === 1, 'the post-lock merged cron state retains the concurrently added unrelated event');
@@ -4029,12 +4029,12 @@ namespace {
     });
     $provider = woo_scheduler_provider($policy);
     $beforeReadReceipt = $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check($beforeReadUpdate === true
+    wprism_check($beforeReadUpdate === true
         && woo_scheduler_option_value(
             'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold'
         ) === '60',
         'a native retention update immediately before the source lock serializes first');
-    duo_check(($beforeReadReceipt['after']['option_sha256'] ?? null) === hash('sha256', '60')
+    wprism_check(($beforeReadReceipt['after']['option_sha256'] ?? null) === hash('sha256', '60')
         && count($GLOBALS['wooSchedulerCron']) === 1,
         'the locked repair derives its projection from the update that serialized first');
 
@@ -4063,10 +4063,10 @@ namespace {
     };
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check($duringControllerUpdate === false
+    wprism_check($duringControllerUpdate === false
         && str_contains($duringControllerError, 'row lock wait timeout'),
         'the exact retention source-row lock blocks a native update during the controller');
-    duo_check(woo_scheduler_option_value(
+    wprism_check(woo_scheduler_option_value(
         'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold'
     ) === '30' && count($GLOBALS['wooSchedulerCron']) === 1,
         'blocked controller-time source drift cannot commit a stale cron projection');
@@ -4077,7 +4077,7 @@ namespace {
         '0'
     );
     $GLOBALS['wpdb'] = $primary;
-    duo_check($controllerRetry === true && $GLOBALS['wooSchedulerCron'] === [],
+    wprism_check($controllerRetry === true && $GLOBALS['wooSchedulerCron'] === [],
         'the blocked native update retries after commit and clears cron in serial order');
 
     woo_scheduler_reset('yes', '30');
@@ -4105,10 +4105,10 @@ namespace {
     });
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check($beforeCommitUpdate === false
+    wprism_check($beforeCommitUpdate === false
         && str_contains($beforeCommitError, 'row lock wait timeout'),
         'the retention source-row lock remains held through the COMMIT frontier');
-    duo_check(woo_scheduler_option_value(
+    wprism_check(woo_scheduler_option_value(
         'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold'
     ) === '30' && count($GLOBALS['wooSchedulerCron']) === 1,
         'a pre-COMMIT native update cannot be blessed through a stale RR snapshot');
@@ -4139,9 +4139,9 @@ namespace {
     };
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check($gapInsert === false && str_contains($gapInsertError, 'row lock wait timeout'),
+    wprism_check($gapInsert === false && str_contains($gapInsertError, 'row lock wait timeout'),
         'an absent retention source holds its exact unique-index gap against native insertion');
-    duo_check(woo_scheduler_option_value(
+    wprism_check(woo_scheduler_option_value(
         'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
         false
     ) === false && $GLOBALS['wooSchedulerCron'] === [],
@@ -4168,7 +4168,7 @@ namespace {
     };
     $provider = woo_scheduler_provider($policy);
     $provider->invoke('reconcile_stock_notification_retention', []);
-    duo_check($neighborUpdate === true
+    wprism_check($neighborUpdate === true
         && woo_scheduler_option_value('unrelated_scheduler_neighbor') === 'after',
         'exact source and cron index locks do not broaden into a hostile neighboring option lock');
     $GLOBALS['wooSchedulerDuringRetentionController'] = null;
@@ -4179,7 +4179,7 @@ namespace {
     foreach ($GLOBALS['wooSchedulerCron'] as $hooks) {
         $retentionEvents += count($hooks['customer_stock_notifications_daily'] ?? []);
     }
-    duo_check_same(1, $retentionEvents,
+    wprism_check_same(1, $retentionEvents,
         'duplicate exact retention events converge to one native daily event');
 
     foreach ([null, '', '0'] as $index => $disabledValue) {
@@ -4187,23 +4187,23 @@ namespace {
         woo_scheduler_seed_cron(time() + 30);
         $provider = woo_scheduler_provider($policy);
         $provider->invoke('reconcile_stock_notification_retention', []);
-        duo_check_same([], $GLOBALS['wooSchedulerCron'],
+        wprism_check_same([], $GLOBALS['wooSchedulerCron'],
             'absent, empty, and zero retention values each clear native daily work (' . $index . ')');
     }
 
     foreach (['-1', '1.5', '1e3', ' 1', '01', 'nan', '3650001'] as $hostile) {
         woo_scheduler_reset('yes', $hostile);
         $provider = woo_scheduler_provider($policy);
-        duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+        wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
             "retention value $hostile is an explicit atomic refusal outside reviewed whole days");
     }
 
     woo_scheduler_reset('yes', '30');
     woo_scheduler_seed_cron(time() + 40, ['foreign']);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'foreign same-hook cron arguments refuse before native clear can delete them');
-    duo_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
+    wprism_check_same(0, $GLOBALS['wooSchedulerCronWrites'],
         'foreign retention topology refusal performs no cron mutation');
 
     foreach (['cron_schedule', 'cron_clear'] as $index => $failurePoint) {
@@ -4213,35 +4213,35 @@ namespace {
         }
         $provider = woo_scheduler_provider($policy);
         $GLOBALS['wooSchedulerFailPoint'] = $failurePoint;
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reconcile_stock_notification_retention', []),
             RuntimeException::class,
             "$failurePoint is loud after the injected native cron mutation",
             'injected Woo scheduler failure'
         );
         $retry = $provider->invoke('reconcile_stock_notification_retention', []);
-        duo_check(($retry['verified'] ?? false) === true,
+        wprism_check(($retry['verified'] ?? false) === true,
             "$failurePoint residual cron state retries idempotently to convergence");
     }
 
     woo_scheduler_reset('yes', '30');
     $GLOBALS['wooSchedulerCron'][time() + 60]['unrelated'][0] = array_fill(0, 100001, []);
     $provider = woo_scheduler_provider($policy);
-    duo_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
+    wprism_check(!isset($provider->capabilities()['reconcile_stock_notification_retention']),
         'hostile cron inventory is bounded before provider-side traversal can grow without limit');
 
     require_once $root . '/tools/src/ArtifactLibrary.php';
-    $artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
-    duo_check_same(
+    $artifactLock = \WPrism\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
+    wprism_check_same(
         'ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666',
         $artifactLock['plugins']['woocommerce']['11.0.0']['sha256'] ?? null,
         'official WooCommerce 11.0.0 scheduler artifact is exact-digest pinned'
     );
-    duo_check_same(
+    wprism_check_same(
         'da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21',
         $artifactLock['plugins']['woocommerce']['11.0.1']['sha256'] ?? null,
         'official WooCommerce 11.0.1 scheduler artifact is exact-digest pinned'
     );
 
-    duo_check_summary('WooCommerce scheduler settings provider');
+    wprism_check_summary('WooCommerce scheduler settings provider');
 }

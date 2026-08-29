@@ -16,7 +16,7 @@ $wpdb->query("ALTER TABLE {$wpdb->terms} AUTO_INCREMENT = 3200001");
 $wpdb->query("ALTER TABLE {$wpdb->term_taxonomy} AUTO_INCREMENT = 3300001");
 ' >/dev/null
 $COMPOSE exec -T --user root wp1 sh -c \
-  'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/duo-yoast-index-fixture.php'
+  'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/wprism-yoast-index-fixture.php'
 
 CAT_A=$(wp_conf1 term create category 'Conformance Primary 東京 🚀' --slug=conformance-primary --porcelain)
 CAT_B=$(wp_conf1 term create category 'Conformance Secondary' --slug=conformance-secondary --porcelain)
@@ -66,7 +66,7 @@ wp_conf1 post meta update "$POST_ID" _yoast_wpseo_twitter-title 'Portable Twitte
 
 cat > "$SOURCE_REPO/.tmp-makeimg-yoast.php" <<'PHPEOF'
 <?php
-function duo_conf_yoast_png(string $path, int $red, int $green, int $blue): void {
+function wprism_conf_yoast_png(string $path, int $red, int $green, int $blue): void {
     $image = imagecreatetruecolor(64, 48);
     imagefilledrectangle($image, 0, 0, 63, 47, imagecolorallocate($image, $red, $green, $blue));
     imagepng($image, $path);
@@ -76,17 +76,17 @@ $images = [
     'person' => [80, 200, 80], 'default' => [80, 80, 200], 'post' => [220, 170, 40],
 ];
 foreach ($images as $name => $rgb) {
-    duo_conf_yoast_png("/tmp/duo-conf-yoast-$name.png", ...$rgb);
+    wprism_conf_yoast_png("/tmp/wprism-conf-yoast-$name.png", ...$rgb);
 }
 PHPEOF
 for side in conf1 conf2; do
-  wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/duo-conf-yoast-*.png") as $file) { unlink($file); }' >/dev/null
+  wp_env "$side" eval 'foreach (glob(wp_upload_dir()["basedir"] . "/*/*/wprism-conf-yoast-*.png") as $file) { unlink($file); }' >/dev/null
 done
 
 IMG_IDS=$($COMPOSE run --rm -T cli1 bash -c '
   wp eval-file /siterepo/.tmp-makeimg-yoast.php >/dev/null
   for name in og twitter company person default post; do
-    id=$(wp media import "/tmp/duo-conf-yoast-${name}.png" --title="Conformance Yoast ${name} Image" --porcelain) || exit
+    id=$(wp media import "/tmp/wprism-conf-yoast-${name}.png" --title="Conformance Yoast ${name} Image" --porcelain) || exit
     printf "%s=%s\n" "${name^^}_ID" "$id"
   done
 ')

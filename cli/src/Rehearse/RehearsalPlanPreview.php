@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
@@ -10,8 +10,8 @@ require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/RehearsalDisclosure.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
  * "What a release would touch" — the rehearsal preview (round-3 MUP §2.2,
@@ -22,11 +22,11 @@ use Duo\CommandRefusalException;
  * Two documents meet here and neither is re-computed:
  *
  *  - the **plan** of the rehearsal environment after convergence, i.e. the
- *    `wp duo plan --format=json` envelope the target agent emitted, whose
- *    additive `category_summary` projection (`duo-plan-category-summary/v1`,
- *    `\Duo\PlanCategorySummary`) carries the closed category identifiers and
+ *    `wp wprism plan --format=json` envelope the target agent emitted, whose
+ *    additive `category_summary` projection (`wprism-plan-category-summary/v1`,
+ *    `\WPrism\PlanCategorySummary`) carries the closed category identifiers and
  *    non-negative counts a release plan will use;
- *  - the **assess-style projection rows** (`duo-assess-report/v1`'s
+ *  - the **assess-style projection rows** (`wprism-assess-report/v1`'s
  *    `surfaces[]`, produced by the Contract/Assess modules), each carrying
  *    the six spec dimensions per operation.
  *
@@ -81,10 +81,10 @@ use Duo\CommandRefusalException;
  *
  * The machine document carries every in-scope row: it is bounded by
  * DECLARATIONS (one row per declared post type, taxonomy, table, option
- * group, …), the same bound `duo-assess-inventory/v1` already lives under,
+ * group, …), the same bound `wprism-assess-inventory/v1` already lives under,
  * not by the size of the site. The human projection bounds each section at
  * `DEFAULT_LIMIT` rows, accepts `--limit=1..200` with the closed grammar
- * `duo status` and `duo assess` already parse, and prints an
+ * `wprism status` and `wprism assess` already parse, and prints an
  * `N more (use --format=json)` tail whenever it cut one. Counts beside a
  * truncated list are always the true totals.
  *
@@ -101,19 +101,19 @@ use Duo\CommandRefusalException;
  * edges to Environment, Assess, Release and Recovery (module map rule 9).
  */
 final class RehearsalPlanPreview {
-    public const FORMAT = 'duo-rehearsal-preview/v1';
+    public const FORMAT = 'wprism-rehearsal-preview/v1';
 
-    /** MUP §4.6: default rows per section. One source (DUO-3521). */
+    /** MUP §4.6: default rows per section. One source (issue #3521). */
     public const DEFAULT_LIMIT = HumanViewLimit::DEFAULT_LIMIT;
 
     /** MUP §4.6: the same closed ceiling every human view publishes. */
     public const MAX_LIMIT = HumanViewLimit::MAX_LIMIT;
 
     /**
-     * `duo-assess-inventory/v1`'s `policy.surface_groups[].kind` vocabulary
-     * (`\Duo\AssessInventory::SURFACE_KINDS`) mapped onto the plan category
+     * `wprism-assess-inventory/v1`'s `policy.surface_groups[].kind` vocabulary
+     * (`\WPrism\AssessInventory::SURFACE_KINDS`) mapped onto the plan category
      * summary's `contained_entities` vocabulary
-     * (`\Duo\PlanCategorySummary::entityKinds()`).
+     * (`\WPrism\PlanCategorySummary::entityKinds()`).
      *
      * Both are closed sets owned elsewhere, and the map between them is the
      * one piece of judgement this class contributes. `option_group` covers
@@ -166,18 +166,18 @@ final class RehearsalPlanPreview {
     private const CONTEXT_KEYS = ['branch', 'containment_proof', 'env', 'generated_at', 'operation', 'source_env'];
 
     /**
-     * Build the `duo-rehearsal-preview/v1` document.
+     * Build the `wprism-rehearsal-preview/v1` document.
      *
-     * @param array<string,mixed> $plan the decoded `wp duo plan
+     * @param array<string,mixed> $plan the decoded `wp wprism plan
      *        --format=json` envelope of the rehearsal environment AFTER
      *        convergence, carrying its additive `category_summary`
-     * @param list<array<string,mixed>> $surfaces `duo-assess-report/v1`
+     * @param list<array<string,mixed>> $surfaces `wprism-assess-report/v1`
      *        `surfaces[]` rows for the same environment
      * @param array<string,mixed> $context `env`, `source_env`, `branch`,
      *        `generated_at` (RFC3339 UTC) and optional `operation` (the
      *        projected operation whose words the preview shows; defaults to
      *        `release`, which is the operation a rehearsal previews)
-     * @return array<string,mixed> canonical through `\Duo\Canon`
+     * @return array<string,mixed> canonical through `\WPrism\Canon`
      */
     public static function build(array $plan, array $surfaces, array $context): array {
         $context = self::context($context);
@@ -191,7 +191,7 @@ final class RehearsalPlanPreview {
             throw self::refuse(
                 'rehearsal_plan_incomplete',
                 'the rehearsal environment did not return a complete agent plan envelope',
-                'rerun the rehearsal: convergence must produce a complete `wp duo plan --format=json` '
+                'rerun the rehearsal: convergence must produce a complete `wp wprism plan --format=json` '
                     . 'document before a preview can say what a release would touch'
             );
         }
@@ -201,7 +201,7 @@ final class RehearsalPlanPreview {
                 'rehearsal_categories_unavailable',
                 'the rehearsal plan carries no valid category projection, so what a release would '
                     . 'touch cannot be stated from the agent\'s own numbers',
-                'upgrade the target agent to one that emits duo-plan-category-summary/v1; the host '
+                'upgrade the target agent to one that emits wprism-plan-category-summary/v1; the host '
                     . 'deliberately does not classify detailed plan rows itself'
             );
         }
@@ -216,7 +216,7 @@ final class RehearsalPlanPreview {
                 throw self::refuse(
                     'rehearsal_preview_unbuildable',
                     "projection row $index is not an object",
-                    'regenerate the projection rows with duo assess before rehearsing'
+                    'regenerate the projection rows with wprism assess before rehearsing'
                 );
             }
             $reasons = self::inScopeBecause($surface, $categories, $entities, $context['operation']);
@@ -397,7 +397,7 @@ final class RehearsalPlanPreview {
             throw self::refuse(
                 'rehearsal_preview_unbuildable',
                 'the rehearsal preview containment proof is not an object',
-                're-run duo rehearse so the materialization receipt can be bound into the preview'
+                're-run wprism rehearse so the materialization receipt can be bound into the preview'
             );
         }
         $out = ['containment_proof' => $proof, 'operation' => $operation];

@@ -10,7 +10,7 @@
  */
 declare(strict_types=1);
 
-namespace DuoTest;
+namespace WPrismTest;
 
 require_once __DIR__ . '/FakeWpdb.php';
 
@@ -169,7 +169,7 @@ final class LockingFakeWpdb {
             $this->nextRepeatableRead = true;
             return 1;
         }
-        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->activeTransaction) {
                 $this->last_error = 'no active transaction';
                 return false;
@@ -177,7 +177,7 @@ final class LockingFakeWpdb {
             $this->savepointExists = true;
             return 1;
         }
-        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->activeTransaction || !$this->savepointExists) {
                 $this->last_error = 'SAVEPOINT does not exist';
                 return false;

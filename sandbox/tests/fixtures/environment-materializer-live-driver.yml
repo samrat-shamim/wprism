@@ -1,0 +1,61 @@
+# Ephemeral public-CLI driver services for regress_environment_materializer_live.sh.
+#
+# `pair.sh` remains the sole lifecycle owner of the WordPress pair.  These
+# services merely attach the pair's already-created named volumes/network so
+# DockerTransport can execute the normal `wp` and raw-control argv against a
+# Git-capable CLI image.  No service here publishes a port or owns a database,
+# volume, or long-lived container.
+#
+# The three read-only source roots mirror pair.yml: the agent resolves its
+# packaged adapters and platform contract from sibling mu-plugin paths, with
+# no process-global library selector.
+services:
+  source:
+    image: ${WPRISM_ENVIRONMENT_MATERIALIZER_DRIVER_IMAGE}
+    user: "33:33"
+    working_dir: /var/www/html
+    networks: [wprism-shared]
+    environment: &wp_env
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_HOST: wprism-shared-db
+      WORDPRESS_DB_NAME: wp_${WPRISM_ENVIRONMENT_MATERIALIZER_PAIR}1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DISABLE_WP_CRON', true);
+    volumes:
+      - source_wp:/var/www/html
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_AGENT_SRC}/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_SITE1}:/siterepo
+
+  target:
+    image: ${WPRISM_ENVIRONMENT_MATERIALIZER_DRIVER_IMAGE}
+    user: "33:33"
+    working_dir: /var/www/html
+    networks: [wprism-shared]
+    environment:
+      <<: *wp_env
+      WORDPRESS_DB_NAME: wp_${WPRISM_ENVIRONMENT_MATERIALIZER_PAIR}2
+    volumes:
+      - target_wp:/var/www/html
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_AGENT_SRC}/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
+      - ${WPRISM_ENVIRONMENT_MATERIALIZER_SITE2}:/siterepo
+
+networks:
+  wprism-shared:
+    name: wprism-shared
+    external: true
+
+volumes:
+  source_wp:
+    name: wprism-${WPRISM_ENVIRONMENT_MATERIALIZER_PAIR}_wp1
+    external: true
+  target_wp:
+    name: wprism-${WPRISM_ENVIRONMENT_MATERIALIZER_PAIR}_wp2
+    external: true

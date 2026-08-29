@@ -1,24 +1,24 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Repository/Ledger.php';
 
 /**
- * DUO-3290: names and counts what a site actually has versus what Duo can
- * see, for options and custom tables -- the two blind spots DUO-3257's
+ * issue #3290: names and counts what a site actually has versus what WPrism can
+ * see, for options and custom tables -- the two blind spots issue #3257's
  * phase-1 aged-site fixture measured directly (469 live options rows, 24
  * captured, 445 genuinely invisible with zero discovery path; a real
  * unmanifested plugin's custom table with 407 real rows that never surfaces
- * anywhere, not even in `wp duo pending`).
+ * anywhere, not even in `wp wprism pending`).
  *
  * Deliberately NOT part of the loud-and-blocking gate: `Capture::gate_scan()`
  * and `$this->unclassified` stay exactly as they are. This class never
  * throws, never affects capture/plan/apply, and is never consulted by them
  * -- it exists so an operator (or an automated onboarding flow) can ask "how
- * much of my site does Duo actually see?" and get a truthful number BEFORE
+ * much of my site does WPrism actually see?" and get a truthful number BEFORE
  * committing to "this site is under management," independent of whether
  * anything here would ever become gated. Converting silent-invisible into
- * named-and-counted, per team-lead's own framing at the DUO-3257 checkpoint
+ * named-and-counted, per team-lead's own framing at the issue #3257 checkpoint
  * that authorized this class.
  *
  * Names and counts only -- no option VALUES and no table row CONTENTS ever
@@ -36,7 +36,7 @@ require_once __DIR__ . '/../Repository/Ledger.php';
  * exactly the exposure "zero value reads" exists to avoid.
  */
 final class Coverage {
-    public const FORMAT = 'duo-coverage-report/v1';
+    public const FORMAT = 'wprism-coverage-report/v1';
 
     /** A single grouping/attribution/report listing above this size gets a
      *  sanity-bound warning attached rather than silently growing forever --
@@ -84,7 +84,7 @@ final class Coverage {
         foreach ($rows as $row) {
             $allOptionValues[(string) $row['option_name']] = (string) $row['option_value'];
         }
-        // DUO-3505: the UNFILTERED exact enumeration, not authored_options()
+        // issue #3505: the UNFILTERED exact enumeration, not authored_options()
         // + sub_keyed_options(). Visibility asks "does any rule win for this
         // name", which is not the class question capture asks; answering it
         // with capture's class-filtered enumerators is what reported every
@@ -111,10 +111,10 @@ final class Coverage {
             // uses -- never a second reimplementation of the grammar.
             //
             // 1. An exact rule of ANY class, from a pinned manifest or from
-            //    site.duo.json.
+            //    site.wprism.json.
             $rule = $declared[$name] ?? null;
             if ($rule === null) {
-                // 2. Namespace ownership, unchanged from DUO-3290 and still
+                // 2. Namespace ownership, unchanged from issue #3290 and still
                 //    reached only when 1 missed: owned_option_rule() throws
                 //    on cross-manifest ambiguity (Policy.php:669-672), and a
                 //    name that already has an exact rule must not be put in
@@ -141,7 +141,7 @@ final class Coverage {
                 if ($owner !== null) {
                     // Namespace-claimed but unresolved: this is gate_scan()'s
                     // OWN pending bucket, not invisible -- already loud via
-                    // `wp duo pending` today. Counted here for the total to
+                    // `wp wprism pending` today. Counted here for the total to
                     // reconcile, not because coverage introduces a new gate.
                     $pending++;
                     continue;
@@ -156,7 +156,7 @@ final class Coverage {
                 continue;
             }
             // Declared and deliberately excluded: an adapter models this name
-            // and says Duo must not version it. Not invisible, not pending,
+            // and says WPrism must not version it. Not invisible, not pending,
             // not captured, and carrying no next action -- there is nothing
             // here to classify.
             $class = (string) ($rule['class'] ?? 'unknown');
@@ -180,7 +180,7 @@ final class Coverage {
     }
 
     /**
-     * Does Duo write this name into the captured artifact? One branch per
+     * Does WPrism write this name into the captured artifact? One branch per
      * writer in OptionsCapture::capture(), so the two can only disagree if
      * one of them changes: authored (:67-82) and managed (:202-216) whole-
      * name writes, declared sub_keys (:118-120), an option-name-ref match
@@ -201,7 +201,7 @@ final class Coverage {
             // sharing its prefix, so the sub_keys test below would call a
             // former theme's leftover row captured. Only the currently-
             // resolved name is written; its siblings are the residue
-            // WordPress itself keeps against a switch back (DUO-3264).
+            // WordPress itself keeps against a switch back (issue #3264).
             return !$policy->is_dynamic_option_residue($name, ['active_stylesheet' => $stylesheet]);
         }
         if (in_array((string) ($rule['class'] ?? ''), self::CAPTURED_CLASSES, true)) {
@@ -238,7 +238,7 @@ final class Coverage {
     /**
      * The transient/other split of the genuinely-invisible set.
      *
-     * DUO-3505: with any manifest pinned that declares transient patterns --
+     * issue #3505: with any manifest pinned that declares transient patterns --
      * core.json's own ^_transient_ and ^_site_transient_, class derived --
      * this partition is now structurally zero, because such a row has a
      * winning rule and never reaches the invisible set at all. It stays
@@ -297,8 +297,8 @@ final class Coverage {
             // registered into $wpdb->tables falls through to exactly the same
             // undeclared path an unregistered plugin table already took --
             // that IS the fix: it becomes a coverage subject, gets its
-            // logical_name, and reaches `duo assess`'s `table:<name>` surface
-            // and `duo adapter-draft --seed`'s proposals.
+            // logical_name, and reaches `wprism assess`'s `table:<name>` surface
+            // and `wprism adapter-draft --seed`'s proposals.
             if (in_array($tableName, $core, true)) {
                 continue;
             }
@@ -306,7 +306,7 @@ final class Coverage {
                 ? substr($tableName, strlen($prefix))
                 : $tableName;
             if (isset($declared[$logicalName]) || in_array($logicalName, Ledger::OWN_TABLES, true)) {
-                // Duo's own ledger is not site state and no adapter will ever
+                // WPrism's own ledger is not site state and no adapter will ever
                 // declare it; listing it as "undeclared" taught the operator
                 // to classify the tool that was assessing them.
                 continue;
@@ -332,7 +332,7 @@ final class Coverage {
                 // reader: `wp_` is this install's prefix, not a constant, so a
                 // consumer stripping it itself would mis-name every row on a
                 // site whose prefix is anything else. It is also the identity
-                // `duo assess` builds its `table:<logical_name>` surface row
+                // `wprism assess` builds its `table:<logical_name>` surface row
                 // from (cli/src/Assess/SurfaceCatalog.php:326 and
                 // AssessReport.php:156 both require the key and skip the row
                 // without it) — dropping it here is why an undeclared table
@@ -383,9 +383,9 @@ final class Coverage {
      * and WPForms Lite, WooCommerce and WP Mail SMTP all bundle it. Measured
      * on a WPForms Lite 2.0.0.5 site: `tables('all', true)` returned 16 names,
      * four of them `wp_actionscheduler_*` (one of which holds a real row,
-     * `action_scheduler/migration_hook`), so `duo coverage` reported them as
-     * core, `duo assess` minted no `table:` surface for them, and
-     * `duo adapter-draft --seed` proposed no declaration for a table set the
+     * `action_scheduler/migration_hook`), so `wprism coverage` reported them as
+     * core, `wprism assess` minted no `table:` surface for them, and
+     * `wprism adapter-draft --seed` proposed no declaration for a table set the
      * site's own plugin writes to.
      *
      * The class's DECLARED DEFAULTS are the honest source, and they keep what

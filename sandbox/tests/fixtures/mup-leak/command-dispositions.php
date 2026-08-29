@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * MUP §5.1 as a gate: every public `wp duo` command is either DRIVEN BY A
+ * MUP §5.1 as a gate: every public `wp wprism` command is either DRIVEN BY A
  * HOST VERB or NAMED IN `docs/guides/internals.md`. A command that is
  * neither is an undocumented command an operator can find and run, which is
  * exactly what the product spec's "normal operation never depends on
@@ -25,13 +25,13 @@ declare(strict_types=1);
  * **Host-driven** has two shapes in this tree, and both are read out of the
  * source rather than listed here:
  *
- *   1. a literal argv pair — `['duo', '<command>', …]` — built anywhere in
- *      `cli/duo` or `cli/src/**`. Whitespace is collapsed before the match
+ *   1. a literal argv pair — `['wprism', '<command>', …]` — built anywhere in
+ *      `cli/wprism` or `cli/src/**`. Whitespace is collapsed before the match
  *      because the pair is frequently split across lines
  *      (cli/src/Adapter/AdapterObservation.php:65-69).
- *   2. a verb `cli/duo` routes to `cmd_passthrough()` /
+ *   2. a verb `cli/wprism` routes to `cmd_passthrough()` /
  *      `cmd_scoped_passthrough()`, which forward the host verb VERBATIM as
- *      the agent subcommand (`['duo', $verb, '--repo=…']`,
+ *      the agent subcommand (`['wprism', $verb, '--repo=…']`,
  *      cli/src/Command/PassthroughCommand.php:34). For those the argv pair
  *      never appears as a literal, so the dispatch arm is the evidence.
  *
@@ -42,19 +42,19 @@ declare(strict_types=1);
  * marked it host-driven and hidden the one command §2.4 had to work around.
  *
  * **Documented internal** means the command is cited in
- * `docs/guides/internals.md` as an inline `` `wp duo <command>` `` span AND
+ * `docs/guides/internals.md` as an inline `` `wp wprism <command>` `` span AND
  * that line carries §5.1's literal sentence. The sentence is the contract, so
  * a row that lists a command without it does not count as documenting it.
  */
 
 /**
  * §5.1's literal sentence, compared after backticks are stripped from both
- * sides. The proposal writes it as *"`duo` never needs this; …"*; a guide
- * that renders the same sentence without the code span around `duo` is the
+ * sides. The proposal writes it as *"`wprism` never needs this; …"*; a guide
+ * that renders the same sentence without the code span around `wprism` is the
  * same promise, and a gate that failed on that would be enforcing typography
  * rather than the contract. Every other word is exact.
  */
-const CD_SENTENCE = 'duo never needs this; running it directly is outside the supported workflow.';
+const CD_SENTENCE = 'wprism never needs this; running it directly is outside the supported workflow.';
 
 $root = $argv[1] ?? '';
 if ($root === '' || !is_dir($root)) {
@@ -71,7 +71,7 @@ foreach ($options as $option) {
 }
 
 $agentCli = $root . '/agent/src/Command/Cli.php';
-$hostCli = $root . '/cli/duo';
+$hostCli = $root . '/cli/wprism';
 $internals = $internalsOverride ?? ($root . '/docs/guides/internals.md');
 foreach ([$agentCli, $hostCli, $internals] as $required) {
     if (!is_file($required)) {
@@ -81,7 +81,7 @@ foreach ([$agentCli, $hostCli, $internals] as $required) {
 }
 
 // ------------------------------------------------- 1. the public commands
-// WP-CLI registers the whole class as `wp duo`, so every public method is a
+// WP-CLI registers the whole class as `wp wprism`, so every public method is a
 // subcommand: underscores become hyphens unless `@subcommand` names it.
 // Read the same way sandbox/tests/spike/check_guide_commands.sh reads it, so the
 // two checks can never disagree about what the command surface is.
@@ -95,7 +95,7 @@ $commands = array_map(
 $commands = array_values(array_unique(array_merge($commands, $overrides[1])));
 sort($commands);
 if ($commands === []) {
-    fwrite(STDERR, "command-dispositions: no public wp duo commands were found\n");
+    fwrite(STDERR, "command-dispositions: no public wp wprism commands were found\n");
     exit(2);
 }
 
@@ -136,7 +136,7 @@ foreach (array_merge([$hostCli], cd_php_files($root . '/cli/src')) as $file) {
     $hostCode .= cd_code_only($file);
 }
 
-// Verbs cli/duo forwards verbatim to the agent through the passthrough
+// Verbs cli/wprism forwards verbatim to the agent through the passthrough
 // helpers. Read off the dispatch arms, so adding a verb to that list is
 // enough and nothing here needs editing.
 $hostSource = (string) file_get_contents($hostCli);
@@ -158,7 +158,7 @@ foreach ($internalsLines as $line) {
     if (!str_contains(str_replace('`', '', $line), CD_SENTENCE)) {
         continue;
     }
-    preg_match_all('/`wp duo ([a-z][a-z0-9-]*)`/', $line, $cited);
+    preg_match_all('/`wp wprism ([a-z][a-z0-9-]*)`/', $line, $cited);
     foreach ($cited[1] as $command) {
         $documented[$command] = true;
     }
@@ -168,7 +168,7 @@ foreach ($internalsLines as $line) {
 $rows = [];
 $undocumented = 0;
 foreach ($commands as $command) {
-    $literal = str_contains($hostCode, "'duo','$command'") || str_contains($hostCode, '"duo","' . $command . '"');
+    $literal = str_contains($hostCode, "'wprism','$command'") || str_contains($hostCode, '"wprism","' . $command . '"');
     if ($literal) {
         $disposition = 'host-driven (argv)';
     } elseif (isset($passthrough[$command])) {
@@ -184,7 +184,7 @@ foreach ($commands as $command) {
 
 if ($json) {
     echo json_encode([
-        'format' => 'duo-mup-command-disposition/v1',
+        'format' => 'wprism-mup-command-disposition/v1',
         'rows' => $rows,
         'undocumented' => $undocumented,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";
@@ -199,7 +199,7 @@ foreach ($rows as $row) {
         continue;
     }
     fwrite(STDERR, sprintf(
-        "FAIL: `wp duo %s` is neither driven by a host verb nor named in docs/guides/internals.md (MUP §5.1)\n",
+        "FAIL: `wp wprism %s` is neither driven by a host verb nor named in docs/guides/internals.md (MUP §5.1)\n",
         $row['command']
     ));
 }
@@ -210,7 +210,7 @@ foreach ($rows as $row) {
 $stale = array_diff(array_keys($documented), $commands);
 foreach ($stale as $command) {
     fwrite(STDERR, sprintf(
-        "FAIL: docs/guides/internals.md documents `wp duo %s`, which agent/src/Command/Cli.php does not register\n",
+        "FAIL: docs/guides/internals.md documents `wp wprism %s`, which agent/src/Command/Cli.php does not register\n",
         $command
     ));
     $undocumented++;

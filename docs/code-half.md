@@ -1,12 +1,12 @@
 # The Code Half (`code/`)
 
-*Written as a proposal 2026-08-05; promoted to canonical documentation at this path 2026-08-21 because eight shipped source files (nine citation sites), `platform/adapter-library/core/manifest.json`'s own note and a `duo doctor` warning string cite its § numbers by name. The § numbering is therefore load-bearing — renumber nothing. Status: the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
+*Written as a proposal 2026-08-05; promoted to canonical documentation at this path 2026-08-21 because eight shipped source files (nine citation sites), `platform/adapter-library/core/manifest.json`'s own note and a `wprism doctor` warning string cite its § numbers by name. The § numbering is therefore load-bearing — renumber nothing. Status: the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
 
-> **Implementation ruling (2026-08-07).** Duo's first complete code-half
+> **Implementation ruling (2026-08-07).** WPrism's first complete code-half
 > transport is an opt-in, descriptor-hashed `code/wp-content` payload of
 > vendored plugins, themes, and user mu-plugins. It stages additions and
 > updates, runs lifecycle reconciliation while outgoing code still exists,
-> then prunes only previously Duo-owned paths and records the revision after
+> then prunes only previously WPrism-owned paths and records the revision after
 > target hash verification. This works for public, premium, private, and
 > in-house code without a package-registry dependency. The full-webroot,
 > Composer, SSH release-directory, and agent-self-delivery design explored
@@ -33,9 +33,9 @@ Contents: [§1 Layout & modes](#1-layout--modes) · [§2 Deploy semantics](#2-de
 | Directory naming | Keep stock `wp-content/` (not Bedrock's `web/app/` rename) — required by DESIGN.md's own constraint #1 ("plugins/themes work completely unmodified"), which a wp-content rename risks breaking for plugins with hardcoded paths. This is where this proposal diverges from Bedrock's convention, not from DESIGN.md's. |
 | Core placement | **Full-tree management**: `code/` *is* the WordPress webroot; core is composer-managed and lands directly under `code/`. Justified in §2.2 against the wp-content-only alternative. |
 | Deploy strategy | **Resolve-in-place** for `local`/`docker` (composer install runs at the destination, which already has git/filesystem access); **resolve-then-rsync** for `ssh` (composer runs off-box, only rsync + PHP required on the target — no git or package-registry egress needed in production). |
-| Invariant enforcement | `active_plugins`/`template`/`stylesheet` become **`managed`**-classified core-manifest options (not `authored`) — captured by bespoke code, excluded from the generic direct-SQL apply path, and reconciled by a **new `duo deploy` step that runs outside apply's hook-free canary** (activation must fire hooks; apply must not). Plan-time checks live in the existing `Apply::build_plan()`, so they show up in ordinary `duo plan`/`duo status`, not just at deploy time. |
+| Invariant enforcement | `active_plugins`/`template`/`stylesheet` become **`managed`**-classified core-manifest options (not `authored`) — captured by bespoke code, excluded from the generic direct-SQL apply path, and reconciled by a **new `wprism deploy` step that runs outside apply's hook-free canary** (activation must fire hooks; apply must not). Plan-time checks live in the existing `Apply::build_plan()`, so they show up in ordinary `wprism plan`/`wprism status`, not just at deploy time. |
 | version_range | A new optional manifest field, `{"min": "8.0.0", "max": "10.0.0"}` (max-exclusive), checked with two `version_compare()` calls (no semver-range parser — keeps the dependency-free agent dependency-free). Warns at plan, hard-blocks apply by default, `--force-code-mismatch` overrides. |
-| 3 highest-risk open questions | (1) wp-admin/file-system plugin updates silently drift an environment's code out from under git — needs `DISALLOW_FILE_MODS` as policy, not just detection. (2) Composer/registry availability becomes a new dependency in the deploy critical path. (3) Rollback-after-migration is fundamentally bounded by plugin authors' (non-)support for down-migrations — Duo cannot make this safe by itself. |
+| 3 highest-risk open questions | (1) wp-admin/file-system plugin updates silently drift an environment's code out from under git — needs `DISALLOW_FILE_MODS` as policy, not just detection. (2) Composer/registry availability becomes a new dependency in the deploy critical path. (3) Rollback-after-migration is fundamentally bounded by plugin authors' (non-)support for down-migrations — WPrism cannot make this safe by itself. |
 
 ---
 
@@ -53,7 +53,7 @@ This proposal adopts (a) in full and explicitly **rejects (b)**. DESIGN.md's own
 
 **(verified via WebSearch + WebFetch, this session, against wp-packages.org, wordpress.org/news, and github.com/roots/bedrock — all postdate this model's January 2026 training cutoff)**: In March 2026, **WPackagist (wpackagist.org) was acquired by WP Engine**, a private-equity-backed hosting company. This triggered public concern in the WordPress community about a single commercial host controlling a piece of shared build infrastructure that most of the ecosystem's Composer-based WordPress projects (Bedrock included) depend on. In direct response, **Roots — Bedrock's own maintainers — launched an independent alternative, "WP Packages" (`wp-packages.org`)**, going live March 16, 2026 (briefly named "WP Composer" until a trademark objection from Composer's co-creator forced a rename days later). WP Packages mirrors the same free wordpress.org plugin/theme directory, syncs every ~5 minutes (vs. WPackagist's ~90-minute cycle), and resolves noticeably faster. **Bedrock's live `composer.json` (fetched this session from `github.com/roots/bedrock`, `master` branch) already uses WP Packages** as its repository, requiring `wp-theme/twentytwentyfive` and pinning `roots/wordpress` (exact version, not a range) for core.
 
-WPackagist itself is not dead — WP Engine has committed to keeping it free and operational, and it remains a valid fallback — but given that (1) the plan of record explicitly says "adopt Bedrock" and (2) Bedrock itself has already moved off WPackagist as of this writing, **this proposal recommends WP Packages as Duo's primary/documented default composer repository**, with WPackagist named as an equivalent, swappable fallback for teams with a reason to prefer it (e.g., already-established internal tooling, or distrust of a newer service). The two are structurally interchangeable — same package shape, different `repositories` URL and package-name prefix — so this is a one-line `composer.json` change either way, not a design fork.
+WPackagist itself is not dead — WP Engine has committed to keeping it free and operational, and it remains a valid fallback — but given that (1) the plan of record explicitly says "adopt Bedrock" and (2) Bedrock itself has already moved off WPackagist as of this writing, **this proposal recommends WP Packages as WPrism's primary/documented default composer repository**, with WPackagist named as an equivalent, swappable fallback for teams with a reason to prefer it (e.g., already-established internal tooling, or distrust of a newer service). The two are structurally interchangeable — same package shape, different `repositories` URL and package-name prefix — so this is a one-line `composer.json` change either way, not a design fork.
 
 | | WP Packages (recommended default) | WPackagist (documented fallback) |
 |---|---|---|
@@ -64,7 +64,7 @@ WPackagist itself is not dead — WP Engine has committed to keeping it free and
 | Sync cadence | ~5 min | ~90 min |
 | Core package | `roots/wordpress` (meta), `roots/wordpress-no-content` (core only, no bundled default content), `roots/wordpress-full` (core + bundled themes/plugins) | `johnpbloch/wordpress` (classic; still functions) |
 
-Core-package choice: **`roots/wordpress`**, matching Bedrock's own current, empirically-observed `composer.json` (exact pin, e.g. `"roots/wordpress": "7.0.2"`, not a caret range — core version bumps are deliberate, reviewed events, not auto-resolved). `roots/wordpress-no-content`/`-full` are documented siblings; `-full` bundles default themes/plugins and is explicitly **not** recommended, because it would silently populate `code/` with entities (Akismet, Hello Dolly, a default theme) that no `composer.json` `require` line or `site.duo.json` decision put there — a hole in the "only what's declared is present" property the cross-partition invariant (§3) depends on. Both wpackagist and WP Packages leave premium/unlisted plugins (ACF PRO, Gravity Forms, purchased page builders, in-house client plugins) out of scope entirely — they mirror **only** the free wordpress.org directory. That gap is exactly what vendored mode (§1.3) exists for.
+Core-package choice: **`roots/wordpress`**, matching Bedrock's own current, empirically-observed `composer.json` (exact pin, e.g. `"roots/wordpress": "7.0.2"`, not a caret range — core version bumps are deliberate, reviewed events, not auto-resolved). `roots/wordpress-no-content`/`-full` are documented siblings; `-full` bundles default themes/plugins and is explicitly **not** recommended, because it would silently populate `code/` with entities (Akismet, Hello Dolly, a default theme) that no `composer.json` `require` line or `site.wprism.json` decision put there — a hole in the "only what's declared is present" property the cross-partition invariant (§3) depends on. Both wpackagist and WP Packages leave premium/unlisted plugins (ACF PRO, Gravity Forms, purchased page builders, in-house client plugins) out of scope entirely — they mirror **only** the free wordpress.org directory. That gap is exactly what vendored mode (§1.3) exists for.
 
 ### 1.2 Composer-managed mode
 
@@ -103,7 +103,7 @@ Core-package choice: **`roots/wordpress`**, matching Bedrock's own current, empi
 }
 ```
 
-**(verified via WebFetch against wp-packages.org/docs)**: this exact `installer-paths` shape (`wp-content/plugins/{$name}/`, `wp-content/themes/{$name}/` — stock naming, not `web/app/...`) is WP Packages' own documented example, not a Duo-specific hack layered on top of Bedrock conventions. `wordpress-install-dir: "."` places core directly in the same directory as `composer.json` — i.e., directly under `code/`, which is the full-tree decision justified in §2.2. `roots/wordpress-core-installer` **(verified, forked from `johnpbloch/wordpress-core-installer`)** is the composer plugin that reads `wordpress-install-dir` and unpacks core there.
+**(verified via WebFetch against wp-packages.org/docs)**: this exact `installer-paths` shape (`wp-content/plugins/{$name}/`, `wp-content/themes/{$name}/` — stock naming, not `web/app/...`) is WP Packages' own documented example, not a WPrism-specific hack layered on top of Bedrock conventions. `wordpress-install-dir: "."` places core directly in the same directory as `composer.json` — i.e., directly under `code/`, which is the full-tree decision justified in §2.2. `roots/wordpress-core-installer` **(verified, forked from `johnpbloch/wordpress-core-installer`)** is the composer plugin that reads `wordpress-install-dir` and unpacks core there.
 
 `composer.lock` is committed (pins exact resolved versions/hashes — this is the artifact conflict-of-truth for "what version is this branch on," and is what §4's worked example diffs). `vendor/` and every composer-managed plugin/theme directory are **not** committed — they're regenerated by `composer install` (§2). Concretely, `code/.gitignore` needs one line per composer-managed package name (see §1.4).
 
@@ -145,8 +145,8 @@ code/
       twentytwentyfive/       # composer-managed — gitignored
       acme-child/             # vendored (site's own custom theme) — committed wholesale
     mu-plugins/
-      duo-loader.php          # the agent — see §1.7
-      duo/
+      wprism-loader.php          # the agent — see §1.7
+      wprism/
     uploads/                  # never in git — env-local, see spec/repo-format.md `media/`
 ```
 
@@ -183,36 +183,36 @@ Core is composer-managed and lands directly under `code/` (full-tree management:
 
 ### 1.6 Where wp-config / env-bound config does NOT live
 
-Never in `state/` (obvious — it's not authored content) and never with real values inside git-tracked `code/` either. `wp-config.php` needs DB credentials, salts, `WP_HOME`/`WP_SITEURL`, and Duo's env-bound runtime switches such as `DUO_JOURNAL` — every one of these is exactly the `env`-portability class DESIGN.md §1 defines (*"env-bound (siteurl, API keys, salts, file paths)"*). The adapter library is not such a switch: production uses the one embedded in the installed agent. Handling splits cleanly by transport, and both halves are already precedented elsewhere in this codebase:
+Never in `state/` (obvious — it's not authored content) and never with real values inside git-tracked `code/` either. `wp-config.php` needs DB credentials, salts, `WP_HOME`/`WP_SITEURL`, and WPrism's env-bound runtime switches such as `WPRISM_JOURNAL` — every one of these is exactly the `env`-portability class DESIGN.md §1 defines (*"env-bound (siteurl, API keys, salts, file paths)"*). The adapter library is not such a switch: production uses the one embedded in the installed agent. Handling splits cleanly by transport, and both halves are already precedented elsewhere in this codebase:
 
 - **`docker`**: the official `wordpress:php8.3-apache` image's entrypoint **(recall — docker-library/wordpress's well-known startup behavior, not re-verified this session)** auto-generates `wp-config.php` from `WORDPRESS_DB_*` environment variables at container start if the file is absent. The existing sandbox already relies on exactly this (`docker-compose.yml`'s `x-wp-env`/`WORDPRESS_CONFIG_EXTRA` blocks). Recommendation: keep doing this — add `/wp-config.php` to `code/.gitignore` and let the entrypoint keep writing it into the now-bind-mounted `code/` directory. Simplest option, zero new code, matches current practice.
 - **`local`/`ssh`**: no docker entrypoint to lean on, so `code/wp-config.php` should be a **thin, committed bootstrap** (Bedrock's actual pattern, minus its directory rename): it contains only logic — read `getenv()` / a gitignored `.env` — and defines the WordPress constants from those. The file is git-tracked (its *logic* is stable across environments) but contains **zero secrets or env-specific values itself**.
 
 Either way, the invariant is the same one DESIGN.md already states for `state/`'s `env`-class values: *"Env-bound values bind via per-env config, never committed."* This proposal applies the identical rule to the code half's own env-bound surface.
 
-### 1.7 How the duo agent itself ships
+### 1.7 How the wprism agent itself ships
 
-spec/repo-format.md's layout already places `wp-content/mu-plugins/duo/ # the agent` *inside* `code/`, i.e., the agent is part of the code half's contract, not a side channel. Recommendation: **the agent ships the same way every other code-half dependency does — as a composer package**, using a `"type": "vcs"` repository entry pointing at this platform repo (or a dedicated package once one is published), typed `wordpress-muplugin` so `composer/installers` places it correctly:
+spec/repo-format.md's layout already places `wp-content/mu-plugins/wprism/ # the agent` *inside* `code/`, i.e., the agent is part of the code half's contract, not a side channel. Recommendation: **the agent ships the same way every other code-half dependency does — as a composer package**, using a `"type": "vcs"` repository entry pointing at this platform repo (or a dedicated package once one is published), typed `wordpress-muplugin` so `composer/installers` places it correctly:
 
 ```jsonc
 "repositories": [
   { "type": "composer", "url": "https://repo.wp-packages.org" },
-  { "type": "vcs", "url": "https://github.com/<org>/duo-wp.git" }   // proposed — not published today
+  { "type": "vcs", "url": "https://github.com/<org>/wprism.git" }   // proposed — not published today
 ],
 "require": {
-  "duotronic/duo-agent": "0.5.0"   // proposed package name — illustrative, not an existing package
+  "duotronic/wprism-agent": "0.7.0"   // proposed package name — illustrative, not an existing package
 }
 ```
 
-This unifies the update model — bumping the agent is a `composer.json`/`composer.lock` diff exactly like bumping WooCommerce, reviewable the same way, gated by the same materialization step. **v0-simplest fallback**, for teams not ready to stand up a VCS repository entry: vendor the agent wholesale (§1.3's mechanism, applied to the agent itself) and update it by copying in new source on upgrade. Either way, there is no "hot reload" problem to solve: wp-cli/PHP-FPM boot a fresh PHP process per invocation, so a newly-materialized agent version simply takes effect on the *next* `wp duo …` call — no special-casing needed, stated here only to pre-empt the question.
+This unifies the update model — bumping the agent is a `composer.json`/`composer.lock` diff exactly like bumping WooCommerce, reviewable the same way, gated by the same materialization step. **v0-simplest fallback**, for teams not ready to stand up a VCS repository entry: vendor the agent wholesale (§1.3's mechanism, applied to the agent itself) and update it by copying in new source on upgrade. Either way, there is no "hot reload" problem to solve: wp-cli/PHP-FPM boot a fresh PHP process per invocation, so a newly-materialized agent version simply takes effect on the *next* `wp wprism …` call — no special-casing needed, stated here only to pre-empt the question.
 
-**Sandbox-specific, deliberate divergence from the above** (flagged so it isn't mistaken for the general recommendation): sandbox/docker-compose.yml today bind-mounts the agent straight from the *platform* repo's working tree (`../agent:/var/www/html/wp-content/mu-plugins/duo:ro`) so that iterating on `agent/src/*.php` is instant — no rebuild, no re-materialize. This is correct and should **stay exactly as-is** for the sandbox, because the sandbox's job there is developing the agent itself, not demonstrating agent distribution. §5's new spike keeps this mount for mu-plugins and only bind-mounts `code/` for the plugins/themes/composer.json layer being newly demonstrated — see §5.1.
+**Sandbox-specific, deliberate divergence from the above** (flagged so it isn't mistaken for the general recommendation): sandbox/docker-compose.yml today bind-mounts the agent straight from the *platform* repo's working tree (`../agent:/var/www/html/wp-content/mu-plugins/wprism:ro`) so that iterating on `agent/src/*.php` is instant — no rebuild, no re-materialize. This is correct and should **stay exactly as-is** for the sandbox, because the sandbox's job there is developing the agent itself, not demonstrating agent distribution. §5's new spike keeps this mount for mu-plugins and only bind-mounts `code/` for the plugins/themes/composer.json layer being newly demonstrated — see §5.1.
 
 ---
 
 ## 2. Deploy semantics
 
-**"Materializing code"** means: given a git revision of the site repo, produce, on a target environment, a `wp-content/` (and, in full-tree mode, a full webroot) whose contents exactly match what that revision's `code/composer.json` + `composer.lock` + vendored files declare — before any state (`duo apply`) or plugin-activation reconciliation (§3.4) touches that environment.
+**"Materializing code"** means: given a git revision of the site repo, produce, on a target environment, a `wp-content/` (and, in full-tree mode, a full webroot) whose contents exactly match what that revision's `code/composer.json` + `composer.lock` + vendored files declare — before any state (`wprism apply`) or plugin-activation reconciliation (§3.4) touches that environment.
 
 ### 2.1 Core placement: full-tree vs. wp-content-only
 
@@ -224,7 +224,7 @@ This unifies the update model — bumping the agent is a `composer.json`/`compos
 | Core upgrades | A normal branch + `composer.lock` diff, reviewable, testable pre-merge like any other dependency bump | An out-of-band, per-environment operation with no git history |
 | Matches DESIGN.md's own sketch | Yes — §3.3's tree shows `code/composer.json` at the top of `code/`, implying `code/` is the project root WP Packages/Bedrock composer.json convention already assumes | Would require inventing a different layout than DESIGN.md's own sketch |
 
-**Recommend full-tree.** The wp-content-only alternative exists in real Bedrock-adjacent setups (some teams don't want core in their app repo at all), but for Duo specifically it reintroduces exactly the problem DESIGN.md's whole state-half design exists to solve for content: *a fact that matters (which core version is running) living somewhere ungoverned by the repo.* Given DESIGN.md's own layout sketch already puts `composer.json` at the top of `code/` (implying core is in scope, not carved out), wp-content-only would be a **bigger** divergence from the existing sketch than full-tree is. If a future team wants wp-content-only for a specific host constraint (e.g., a managed host that owns and forbids modifying core), that's a `wordpress-install-dir`-and-`.gitignore` change confined to §1.2/§1.4, not a change to anything in §3 onward — the invariant and deploy-ordering design here are agnostic to this choice.
+**Recommend full-tree.** The wp-content-only alternative exists in real Bedrock-adjacent setups (some teams don't want core in their app repo at all), but for WPrism specifically it reintroduces exactly the problem DESIGN.md's whole state-half design exists to solve for content: *a fact that matters (which core version is running) living somewhere ungoverned by the repo.* Given DESIGN.md's own layout sketch already puts `composer.json` at the top of `code/` (implying core is in scope, not carved out), wp-content-only would be a **bigger** divergence from the existing sketch than full-tree is. If a future team wants wp-content-only for a specific host constraint (e.g., a managed host that owns and forbids modifying core), that's a `wordpress-install-dir`-and-`.gitignore` change confined to §1.2/§1.4, not a change to anything in §3 onward — the invariant and deploy-ordering design here are agnostic to this choice.
 
 ### 2.2 Per-transport materialization
 
@@ -232,7 +232,7 @@ The `cli/` orchestrator already has exactly three transports (`local`, `docker`,
 
 | Transport | Who runs `composer install` | Sync mechanism | Why |
 |---|---|---|---|
-| `local` | Directly on the target — `duo` already shells out locally | None needed — git checkout/pull on that same filesystem already placed `code/`; composer just resolves the gitignored parts in place | `local`'s whole premise is "the machine `duo` runs on," so "resolve in place" is free |
+| `local` | Directly on the target — `wprism` already shells out locally | None needed — git checkout/pull on that same filesystem already placed `code/`; composer just resolves the gitignored parts in place | `local`'s whole premise is "the machine `wprism` runs on," so "resolve in place" is free |
 | `docker` | A dedicated one-shot `composer:2`-image service (`docker compose run --rm composer install --no-dev`, working dir = the bind-mounted `code/`), **not** the `wordpress:cli-*` wp-cli image | None needed — `code/` is bind-mounted from the host, so the container and the host share the same files live; whatever composer resolves on the host side is immediately visible to `wp-*`/`cli-*` | Reuses the existing bind-mount pattern (§5.1); avoids needing composer baked into the `wordpress:cli` image **(recall, not verified this session — the official `wordpress:cli` image is Alpine-based and does not obviously ship composer by default; confirm empirically when building the spike; a dedicated `composer:2` one-shot service sidesteps the question entirely)** |
 | `ssh` | **Off-box** — resolved by the orchestrator's own machine (or CI), never on the target | **rsync** the fully-resolved `code/` tree to the target, into a timestamped release directory, then atomically flip a `current` symlink `wp_path` points at (`rsync -a --delete --link-dest=<previous-release> ... host:releases/<rev>/code/` + `ssh host ln -sfn releases/<rev>/code current`) | See below |
 
@@ -242,7 +242,7 @@ The `cli/` orchestrator already has exactly three transports (`local`, `docker`,
 2. **rsync of a pre-resolved tree** (recommended) — resolution happens somewhere that *does* have git/composer/network (the `local` transport machine, or CI), and only the **result** — plain files, no `.git`, no registry credentials — reaches the target via rsync. The target needs only SSH + rsync + PHP/WP itself. This is the direct code-half analogue of the "code up, content down" discipline design-review-v0.md finding #22 already credits to Pantheon/WP Engine multidev and that DESIGN.md §3.4 already adopts for the *state* half's default branch workflow (*"materialize fresh from a prod snapshot + apply the branch delta"*) — same philosophy, applied to code.
 3. **Build-artifact + atomic symlink swap** (Capistrano-style `releases/<n>/` + `current`) — superior for atomicity and instant rollback, but is really a *refinement* of rsync, not a competing mechanism: rsync into a fresh release directory (using `--link-dest` against the previous release for hardlink dedup, keeping disk cost low) and then swap the symlink. **Recommendation: fold this into the rsync approach rather than treating it as a third, separate option** — get atomic cutover and cheap rollback (§2.3) essentially for free on top of rsync, without standing up a separate artifact-storage/versioning system.
 
-Materialization success must be self-verifying before anything downstream trusts it: `duo deploy` should check its own exit status (composer's exit code; for ssh, rsync's exit code) plus a cheap sanity probe (`wp core is-installed`/`wp plugin list` over the transport) **before** writing the new code revision into the ledger (`duo_kv['code_revision']`, reusing the *existing*, already-generic `duo_kv` table — no schema change, see §6). A failed or partial deploy simply never advances that marker, so the *existing* drift-style plan machinery (§3) naturally reports "code not yet deployed" on the next `plan`/`status` rather than needing bespoke partial-failure recovery.
+Materialization success must be self-verifying before anything downstream trusts it: `wprism deploy` should check its own exit status (composer's exit code; for ssh, rsync's exit code) plus a cheap sanity probe (`wp core is-installed`/`wp plugin list` over the transport) **before** writing the new code revision into the ledger (`wprism_kv['code_revision']`, reusing the *existing*, already-generic `wprism_kv` table — no schema change, see §6). A failed or partial deploy simply never advances that marker, so the *existing* drift-style plan machinery (§3) naturally reports "code not yet deployed" on the next `plan`/`status` rather than needing bespoke partial-failure recovery.
 
 ### 2.3 Rollback story
 
@@ -251,7 +251,7 @@ State already has a rollback story (`wp db export` snapshot before apply, per sp
 - **local/docker**: `git checkout <previous-rev> -- code/` (or the whole repo) + re-run materialization (`composer install` regenerates the exact previous state — deterministic, because `composer.lock` pins exact versions/hashes).
 - **ssh**, with the release-directory refinement from §2.2: if the previous release is still retained on disk, rollback is **just the symlink flip** — instant, no re-resolve, no rsync. If it's been pruned, fall back to full re-materialize-and-rsync of that older revision, the general-case path.
 
-**The one honest caveat, stated plainly because it is a real limit, not a solved problem**: code rollback and state rollback are not independent. If a plugin has already run a forward migration (§4) against the database, rolling back *only* the code can strand the database in a schema shape the older code doesn't understand (WooCommerce's HPOS tables existing while HPOS-unaware Woo code loads, for instance). Duo does not control whether plugin authors ship down-migrations — most don't. The safe rule this proposal recommends stating explicitly to operators: **roll back code before any migration has run against production data, or roll back code and restore the pre-migration DB snapshot together — never roll back code alone against an already-migrated database.** This is carried into §7 as a first-class risk, not just a footnote here.
+**The one honest caveat, stated plainly because it is a real limit, not a solved problem**: code rollback and state rollback are not independent. If a plugin has already run a forward migration (§4) against the database, rolling back *only* the code can strand the database in a schema shape the older code doesn't understand (WooCommerce's HPOS tables existing while HPOS-unaware Woo code loads, for instance). WPrism does not control whether plugin authors ship down-migrations — most don't. The safe rule this proposal recommends stating explicitly to operators: **roll back code before any migration has run against production data, or roll back code and restore the pre-migration DB snapshot together — never roll back code alone against an already-migrated database.** This is carried into §7 as a first-class risk, not just a footnote here.
 
 ---
 
@@ -272,35 +272,35 @@ DESIGN.md §3.4 names the invariant and stops: *"**Guards**: … cross-partition
 
 ### 3.2 Plan-time checks
 
-Both checks run inside the existing `Apply::build_plan()` — the same method that already computes collisions, conflicts, and referential delete guards — so they surface in ordinary `duo plan`/`duo status`, not only when explicitly deploying. A new plan bucket, `code_mismatch`, holds the results:
+Both checks run inside the existing `Apply::build_plan()` — the same method that already computes collisions, conflicts, and referential delete guards — so they surface in ordinary `wprism plan`/`wprism status`, not only when explicitly deploying. A new plan bucket, `code_mismatch`, holds the results:
 
 1. **Directory/file existence** (`missing_in_code`): for every entry in the target `active_plugins` list, confirm the plugin's main file exists under the environment's actual plugin directory (WordPress's own plugin-validation primitives — the same ones `activate_plugin()` itself uses internally — are the right tool here, not a hand-rolled `file_exists()`, since they correctly handle both `slug/slug.php` and legacy single-file `slug.php` plugins). For `template`/`stylesheet`, confirm **both** theme directories exist — a child theme's `switch_theme()` needs its parent (`template`) present too, an easy detail to miss.
-2. **Version-range compatibility** (`outside_version_range`): where the active plugin's manifest declares a `version_range` (§4.3), compare the *actually-installed* version (read via WordPress's own plugin-header parser, not `composer.lock` — this makes the check identical for composer-managed and vendored plugins, since vendored plugins have no lockfile at all) against the range. WP-2.8 adds one graduated outcome to this same check and no other: when `site.duo.json`'s optional `adapter_version_evidence` block records a `green` probe (installed, seeded, recaptured byte-identically under this adapter's declared surfaces) for **every** release lying outside the window between it and the installed version, the row is minted as `version_range_graduated` instead — a distinct, reported verdict that stops blocking, carries the per-release rows it rests on, and widens nothing. Absent, partial and contradicted evidence all fall through to `outside_version_range` unchanged; see `docs/guides/code-updates.md` §"The third state" and `agent/src/Policy/VersionEvidenceGrammar.php`.
-3. **Source runtime requirements** (`code_source_requires_*`): parse bounded standard `Requires PHP` / `Requires at least` headers from the frozen plugin/theme source and compare them with exact target-control-plane PHP/WordPress values. Malformed headers fail during target-free compilation; valid but unmet requirements and missing target evidence are non-forceable plan/preflight findings. Neither target values nor Duo's separate certification baseline enter the artifact, and stage repeats the comparison under its lease before the first rename.
-4. **Materialization staleness** (`code_revision_stale`): compare the immutable compiled artifact's opaque code-descriptor revision against `duo_kv['code_revision']`, the marker written only after code-stage, lifecycle reconciliation, target verification, and code-finalize (§2.2). A mismatch means this artifact's code payload has not reached this environment. It is kept as a **separate** issue rather than overloading ordinary state `drift`: state drift means *the environment changed unexpectedly*; code staleness means the artifact's required code half has not completed its verified materialization sequence.
+2. **Version-range compatibility** (`outside_version_range`): where the active plugin's manifest declares a `version_range` (§4.3), compare the *actually-installed* version (read via WordPress's own plugin-header parser, not `composer.lock` — this makes the check identical for composer-managed and vendored plugins, since vendored plugins have no lockfile at all) against the range. WP-2.8 adds one graduated outcome to this same check and no other: when `site.wprism.json`'s optional `adapter_version_evidence` block records a `green` probe (installed, seeded, recaptured byte-identically under this adapter's declared surfaces) for **every** release lying outside the window between it and the installed version, the row is minted as `version_range_graduated` instead — a distinct, reported verdict that stops blocking, carries the per-release rows it rests on, and widens nothing. Absent, partial and contradicted evidence all fall through to `outside_version_range` unchanged; see `docs/guides/code-updates.md` §"The third state" and `agent/src/Policy/VersionEvidenceGrammar.php`.
+3. **Source runtime requirements** (`code_source_requires_*`): parse bounded standard `Requires PHP` / `Requires at least` headers from the frozen plugin/theme source and compare them with exact target-control-plane PHP/WordPress values. Malformed headers fail during target-free compilation; valid but unmet requirements and missing target evidence are non-forceable plan/preflight findings. Neither target values nor WPrism's separate certification baseline enter the artifact, and stage repeats the comparison under its lease before the first rename.
+4. **Materialization staleness** (`code_revision_stale`): compare the immutable compiled artifact's opaque code-descriptor revision against `wprism_kv['code_revision']`, the marker written only after code-stage, lifecycle reconciliation, target verification, and code-finalize (§2.2). A mismatch means this artifact's code payload has not reached this environment. It is kept as a **separate** issue rather than overloading ordinary state `drift`: state drift means *the environment changed unexpectedly*; code staleness means the artifact's required code half has not completed its verified materialization sequence.
 
 ### 3.3 Failure modes and wording
 
-Matching the codebase's existing voice (`"duo: slug collisions need explicit resolution…"`, `"duo: deletes blocked by referential guards…"`):
+Matching the codebase's existing voice (`"wprism: slug collisions need explicit resolution…"`, `"wprism: deletes blocked by referential guards…"`):
 
 ```
-duo: active_plugins in state/options/core.json declares 'woocommerce/woocommerce.php'
+wprism: active_plugins in state/options/core.json declares 'woocommerce/woocommerce.php'
 but code/wp-content/plugins/woocommerce/woocommerce.php does not exist in this
-environment. Run 'duo deploy <env>' first, or this branch's code/ changes
+environment. Run 'wprism deploy <env>' first, or this branch's code/ changes
 haven't reached this environment yet.
 ```
 
 ```
-duo: code drift — code/composer.lock in the repo (woocommerce 9.4.1) does not
+wprism: code drift — code/composer.lock in the repo (woocommerce 9.4.1) does not
 match what's deployed on this environment (woocommerce 9.1.0, read from
-wp-content/plugins/woocommerce/woocommerce.php). Run 'duo deploy <env>' before
-'duo apply' — applying state that assumes a newer plugin's schema onto older
+wp-content/plugins/woocommerce/woocommerce.php). Run 'wprism deploy <env>' before
+'wprism apply' — applying state that assumes a newer plugin's schema onto older
 plugin code is exactly the silent-corruption class this tool exists to prevent.
 ```
 
 ```
-duo: woocommerce 7.9.0 is active in this environment, outside the 'woocommerce'
-manifest's declared version_range (>=8.0.0 <10.0.0, pinned by site.duo.json).
+wprism: woocommerce 7.9.0 is active in this environment, outside the 'woocommerce'
+manifest's declared version_range (>=8.0.0 <10.0.0, pinned by site.wprism.json).
 Classification guarantees for this plugin are NOT validated against this
 version — apply may silently misclassify fields. Update code/ (bump the
 plugin), or pin an older manifest, or pass --force-code-mismatch to proceed
@@ -308,12 +308,12 @@ at your own risk.
 ```
 
 ```
-duo: state/options/core.json's active_plugins no longer lists
+wprism: state/options/core.json's active_plugins no longer lists
 'legacy-plugin/legacy-plugin.php', but code/wp-content/plugins/legacy-plugin/
 is still present and the plugin is still active in this environment. The
 cross-partition invariant (active_plugins ⊆ plugins in code/) doesn't forbid
 this by itself — but if this removal was intentional, deactivate it
-(this environment will do so automatically on the next 'duo deploy'); if
+(this environment will do so automatically on the next 'wprism deploy'); if
 it wasn't, add it back to active_plugins.
 ```
 
@@ -323,8 +323,8 @@ the explicit `--force-code-mismatch` escape hatch, whose meaning WP-2.8 leaves
 exactly as it is: `version_range_graduated` never reaches that flag, because it
 is not refused and is never reported as forced. `code_revision_stale` is
 different: it is the code-before-state ordering witness for a code-enabled
-artifact, so `duo apply` always refuses it. The only recovery is the host
-`duo deploy <env>` workflow, which stages, retires and activates in separate
+artifact, so `wprism apply` always refuses it. The only recovery is the host
+`wprism deploy <env>` workflow, which stages, retires and activates in separate
 fresh WordPress processes, verifies, and finalizes
 the exact descriptor. Neither `--force-code-mismatch` nor
 `--force-code-drift` may cross this boundary.
@@ -334,7 +334,7 @@ the exact descriptor. Neither `--force-code-mismatch` nor
 DESIGN.md §3.4 states apply's hook-free posture as a blanket rule: *"two-phase apply as the engine default … via direct low-level writes (**no WP hooks ⇒ no emails/webhooks re-fire**)."* Activating a plugin categorically requires the opposite — hooks *must* fire, because that's how the plugin does its one-time setup. These two requirements cannot both be satisfied inside the same canary-armed transaction, so this proposal does not try to; it **draws the boundary DESIGN.md's own merge-conflict line already implies**: *"Plugin version skew across branches: merge **code first, run migrations**, re-capture, then **merge state**"* (§3.4). That sentence already separates "get the code right" from "apply state" as sequential, distinct phases for the branch-merge case. This proposal generalizes the same separation to **every** deploy, not just branch merges, and gives it a name:
 
 ```
-duo deploy <env>              duo apply <env>
+wprism deploy <env>              wprism apply <env>
 ─────────────────────    →    ────────────────────────
 1. materialize code/          (existing, unchanged)
    (composer/rsync, §2)       three-way plan → canary
@@ -352,11 +352,11 @@ duo deploy <env>              duo apply <env>
    NOT canary-armed.
 4. plugin/theme migrations
    run as a side effect of
-   steps 2–3 (§4) — Duo does
+   steps 2–3 (§4) — WPrism does
    not drive these directly.
 ```
 
-`duo apply`'s canary (`agent/src/Kernel/Canary.php`) keeps meaning exactly what it means today — zero content-CRUD hooks, zero mail, zero HTTP during the state-materialization window (§6 makes this a hard constraint, not just a description). `duo deploy` is a separate window where hooks are not just tolerated but required, and it never touches posts/terms/menus/content options. A distinct reporting-only observer records deploy-window mail/HTTP attempts without blocking them or weakening apply's hard canary. Running deploy before apply (enforced by lifecycle rows in §3.2's `code_mismatch` block, and composed by host-level `duo promote`) is what makes DESIGN.md's "merge code first, run migrations, then merge state" ordering happen at the tooling level rather than being a discipline operators have to remember unassisted.
+`wprism apply`'s canary (`agent/src/Kernel/Canary.php`) keeps meaning exactly what it means today — zero content-CRUD hooks, zero mail, zero HTTP during the state-materialization window (§6 makes this a hard constraint, not just a description). `wprism deploy` is a separate window where hooks are not just tolerated but required, and it never touches posts/terms/menus/content options. A distinct reporting-only observer records deploy-window mail/HTTP attempts without blocking them or weakening apply's hard canary. Running deploy before apply (enforced by lifecycle rows in §3.2's `code_mismatch` block, and composed by host-level `wprism promote`) is what makes DESIGN.md's "merge code first, run migrations, then merge state" ordering happen at the tooling level rather than being a discipline operators have to remember unassisted.
 
 That separation also needs a boundary before the hook, not only after it. A
 WordPress activation/deactivation/theme hook can commit an authored option and
@@ -365,14 +365,14 @@ promotion session before entering each mutating lifecycle phase. Success
 consumes it atomically with the canonical handoff. Failure leaves it unresolved,
 blocking every materializer/lifecycle/apply continuation and every different
 owner/artifact until the retained pre-lifecycle checkpoint and known
-pre-promotion code revision are restored. A standalone `duo deploy` retains
-that checkpoint too, as `.duo/checkpoints/deploy-<owner>.sql.enc`, so this is the
+pre-promotion code revision are restored. A standalone `wprism deploy` retains
+that checkpoint too, as `.wprism/checkpoints/deploy-<owner>.sql.enc`, so this is the
 recovery source on the deploy path as much as on the promote path.
 Plan/status exposes the receipt as a
 non-forceable `incomplete_lifecycle` finding. This remains mandatory on a first
 sync where no three-way base exists.
 
-On DESIGN.md §4's *"Env orchestration — none owned in v1 (host-agnostic)"*: `duo deploy` doesn't contradict this. It materializes files onto (and reconciles plugin state within) an environment the operator has already provisioned and pointed a webserver at — precisely parallel to how `duo apply` already materializes rows into a database the operator already provisioned. Neither verb creates infrastructure, manages DNS/TLS, or owns webserver config; both assume an already-running target. Same non-goal boundary as today, extended to cover code the same way it already covers state.
+On DESIGN.md §4's *"Env orchestration — none owned in v1 (host-agnostic)"*: `wprism deploy` doesn't contradict this. It materializes files onto (and reconciles plugin state within) an environment the operator has already provisioned and pointed a webserver at — precisely parallel to how `wprism apply` already materializes rows into a database the operator already provisioned. Neither verb creates infrastructure, manages DNS/TLS, or owns webserver config; both assume an already-running target. Same non-goal boundary as today, extended to cover code the same way it already covers state.
 
 ---
 
@@ -384,15 +384,15 @@ On DESIGN.md §4's *"Env orchestration — none owned in v1 (host-agnostic)"*: `
 2. **Manifest check.** If 9.x crosses a boundary the pinned `woocommerce` manifest doesn't cover — DESIGN.md's own example: *"a manifest for Woo 7 must not claim Woo 9"* — bump `adapter-packages/woocommerce/package/manifest.json`'s `version_range` (§4.3) in the same PR, or push the adapter-package update as a prerequisite commit.
 3. **CI gates it** — the *existing* conformance harness (`sandbox/conformance/run.sh`), extended per §4.4 to install the exact pinned version rather than always-latest, runs its clean-room capture→apply→re-capture round-trip against Woo 9.x specifically. If the manifest's classification rules no longer match 9.x's real behavior, the round-trip diff is non-empty and CI fails loudly — this is DESIGN.md §3.1.2/§8's manifest-treadmill defense, now also exercising the **exact version this branch is bumping to**, rather than whatever `plugin install woocommerce` happens to resolve as "latest" on the day CI happens to run (today's actual behavior — see §4.4).
 4. **Merge.** `main` now has code/composer.lock at Woo 9.x plus (if needed) an updated manifest.
-5. **`duo deploy prod`** materializes the new code (§2), then reconciles `active_plugins` (§3.4) — WooCommerce was already active, so no `activate_plugin()` call is needed purely for activation *state*; what changed is the code loaded underneath it. `deploy` explicitly forces one full WP bootstrap over the transport (any wp-cli call boots `plugins_loaded` fully) immediately after materializing, so WooCommerce's own updater (`WC_Install`) notices the version change deterministically on `deploy`'s own schedule — not whenever the next stray visitor or cron tick happens to hit the site.
-6. **Migrations run inside WooCommerce's own code**, self-triggered, exactly as they do on a manual admin-panel update today: WooCommerce compares `get_option('woocommerce_version')` (currently loaded code) against `WC_VERSION` (the constant the *new* code defines), detects the mismatch, and runs its installer/upgrade routines — synchronously for lightweight steps, via its own Action Scheduler background jobs for heavier ones (schema changes, large data migrations). **`duo deploy` guarantees the update *process starts* deterministically; it does not guarantee instant completion** — see §7 for the honest caveat on large-catalog migrations.
-7. **`woocommerce_db_version`/`woocommerce_version` update themselves** as a side effect of step 6. Duo does not touch either value directly, and this proposal does not change their existing `{"class": "env", "required": false}` classification in `adapter-packages/woocommerce/package/manifest.json` (the `required` key is DUO-3232's later, unrelated addition — every `class: "env"` rule now carries one — but the `env` classification itself, this proposal's actual subject, is unchanged) — that classification is already correct. This is the crux worth stating explicitly: **"migrations re-run per environment" is not a mechanism Duo builds.** It falls straight out of two things that are *already true*: code is deployed identically everywhere via the same git revision + composer resolution, and `woocommerce_db_version` is already, correctly, excluded from `state/` — so each environment's own copy of the plugin code independently notices its own staleness and self-heals, with zero coordination and zero migration-state ever entering the repo. The only thing this proposal adds is the **ordering guarantee** (§3.4) that this self-healing has a chance to run before `duo apply` writes content into whatever schema the new code now expects.
-8. **`duo apply prod`** now runs — canary-armed, hook-free, direct SQL — safely, because the schema it's writing into already matches the code that's been running since step 6.
-9. **Staging, dev, and any other environment** repeat steps 5–8 independently, on their own schedule, from the same git revision. No cross-environment coordination, no shared migration ledger — each environment's `duo deploy` + WooCommerce's own updater does the same self-healing locally.
+5. **`wprism deploy prod`** materializes the new code (§2), then reconciles `active_plugins` (§3.4) — WooCommerce was already active, so no `activate_plugin()` call is needed purely for activation *state*; what changed is the code loaded underneath it. `deploy` explicitly forces one full WP bootstrap over the transport (any wp-cli call boots `plugins_loaded` fully) immediately after materializing, so WooCommerce's own updater (`WC_Install`) notices the version change deterministically on `deploy`'s own schedule — not whenever the next stray visitor or cron tick happens to hit the site.
+6. **Migrations run inside WooCommerce's own code**, self-triggered, exactly as they do on a manual admin-panel update today: WooCommerce compares `get_option('woocommerce_version')` (currently loaded code) against `WC_VERSION` (the constant the *new* code defines), detects the mismatch, and runs its installer/upgrade routines — synchronously for lightweight steps, via its own Action Scheduler background jobs for heavier ones (schema changes, large data migrations). **`wprism deploy` guarantees the update *process starts* deterministically; it does not guarantee instant completion** — see §7 for the honest caveat on large-catalog migrations.
+7. **`woocommerce_db_version`/`woocommerce_version` update themselves** as a side effect of step 6. WPrism does not touch either value directly, and this proposal does not change their existing `{"class": "env", "required": false}` classification in `adapter-packages/woocommerce/package/manifest.json` (the `required` key is issue #3232's later, unrelated addition — every `class: "env"` rule now carries one — but the `env` classification itself, this proposal's actual subject, is unchanged) — that classification is already correct. This is the crux worth stating explicitly: **"migrations re-run per environment" is not a mechanism WPrism builds.** It falls straight out of two things that are *already true*: code is deployed identically everywhere via the same git revision + composer resolution, and `woocommerce_db_version` is already, correctly, excluded from `state/` — so each environment's own copy of the plugin code independently notices its own staleness and self-heals, with zero coordination and zero migration-state ever entering the repo. The only thing this proposal adds is the **ordering guarantee** (§3.4) that this self-healing has a chance to run before `wprism apply` writes content into whatever schema the new code now expects.
+8. **`wprism apply prod`** now runs — canary-armed, hook-free, direct SQL — safely, because the schema it's writing into already matches the code that's been running since step 6.
+9. **Staging, dev, and any other environment** repeat steps 5–8 independently, on their own schedule, from the same git revision. No cross-environment coordination, no shared migration ledger — each environment's `wprism deploy` + WooCommerce's own updater does the same self-healing locally.
 
 ### 4.2 `woocommerce_db_version` — no manifest change needed, ordering is the fix
 
-To be explicit since the mission calls this out specifically: **no change to `adapter-packages/woocommerce/package/manifest.json`'s existing `"woocommerce_db_version": {"class": "env", "required": false}` / `"woocommerce_version": {"class": "env", "required": false}` is proposed** (the `required` key is DUO-3232's later, unrelated addition to the grammar). Both are already correctly excluded from `state/` today. What was missing wasn't classification — it was the *ordering guarantee* (§3.4) that code (and the migrations it triggers) lands before state apply runs against it. That's the actual gap this proposal closes for the worked example above.
+To be explicit since the mission calls this out specifically: **no change to `adapter-packages/woocommerce/package/manifest.json`'s existing `"woocommerce_db_version": {"class": "env", "required": false}` / `"woocommerce_version": {"class": "env", "required": false}` is proposed** (the `required` key is issue #3232's later, unrelated addition to the grammar). Both are already correctly excluded from `state/` today. What was missing wasn't classification — it was the *ordering guarantee* (§3.4) that code (and the migrations it triggers) lands before state apply runs against it. That's the actual gap this proposal closes for the worked example above.
 
 ### 4.3 `version_range` mechanics
 
@@ -456,8 +456,8 @@ The one structural change that matters: **replace the persistent named volume ba
     environment: {<<: *wp-env, WORDPRESS_DB_HOST: db-f1}
     volumes: &vol-f1
       - ./siterepo/f1/code:/var/www/html          # NEW — was a named volume; now code/ itself
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro          # unchanged — see §1.7's sandbox carve-out
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro          # unchanged — see §1.7's sandbox carve-out
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/f1:/siterepo                    # unchanged — whole-repo access for --repo=
@@ -487,7 +487,7 @@ volumes:
 
 No named volume is declared for `/var/www/html` under this profile — that is the entire point of the change (§2.2's "docker: bind-mount, no separate sync step" design). `uploads/` still needs to survive independent of `code/` churn (media is `state/`'s concern per spec, not code/'s) — for the spike, `wp-content/uploads/` can stay inside the bind-mounted tree (simplest, matches how a real full-tree deployment behaves — uploads is a subdirectory of the webroot on disk, just excluded from git via `code/.gitignore`, not excluded from the filesystem).
 
-### 5.2 Script outline — `sandbox/tests/spike_f_code.sh`
+### 5.2 Historical spike outline
 
 Following the existing spike scripts' exact shape (helper functions, `say`/`pass`/`fail`, `wp_f1`/`wp_f2` wrappers):
 
@@ -508,7 +508,7 @@ Following the existing spike scripts' exact shape (helper functions, `say`/`pass
    edit state/options/core.json: add "woocommerce/woocommerce.php" to active_plugins
    (composer.json/lock already has it from step 2 — this branch only flips activation intent)
    commit, merge to main, pull on f2.
-   duo deploy f2   → assert: code/wp-content/plugins/woocommerce now exists on f2
+   wprism deploy f2   → assert: code/wp-content/plugins/woocommerce now exists on f2
                        (already did, from step 3's materialization — assert reconciliation
                        specifically: wp plugin list --status=active on f2 now includes
                        woocommerce, AND a WooCommerce-installer side effect fired — e.g.
@@ -519,20 +519,20 @@ Following the existing spike scripts' exact shape (helper functions, `say`/`pass
    on f1: rm -rf siterepo/f1/code/wp-content/plugins/acme-vendored (the vendored plugin from
    step 2), but LEAVE it in active_plugins (simulating a developer who forgot to also update
    state) — commit, push, pull on f2.
-   duo plan f2 --format=json → assert plan.code_mismatch contains one row,
+   wprism plan f2 --format=json → assert plan.code_mismatch contains one row,
      issue == "missing_in_code", plugin == "acme-vendored/acme-vendored.php".
-   duo apply f2 → assert non-zero exit, stderr matches the §3.3 "does not exist in this
+   wprism apply f2 → assert non-zero exit, stderr matches the §3.3 "does not exist in this
      environment" wording.
    fix: edit state/options/core.json on f1, remove acme-vendored from active_plugins
    (deactivation-via-state, matching §3.3's failure-mode wording), commit, push, pull on f2.
-   duo plan f2 --format=json → assert code_mismatch is now empty.
-   duo apply f2 → assert exit 0.
+   wprism plan f2 --format=json → assert code_mismatch is now empty.
+   wprism apply f2 → assert exit 0.
    pass "plugin removed fails the invariant check until deactivated, and recovers cleanly".
 8. ACCEPTANCE 3 (stretch, if time permits) — version_range warning:
    add "version_range": {"min": "9.0.0", "max": "99.0.0"} to a scratch copy of adapter-packages/woocommerce/package/manifest.json
-   used by this spike's site.duo.json; f2 is still running whatever WooCommerce version step 6
+   used by this spike's site.wprism.json; f2 is still running whatever WooCommerce version step 6
    installed (likely < 9.0.0 depending on wpackagist/wp-packages resolution at spike-build time).
-   duo status f2 → assert output contains "outside the 'woocommerce' manifest's declared
+   wprism status f2 → assert output contains "outside the 'woocommerce' manifest's declared
      version_range" (§3.3's wording).
    pass "version drift against a manifest's version_range surfaces as a plan-time warning".
 ```
@@ -549,28 +549,28 @@ Minimal list — file, hook point, one-line description. No implementation shown
 |---|---|---|
 | `platform/adapter-library/core/manifest.json` | `options` map | Add `active_plugins`, `template`, `stylesheet`, each `{"class": "managed"}` (data change, not code — listed because it's required and minimal). |
 | `agent/src/Capture/Capture.php` | `build_options()` (or a new sibling private method called from `build()`) | Bespoke read of `active_plugins`/`template`/`stylesheet` into the same options output, bypassing the generic `authored_options()`-driven loop (they're `managed`, not `authored`) — no ref-tokenization needed, values are already portable strings. |
-| `agent/src/Apply/Apply.php` | `build_plan()` | Add the two §3.2 checks (directory/file existence via WP's plugin-validation primitives; `version_range` compatibility via `version_compare()`), populating a new `code_mismatch` plan bucket; also add the `code_revision_stale` check against `duo_kv['code_revision']`. |
+| `agent/src/Apply/Apply.php` | `build_plan()` | Add the two §3.2 checks (directory/file existence via WP's plugin-validation primitives; `version_range` compatibility via `version_compare()`), populating a new `code_mismatch` plan bucket; also add the `code_revision_stale` check against `wprism_kv['code_revision']`. |
 | `agent/src/Apply/Apply.php` | `apply_options()` | Exclude `active_plugins`/`template`/`stylesheet` from the generic direct-SQL upsert loop — they must never be written via raw `$wpdb`. |
 | `agent/src/Apply/Apply.php` | `run()` | New precondition: hard-block (exit non-zero) when `code_mismatch` contains an `missing_in_code`/`outside_version_range` row tied to a currently-active entry, unless `--force-code-mismatch`. |
-| `agent/src/Promotion/Deploy.php` *(new file)* | n/a (new class, parallel to `Apply`/`Capture`) | Reconciles `active_plugins`/`template`/`stylesheet` against `state/options/core.json` using real WP APIs (`activate_plugin()`/`deactivate_plugins()`/`switch_theme()` — hooks fire deliberately); writes `duo_kv['code_revision']` on verified success. Runs **outside** `Canary::arm()`/`disarm()` — never inside the canary-armed window. |
-| `agent/src/Command/Cli.php` | new method, registered the same way as `capture`/`plan`/`apply` | New `wp duo reconcile-code --repo=<path>` subcommand — the agent-side half of `duo deploy` (see next row), invoked by the orchestrator over the existing transport abstraction. |
-| `cli/src/DeployCode.php` *(new file)* | n/a (new class, parallel to `Doctor`/`PlanSummary`) | Orchestrator-side materialization: runs composer install (local/docker, in place) or resolve-then-rsync (ssh), then invokes `wp duo reconcile-code` over the transport. |
+| `agent/src/Promotion/Deploy.php` *(new file)* | n/a (new class, parallel to `Apply`/`Capture`) | Reconciles `active_plugins`/`template`/`stylesheet` against `state/options/core.json` using real WP APIs (`activate_plugin()`/`deactivate_plugins()`/`switch_theme()` — hooks fire deliberately); writes `wprism_kv['code_revision']` on verified success. Runs **outside** `Canary::arm()`/`disarm()` — never inside the canary-armed window. |
+| `agent/src/Command/Cli.php` | new method, registered the same way as `capture`/`plan`/`apply` | New `wp wprism reconcile-code --repo=<path>` subcommand — the agent-side half of `wprism deploy` (see next row), invoked by the orchestrator over the existing transport abstraction. |
+| `cli/src/DeployCode.php` *(new file)* | n/a (new class, parallel to `Doctor`/`PlanSummary`) | Orchestrator-side materialization: runs composer install (local/docker, in place) or resolve-then-rsync (ssh), then invokes `wp wprism reconcile-code` over the transport. |
 | `cli/src/Transport/Transport.php` | new abstract method (e.g. `deployCode()`) | Each transport implements how materialization reaches it: local/docker run composer directly via the *existing* raw-command path (no new primitive needed there); ssh gets one new capability — resolve off-box, then rsync to `host`+`wp_path` (today private properties on `SshTransport`, would need exposing or handling internally). |
-| `cli/duo` | verb dispatch | New `deploy <env>` verb, wired the same way `envs`/`doctor`/`status`/`capture`/`plan`/`apply` already are; usage text updated. |
+| `cli/wprism` | verb dispatch | New `deploy <env>` verb, wired the same way `envs`/`doctor`/`status`/`capture`/`plan`/`apply` already are; usage text updated. |
 | `cli/src/Onboarding/Doctor.php` | `run()` | Optional 5th check: "`code/` present and non-empty" — cheap orchestrator-side fast-fail, belt-and-suspenders alongside the agent-side check in `Apply::build_plan()` (which stays authoritative). |
 | `adapter-packages/woocommerce/package/manifest.json` (and, illustratively, other package manifests) | `version_range` key | Data change: add the new optional field (§4.3). |
 | `adapter-packages/woocommerce/tests/conformance/entry.json`, `sandbox/conformance/run.sh` | `install_env()` | Add `test_version` field; install that exact version instead of always-latest (§4.4). |
 
 **What explicitly does NOT need engine work:**
 
-- **`agent/src/Repository/Ledger.php`** — `duo_kv` is already a generic key-value table; `code_revision` is just a new key, read/written through the *existing* `kv_get()`/`kv_set()`. Zero schema or code change.
+- **`agent/src/Repository/Ledger.php`** — `wprism_kv` is already a generic key-value table; `code_revision` is just a new key, read/written through the *existing* `kv_get()`/`kv_set()`. Zero schema or code change.
 - **`agent/src/Policy/Policy.php`** — the `managed` class value and the generic `rule()`/`option_rule()` lookup already exist and already correctly hand back whatever a manifest declares; the special interpretation of `managed` happens at call sites (Capture/Apply), exactly as it already does for `_menu_item_*`. Zero code change.
 - **`agent/src/Grammar/Tokens.php`** — `active_plugins`/`template`/`stylesheet` values need no ref-tokenization (portable strings by construction). Untouched.
 - **`agent/src/Kernel/Canary.php`** — must stay **exactly** as it is; this is a hard constraint, not just an absence of need. The temptation to special-case plugin-activation hooks inside the canary should be resisted — the entire value of the canary is that "armed" means one fixed thing. Deploy's hook-firing work living structurally outside the canary-armed window (§3.4) is what keeps this true, not a canary code change.
 - **`agent/src/Repository/Journal.php`** — the provenance journal's capability×surface signal already handles whatever writes `activate_plugin()`/`switch_theme()` perform, correctly, with zero special-casing (they'd be attributed to the CLI/admin surface like any other write, if journaling happens to be on during a deploy).
 - **`agent/src/Grammar/Blocks.php`, `Canon.php`, `Uuid.php`** — unrelated to code/, untouched.
 - **The existing three-way plan/conflict/collision logic for posts/terms/menus** — unchanged; code materialization is orthogonal to content-entity plan buckets.
-- **Merge semantics** — `code/composer.json`/`composer.lock` conflicts are ordinary git merge conflicts on JSON text, resolved with git's normal tooling (`composer why`/regenerate-the-lock-after-merge is standard PHP-ecosystem practice); no Duo-specific merge driver is needed for code, mirroring DESIGN.md §3.4's existing git-native-first stance for state.
+- **Merge semantics** — `code/composer.json`/`composer.lock` conflicts are ordinary git merge conflicts on JSON text, resolved with git's normal tooling (`composer why`/regenerate-the-lock-after-merge is standard PHP-ecosystem practice); no WPrism-specific merge driver is needed for code, mirroring DESIGN.md §3.4's existing git-native-first stance for state.
 
 ---
 
@@ -578,23 +578,23 @@ Minimal list — file, hook point, one-line description. No implementation shown
 
 Ordered roughly by severity, matching DESIGN.md's own "loud, blocking, scoped guarantees" posture — named honestly rather than smoothed over.
 
-1. **[highest] wp-admin/filesystem-initiated updates are silent code drift, and detection alone is not a fix.** If an admin clicks "Update Now" in wp-admin (or auto-updates fire), WordPress writes new plugin files directly onto disk — under full-tree management, that's physically inside the git working tree, entirely outside git/composer. §3.2's `code_revision_stale`/env-vs-code checks can *detect* this after the fact, but detection-only leaves a window where the environment is already running unreviewed code. **Recommendation, not yet built anywhere in this proposal's engine touchpoints**: Duo-managed environments should set `DISALLOW_FILE_MODS` **(recall — standard, well-known WP constant that disables the entire plugin/theme install/update/delete UI, not independently re-verified this session)** as a matter of policy in `wp-config.php` (§1.6), closing the hole at the source rather than only detecting it afterward. This should probably be a `doctor`-checked requirement, not just a recommendation in prose — flagged here as scope for a follow-up task rather than silently added to §6's list, since it's policy/hardening, not code-half layout per se.
+1. **[highest] wp-admin/filesystem-initiated updates are silent code drift, and detection alone is not a fix.** If an admin clicks "Update Now" in wp-admin (or auto-updates fire), WordPress writes new plugin files directly onto disk — under full-tree management, that's physically inside the git working tree, entirely outside git/composer. §3.2's `code_revision_stale`/env-vs-code checks can *detect* this after the fact, but detection-only leaves a window where the environment is already running unreviewed code. **Recommendation, not yet built anywhere in this proposal's engine touchpoints**: WPrism-managed environments should set `DISALLOW_FILE_MODS` **(recall — standard, well-known WP constant that disables the entire plugin/theme install/update/delete UI, not independently re-verified this session)** as a matter of policy in `wp-config.php` (§1.6), closing the hole at the source rather than only detecting it afterward. This should probably be a `doctor`-checked requirement, not just a recommendation in prose — flagged here as scope for a follow-up task rather than silently added to §6's list, since it's policy/hardening, not code-half layout per se.
 
-   **DUO-3231 update**: both halves built. Detection: a new `code_drift` plan bucket (spec/repo-format.md's "Code-half facts & deploy" section) — narrower and complementary to `code_mismatch`/`code_revision_stale` above, since it catches an out-of-band version change that stays *inside* a pinned `version_range` (invisible to `code_mismatch`) without needing the materialization transport `code_revision_stale` is still blocked on. Baseline recorded in `duo_kv` (`LifecyclePlanner::record_code_versions()`) at every successful `duo deploy`, and at a `duo capture` only when there is nothing to accept — DUO-3507 routed capture through `LifecyclePlanner::observe_code_versions()`, which freezes the recorded blob byte-identical across an unaccepted drift and warns once per row instead, so observing the environment never silently consumes the accept decision deploy's own gate exists to take; compared on the next plan/apply/deploy (`Deploy::code_drift()`); same blocking-with-escape-hatch posture as `code_mismatch` (`--force-code-drift`). Posture: `wp duo doctor` now checks `DISALLOW_FILE_MODS` as its 5th check — **advisory only** (never fails `doctor`'s exit code, printed `[WARN]` not `[FAIL]`), matching this risk entry's own "as a matter of policy," not a hard requirement — an operator who hasn't set it is still fully served by `code_drift` catching the after-the-fact symptom.
+   **issue #3231 update**: both halves built. Detection: a new `code_drift` plan bucket (spec/repo-format.md's "Code-half facts & deploy" section) — narrower and complementary to `code_mismatch`/`code_revision_stale` above, since it catches an out-of-band version change that stays *inside* a pinned `version_range` (invisible to `code_mismatch`) without needing the materialization transport `code_revision_stale` is still blocked on. Baseline recorded in `wprism_kv` (`LifecyclePlanner::record_code_versions()`) at every successful `wprism deploy`, and at a `wprism capture` only when there is nothing to accept — issue #3507 routed capture through `LifecyclePlanner::observe_code_versions()`, which freezes the recorded blob byte-identical across an unaccepted drift and warns once per row instead, so observing the environment never silently consumes the accept decision deploy's own gate exists to take; compared on the next plan/apply/deploy (`Deploy::code_drift()`); same blocking-with-escape-hatch posture as `code_mismatch` (`--force-code-drift`). Posture: `wp wprism doctor` now checks `DISALLOW_FILE_MODS` as its 5th check — **advisory only** (never fails `doctor`'s exit code, printed `[WARN]` not `[FAIL]`), matching this risk entry's own "as a matter of policy," not a hard requirement — an operator who hasn't set it is still fully served by `code_drift` catching the after-the-fact symptom.
 
 2. **[highest] Composer/registry availability becomes a new dependency in the deploy critical path.** local/docker materialization (§2.2) needs live network access to WP Packages/wpackagist/Packagist at deploy time. A registry outage during an urgent hotfix is a new failure mode this design introduces that a purely-vendored/manually-FTP'd WP site never had. The ssh transport's off-box-resolve-then-rsync design (§2.2) already sidesteps this for production specifically (production needs no registry access at all), which is a real mitigation, not just a workaround — but local/docker environments (including, notably, CI) still carry the exposure. A private registry mirror (Satis or similar) is the standard fix for organizations that hit this in practice; not proposed as a v0 requirement here, named as the known escape hatch.
 
-3. **[highest] Rollback-after-migration safety is fundamentally bounded by plugin authors, not by Duo.** §2.3 states the rule (never roll back code alone against an already-migrated database) but the rule is a discipline, not a guarantee — Duo has no way to *detect* "this rollback target predates an irreversible migration" short of maintaining its own migration-awareness per plugin, which is exactly the manifest-treadmill cost DESIGN.md's existential risk #2 already warns against taking on unboundedly. Left as an explicit operator responsibility, stated loudly rather than papered over.
+3. **[highest] Rollback-after-migration safety is fundamentally bounded by plugin authors, not by WPrism.** §2.3 states the rule (never roll back code alone against an already-migrated database) but the rule is a discipline, not a guarantee — WPrism has no way to *detect* "this rollback target predates an irreversible migration" short of maintaining its own migration-awareness per plugin, which is exactly the manifest-treadmill cost DESIGN.md's existential risk #2 already warns against taking on unboundedly. Left as an explicit operator responsibility, stated loudly rather than papered over.
 
 4. **How capture-side detects environment-installed-but-not-in-code plugins.** §3.2's checks are `active_plugins`-driven (code ⊇ what's declared active). The fuller, symmetric check — does *every* plugin directory physically present on the environment (active or not) correspond to something `code/` declares — is not designed in this proposal beyond the sketch in §3's framing. Concretely: `get_plugins()` enumerates everything on disk regardless of activation state; diffing that against `composer.lock` + vendored-commit history and failing loudly on anything unaccounted-for (mirroring the existing "unclassified meta keys abort capture loudly" posture) is the natural extension, proposed here as a **follow-up**, not built out to the plan-bucket/wording level §3.2/§3.3 reached for the `active_plugins`-driven direction. Lower urgency than risk #1 because an *inactive* stray plugin is lower severity than an active one violating the invariant, but it's the same underlying hole (filesystem-level drift) approached from the other direction.
 
 5. **Symlink strategies.** The ssh-transport release-symlink refinement (§2.2/§2.3) assumes symlinks work on the target — not universally true: some shared/managed hosts disallow them outright, and `open_basedir` restrictions or a handful of plugins doing realpath-sensitive checks can misbehave across a symlink boundary. Recommend treating symlink-swap as optional hardening with a documented fallback (rsync straight into the live docroot, accepting a brief non-atomic window) for hosts that disallow it — not a hard requirement of the ssh transport. Unrelated aside worth heading off: this is **not** about `wp-content/uploads/` symlinking to external storage, which is out of code/'s scope entirely (handled by the existing `media/<sha256>` mechanism in `spec/repo-format.md`).
 
-6. **File permissions across transports.** Real and host-variable, not fully solvable in the abstract. Tensions worth naming: (a) the recommendation in risk #1 (`DISALLOW_FILE_MODS`) implies the webserver process ideally should not need *write* access to `code/` at all post-materialization — stronger than typical WP hosting defaults, and some plugins will show harmless-but-alarming "not writable" notices in wp-admin's site-health screen as a result; worth documenting as expected, not a bug. (b) The user running `composer install`/rsync at deploy time needs write access; the webserver's runtime user ideally doesn't — classic build/run user separation, easy to state, hard to guarantee uniformly since ssh targets' user/host setup is explicitly not something Duo owns (DESIGN.md §4's host-agnostic stance). (c) `rsync -a` preserves permissions/ownership *from the source* (e.g. a laptop or CI runner's own user), which will generally not match the target's expected webserver user — needs an explicit `--chmod`/ownership-fixup step, not just "rsync -a and hope."
+6. **File permissions across transports.** Real and host-variable, not fully solvable in the abstract. Tensions worth naming: (a) the recommendation in risk #1 (`DISALLOW_FILE_MODS`) implies the webserver process ideally should not need *write* access to `code/` at all post-materialization — stronger than typical WP hosting defaults, and some plugins will show harmless-but-alarming "not writable" notices in wp-admin's site-health screen as a result; worth documenting as expected, not a bug. (b) The user running `composer install`/rsync at deploy time needs write access; the webserver's runtime user ideally doesn't — classic build/run user separation, easy to state, hard to guarantee uniformly since ssh targets' user/host setup is explicitly not something WPrism owns (DESIGN.md §4's host-agnostic stance). (c) `rsync -a` preserves permissions/ownership *from the source* (e.g. a laptop or CI runner's own user), which will generally not match the target's expected webserver user — needs an explicit `--chmod`/ownership-fixup step, not just "rsync -a and hope."
 
-7. **Migration completion timing.** §4.1 step 6 is explicit that `duo deploy` triggers migration *start* deterministically, not completion — WooCommerce's own background-processed migrations (large catalogs especially) can leave a real window where `duo apply` (step 8) could still race an in-flight migration if run too eagerly. Not resolved here beyond naming it; a poll/wait step or an explicit human gate for major version bumps on large sites is the likely answer, left for whoever implements §3.4/§6's `Deploy.php`.
+7. **Migration completion timing.** §4.1 step 6 is explicit that `wprism deploy` triggers migration *start* deterministically, not completion — WooCommerce's own background-processed migrations (large catalogs especially) can leave a real window where `wprism apply` (step 8) could still race an in-flight migration if run too eagerly. Not resolved here beyond naming it; a poll/wait step or an explicit human gate for major version bumps on large sites is the likely answer, left for whoever implements §3.4/§6's `Deploy.php`.
 
-8. **The agent's own composer-package distribution (§1.7) is a recommendation, not a verified-working mechanism.** No `duotronic/duo-agent` package exists; the VCS-repository approach is standard composer practice in the abstract but untested for this specific repo/agent. The vendored-wholesale fallback is lower-risk and may be the pragmatic v0 answer even though it's the less elegant one.
+8. **The agent's own composer-package distribution (§1.7) is a recommendation, not a verified-working mechanism.** No `duotronic/wprism-agent` package exists; the VCS-repository approach is standard composer practice in the abstract but untested for this specific repo/agent. The vendored-wholesale fallback is lower-risk and may be the pragmatic v0 answer even though it's the less elegant one.
 
 9. **Consistent with existing non-goals, not a gap**: `active_sitewide_plugins` (network/multisite-wide activation, a *different* option from `active_plugins`) is out of scope, matching DESIGN.md §5's existing "Multisite (v1)" exclusion. Noted here only so it isn't mistaken for an oversight.
 
@@ -614,16 +614,15 @@ Ordered roughly by severity, matching DESIGN.md's own "loud, blocking, scoped gu
 
 ## Phase 1: implemented (2026-08-06)
 
-§3's legacy lifecycle invariant, `wp duo deploy`, and §4's `version_range`
+§3's legacy lifecycle invariant, `wp wprism deploy`, and §4's `version_range`
 mechanics shipped (tasks #32/#39/#40; spec v0.9 section "Code-half facts &
 deploy"): managed-class capture of `active_plugins`/`template`/`stylesheet`,
 the plan `code_mismatch` bucket, deploy's hook-firing reconciliation outside
 the canary, and forceable lifecycle compatibility reporting. The 2026-08-07
 first functional skeleton extends that with a descriptor-hashed code payload:
 `code_revision_stale` is now a non-forceable ordering gate until host
-stage → lifecycle → finalize completes. `sandbox/tests/spike_g_code.sh`
-remains evidence for the earlier bind-mounted lifecycle leg, not proof of
-the new materializer path.
+stage → lifecycle → finalize completes. The earlier bind-mounted lifecycle
+experiment remains design context, not proof of the new materializer path.
 
 The skeleton's promotion boundary is deliberately split as well: only
 `promotion-begin` may create/recover the bounded cross-process owner/artifact
@@ -633,7 +632,7 @@ holds a connection-scoped database advisory fence across long hooks and
 filesystem walks. Manual checkpoint import still requires external maintenance
 exclusion because importing the database can replace any lock row stored in it.
 That precondition and the same four-step sequence apply unchanged to the
-checkpoint a standalone `duo deploy` retains, which is written under its own
+checkpoint a standalone `wprism deploy` retains, which is written under its own
 lease at the same position promote writes one.
 The two fresh lifecycle processes publish ordered positive phase receipts—even
 for no-op phases—and code-finalize requires both. Absence of an unresolved hook
@@ -665,14 +664,14 @@ Two operational findings from the spike worth carrying forward: (1) docker neste
 
 ## Phase 2: implemented (2026-08-21)
 
-The declared split shipped (DUO-3499). The implementation ruling above is
+The declared split shipped (issue #3499). The implementation ruling above is
 unchanged in what it makes the DEFAULT — vendored-wholesale is still the
 transport shape, and every format-1 repository keeps working byte-for-byte —
 but it is no longer all-or-nothing: a lock declares a per-component exception.
 
 What landed:
 
-- **`code/duo-code.lock.json`, `duo-code-lock/v1`.** One entry per component
+- **`code/wprism-code.lock.json`, `wprism-code-lock/v1`.** One entry per component
   the repository deliberately does not carry in Git: `{root, component,
   version, origin: {kind, url|path, archive_sha256, archive_root?},
   tree_sha256}`, canonically encoded and sorted by `(root, component)`. It
@@ -682,14 +681,14 @@ What landed:
   the `{path, sha256}` rows compilation already builds, re-rooted at the
   component, so a declared digest and a compiled digest come from one
   algorithm.
-- **`site.duo.json` `code` format 2**, adding only `"lock"`. Format 1 keeps its
+- **`site.wprism.json` `code` format 2**, adding only `"lock"`. Format 1 keeps its
   exact refusal bytes; a repository moves between the two only by an explicit
   act.
 - **A blocking, non-forceable compile gate**: `code_component_unresolved`,
   `code_component_digest_mismatch`, `code_component_unlocked`. The lock is a
   precondition, never an indirection the descriptor follows, so `code_revision`
   and `artifact_hash` mean exactly what they meant before.
-- **`duo init --code=split` (the default) and `duo init --code=full`.** The
+- **`wprism init --code=split` (the default) and `wprism init --code=full`.** The
   agent reports each active component's `{root, component, version,
   tree_sha256, bytes, files}` and reaches no registry. The HOST resolves the
   wp.org release for that slug and version into a content-addressed cache,
@@ -697,14 +696,14 @@ What landed:
   what is installed. Everything else is vendored with its reason stated. The
   classification rides inside the proposal digest, so a changed classification
   invalidates a stale `--confirm`.
-- **`duo code-classify <env>`** migrates an already-initialized repository. The
+- **`wprism code-classify <env>`** migrates an already-initialized repository. The
   bytes never leave the working tree; only Git stops tracking them, so the next
   compile produces the identical `code_revision`.
 
 §1.3/§1.4's gitignore Option A/B discussion is settled by the generated form:
 root-anchored `/code/wp-content/<root>/<component>/` lines in the
 REPOSITORY-ROOT `.gitignore`, written in the same owned-file transaction as
-Duo's own local artifacts and carrying their own labelled block. That is the
+WPrism's own local artifacts and carrying their own labelled block. That is the
 only supported placement, and the code half enforces the asymmetry itself: a
 `.gitignore` at `code/wp-content/` is refused as an unsafe payload path
 (`agent/src/Code/CodeDescriptorCompiler.php:97-99`), and one at
@@ -723,21 +722,21 @@ What did NOT land in phase 2, deliberately:
 
 ---
 
-## Phase 3: the resolver (2026-08-21, DUO-3500)
+## Phase 3: the resolver (2026-08-21, issue #3500)
 
 Phase 2 shipped a declaration and a gate but no way back: materializing a
-locked component in a fresh clone was the operator's build step. `duo
-code-resolve <env>` is that step, and `duo deploy` / `duo promote` run it
+locked component in a fresh clone was the operator's build step. `wprism
+code-resolve <env>` is that step, and `wprism deploy` / `wprism promote` run it
 themselves as `<verb> phase: code-resolve` before `compile` — outside every
 promotion lease, silent for any repository with no lock.
 
 It adds no algorithm. The content-addressed cache, the refuse-don't-refetch
 rule on a corrupted entry, the delete-partial-and-refuse rule on a download
 digest mismatch, `--offline`, the unpack entry check and the tree digest are
-all `WpOrgReleases`, unchanged from phase 2 — the same primitives `duo init
+all `WpOrgReleases`, unchanged from phase 2 — the same primitives `wprism init
 --code=split` already classified against. What phase 3 adds is the direction:
 an origin becomes bytes, verified twice (`archive_sha256` before the unpack,
-`tree_sha256` after), staged under `.duo/` and renamed into
+`tree_sha256` after), staged under `.wprism/` and renamed into
 `code/wp-content/<root>/<component>/` only once verified, so no component is
 ever half-written. `vendored-archive` origins take the identical path with no
 cache and no network.
@@ -750,17 +749,17 @@ would have been easy:
   `.gitignore`d by construction, so those bytes exist in exactly one place on
   earth; re-materializing over them would destroy the only copy of whatever
   the operator actually has. Remove the directory to re-materialize, or
-  `duo code-classify` to re-lock what is there.
+  `wprism code-classify` to re-lock what is there.
 - **Resolution is host work on every transport; ssh resolves then pushes.**
   The egress constraint above is absolute — the target never fetches — so the
   bytes are always fetched and verified on the host. A local environment's
   `repo_path` is a host path; a docker environment's host side is derived from
   its own compose service. An ssh target's repository is on the far side of
-  the transport, so DUO-3514 ships the push half of §2.2's design: resolve
+  the transport, so issue #3514 ships the push half of §2.2's design: resolve
   into a throwaway host staging worktree from the TARGET's own lock, ship one
-  tar, unpack it into `<repo_path>/.duo/code-push/<token>/code/wp-content`,
+  tar, unpack it into `<repo_path>/.wprism/code-push/<token>/code/wp-content`,
   and verify those staged trees against `tree_sha256` through the target's own
-  `wp duo code-inventory` BEFORE anything is renamed into place; then re-read
+  `wp wprism code-inventory` BEFORE anything is renamed into place; then re-read
   the inventory as the post-condition. A component present at another digest
   refuses `code_resolve_component_drifted` before anything is transferred.
 
@@ -789,27 +788,27 @@ What changed, and why each piece is shaped the way it is:
   theme component is `locked` (Git does not carry it; the lock says where its
   bytes come from) or `first-party` (Git carries it because the operator
   declared it the site's own code with `--first-party=<root>/<slug>`).
-  Anything else is `unsourced`, and unsourced BLOCKS: `duo init` turns it into
+  Anything else is `unsourced`, and unsourced BLOCKS: `wprism init` turns it into
   a `code_component_unsourced` row on the proposal (so the reviewed digest
-  carries the blocker and both remedies), `duo code-classify` refuses the whole
+  carries the blocker and both remedies), `wprism code-classify` refuses the whole
   run, and `CodeDescriptorCompiler::lock_diagnostics()` refuses every compile
   of a repository that carries a component in neither list
   (`code_component_undeclared`). The last one is what makes the invariant a
   property the compile enforces rather than a convention init follows — an
   operator who `git add`s a premium plugin by hand hits it on the next
   compile, by name, with the remedy.
-- **`duo-code-lock/v2`: `components` + `first_party`.** The first-party list
-  lives in the lock, not in `site.duo.json`, so the code half's sourcing
+- **`wprism-code-lock/v2`: `components` + `first_party`.** The first-party list
+  lives in the lock, not in `site.wprism.json`, so the code half's sourcing
   declaration is one file and the `code` block's grammar (and
   `state_site_hash()`, which drops it) is untouched. A classified site is
   ALWAYS format 2, even with zero locked components, because a
   `first_party`-only lock is still the declaration the gate needs. v1 locks
   still parse (their `first_party` is empty, so a v1 repository that carries a
   component reaches `code_component_undeclared` and the remedy names
-  `duo code-classify`, which re-declares it).
+  `wprism code-classify`, which re-declares it).
 - **`imported-archive` replaces `vendored-archive`.** A premium plugin has no
   canonical URL and a ZIP committed inside the repository is third-party bytes
-  in Git by another name. So the archive lives on the HOST: `duo code-import
+  in Git by another name. So the archive lives on the HOST: `wprism code-import
   <archive.zip>` puts the operator's file into the `imported/` store of the
   same content-addressed code-artifact cache wp.org releases are fetched into,
   indexed by archive digest and by the tree digest it unpacks to, and the
@@ -817,14 +816,14 @@ What changed, and why each piece is shaped the way it is:
   `archive_sha256` alone — no URL (a vendor download link is usually
   license-keyed) and no path (the repository carries no copy) — so nothing
   credential-bearing and nothing byte-bearing can be written into Git even by
-  accident; the grammar has no field for either. `duo code-resolve` reads the
+  accident; the grammar has no field for either. `wprism code-resolve` reads the
   store or refuses `code_resolve_archive_missing` with the one remedy: import
-  it on this host. Duo never fetches from a vendor; the operator moves the
+  it on this host. WPrism never fetches from a vendor; the operator moves the
   archive to each host that resolves, exactly as they would move it to each
   server by hand today. `vendored-archive` is refused BY NAME at the reader,
   in v1 and v2 locks alike, with that remedy.
 - **`--code=full` and `--code=split` are gone.** There is no mode: the split is
-  the only shape. `duo init` refuses `--code=` by name with the reason, so an
+  the only shape. `wprism init` refuses `--code=` by name with the reason, so an
   operator with it in a script reads why rather than "unsupported argument".
   `--offline` now means only what it says — no registry is contacted; a wp.org
   component locks from the host cache or is unsourced, an imported archive
@@ -832,16 +831,16 @@ What changed, and why each piece is shaped the way it is:
 - **Classification is composed, not monolithic.** `WpOrgReleases` keeps the
   wp.org leg (`verifiedRelease()`); `ImportedArchives` is the store;
   `CodeClassifier` composes the two with the first-party declarations and is
-  the one decision `duo init` and `duo code-classify` share. wp.org is tried
+  the one decision `wprism init` and `wprism code-classify` share. wp.org is tried
   before the import store when a component could match both: public provenance
   beats a private copy of the same bytes.
 
 What did NOT change: the egress rule (nothing fetches on a target; the agent is
 never told a registry or a store exists), the compile gate's non-forceability,
-the "migration is free" property (`duo code-classify` still moves no byte and
+the "migration is free" property (`wprism code-classify` still moves no byte and
 compiles to the identical `code_revision`), format 1 as a readable legacy
-shape, and the egress rule on `ssh` (DUO-3514 pushes verified bytes; it does
-not teach the target to fetch). The `duo code-import` verb is
+shape, and the egress rule on `ssh` (issue #3514 pushes verified bytes; it does
+not teach the target to fetch). The `wprism code-import` verb is
 host-only and takes no `<env>`, like `manifest-validate`: the cache is a
 property of the host, not of a site, and the import has to be possible before
-the `duo init` that classifies the component.
+the `wprism init` that classifies the component.

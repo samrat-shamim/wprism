@@ -3,7 +3,7 @@
 #
 # This library owns only bounded observation waits after the caller has made a
 # lifecycle transition: Compose project visibility after resume, the nested
-# Duo MU bind mountpoints before CLI containers are created, and a real
+# WPrism MU bind mountpoints before CLI containers are created, and a real
 # database query through each side's CLI container. Compose invocation
 # construction/state discovery remains in pair_compose.sh; shared-MariaDB
 # startup remains in pair_db.sh; WordPress installation stays in pair.sh.
@@ -49,7 +49,7 @@ pair_readiness_wait_db() { # pair_readiness_wait_db <name> <side (1|2)>
 }
 
 pair_readiness_wait_web_mountpoints() { # pair_readiness_wait_web_mountpoints <name>
-  # pair.yml mounts the shared wp-content tree and then mounts the Duo MU
+  # pair.yml mounts the shared wp-content tree and then mounts the WPrism MU
   # directory/file underneath that named volume. Starting cli1/cli2 in the
   # same compose transaction races Docker's volume initialization: a CLI
   # container can try to create the nested file mountpoint while the first
@@ -57,7 +57,7 @@ pair_readiness_wait_web_mountpoints() { # pair_readiness_wait_web_mountpoints <n
   # initialization; wait until both can see the nested mounts before asking
   # Compose to create the CLI services.
   local name="$1" side all_ready mount_check
-  mount_check='test -d /var/www/html/wp-content/mu-plugins/duo && test -f /var/www/html/wp-content/mu-plugins/duo-loader.php'
+  mount_check='test -d /var/www/html/wp-content/mu-plugins/wprism && test -f /var/www/html/wp-content/mu-plugins/wprism-loader.php'
   for _ in $(seq 1 60); do
     all_ready=1
     for side in 1 2; do
@@ -70,5 +70,5 @@ pair_readiness_wait_web_mountpoints() { # pair_readiness_wait_web_mountpoints <n
     fi
     sleep 1
   done
-  fail "env ${name} web containers never exposed the nested Duo MU mountpoints"
+  fail "env ${name} web containers never exposed the nested WPrism MU mountpoints"
 }

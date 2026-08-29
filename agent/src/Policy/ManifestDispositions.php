@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/AdapterLibrary.php';
 
@@ -20,7 +20,7 @@ require_once __DIR__ . '/AdapterLibrary.php';
  * generated document to agree with.
  */
 final class ManifestDispositions {
-    public const FORMAT = 'duo-manifest-dispositions/v1';
+    public const FORMAT = 'wprism-manifest-dispositions/v1';
 
     /**
      * Historically, WP-4.4 changed the reviewed claim source to a DIRECTORY of
@@ -35,7 +35,7 @@ final class ManifestDispositions {
      * ArtifactPolicyIdentity::manifest_rows() folds each manifest's own
      * disposition into that adapter's row (`:82`) and the row hashed IS its
      * `digest` (`:162`), so a one-byte canonical difference in one document
-     * would move that adapter's digest and every `site.duo.json` content pin
+     * would move that adapter's digest and every `site.wprism.json` content pin
      * naming it. Canon::encode() sorts keys at every level (Canon.php:44,58),
      * so `format` + the reassembled `manifests`/`profiles` maps re-encode to
      * the monolith's exact bytes — measured over all 16 shipped entries in
@@ -96,19 +96,19 @@ final class ManifestDispositions {
      * current physical path, while this relative name serves only the explicit
      * legacy flat-layout reader.
      */
-    public const PLATFORM_FORMAT = 'duo-platform-boundary/v1';
+    public const PLATFORM_FORMAT = 'wprism-platform-boundary/v1';
     private const PLATFORM_RELATIVE = 'capabilities/platform.json';
 
     /**
      * The synthesized blocker status for a manifest with NO reviewed
-     * disposition entry (DUO-3372). It is a RUNTIME status only — never a
+     * disposition entry (issue #3372). It is a RUNTIME status only — never a
      * value a disposition may DECLARE (validate_entry() refuses it) — emitted
      * by blockers()/report() so a direct caller cannot read an uncovered
      * manifest as ready.
      */
     public const STATUS_UNCOVERED = 'uncovered';
     public const UNCOVERED_REASON = 'no reviewed disposition entry — a manifest cannot certify itself merely by existing beside the agent';
-    public const EVIDENCE_SCHEMA = 'duo-subject-certification-bundle/v1';
+    public const EVIDENCE_SCHEMA = 'wprism-subject-certification-bundle/v1';
 
     /**
      * The v3 declaration channel an adapter narrows its environment claim
@@ -214,7 +214,7 @@ final class ManifestDispositions {
         $library = rtrim($dir, '/');
         if (is_file($library . '/' . self::MONOLITH)) {
             throw new \RuntimeException(
-                "duo: manifest library '$library' still carries the pre-split " . self::MONOLITH
+                "wprism: manifest library '$library' still carries the pre-split " . self::MONOLITH
                 . '. The reviewed claim source is the per-subject directory ' . self::DIRECTORY
                 . '/ (spec/repo-format.md § v3.4) and that file is no longer read, so leaving it in place would '
                 . 'publish ratification bytes nothing enforces — split it into one document per adapter under '
@@ -291,8 +291,8 @@ final class ManifestDispositions {
         $files = glob($this->dir . '/*.json');
         if ($files === false) {
             throw new \RuntimeException(
-                "duo: manifest disposition directory '{$this->dir}' could not be enumerated — "
-                . 'Duo refuses to treat unreadable reviewed claim bytes as absent'
+                "wprism: manifest disposition directory '{$this->dir}' could not be enumerated — "
+                . 'WPrism refuses to treat unreadable reviewed claim bytes as absent'
             );
         }
         $names = [];
@@ -303,7 +303,7 @@ final class ManifestDispositions {
             }
             if (!self::is_subject_name($name)) {
                 throw new \RuntimeException(
-                    "duo: manifest disposition document '$file' is not named for a canonical adapter slug; every "
+                    "wprism: manifest disposition document '$file' is not named for a canonical adapter slug; every "
                     . 'document in ' . self::DIRECTORY . "/ is one adapter's reviewed entry, addressed by its name"
                 );
             }
@@ -336,7 +336,7 @@ final class ManifestDispositions {
         }
         if ($name === self::PROFILES_DOCUMENT) {
             throw new \RuntimeException(
-                "duo: '" . self::PROFILES_DOCUMENT . "' is the reserved name of the profiles document in "
+                "wprism: '" . self::PROFILES_DOCUMENT . "' is the reserved name of the profiles document in "
                 . self::DIRECTORY . '/, so no adapter may be called that'
             );
         }
@@ -365,7 +365,7 @@ final class ManifestDispositions {
      * Callers pass the SHIPPED subset only (AdapterSources::shipped_manifests(),
      * "Only the shipped subset participates in disposition/registry coverage"):
      * an out-of-tree adapter has no reviewed entry by construction and
-     * demanding one is exactly the DUO-3314 failure.
+     * demanding one is exactly the issue #3314 failure.
      *
      * The refusal is byte-identical to the whole-directory check it replaces,
      * because it is the same refusal for the case an operator can actually
@@ -403,7 +403,7 @@ final class ManifestDispositions {
         if ($missing !== []) {
             sort($missing, SORT_STRING);
             throw new \RuntimeException(
-                'duo: manifest disposition coverage mismatch; missing=[' . implode(',', $missing) . '], extra=[]'
+                'wprism: manifest disposition coverage mismatch; missing=[' . implode(',', $missing) . '], extra=[]'
             );
         }
         foreach ($manifests as $manifest) {
@@ -420,10 +420,10 @@ final class ManifestDispositions {
      * scope for "may this site USE this adapter" and the wrong scope for every
      * caller that projects a claim from an entry it looked up by name:
      * AdapterRegistry::shipped_claim() (the funnel under capability_claim() and
-     * report(), so `wp duo capabilities --all` and the adapter catalog), and
+     * report(), so `wp wprism capabilities --all` and the adapter catalog), and
      * blockers()/report() below. Until this call existed those readers
      * projected UNVALIDATED reviewed bytes. Measured against a woocommerce
-     * entry tampered four ways and read back through `wp duo capabilities
+     * entry tampered four ways and read back through `wp wprism capabilities
      * --all`: evidence deleted printed `certified`/`verified` with
      * `evidence: []`; an invented `entity_section` printed `certified` and
      * listed the invention among its surfaces; a fabricated version range
@@ -461,7 +461,7 @@ final class ManifestDispositions {
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
             if ($name === '' || !isset($data['manifests'][$name])) {
-                throw new \RuntimeException("duo: frozen disposition registry has no entry for manifest '$name'");
+                throw new \RuntimeException("wprism: frozen disposition registry has no entry for manifest '$name'");
             }
             self::validate_entry($name, $data['manifests'][$name], $manifest);
         }
@@ -526,7 +526,7 @@ final class ManifestDispositions {
         $decoded = Canon::decode(Canon::read_file($file));
         if (!is_array($decoded) || (array_is_list($decoded) && $decoded !== [])) {
             throw new \RuntimeException(
-                "duo: manifest disposition profiles document '$file' must be an object of profile name => profile"
+                "wprism: manifest disposition profiles document '$file' must be an object of profile name => profile"
             );
         }
         return $this->profiles = $decoded;
@@ -557,7 +557,7 @@ final class ManifestDispositions {
         if ($dir === null) {
             if (!class_exists(Policy::class)) {
                 throw new \RuntimeException(
-                    'duo: the shipped adapter library must be selected explicitly when Policy is unavailable'
+                    'wprism: the shipped adapter library must be selected explicitly when Policy is unavailable'
                 );
             }
             return self::platform_boundary_library(Policy::shipped_adapter_library());
@@ -575,7 +575,7 @@ final class ManifestDispositions {
     private static function platform_boundary_file(string $file): array {
         $label = "agent platform boundary '$file'";
         if (!is_file($file)) {
-            throw new \RuntimeException("duo: $label is absent; this manifest library declares no platform boundary");
+            throw new \RuntimeException("wprism: $label is absent; this manifest library declares no platform boundary");
         }
         $data = Canon::decode(Canon::read_file($file));
         $keys = array_keys($data);
@@ -584,12 +584,12 @@ final class ManifestDispositions {
             || ($data['format'] ?? null) !== self::PLATFORM_FORMAT
             || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])
             || !is_array($data['platform']['compatibility'] ?? null)) {
-            throw new \RuntimeException("duo: $label has an unsupported or malformed root");
+            throw new \RuntimeException("wprism: $label has an unsupported or malformed root");
         }
         $platform = $data['platform'];
-        if (($platform['agent_version'] ?? null) !== (defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : '0.6.0')
-            || ($platform['spec_version'] ?? null) !== (defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 3)) {
-            throw new \RuntimeException("duo: $label platform version disagrees with the loaded agent");
+        if (($platform['agent_version'] ?? null) !== (defined('WPRISM_AGENT_VERSION') ? WPRISM_AGENT_VERSION : '0.7.0')
+            || ($platform['spec_version'] ?? null) !== (defined('WPRISM_SPEC_VERSION') ? WPRISM_SPEC_VERSION : 3)) {
+            throw new \RuntimeException("wprism: $label platform version disagrees with the loaded agent");
         }
         return $platform;
     }
@@ -614,7 +614,7 @@ final class ManifestDispositions {
         $name = (string) ($manifest['name'] ?? '');
         if ($name === '' || !is_array($disposition['capabilities'] ?? null)
             || !is_array($platform['compatibility'] ?? null)) {
-            throw new \RuntimeException('duo: cannot project a malformed manifest disposition capability claim');
+            throw new \RuntimeException('wprism: cannot project a malformed manifest disposition capability claim');
         }
         $status = (string) ($disposition['status'] ?? 'unsupported');
         $execution = $pluginExecution ?? [
@@ -630,7 +630,7 @@ final class ManifestDispositions {
             (array) ($capabilities['field_sections'] ?? [])
         ) as $section) {
             if (!is_string($section) || $section === '') {
-                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed capability section");
+                throw new \RuntimeException("wprism: manifest disposition '$name' has a malformed capability section");
             }
             $surfaces[] = $section;
             $value = $manifest[$section] ?? null;
@@ -642,7 +642,7 @@ final class ManifestDispositions {
         }
         foreach ((array) (($capabilities['deletion_semantics']['supported'] ?? [])) as $selector) {
             if (!is_string($selector) || $selector === '') {
-                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed deletion selector");
+                throw new \RuntimeException("wprism: manifest disposition '$name' has a malformed deletion selector");
             }
             $surfaces[] = 'deletions.' . $selector;
         }
@@ -655,7 +655,7 @@ final class ManifestDispositions {
         }
         foreach ($operations as $operation) {
             if (!is_string($operation) || $operation === '') {
-                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed operation");
+                throw new \RuntimeException("wprism: manifest disposition '$name' has a malformed operation");
             }
         }
         $operations = array_values(array_unique($operations, SORT_STRING));
@@ -752,7 +752,7 @@ final class ManifestDispositions {
         $name = (string) ($manifest['name'] ?? '');
         if (!is_array($declared) || array_is_list($declared) || $declared === []) {
             throw new \RuntimeException(
-                "duo: manifest '$name' environment declaration must be a non-empty object of axis => exercised cells"
+                "wprism: manifest '$name' environment declaration must be a non-empty object of axis => exercised cells"
             );
         }
         // Sorted, so the refusal an author meets names the same axis whatever
@@ -762,13 +762,13 @@ final class ManifestDispositions {
             $axis = (string) $axis;
             if (!in_array($axis, self::ENVIRONMENT_AXES, true)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares environment axis '$axis', which a capability claim does not "
+                    "wprism: manifest '$name' declares environment axis '$axis', which a capability claim does not "
                     . 'state; narrowable axes are ' . implode(', ', self::ENVIRONMENT_AXES)
                 );
             }
             if (!self::string_list($cells, false)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' environment axis '$axis' must be a non-empty list of distinct cell names"
+                    "wprism: manifest '$name' environment axis '$axis' must be a non-empty list of distinct cell names"
                 );
             }
             // The cell vocabulary is the boundary's OWN, per axis: the exercised
@@ -793,7 +793,7 @@ final class ManifestDispositions {
             if ($wider !== []) {
                 sort($wider, SORT_STRING);
                 throw new \RuntimeException(
-                    "duo: manifest '$name' environment axis '$axis' declares [" . implode(', ', $wider)
+                    "wprism: manifest '$name' environment axis '$axis' declares [" . implode(', ', $wider)
                     . '] which the reviewed platform boundary does not carry ['
                     . implode(', ', $carried) . '] — an adapter may narrow the reviewed environment, never widen it'
                 );
@@ -845,7 +845,7 @@ final class ManifestDispositions {
     ): void {
         if ($name === '' || ($entry['status'] ?? null) !== 'certified') {
             throw new \RuntimeException(
-                "duo: external manifest disposition '$name' must be a certified entry"
+                "wprism: external manifest disposition '$name' must be a certified entry"
             );
         }
         self::validate_entry($name, $entry, $manifest, $evidenceSchema, $requireExerciseTests);
@@ -858,7 +858,7 @@ final class ManifestDispositions {
             $name = (string) ($manifest['name'] ?? '?');
             $entry = $this->entry($name);
             if ($entry === null) {
-                // DUO-3372: an uncovered manifest is a BLOCKER, not a skip.
+                // issue #3372: an uncovered manifest is a BLOCKER, not a skip.
                 // Silently dropping it would let a caller read a manifest with
                 // no reviewed disposition as ready, which is exactly the "a
                 // manifest cannot certify itself merely by existing" doctrine
@@ -867,7 +867,7 @@ final class ManifestDispositions {
                 //
                 // WP-1.2 made this row REACHABLE where it used to be a
                 // fail-safe: load() no longer refuses a whole library over a
-                // file nobody pinned, so a report over the LIBRARY (`wp duo
+                // file nobody pinned, so a report over the LIBRARY (`wp wprism
                 // capabilities --all`, the adapter catalog) now meets an
                 // unreviewed manifest and answers with this row and a
                 // non-`ready` verdict instead of refusing the command. That is
@@ -906,7 +906,7 @@ final class ManifestDispositions {
             $name = (string) ($manifest['name'] ?? '?');
             $entry = $this->entry($name);
             if ($entry === null) {
-                // DUO-3372: surface the uncovered manifest as an explicit row
+                // issue #3372: surface the uncovered manifest as an explicit row
                 // rather than dropping it from the report — the top-level
                 // `blockers`/`ready` already reflect it (blockers() above), and
                 // a per-manifest report that silently omitted it would disagree
@@ -976,7 +976,7 @@ final class ManifestDispositions {
             || !is_array($data['profiles'] ?? null)
             || (array_is_list($data['profiles']) && $data['profiles'] !== [])) {
             throw new \RuntimeException(
-                "duo: $label must contain exactly format, manifests, and profiles for " . self::FORMAT
+                "wprism: $label must contain exactly format, manifests, and profiles for " . self::FORMAT
             );
         }
     }
@@ -995,7 +995,7 @@ final class ManifestDispositions {
                 || !is_array($profile['evidence'] ?? null)
                 || ($profile['evidence']['bundle_schema'] ?? null) !== self::EVIDENCE_SCHEMA
                 || !self::string_list($profile['evidence']['tests'] ?? null, false, true)) {
-                throw new \RuntimeException("duo: manifest disposition profile '$name' is malformed");
+                throw new \RuntimeException("wprism: manifest disposition profile '$name' is malformed");
             }
         }
     }
@@ -1017,7 +1017,7 @@ final class ManifestDispositions {
         bool $requireExerciseTests = true
     ): void {
         if (!is_array($entry) || array_is_list($entry)) {
-            throw new \RuntimeException("duo: manifest disposition '$name' must be an object");
+            throw new \RuntimeException("wprism: manifest disposition '$name' must be an object");
         }
         $status = $entry['status'] ?? null;
         if (!in_array($status, ['certified', 'experimental', 'excluded'], true)
@@ -1029,7 +1029,7 @@ final class ManifestDispositions {
             || $entry['unsupported'] === []
             || !is_array($entry['default_authored_keyspaces'] ?? null)
             || !array_is_list($entry['default_authored_keyspaces'])) {
-            throw new \RuntimeException("duo: manifest disposition '$name' has a malformed required field");
+            throw new \RuntimeException("wprism: manifest disposition '$name' has a malformed required field");
         }
         $cap = $entry['capabilities'];
         $capKeys = array_keys($cap);
@@ -1041,19 +1041,19 @@ final class ManifestDispositions {
             || !self::string_list($cap['lifecycle_phases'] ?? null)
             || !is_array($cap['deletion_semantics'] ?? null)
             || array_is_list($cap['deletion_semantics'])) {
-            throw new \RuntimeException("duo: manifest disposition '$name' capabilities are malformed");
+            throw new \RuntimeException("wprism: manifest disposition '$name' capabilities are malformed");
         }
         $deletionKeys = array_keys($cap['deletion_semantics']);
         sort($deletionKeys, SORT_STRING);
         if ($deletionKeys !== ['supported', 'unsupported']
             || !self::string_list($cap['deletion_semantics']['supported'] ?? null)
             || !self::string_list($cap['deletion_semantics']['unsupported'] ?? null, false)) {
-            throw new \RuntimeException("duo: manifest disposition '$name' deletion semantics are malformed");
+            throw new \RuntimeException("wprism: manifest disposition '$name' deletion semantics are malformed");
         }
         foreach (array_merge($cap['entity_sections'], $cap['field_sections']) as $section) {
             if (!array_key_exists($section, $manifest)) {
                 throw new \RuntimeException(
-                    "duo: manifest disposition '$name' names absent manifest section '$section'"
+                    "wprism: manifest disposition '$name' names absent manifest section '$section'"
                 );
             }
         }
@@ -1062,7 +1062,7 @@ final class ManifestDispositions {
                 || !is_string($unsupported['surface'] ?? null) || $unsupported['surface'] === ''
                 || !is_string($unsupported['operation'] ?? null) || $unsupported['operation'] === ''
                 || !is_string($unsupported['reason'] ?? null) || $unsupported['reason'] === '') {
-                throw new \RuntimeException("duo: manifest disposition '$name' unsupported[$i] is malformed");
+                throw new \RuntimeException("wprism: manifest disposition '$name' unsupported[$i] is malformed");
             }
         }
         $unsupportedSurfaces = array_fill_keys(array_column($entry['unsupported'], 'surface'), true);
@@ -1070,7 +1070,7 @@ final class ManifestDispositions {
             if (($rule['class'] ?? null) === 'authored_typed_snapshot_post_v1'
                 && !isset($unsupportedSurfaces["tables.$table"])) {
                 throw new \RuntimeException(
-                    "duo: manifest disposition '$name' must mark intent-only table '$table' unsupported"
+                    "wprism: manifest disposition '$name' must mark intent-only table '$table' unsupported"
                 );
             }
         }
@@ -1081,20 +1081,20 @@ final class ManifestDispositions {
                 || !is_string($row['table'] ?? null) || $row['table'] === ''
                 || !in_array($row['status'] ?? null, ['justified', 'unsupported'], true)
                 || !is_string($row['reason'] ?? null) || $row['reason'] === '') {
-                throw new \RuntimeException("duo: manifest disposition '$name' has malformed default authored keyspace evidence");
+                throw new \RuntimeException("wprism: manifest disposition '$name' has malformed default authored keyspace evidence");
             }
             $defaultRows[$row['table']] = true;
             if (!isset($manifest['tables'][$row['table']])
                 || ($manifest['tables'][$row['table']]['default_class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: manifest disposition '$name' names non-default-authored keyspace '{$row['table']}'"
+                    "wprism: manifest disposition '$name' names non-default-authored keyspace '{$row['table']}'"
                 );
             }
         }
         foreach (($manifest['tables'] ?? []) as $table => $rule) {
             if (($rule['default_class'] ?? null) === 'authored' && !isset($defaultRows[$table])) {
                 throw new \RuntimeException(
-                    "duo: manifest disposition '$name' omits default authored keyspace '$table'"
+                    "wprism: manifest disposition '$name' omits default authored keyspace '$table'"
                 );
             }
         }
@@ -1104,7 +1104,7 @@ final class ManifestDispositions {
             if (!is_array($evidence) || array_is_list($evidence)
                 || ($evidence['bundle_schema'] ?? null) !== $evidenceSchema
                 || !self::string_list($evidence['tests'] ?? null, !$requireExerciseTests, true)) {
-                throw new \RuntimeException("duo: certified manifest disposition '$name' lacks current bundle evidence");
+                throw new \RuntimeException("wprism: certified manifest disposition '$name' lacks current bundle evidence");
             }
             $plugin = $manifest['plugin'] ?? null;
             if (is_string($plugin) && $plugin !== '') {
@@ -1112,7 +1112,7 @@ final class ManifestDispositions {
                     || Canon::encode($entry['supported_versions']['range'] ?? null)
                         !== Canon::encode($manifest['version_range'] ?? null)) {
                     throw new \RuntimeException(
-                        "duo: certified manifest disposition '$name' versions disagree with its manifest contract"
+                        "wprism: certified manifest disposition '$name' versions disagree with its manifest contract"
                     );
                 }
             }

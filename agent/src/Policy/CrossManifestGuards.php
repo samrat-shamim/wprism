@@ -1,11 +1,11 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 // Circular with Policy.php's own require_once of this file: safe for the
 // same reason ActionProviderGrammar.php's identical circular require is
-// (DUO-3348 slice 6) -- require_once marks Policy.php's path included the
+// (issue #3348 slice 6) -- require_once marks Policy.php's path included the
 // moment Policy.php's own require statement for this file runs, before
 // Policy.php's body finishes executing, so this resolves to a no-op rather
 // than a re-include.
@@ -13,20 +13,20 @@ require_once __DIR__ . '/Policy.php';
 
 /**
  * The cross-manifest "one owner, no contradiction" guard family (part of
- * DUO-3348/DUO-3335's "ManifestValidator with grammar-specific validators"
+ * issue #3348/issue #3335's "ManifestValidator with grammar-specific validators"
  * target seam), extracted from `agent/src/Policy/Policy.php`. Every method here
  * takes the FULL pinned-manifest set (never one manifest alone -- that is
  * what a single manifest's own grammar validator already checked) and
  * refuses a declaration that depends on pin order to resolve: two adapters
  * naming the same taxonomy object_keyspace/description grammar/option
  * rule/post-type key/table id_kind/declared name with different, silently
- * order-dependent answers (DUO-3255/DUO-3318's shared "extension must not
+ * order-dependent answers (issue #3255/issue #3318's shared "extension must not
  * grant one adapter authority over another adapter's state" ruling).
  *
  * Moved verbatim. All six public entry points had zero external callers
  * beyond Policy's own `load()`/`from_snapshot()` (grep-verified across the
  * whole repo) -- matching PinResolver's and ActionProviderGrammar's
- * precedent (DUO-3348 slices 5-6), no compatibility facade exists; the 12
+ * precedent (issue #3348 slices 5-6), no compatibility facade exists; the 12
  * call sites (6 methods x 2 loaders) call this class directly.
  * `throw_conflicting_taxonomy_object_keyspace()` is a private internal
  * helper with exactly one caller, inside this same cluster.
@@ -127,7 +127,7 @@ final class CrossManifestGuards {
                 foreach (['object_type', 'callback'] as $field) {
                     if ($candidate[$field] != $first[$field]) {
                         throw new \RuntimeException(
-                            "duo: taxonomy_patterns regex '$match' has conflicting $field declarations from "
+                            "wprism: taxonomy_patterns regex '$match' has conflicting $field declarations from "
                             . "{$first['source']} and {$candidate['source']} — pin order may not choose "
                             . 'dynamic taxonomy behavior'
                         );
@@ -142,7 +142,7 @@ final class CrossManifestGuards {
                     $rendered[] = "$value from " . implode(', ', $sources);
                 }
                 throw new \RuntimeException(
-                    "duo: taxonomy_patterns regex '$match' has conflicting object_keyspace declarations ("
+                    "wprism: taxonomy_patterns regex '$match' has conflicting object_keyspace declarations ("
                     . implode('; ', $rendered) . ') — matching patterns must agree'
                 );
             }
@@ -153,7 +153,7 @@ final class CrossManifestGuards {
             foreach ($patterns as $pattern) {
                 if (Policy::taxonomy_pattern_matches($pattern['match'], $tax) && $pattern['value'] !== $value) {
                     throw new \RuntimeException(
-                        "duo: taxonomy '$tax' has conflicting object_keyspace declarations: "
+                        "wprism: taxonomy '$tax' has conflicting object_keyspace declarations: "
                         . implode(', ', $claims[$value]) . " says $value, but {$pattern['source']}.object_keyspace says "
                         . "{$pattern['value']} — exact and matching pattern declarations must agree"
                     );
@@ -189,7 +189,7 @@ final class CrossManifestGuards {
                 }
                 if ($claims[$taxonomy]['rule'] != $rule) {
                     throw new \RuntimeException(
-                        "duo: taxonomy '$taxonomy' has conflicting description_refs declarations from "
+                        "wprism: taxonomy '$taxonomy' has conflicting description_refs declarations from "
                         . "{$claims[$taxonomy]['source']} and $source — pin order may not choose a "
                         . 'serialized-description reference grammar'
                     );
@@ -205,17 +205,17 @@ final class CrossManifestGuards {
             $rendered[] = "$value from " . implode(', ', $sources);
         }
         throw new \RuntimeException(
-            "duo: taxonomy '$tax' has conflicting object_keyspace declarations ("
+            "wprism: taxonomy '$tax' has conflicting object_keyspace declarations ("
             . implode('; ', $rendered) . ') — pin order may not choose a relationship keyspace'
         );
     }
 
     /**
-     * DUO-3255: two non-core manifests may share an exact option name only
+     * issue #3255: two non-core manifests may share an exact option name only
      * when their effective rules are identical. Pin order is incidental and
      * must never choose between contradictory authored/env/runtime/derived
      * contracts. Core-vs-plugin declarations are deliberately exempt: the
-     * DUO-3249 core-yields-to-plugin rule is a ratified reclassification
+     * issue #3249 core-yields-to-plugin rule is a ratified reclassification
      * layer and active_reclassifications() makes it plan-visible.
      *
      * A site policy rule for the colliding name is the explicit resolution
@@ -257,25 +257,25 @@ final class CrossManifestGuards {
                     continue;
                 }
                 throw new \RuntimeException(
-                    "duo: manifests '{$prior['manifest']}' and '$manifestName' declare contradictory rules"
+                    "wprism: manifests '{$prior['manifest']}' and '$manifestName' declare contradictory rules"
                     . " for options.$optionName ({$prior['manifest']} class="
                     . var_export($prior['class'], true) . ", $manifestName class="
                     . var_export($rule['class'] ?? null, true) . '); effective rules differ ('
                     . Canon::encode($prior['rule']) . ' vs ' . Canon::encode($effective) . '). '
-                    . "Add an explicit site.duo.json policy.options.$optionName override to resolve this option."
+                    . "Add an explicit site.wprism.json policy.options.$optionName override to resolve this option."
                 );
             }
         }
     }
 
     /**
-     * DUO-3318: one owner per post-type behavior key, across every pinned
+     * issue #3318: one owner per post-type behavior key, across every pinned
      * manifest — the cross-manifest guard, run once after the whole set has
      * loaded (no single manifest's own validator could ever see this), and
      * the acceptance-4 half of this issue for the post surface: extension
      * must not grant one adapter authority over another adapter's entities.
      *
-     * Unlike options — where DUO-3249 established a ratified
+     * Unlike options — where issue #3249 established a ratified
      * core-yields-to-plugin reclassification layer, which is exactly why
      * validate_no_conflicting_option_rules() exempts core — every post-type
      * behavior lookup in this class (body_mode(), post_type_phase(),
@@ -283,7 +283,7 @@ final class CrossManifestGuards {
      * first-declaration-in-pin-order walk with no precedence layer to appeal
      * to. So a second manifest declaring `fields` for WooCommerce's `product`
      * either silently loses or silently wins depending on where an operator
-     * happened to put it in site.duo.json's list — one adapter's declaration
+     * happened to put it in site.wprism.json's list — one adapter's declaration
      * changing another adapter's entities, decided by an ordering nobody
      * intended as a decision. No exemption for core here for the same reason:
      * there is no ratified layer for this surface to express.
@@ -296,7 +296,7 @@ final class CrossManifestGuards {
      * ambiguous, and pass — the same allowance
      * AdapterContractGrammar::validate_no_conflicting_adapter_claims() makes for a repeated range.
      *
-     * DUO-3255 remains the open umbrella for the general "two non-core
+     * issue #3255 remains the open umbrella for the general "two non-core
      * manifests, one name" question; this instantiates its answer for one
      * concrete surface rather than waiting for the general ruling.
      *
@@ -321,12 +321,12 @@ final class CrossManifestGuards {
                         continue;
                     }
                     throw new \RuntimeException(
-                        "duo: manifests '{$seen[$slot]['manifest']}' and '$name' both declare "
+                        "wprism: manifests '{$seen[$slot]['manifest']}' and '$name' both declare "
                         . "post_types.$postType.$key with different values (" . $seen[$slot]['fingerprint']
                         . ' vs ' . $fingerprint . ") — a post type's behavior contract has exactly one owner, and "
                         . 'this lookup resolves by pin order, so accepting both would let one adapter silently '
                         . "change another adapter's entities. The extension path is the owning adapter's own "
-                        . 'manifest, or an explicit site.duo.json decision for a site-local need — never a second '
+                        . 'manifest, or an explicit site.wprism.json decision for a site-local need — never a second '
                         . 'manifest reaching into the first'
                     );
                 }
@@ -336,7 +336,7 @@ final class CrossManifestGuards {
 
     /**
      * One owner per NAME on the three bulk-enumerated declaration surfaces —
-     * `post_types.<t>`, `tables.<t>`, `widgets.<t>` (DUO-3318 review, B1).
+     * `post_types.<t>`, `tables.<t>`, `widgets.<t>` (issue #3318 review, B1).
      *
      * The per-key post-type guard above is the sharper diagnostic and runs
      * first, but it can only see a contradiction about the SAME key. Two
@@ -346,7 +346,7 @@ final class CrossManifestGuards {
      * directions: post-type behavior takes the FIRST declaration, while
      * declared_tables()/widget_types() take the LAST. Which adapter wins is
      * therefore decided by where an operator happened to put a name in
-     * site.duo.json's list, on a surface where the loser's declaration
+     * site.wprism.json's list, on a surface where the loser's declaration
      * disappears silently and completely. That is the same class of hazard
      * validate_no_conflicting_option_rules() and
      * AdapterContractGrammar::validate_no_conflicting_adapter_claims() already refuse, and it is
@@ -359,12 +359,12 @@ final class CrossManifestGuards {
      * winner to pick. Equality is Canon-encoded, so it is the wire bytes that
      * must agree, not PHP's loose comparison.
      *
-     * `core` is NOT exempt here. The DUO-3249 core-yields-to-plugin layer is
+     * `core` is NOT exempt here. The issue #3249 core-yields-to-plugin layer is
      * an option/meta RULE mechanism (rule_details()); no lookup on these three
      * surfaces implements it, so exempting core would silently reintroduce the
      * pin-order coin flip it is meant to resolve.
      *
-     * site.duo.json's own policy.tables is deliberately outside this walk. A
+     * site.wprism.json's own policy.tables is deliberately outside this walk. A
      * site override is the operator's own authority over their own site — the
      * documented, wholesale, last-word layer declared_tables() applies after
      * every manifest — not a second adapter reaching into the first.
@@ -395,10 +395,10 @@ final class CrossManifestGuards {
                         continue;
                     }
                     throw new \RuntimeException(
-                        "duo: manifests '{$seen[$slot]['manifest']}' and '$name' both declare $surface.$declared "
+                        "wprism: manifests '{$seen[$slot]['manifest']}' and '$name' both declare $surface.$declared "
                         . "with different declarations — $surface.<name> has exactly ONE owner, and this lookup "
                         . 'resolves by pin order, so accepting both would let one adapter silently redefine '
-                        . "another adapter's state depending on the order site.duo.json happens to list them. "
+                        . "another adapter's state depending on the order site.wprism.json happens to list them. "
                         . 'Pin only one declaring manifest, or make the two declarations byte-identical; there is '
                         . 'no composition grammar for this surface in v1. Reclassifying an individual FIELD of '
                         . "another adapter's surface is what the menu_fields-style precedence layers exist for — "
@@ -410,9 +410,9 @@ final class CrossManifestGuards {
     }
 
     /**
-     * Two declared tables may never share one `id_kind` (DUO-3318 review, N4).
+     * Two declared tables may never share one `id_kind` (issue #3318 review, N4).
      *
-     * duo_map's unique key is (id_kind, local_id), so two tables sharing a
+     * wprism_map's unique key is (id_kind, local_id), so two tables sharing a
      * kind collide their rows' identities the instant both hold a row with the
      * same local id — one table's uuid silently resolving to the other
      * table's row. Snapshot::row_tables() has always refused this and keeps
@@ -421,7 +421,7 @@ final class CrossManifestGuards {
      * refuse OFFLINE, before any target contact, on the cross-manifest case
      * this rule mostly exists for — two independently-authored adapters
      * picking the same short abbreviation. Checked against the RESOLVED
-     * declaration set (declared_tables()), so a site.duo.json override that
+     * declaration set (declared_tables()), so a site.wprism.json override that
      * retypes a table is judged on the declaration that will actually be used.
      *
      * @param array<string,array> $declaredTables
@@ -441,8 +441,8 @@ final class CrossManifestGuards {
             }
             if (isset($seen[$kind])) {
                 throw new \RuntimeException(
-                    "duo: id_kind '$kind' is declared by both '{$seen[$kind]}' and '$table' — each "
-                    . 'authored_snapshot table needs its own unique id_kind, because duo_map is keyed by '
+                    "wprism: id_kind '$kind' is declared by both '{$seen[$kind]}' and '$table' — each "
+                    . 'authored_snapshot table needs its own unique id_kind, because wprism_map is keyed by '
                     . '(id_kind, local_id): two tables sharing one kind resolve each other\'s rows the moment '
                     . 'both hold the same local id. An id_kind is the adapter\'s own namespace to choose; pick a '
                     . 'distinct one (typically a short prefix of the owning plugin)'

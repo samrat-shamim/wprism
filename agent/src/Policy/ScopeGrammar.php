@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure whole-entity scope declaration grammar.
@@ -32,12 +32,12 @@ final class ScopeGrammar {
         foreach (['post_type', 'taxonomy'] as $kind) {
             foreach ($groups[$kind] ?? [] as $name => $rule) {
                 if (!is_string($name) || $name === '' || !is_array($rule)) {
-                    throw new \RuntimeException("duo: $label has an invalid scope.$kind declaration");
+                    throw new \RuntimeException("wprism: $label has an invalid scope.$kind declaration");
                 }
                 $class = $rule['class'] ?? ($site ? null : 'authored');
                 if (!in_array($class, self::SCOPE_CLASSES, true)) {
                     throw new \RuntimeException(
-                        "duo: $label scope.$kind.$name.class=" . var_export($class, true)
+                        "wprism: $label scope.$kind.$name.class=" . var_export($class, true)
                         . ' (expected ' . implode('|', self::SCOPE_CLASSES) . ')'
                     );
                 }

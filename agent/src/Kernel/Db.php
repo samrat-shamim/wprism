@@ -1,19 +1,19 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Typed failure for a database mutation whose result WordPress reported as
  * false (or whose required auto-increment id was not produced). The context
  * is supplied by the caller and deliberately contains no SQL values: wpdb's
  * last_error and rendered SQL can echo option/meta payloads, including the
- * secrets Duo is specifically responsible for keeping out of diagnostics.
+ * secrets WPrism is specifically responsible for keeping out of diagnostics.
  */
 final class DatabaseMutationException extends \RuntimeException {
     public string $mutationContext;
 
     public function __construct(string $context, ?\Throwable $previous = null) {
         $this->mutationContext = $context;
-        parent::__construct("duo: database mutation failed: $context", 0, $previous);
+        parent::__construct("wprism: database mutation failed: $context", 0, $previous);
     }
 }
 
@@ -29,7 +29,7 @@ final class DatabaseTransactionOutcomeException extends \RuntimeException {
     public function __construct(string $context, ?\Throwable $previous = null) {
         $this->transactionContext = $context;
         parent::__construct(
-            "duo: database transaction outcome is uncertain: $context; recovery_required",
+            "wprism: database transaction outcome is uncertain: $context; recovery_required",
             0,
             $previous
         );
@@ -49,8 +49,8 @@ final class Db {
     private static function before(string $context): void {
         // Deterministic integration-test seam. Both switches are required so
         // a stray context variable can never affect a normal installation.
-        $targets = array_map('trim', explode(',', (string) getenv('DUO_TEST_FAIL_DB_CONTEXT')));
-        if (getenv('DUO_TEST_MODE') === '1'
+        $targets = array_map('trim', explode(',', (string) getenv('WPRISM_TEST_FAIL_DB_CONTEXT')));
+        if (getenv('WPRISM_TEST_MODE') === '1'
             && in_array($context, $targets, true)) {
             throw new DatabaseMutationException($context . ' (injected)');
         }
@@ -66,7 +66,7 @@ final class Db {
                 // snapshot. Keep the driver text out of the exception: it
                 // can contain rendered SQL values, while the caller-supplied
                 // operation context is enough to locate the failure.
-                throw new TransientDbException("duo: transient DB contention at $context");
+                throw new TransientDbException("wprism: transient DB contention at $context");
             }
             throw new DatabaseMutationException($context);
         }
@@ -521,7 +521,7 @@ final class Db {
     private static function throw_control_failure(string $context, string $driverError): never {
         if (stripos($driverError, 'Deadlock found') !== false
             || stripos($driverError, 'Lock wait timeout') !== false) {
-            throw new TransientDbException("duo: transient DB contention at $context");
+            throw new TransientDbException("wprism: transient DB contention at $context");
         }
         throw new DatabaseMutationException($context);
     }

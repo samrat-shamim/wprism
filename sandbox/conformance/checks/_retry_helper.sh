@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shared render-check retry helper. Converts the suspected-load-flake class
 # already documented twice — grind round R3-B's
-# aggregate-list-view timing under concurrent-pair contention, and DUO-3228
+# aggregate-list-view timing under concurrent-pair contention, and issue #3228
 # task 0's own fse run (the About-permalink render assertion failed once
 # under 3 concurrent pairs; the identical assertion, on the identical
 # commit, had passed cleanly minutes earlier under less contention;
@@ -30,9 +30,9 @@
 # forever would silently convert a genuine regression into "still warming
 # up," exactly the "green with warnings" posture DESIGN.md rejects.
 #
-# NOT wired into any checks/*.sh by DUO-3228, which added this file as
+# NOT wired into any checks/*.sh by issue #3228, which added this file as
 # shared infra per team-lead's request, since validating that change meant
-# re-touching the conf pair — out of this fixture's own footprint. DUO-3238
+# re-touching the conf pair — out of this fixture's own footprint. issue #3238
 # wired it into conformance/checks/fse.sh's front-page assertions (the file
 # that actually flaked) — see that file for the first real usage.
 # sandbox/tests/certify/certify_merge.sh still has no HTTP/render checks to apply
@@ -45,7 +45,7 @@ retry_render_check() { # retry_render_check <url> <check_fn> [attempts=2] [delay
     body=$(curl -fs "$url" 2>/dev/null) || body=""
     if [ -n "$body" ] && "$check_fn" "$body"; then
       if [ "$n" -gt 1 ]; then
-        printf '\033[1;33mnote: render check passed on retry %d/%d — load flake suspected (grind round R3-B, DUO-3228 task 0 precedent)\033[0m\n' "$n" "$attempts"
+        printf '\033[1;33mnote: render check passed on retry %d/%d — load flake suspected (grind round R3-B, issue #3228 task 0 precedent)\033[0m\n' "$n" "$attempts"
       fi
       return 0
     fi

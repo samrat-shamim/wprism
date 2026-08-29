@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: the {{home}}/{{uploads}} URL-prefix substitution is a pure text
+ * issue #3354: the {{home}}/{{uploads}} URL-prefix substitution is a pure text
  * seam. This suite deliberately loads it without WordPress, a database, or
  * a plugin and then proves that Tokens keeps only the historical
  * Ledger-backed facade around it.
@@ -16,10 +16,10 @@ function check(bool $condition, string $message): void {
 }
 
 require __DIR__ . '/../../../../agent/src/Kernel/TextTokenizer.php';
-check(!class_exists(\Duo\Ledger::class, false), 'tokenizer standalone load does not load Ledger');
+check(!class_exists(\WPrism\Ledger::class, false), 'tokenizer standalone load does not load Ledger');
 check(!function_exists('get_option'), 'tokenizer standalone load does not need WordPress');
 
-use Duo\TextTokenizer;
+use WPrism\TextTokenizer;
 
 $home = 'http://example.test';
 $uploads = 'http://example.test/wp-content/uploads';
@@ -72,7 +72,7 @@ check(
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 
-use Duo\Tokens;
+use WPrism\Tokens;
 
 if (!function_exists('get_option')) {
     function get_option($name, $default = false) {

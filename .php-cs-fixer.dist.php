@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * php-cs-fixer configuration for the Duo dev toolchain.
+ * php-cs-fixer configuration for the WPrism dev toolchain.
  *
  * This config exists to be run in --dry-run mode over *changed files only*
  * (see the `cs` / `cs:fix` composer scripts), for two reasons:
@@ -58,7 +58,7 @@ declare(strict_types=1);
  *     that intentionally do not have it. New files add it by hand instead.
  *   - single_quote and short array syntax are already the prevailing style.
  *   - no_unused_imports is the one rule that catches a real defect class here,
- *     since agent/src's 224 flat `namespace Duo;` files hand-maintain their
+ *     since agent/src's 260 module-contained `namespace WPrism;` files hand-maintain their
  *     own `use` lists alongside hand-written require_once chains.
  *
  * setRiskyAllowed(false) is the load-bearing line: no rule that can change
@@ -73,10 +73,10 @@ $roots = array_values(array_filter(
 $finder = PhpCsFixer\Finder::create()
     ->in(array_map(static fn (string $dir): string => __DIR__ . '/' . $dir, $roots))
     ->exclude(['vendor', 'sandbox'])
-    // cli/duo is a `#!/usr/bin/env php` executable with no extension; without
+    // cli/wprism is a `#!/usr/bin/env php` executable with no extension; without
     // this it would be the one first-party PHP entrypoint the fixer never saw.
     ->name('*.php')
-    ->name('duo')
+    ->name('wprism')
     ->ignoreDotFiles(true)
     ->ignoreVCS(true);
 
@@ -92,7 +92,7 @@ return (new PhpCsFixer\Config())
         'single_quote' => true,
         'array_syntax' => ['syntax' => 'short'],
         // House style, measured over the tree before enabling this config:
-        // `<?php` is immediately followed by `namespace Duo;` (no blank line),
+        // `<?php` is immediately followed by `namespace WPrism;` (no blank line),
         // and 219/224 agent classes plus every function put the opening brace
         // on the same line. PSR-12's brace/blank-line rules would flag 321 of
         // 333 first-party files on their first unrelated edit. These five are

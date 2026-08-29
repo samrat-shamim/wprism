@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 require_once __DIR__ . '/AdapterChangeScope.php';
 
@@ -18,7 +18,7 @@ require_once __DIR__ . '/AdapterChangeScope.php';
  * @phpstan-import-type ScopeResult from AdapterChangeScope
  * @phpstan-import-type ScenarioGate from AdapterChangeScope
  * @phpstan-type Decision array{
- *     format:'duo-adapter-change-scope/v1',
+ *     format:'wprism-adapter-change-scope/v1',
  *     gate:'adapter'|'full',
  *     adapter:?string,
  *     command:non-empty-list<string>,
@@ -29,7 +29,7 @@ require_once __DIR__ . '/AdapterChangeScope.php';
  */
 final class AdapterChangeScopeDecision
 {
-    public const FORMAT = 'duo-adapter-change-scope/v1';
+    public const FORMAT = 'wprism-adapter-change-scope/v1';
     public const GATE_ADAPTER = 'adapter';
     public const GATE_FULL = 'full';
 

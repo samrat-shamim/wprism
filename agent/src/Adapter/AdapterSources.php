@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // The § v3.9 namespace grammar is part of the out-of-tree contract below and
 // is required at file scope rather than lazily: IdentityNamespaces requires
@@ -8,13 +8,13 @@ namespace Duo;
 // not otherwise share a require.
 require_once __DIR__ . '/IdentityNamespaces.php';
 // The object-based shipped source owns package paths; direct partial loads of
-// this scanner cannot rely on Policy.php or agent/duo.php to have loaded it.
+// this scanner cannot rely on Policy.php or agent/wprism.php to have loaded it.
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 
 /**
  * Where each pinned adapter came from, and what that origin is allowed to do.
  *
- * Until DUO-3314 the engine knew exactly one adapter source: the manifest
+ * Until issue #3314 the engine knew exactly one adapter source: the manifest
  * directory that ships and mounts with the agent. Every identity check hung off
  * that assumption — including a whole-directory disposition coverage check that
  * required the shipped *.json set and the reviewed set to match one-for-one on
@@ -35,8 +35,8 @@ require_once __DIR__ . '/../Policy/AdapterLibrary.php';
  *     and the only source whose code the engine will load.
  *   - `site` — `<repo>/adapters/<name>.json`. Authored by the operator, in the
  *     operator's own repository, and travelling with it.
- *   - `plugin` — `<plugin-dir>/duo-adapter.json`, bundled by an ACTIVE plugin
- *     (DUO-3339). Third-party content that arrives, and changes, through a
+ *   - `plugin` — `<plugin-dir>/wprism-adapter.json`, bundled by an ACTIVE plugin
+ *     (issue #3339). Third-party content that arrives, and changes, through a
  *     plugin update the operator did not author.
  *
  * A site or plugin manifest OVERLAYS the shipped set — they are additional
@@ -56,12 +56,12 @@ require_once __DIR__ . '/../Policy/AdapterLibrary.php';
  *
  *    The ONE exception, added in round-3 T6 §3.3, changes who decides rather
  *    than whether anybody does: an explicit `{name, source: "site", digest}`
- *    pin in site.duo.json selects the site copy for that shipped name. The
+ *    pin in site.wprism.json selects the site copy for that shipped name. The
  *    shipped copy is then reported `shadowed_by_site` in `not_installed` and
  *    excluded from the loaded set, so exactly one definition answers to the
  *    name and CrossManifestGuards see no manufactured conflict. Everything
  *    that made the old rule safe is intact: a name-only pin still overrides
- *    nothing, an unreadable site.duo.json yields no overrides and the refusal
+ *    nothing, an unreadable site.wprism.json yields no overrides and the refusal
  *    stands, the digest's VALUE is still compared by the engine, and a site
  *    copy never inherits the shipped adapter's certification — it carries the
  *    site's own words and can never read Platform-certified.
@@ -74,7 +74,7 @@ require_once __DIR__ . '/../Policy/AdapterLibrary.php';
  *    and a pin that writes down `source: "plugin"` for that name still refuses
  *    loudly through PinResolver::validate_manifest_sources(). Refusing the whole
  *    scan instead — the site source's rule — would mean that the day a popular
- *    plugin starts shipping a `duo-adapter.json` whose name this project also
+ *    plugin starts shipping a `wprism-adapter.json` whose name this project also
  *    ships, every site running that plugin loses every command through an
  *    automatic plugin update its operator never performed. The site source can
  *    defend whole-scan refusal because `adapters/` is operator-authored;
@@ -91,7 +91,7 @@ require_once __DIR__ . '/../Policy/AdapterLibrary.php';
  *    scan — that adapter is not installed, and the walk continues. The refusal
  *    becomes fatal exactly when somebody pinned it: file() throws the refusal's
  *    own message and remediation instead of a generic not-found. Unpinned
- *    refusals are reported by `wp duo adapter-survey` and `duo adapter
+ *    refusals are reported by `wp wprism adapter-survey` and `wprism adapter
  *    list|doctor`.
  *
  * 4. **A data-only manifest acquires no executable privileges.** The three
@@ -129,17 +129,17 @@ final class AdapterSources {
     /**
      * v2 adds externally signed certification envelopes for site adapters, and
      * is now the only wire generation. v1 retired with the
-     * duo-policy-snapshot/v4 envelope that was its sole carrier — Policy::
+     * wprism-policy-snapshot/v4 envelope that was its sole carrier — Policy::
      * from_snapshot() was the one caller of from_snapshot() below, so nothing
      * else could ever present a v1 record.
      */
-    public const FORMAT = 'duo-adapter-sources/v2';
+    public const FORMAT = 'wprism-adapter-sources/v2';
 
     /** The agent's own manifest library — the historical single source. */
     public const SHIPPED = 'shipped';
     /** `<repo>/adapters/` — installed by the site, travels in the site repo. */
     public const SITE = 'site';
-    /** `<plugin-dir>/duo-adapter.json` — bundled by an active plugin (DUO-3339). */
+    /** `<plugin-dir>/wprism-adapter.json` — bundled by an active plugin (issue #3339). */
     public const PLUGIN = 'plugin';
 
     public const SITE_DIR = 'adapters';
@@ -152,11 +152,11 @@ final class AdapterSources {
      * directories and let one plugin install N adapters; one-to-one is the
      * shape this file already uses for certificates (certification_files())
      * and the shape AdapterCertification::bundleFile() requires of a bundle.
-     * The `duo-` prefix namespaces it exactly as site.duo.json and
-     * .duo-envs.json do, so the scan never has an opinion about a name a
+     * The `wprism-` prefix namespaces it exactly as site.wprism.json and
+     * .wprism-envs.json do, so the scan never has an opinion about a name a
      * plugin author could reasonably have chosen for something else.
      */
-    public const PLUGIN_FILE = 'duo-adapter.json';
+    public const PLUGIN_FILE = 'wprism-adapter.json';
     /**
      * The provenance prefix for a bundled adapter, and it is load-bearing: a
      * plugin whose directory is literally named `adapters` would otherwise
@@ -176,7 +176,7 @@ final class AdapterSources {
     public const TIER_COMPATIBILITY_SHIM = 'compatibility_shim';
 
     /**
-     * A stable code for every condition the scan refuses (DUO-3339).
+     * A stable code for every condition the scan refuses (issue #3339).
      *
      * Minted HERE rather than in the reporting layer, and for the same reason
      * the refusal messages live here: one scan produces both the load-time
@@ -197,7 +197,7 @@ final class AdapterSources {
     public const REFUSAL_CASE_COLLISION = 'case_collision';
     public const REFUSAL_MALFORMED_MANIFEST = 'malformed_manifest';
     /**
-     * The four conditions DUO-3314's signed-certification pass added to this
+     * The four conditions issue #3314's signed-certification pass added to this
      * scan. They are codes here for the same reason the nine above are: every
      * one of them is a whole-directory refusal, so an operator who hits one
      * cannot run any other command to find out which file caused it.
@@ -210,14 +210,14 @@ final class AdapterSources {
     /**
      * The site repository's own policy file, which every grammar verdict
      * loads. Not one of the scan's conditions at all — discover() never reads
-     * site.duo.json, Policy::load() opens it first — so it is a survey-only
+     * site.wprism.json, Policy::load() opens it first — so it is a survey-only
      * refusal, kept here because a consumer grouping refusal codes should not
      * have to know which layer produced one.
      */
     public const REFUSAL_SITE_POLICY_UNREADABLE = 'site_policy_unreadable';
 
     /**
-     * The two conditions DUO-3339's plugin source adds, both of which exist
+     * The two conditions issue #3339's plugin source adds, both of which exist
      * only because that source has no reviewed owner to arbitrate between two
      * claims:
      *
@@ -239,7 +239,7 @@ final class AdapterSources {
      * mode 0711 (search without read) is the ordinary way to reach it. It is
      * a refusal rather than a shrug because the thing that could not be read
      * is the evidence: without the directory listing, the near-miss sweep
-     * cannot prove a plugin bundles exactly ONE `duo-adapter.json`, so
+     * cannot prove a plugin bundles exactly ONE `wprism-adapter.json`, so
      * installing the one file that happens to be openable would be asserting
      * something nobody checked.
      */
@@ -291,8 +291,8 @@ final class AdapterSources {
      * an installed typed revocation document whose signer this agent does not
      * hold, which grants nothing and must not be mistaken for a channel that is
      * working. blocking_refusals() keeps SCOPE_SOURCE as the only blocking word,
-     * so a library row suppresses no verdict; it still makes `duo adapter
-     * doctor` and `wp duo adapter-survey` exit 1, because "installed and inert"
+     * so a library row suppresses no verdict; it still makes `wprism adapter
+     * doctor` and `wp wprism adapter-survey` exit 1, because "installed and inert"
      * is precisely the state an operator has to be told about and cannot
      * discover any other way.
      */
@@ -380,7 +380,7 @@ final class AdapterSources {
     public const WITHDRAWN_AUTHORITY_REVOKED = 'authority_revoked';
 
     /**
-     * A surveyed adapter's grammar verdict (DUO-3339).
+     * A surveyed adapter's grammar verdict (issue #3339).
      *
      * `blocked_by_source_refusal` is a third word rather than an `error`
      * because the two are different facts and only one of them is about this
@@ -392,7 +392,7 @@ final class AdapterSources {
      * much is broken.
      */
     /**
-     * A site adapter's certification word, which is DUO-3314's vocabulary plus
+     * A site adapter's certification word, which is issue #3314's vocabulary plus
      * one honest gap. `certification_unjudged` is the same shape as
      * `blocked_by_source_refusal` above and exists for the same reason: when
      * the certification source itself is refused, NO companion certificate is
@@ -410,9 +410,9 @@ final class AdapterSources {
      * different questions about the same valid signature: `third_party_signed`
      * means a root this AGENT reviews vouched for the adapter, and
      * `site_signed` means the customer organization vouched for its own — the
-     * product spec's `Site-certified`, "explicitly not a Duo endorsement".
-     * Collapsing them would let a projection print a Duo endorsement for an
-     * adapter Duo never saw, which is the one claim this vocabulary exists to
+     * product spec's `Site-certified`, "explicitly not a WPrism endorsement".
+     * Collapsing them would let a projection print a WPrism endorsement for an
+     * adapter WPrism never saw, which is the one claim this vocabulary exists to
      * keep separable.
      */
     public const CERTIFICATION_SITE_SIGNED = 'site_signed';
@@ -568,7 +568,7 @@ final class AdapterSources {
      * Scan every installed source and refuse ambiguity before a single pin is
      * resolved. Whole-directory rather than pin-scoped on purpose: an adapter
      * that shadows a shipped one is a broken installation whether or not this
-     * particular site.duo.json happens to pin it, and the operator should learn
+     * particular site.wprism.json happens to pin it, and the operator should learn
      * that from the next command rather than from the first command that pins
      * it. Deliberately NOT the discipline disposition coverage takes: a
      * shadowed name is a broken INSTALLATION, while an unreviewed manifest is
@@ -699,7 +699,7 @@ final class AdapterSources {
             $siteDir = $root . '/' . self::SITE_DIR;
             $files = array_merge(
                 $files,
-                [$root . '/site.duo.json'],
+                [$root . '/site.wprism.json'],
                 glob($siteDir . '/*.json') ?: [],
                 glob($siteDir . '/' . self::CERTIFICATION_DIR . '/*.json') ?: []
             );
@@ -766,11 +766,11 @@ final class AdapterSources {
         if ($repo !== null) {
             $root = rtrim($repo, '/');
             $siteDir = $root . '/' . self::SITE_DIR;
-            // site.duo.json: read by override_pins() below, and by nothing
+            // site.wprism.json: read by override_pins() below, and by nothing
             // else in this scan — the one exception discover() makes to never
             // opening the site's own policy file.
             $anchors = array_merge($anchors, [
-                $root . '/site.duo.json',
+                $root . '/site.wprism.json',
                 $siteDir,
                 $siteDir . '/' . self::CERTIFICATION_DIR,
             ]);
@@ -869,7 +869,7 @@ final class AdapterSources {
                         self::SHIPPED,
                         self::REFUSAL_MALFORMED_MANIFEST,
                         [(string) $origin['path']],
-                        "duo: shipped adapter '{$origin['path']}' cannot be read as a manifest: " . $read['error'],
+                        "wprism: shipped adapter '{$origin['path']}' cannot be read as a manifest: " . $read['error'],
                         self::repair_advice($read['stage'])
                         . ', or restore it from the agent release this library shipped with'
                     );
@@ -1007,7 +1007,7 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
                     [$siteDir],
-                    "duo: site adapter source $siteDir exists but is not a real directory — "
+                    "wprism: site adapter source $siteDir exists but is not a real directory — "
                     . 'the repository-owned adapters boundary must be absent or an ordinary directory; '
                     . 'move the foreign entry before loading policy',
                     'remove the foreign adapters entry or replace it with an ordinary repository directory'
@@ -1028,8 +1028,8 @@ final class AdapterSources {
                 self::SITE,
                 self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
                 [$siteDir],
-                "duo: site adapter source $siteDir is not readable — "
-                . 'Duo cannot prove which repository-owned adapters are installed; restore directory read access',
+                "wprism: site adapter source $siteDir is not readable — "
+                . 'WPrism cannot prove which repository-owned adapters are installed; restore directory read access',
                 'restore directory read access before loading site adapters'
             );
             return;
@@ -1060,7 +1060,7 @@ final class AdapterSources {
                 self::SITE,
                 self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
                 [$siteDir],
-                "duo: site adapter source $siteDir resolves to "
+                "wprism: site adapter source $siteDir resolves to "
                 . ($resolvedSite === false ? '(unresolvable)' : $resolvedSite)
                 . ', which is not ' . ($expectedSite !== '' ? $expectedSite : "this repository's own "
                     . self::SITE_DIR . ' directory')
@@ -1107,7 +1107,7 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_RESERVED_NAME,
                     [self::SITE_DIR . '/' . $entry],
-                    "duo: site adapter source $siteDir contains $entry — a site-local adapter source cannot supply "
+                    "wprism: site adapter source $siteDir contains $entry — a site-local adapter source cannot supply "
                     . "$what for itself. Certification is external review evidence held with the agent's own "
                     . 'manifest library; remove the file and treat these adapters as uncertified support',
                     "remove $entry from " . self::SITE_DIR
@@ -1127,7 +1127,7 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_RESERVED_NAME,
                     [self::SITE_DIR . '/' . $codeDir],
-                    "duo: site adapter source $siteDir contains $codeDir, which the engine never loads — "
+                    "wprism: site adapter source $siteDir contains $codeDir, which the engine never loads — "
                     . 'out-of-tree adapters are data only. Install the adapter into the agent manifest library if it '
                     . 'genuinely needs to ship executable code, or declare a plugin-owned provider instead',
                     "remove $codeDir from " . self::SITE_DIR . '/, install the adapter into the agent manifest '
@@ -1138,7 +1138,7 @@ final class AdapterSources {
         self::assert_flat_json_source($siteDir, $collect, $refusals);
 
         $shippedNames = $declaredNames();
-        // THE OVERRIDE SET, and the one place this scan reads site.duo.json.
+        // THE OVERRIDE SET, and the one place this scan reads site.wprism.json.
         //
         // discover() otherwise never opens that file (Policy::load() does, and
         // throws its own message), and the reason to make an exception here is
@@ -1149,7 +1149,7 @@ final class AdapterSources {
         // had no path that did not fork the shipped manifest library.
         //
         // Read through surveyed_pins(), which fails CLOSED: an unreadable or
-        // malformed site.duo.json yields no overrides, so the existing
+        // malformed site.wprism.json yields no overrides, so the existing
         // shadows_shipped refusal stands and a broken policy file can never
         // silently swap a definition. Only a pin object that NAMES the source
         // counts; a name-only pin is not a review (see override_pins() for why
@@ -1164,8 +1164,8 @@ final class AdapterSources {
                 self::SITE,
                 self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
                 [$siteDir],
-                "duo: site adapter source $siteDir could not be enumerated — "
-                . 'Duo refuses to treat an unreadable repository-owned adapter source as empty',
+                "wprism: site adapter source $siteDir could not be enumerated — "
+                . 'WPrism refuses to treat an unreadable repository-owned adapter source as empty',
                 'restore directory enumeration/read access before loading site adapters'
             );
             return;
@@ -1267,14 +1267,14 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_SHADOWS_SHIPPED,
                     [$relative, (string) $collision['path']],
-                    'duo: site adapter ' . self::render($relative) . " shadows the shipped adapter '$name' "
+                    'wprism: site adapter ' . self::render($relative) . " shadows the shipped adapter '$name' "
                     . "({$collision['file']}) — "
                     . 'an out-of-tree adapter overlays the shipped set; it replaces a member of it only when '
-                    . 'site.duo.json says so with an explicit {name, source: "site"} pin (the override). Rename the '
+                    . 'site.wprism.json says so with an explicit {name, source: "site"} pin (the override). Rename the '
                     . 'site adapter, remove it and pin the shipped adapter, or state the override: '
-                    . "duo adapter pin <site-repo> --name=$name --source=site",
+                    . "wprism adapter pin <site-repo> --name=$name --source=site",
                     "rename the site adapter, remove it and pin the shipped '$name', or state the override "
-                    . "(duo adapter pin <site-repo> --name=$name --source=site)"
+                    . "(wprism adapter pin <site-repo> --name=$name --source=site)"
                 );
                 // Every per-file refusal below ends the same way in collect
                 // mode: the file is not an installable adapter, so it gets a
@@ -1293,7 +1293,7 @@ final class AdapterSources {
                 $notInstalled[] = [
                     'message' => "adapter '$name' is shipped at " . (string) $collision['path']
                         . ', but this repository explicitly pins the site copy for that name '
-                        . '({name, source: "site", digest} in site.duo.json), so the shipped definition is not '
+                        . '({name, source: "site", digest} in site.wprism.json), so the shipped definition is not '
                         . 'loaded. Remove that pin to go back to the reviewed adapter; the site copy carries the '
                         . "site's own certification words and is never Platform-certified",
                     'name' => $name,
@@ -1309,13 +1309,13 @@ final class AdapterSources {
                 unset($origins[$name], $manifests[$name]);
                 $overridden[$name] = true;
             }
-            // TWO BEHAVIORAL DELTAS, stated rather than buried (DUO-3339).
+            // TWO BEHAVIORAL DELTAS, stated rather than buried (issue #3339).
             // Both live at this call, and every OTHER refusal message in this
             // scan is byte-identical to what discover() threw before.
             //
             // 1. An unreadable or unparseable site manifest used to propagate
-            //    Canon's own bare exception out of discover() — "duo: cannot
-            //    read <path>" or "duo: invalid JSON: <reason>", naming no
+            //    Canon's own bare exception out of discover() — "wprism: cannot
+            //    read <path>" or "wprism: invalid JSON: <reason>", naming no
             //    adapter source. It is now wrapped so the message names the
             //    file AS a site adapter, which is what makes it reportable as
             //    a row beside the other refusals.
@@ -1337,7 +1337,7 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_MALFORMED_MANIFEST,
                     [$relative],
-                    'duo: site adapter ' . self::render($relative) . ' cannot be read as a manifest: '
+                    'wprism: site adapter ' . self::render($relative) . ' cannot be read as a manifest: '
                     . $read['error'],
                     self::repair_advice($read['stage']) . ', or remove it from ' . self::SITE_DIR . '/'
                 );
@@ -1370,7 +1370,7 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_NAME_COLLISION,
                     [$relative, self::SHIPPED . ':' . $shippedNames[$name]],
-                    'duo: site adapter ' . self::render($relative) . " claims the name '$name', already "
+                    'wprism: site adapter ' . self::render($relative) . " claims the name '$name', already "
                     . 'declared by the shipped manifest '
                     . "'{$shippedNames[$name]}' — two adapters cannot answer to one name",
                     "choose a name no shipped manifest declares, or pin the shipped '{$shippedNames[$name]}' instead"
@@ -1396,7 +1396,7 @@ final class AdapterSources {
                         self::SITE,
                         self::REFUSAL_CASE_COLLISION,
                         [$relative, (string) $otherOrigin['path']],
-                        "duo: site adapter '$relative' claims the name " . self::render($name)
+                        "wprism: site adapter '$relative' claims the name " . self::render($name)
                         . ', which differs only by letter case from the ' . $otherOrigin['source'] . ' adapter '
                         . self::render((string) $otherName) . " ({$otherOrigin['path']}) — one name on a "
                         . 'case-insensitive filesystem, two on a case-sensitive one. Choose a name that is '
@@ -1418,7 +1418,7 @@ final class AdapterSources {
                         self::SITE,
                         self::REFUSAL_CASE_COLLISION,
                         [$relative, self::SHIPPED . ':' . $declaringFile],
-                        "duo: site adapter '$relative' claims the name " . self::render($name)
+                        "wprism: site adapter '$relative' claims the name " . self::render($name)
                         . ', which differs only by letter case from the name ' . self::render((string) $declaredName)
                         . " declared by the shipped manifest '$declaringFile' — one name on a case-insensitive "
                         . 'filesystem, two on a case-sensitive one. Choose a name that is distinct without '
@@ -1435,9 +1435,8 @@ final class AdapterSources {
             // The § v3.9 namespace rule, asked here only so the reported row
             // carries `reserved_namespace` and its own remediation; the
             // condition is enforced for every out-of-tree entry point inside
-            // assert_out_of_tree_contract() just below. Inert on every manifest
-            // below `spec_version` 3, which is all of them while
-            // DUO_SPEC_VERSION is 2.
+            // assert_out_of_tree_contract() just below. It is inert for an
+            // accepted v2 manifest and active for this engine's v3 manifests.
             if (!self::guarded(
                 $collect,
                 $refusals,
@@ -1523,7 +1522,7 @@ final class AdapterSources {
                         // docs/guides/adapter-authoring.md an edit "moves the
                         // digest and the claim drops back to uncertified" — the
                         // same uncertified state a companion-absent site adapter
-                        // resolves to below, which `duo adapter certify --pin`
+                        // resolves to below, which `wprism adapter certify --pin`
                         // then re-establishes. Not a refusal: the adapter simply
                         // loses its certified grants until it is re-signed.
                         $superseded = true;
@@ -1534,7 +1533,7 @@ final class AdapterSources {
                         // which every signed statement binds byte for byte. A
                         // whole-source refusal here took every command on the
                         // site with it —
-                        // including the `duo adapter certify --pin` that repairs
+                        // including the `wprism adapter certify --pin` that repairs
                         // it — for a condition no site caused and no operator
                         // could see. One adapter loses its certified grants; the
                         // unrelated adapters this site pins are untouched.
@@ -1612,7 +1611,7 @@ final class AdapterSources {
      *
      * WP_PLUGIN_DIR is a define(), so a process cannot be made to see two
      * plugin directories: multi-fixture testing of this source is child
-     * processes by construction, which is what the DUO-3339 suite does.
+     * processes by construction, which is what the issue #3339 suite does.
      *
      * @return ?array{active:list<string>, dir:string}
      */
@@ -1642,7 +1641,7 @@ final class AdapterSources {
     }
 
     /**
-     * The plugin half of the scan: `<plugin-dir>/duo-adapter.json`, bundled by
+     * The plugin half of the scan: `<plugin-dir>/wprism-adapter.json`, bundled by
      * an ACTIVE plugin.
      *
      * Two rules govern every line below, both argued in this class's header:
@@ -1681,7 +1680,7 @@ final class AdapterSources {
         if ($source === null) {
             $sources[] = [
                 'note' => 'plugin source not scanned (no WP_PLUGIN_DIR in this process) — a bundled adapter is '
-                    . 'discoverable only on the target itself; run `wp duo adapter-survey` there',
+                    . 'discoverable only on the target itself; run `wp wprism adapter-survey` there',
                 'path' => null,
                 'scanned' => false,
                 'source' => self::PLUGIN,
@@ -1699,7 +1698,7 @@ final class AdapterSources {
             'source' => self::PLUGIN,
         ];
 
-        // A duo-adapter.json at the plugins directory ROOT belongs to no
+        // A wprism-adapter.json at the plugins directory ROOT belongs to no
         // plugin: there is no owning basename to anchor it to, no version to
         // bound it by, and no activation that consented to it. Single-file
         // plugins land in the same place and are refused for the same reason —
@@ -1713,7 +1712,7 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_RESERVED_NAME,
                 [self::PLUGIN_PATH_PREFIX . '/' . self::PLUGIN_FILE],
-                'duo: the plugins directory itself contains ' . self::PLUGIN_PATH_PREFIX . '/' . self::PLUGIN_FILE
+                'wprism: the plugins directory itself contains ' . self::PLUGIN_PATH_PREFIX . '/' . self::PLUGIN_FILE
                 . ' — a bundled adapter is exactly one ' . self::PLUGIN_FILE . ' at the root of the plugin that '
                 . 'owns it, and a file at the plugins root is owned by no plugin, anchored to no basename, and '
                 . 'bounded by no plugin version. A single-file plugin has no directory of its own and cannot '
@@ -1809,7 +1808,7 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_SOURCE_COLLISION,
                     $paths,
-                    'duo: the active plugins ' . implode(' and ', array_map(
+                    'wprism: the active plugins ' . implode(' and ', array_map(
                         static fn(string $p): string => self::render($p),
                         $plugins
                     )) . " each bundle an adapter named '$name' (" . implode(', ', array_map(
@@ -1881,7 +1880,7 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_CASE_COLLISION,
                     [(string) $claimant['path'], (string) $confusable['path']],
-                    'duo: plugin adapter ' . self::render((string) $claimant['path']) . ' claims the name '
+                    'wprism: plugin adapter ' . self::render((string) $claimant['path']) . ' claims the name '
                     . self::render($name)
                     . ', which differs only by letter case from the ' . $confusable['source'] . ' adapter ('
                     . $confusable['path'] . ') — one name on a case-insensitive filesystem, two on a '
@@ -1976,10 +1975,10 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_SOURCE_UNREADABLE,
                     [self::PLUGIN_PATH_PREFIX . '/'],
-                    'duo: the plugins directory ' . self::render($dir) . ' cannot be enumerated (it is not '
-                    . 'readable by the user running duo), so installed-but-inactive bundles could not be listed. '
+                    'wprism: the plugins directory ' . self::render($dir) . ' cannot be enumerated (it is not '
+                    . 'readable by the user running wprism), so installed-but-inactive bundles could not be listed. '
                     . 'Every ACTIVE plugin was still scanned by name',
-                    'make the plugins directory readable by the user running duo, or ignore this if the '
+                    'make the plugins directory readable by the user running wprism, or ignore this if the '
                     . 'inactive listing is not wanted'
                 );
             }
@@ -2005,14 +2004,14 @@ final class AdapterSources {
     }
 
     /**
-     * Whether `<plugin>/duo-adapter.json` exists as something this scan has an
+     * Whether `<plugin>/wprism-adapter.json` exists as something this scan has an
      * opinion about.
      *
      * `is_link()` is included so a symlinked bundle becomes a CANDIDATE and is
      * then refused by name, rather than being skipped as absent — the refusal
      * is the point. A DIRECTORY under that name is included for the same
      * reason: `is_file()` alone silently passed it over, so a plugin whose
-     * author made `duo-adapter.json` a directory installed nothing and was
+     * author made `wprism-adapter.json` a directory installed nothing and was
      * told nothing, which is exactly the silence this source refuses.
      */
     private static function bundle_present(string $file): bool {
@@ -2020,13 +2019,13 @@ final class AdapterSources {
     }
 
     /**
-     * Prove that `<plugin>/duo-adapter.json` is a real, regular file inside the
+     * Prove that `<plugin>/wprism-adapter.json` is a real, regular file inside the
      * plugin that owns it — before anything reads a byte of it.
      *
      * A symlinked PLUGIN DIRECTORY is accepted: development checkouts symlink
      * plugin directories as a matter of course, and both sides are resolved
      * exactly as Providers::plugin_anchor_problem() resolves them. A symlinked
-     * or otherwise escaping `duo-adapter.json` is not, because the bundle would
+     * or otherwise escaping `wprism-adapter.json` is not, because the bundle would
      * then be authored somewhere the plugin's own version, update, and review
      * story does not reach.
      *
@@ -2055,7 +2054,7 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_SYMLINK_SOURCE,
                 [$relative],
-                'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles '
+                'wprism: the plugin ' . self::render($candidate['plugin']) . ' bundles '
                 . self::render($relative) . ' as '
                 . (is_link($file)
                     ? 'a symbolic link (-> ' . self::render(readlink($file) ?: '?') . ')'
@@ -2077,10 +2076,10 @@ final class AdapterSources {
      * row already recorded.
      *
      * The near-miss sweep runs FIRST and only inside this project's own
-     * `duo-` namespace. A plugin root is third-party territory: refusing a
+     * `wprism-` namespace. A plugin root is third-party territory: refusing a
      * plugin over a file whose name this project never claimed would be the
      * exact overreach the per-adapter refusal scope exists to avoid, while a
-     * `duo-adapters.json` or a `duo-adapter.JSON` is unambiguously an attempt
+     * `wprism-adapters.json` or a `wprism-adapter.JSON` is unambiguously an attempt
      * to bundle an adapter that the engine would otherwise silently never
      * load.
      *
@@ -2101,7 +2100,7 @@ final class AdapterSources {
         $pluginDir = dirname($candidate['file']);
         $ok = true;
         // The near-miss set is EVIDENCE, not decoration: it is what proves this
-        // plugin bundles exactly one duo-adapter.json. A directory that cannot
+        // plugin bundles exactly one wprism-adapter.json. A directory that cannot
         // be enumerated has not produced that proof, so the adapter is refused
         // rather than installed on the strength of the one file that happened
         // to be openable through search permission.
@@ -2113,19 +2112,19 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_SOURCE_UNREADABLE,
                 [$relative],
-                'duo: the plugin directory ' . self::render(self::PLUGIN_PATH_PREFIX . '/' . $candidate['dir'])
-                . ' cannot be enumerated (it is not readable by the user running duo), so this scan cannot prove '
+                'wprism: the plugin directory ' . self::render(self::PLUGIN_PATH_PREFIX . '/' . $candidate['dir'])
+                . ' cannot be enumerated (it is not readable by the user running wprism), so this scan cannot prove '
                 . 'the plugin bundles exactly one ' . self::PLUGIN_FILE . ' — a directory that is searchable but '
                 . 'not readable can hide a second, near-miss bundle beside the one file that opens. Installing on '
                 . 'that basis would assert something nobody checked',
-                'make the plugin directory readable by the user running duo, or install the adapter as a site '
+                'make the plugin directory readable by the user running wprism, or install the adapter as a site '
                     . 'adapter at ' . self::SITE_DIR . '/<name>.json'
             );
             return null;
         }
         foreach ($entries as $entry) {
             $folded = self::casefold($entry);
-            if ($entry === self::PLUGIN_FILE || !str_starts_with($folded, 'duo-adapter')) {
+            if ($entry === self::PLUGIN_FILE || !str_starts_with($folded, 'wprism-adapter')) {
                 continue;
             }
             $entryPath = self::PLUGIN_PATH_PREFIX . '/' . $candidate['dir'] . '/' . $entry;
@@ -2139,7 +2138,7 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_CERTIFICATION_SOURCE,
                     [$entryPath],
-                    'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles '
+                    'wprism: the plugin ' . self::render($candidate['plugin']) . ' bundles '
                     . self::render($entry) . ' beside its adapter — a '
                     . 'plugin-bundled adapter cannot carry its own certification. Certification is a '
                     . 'repository-scoped signed companion at ' . self::SITE_DIR . '/' . self::CERTIFICATION_DIR
@@ -2165,7 +2164,7 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_EXTENSION_CASE_MISMATCH,
                     [$entryPath],
-                    'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles '
+                    'wprism: the plugin ' . self::render($candidate['plugin']) . ' bundles '
                     . self::render($entry) . ", whose extension is not exactly '.json' — it would load on a "
                     . 'case-insensitive filesystem and disappear on a case-sensitive one, so the same plugin '
                     . 'would install an adapter on one host and none on another. Rename it to use a lowercase '
@@ -2181,9 +2180,9 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_RESERVED_NAME,
                 [$entryPath],
-                'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles ' . self::render($entry)
+                'wprism: the plugin ' . self::render($candidate['plugin']) . ' bundles ' . self::render($entry)
                 . ", which is in this engine's reserved "
-                . '`duo-adapter` namespace but is not the one file a plugin may bundle. A plugin installs exactly '
+                . '`wprism-adapter` namespace but is not the one file a plugin may bundle. A plugin installs exactly '
                 . 'one adapter, from exactly one ' . self::PLUGIN_FILE . ' at its own root, so anything else in '
                 . 'that namespace is bytes the engine will never read',
                 'remove it, or make it the single ' . self::PLUGIN_FILE . ' this plugin bundles'
@@ -2202,7 +2201,7 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_MALFORMED_MANIFEST,
                 [$relative],
-                'duo: plugin adapter ' . self::render($relative) . ' cannot be read as a manifest: '
+                'wprism: plugin adapter ' . self::render($relative) . ' cannot be read as a manifest: '
                 . $read['error'],
                 self::repair_advice($read['stage']) . ', or remove it from the plugin'
             );
@@ -2226,7 +2225,7 @@ final class AdapterSources {
             static function () use ($declared, $relative): void {
                 if (!is_string($declared)) {
                     throw new \RuntimeException(
-                        'duo: plugin adapter ' . self::render($relative) . ' declares name '
+                        'wprism: plugin adapter ' . self::render($relative) . ' declares name '
                         . self::render($declared)
                         . ' — a bundled adapter is named by its manifest, never by its file name (every bundle is '
                         . 'called ' . self::PLUGIN_FILE . '), so a missing or non-string `name` leaves it with no '
@@ -2235,7 +2234,7 @@ final class AdapterSources {
                 }
                 if ($declared === 'dispositions') {
                     throw new \RuntimeException(
-                        'duo: plugin adapter ' . self::render($relative) . ' declares the reserved name '
+                        'wprism: plugin adapter ' . self::render($relative) . ' declares the reserved name '
                         . "'dispositions', which names the shipped library's reviewed certification data "
                         . 'rather than an adapter'
                     );
@@ -2264,7 +2263,7 @@ final class AdapterSources {
             static function () use ($manifest, $candidate, $relative, &$anchored): void {
                 if (!array_key_exists('plugin', $manifest)) {
                     throw new \RuntimeException(
-                        'duo: plugin adapter ' . self::render($relative) . ' declares no `plugin` — a bundled '
+                        'wprism: plugin adapter ' . self::render($relative) . ' declares no `plugin` — a bundled '
                         . 'adapter must name the '
                         . 'plugin that owns it (' . self::render($candidate['plugin']) . '), because that claim '
                         . 'is the only thing anchoring the manifest to the code it ships with, and it is what a '
@@ -2288,7 +2287,7 @@ final class AdapterSources {
                 // first.
                 if (!in_array($anchored, $candidate['plugins'], true)) {
                     throw new \RuntimeException(
-                        'duo: plugin adapter ' . self::render($relative) . ' declares plugin '
+                        'wprism: plugin adapter ' . self::render($relative) . ' declares plugin '
                         . self::render($anchored)
                         . ', but it is bundled by ' . implode(' / ', array_map(
                             static fn(string $p): string => self::render($p),
@@ -2404,19 +2403,19 @@ final class AdapterSources {
     /** The action each read_manifest() failure stage actually calls for. */
     private static function repair_advice(string $stage): string {
         return match ($stage) {
-            'read' => 'make the file readable by the user running duo',
+            'read' => 'make the file readable by the user running wprism',
             'shape' => "replace the file's contents with a JSON object",
             default => 'repair the file so it parses as JSON',
         };
     }
 
     /**
-     * Drop one leading `duo: ` from a nested engine message, so a wrapped
-     * refusal does not read `duo: … : duo: …`. Only the prefix is touched;
+     * Drop one leading `wprism: ` from a nested engine message, so a wrapped
+     * refusal does not read `wprism: … : wprism: …`. Only the prefix is touched;
      * the engine's own wording is never edited.
      */
     private static function unprefixed(string $message): string {
-        return str_starts_with($message, 'duo: ') ? substr($message, strlen('duo: ')) : $message;
+        return str_starts_with($message, 'wprism: ') ? substr($message, strlen('wprism: ')) : $message;
     }
 
     /**
@@ -2493,7 +2492,7 @@ final class AdapterSources {
      * refuse(), for a condition that is expressed as a THROWING assertion
      * rather than as an `if`.
      *
-     * DUO-3314's signed-certification pass added several of those to this scan
+     * issue #3314's signed-certification pass added several of those to this scan
      * (canonical identity grammar, the out-of-tree privilege boundary, the
      * certification directory's own shape, and the signature verification
      * itself), each written as an `assert_*`/`verify*` call that throws. In
@@ -2532,7 +2531,7 @@ final class AdapterSources {
 
     /**
      * Every installed adapter and every refused one, reported rather than
-     * thrown (DUO-3339).
+     * thrown (issue #3339).
      *
      * This is the read side of discover(). It exists because the catalog and
      * doctor surfaces have to be able to SHOW the conditions discover()
@@ -2546,7 +2545,7 @@ final class AdapterSources {
      * A declared `interpreter` or `regen_dependency.regenerator` is REPORTED
      * (as an executable surface, and as the basis of the trust tier) but not
      * resolved, because resolving one means running its top level and its
-     * constructor — the trust decision `duo manifest-validate` documents at
+     * constructor — the trust decision `wprism manifest-validate` documents at
      * length and takes deliberately. An inventory of what is installed must
      * not be the command that executes it.
      *
@@ -2607,7 +2606,7 @@ final class AdapterSources {
         // about.
         //
         // Checked at all because every grammar verdict below loads that file:
-        // one unparseable site.duo.json would otherwise produce one identical,
+        // one unparseable site.wprism.json would otherwise produce one identical,
         // unattributed refusal on EVERY shipped row and no refusal row at all,
         // which reads as "all fifteen of your adapters are broken" for a
         // single misplaced comma in a file none of them is. Recorded as one
@@ -2615,12 +2614,12 @@ final class AdapterSources {
         // shipped adapters without the site half — the same thing it already
         // does for every other whole-directory refusal.
         if ($repo !== null) {
-            $siteFile = rtrim($repo, '/') . '/site.duo.json';
+            $siteFile = rtrim($repo, '/') . '/site.wprism.json';
             $sitePolicy = self::read_manifest($siteFile);
             if ($sitePolicy['stage'] !== 'ok') {
                 $refusals[] = [
                     'code' => self::REFUSAL_SITE_POLICY_UNREADABLE,
-                    'message' => "duo: site policy '$siteFile' cannot be read: " . $sitePolicy['error']
+                    'message' => "wprism: site policy '$siteFile' cannot be read: " . $sitePolicy['error']
                         . ' — every adapter grammar verdict loads this file, so none of them could be judged '
                         . 'against this repository',
                     'paths' => [$siteFile],
@@ -2685,7 +2684,7 @@ final class AdapterSources {
         // and reading it can still refuse: a malformed root or a malformed
         // profile is a defect in the DOCUMENT, about the library rather than
         // about any one adapter, so it degrades to "no reviewed status known"
-        // here instead of taking the inventory down; `duo capabilities` is
+        // here instead of taking the inventory down; `wprism capabilities` is
         // where a library-level registry problem is the subject. Since WP-1.2
         // an uncovered manifest is no longer one of those refusals — it reaches
         // the row it belongs on, as `uncovered`.
@@ -2698,12 +2697,12 @@ final class AdapterSources {
             }
         }
 
-        // A site adapter's certification word is DUO-3314's, not a second
+        // A site adapter's certification word is issue #3314's, not a second
         // vocabulary invented here: a verified signature alone is
         // `signed_unpinned`, and only a repository pin that binds both
         // source "site" and the final certificate-derived digest elevates it
         // to `third_party_signed`. diagnostics() draws exactly that
-        // distinction for `wp duo capabilities`, and a catalog that flattened
+        // distinction for `wp wprism capabilities`, and a catalog that flattened
         // the two would report an adapter as certified before the repository
         // had reviewed the evidence — the elevation the pin exists to gate.
         $bound = new self(
@@ -2725,7 +2724,7 @@ final class AdapterSources {
         //
         // This is the rule for BOTH projections of the fact, not for the
         // catalog alone: has_reviewed_registry() asks the same question, from
-        // the same load, so `wp duo adapter list` and `wp duo capabilities`
+        // the same load, so `wp wprism adapter list` and `wp wprism capabilities`
         // cannot describe one shipped row two ways. Derived from the load above
         // rather than through that method because this one already holds the
         // registry it would reopen.
@@ -2736,9 +2735,9 @@ final class AdapterSources {
         // opened. Every site row in this run is therefore unjudged rather than
         // unsigned.
         //
-        // Filtered on `source`, and that filter is load-bearing since DUO-3339
+        // Filtered on `source`, and that filter is load-bearing since issue #3339
         // made `certification_source` reachable from the PLUGIN source too (a
-        // plugin shipping a `duo-adapter.certification.json` beside its
+        // plugin shipping a `wprism-adapter.certification.json` beside its
         // bundle). Unfiltered, one third party's stray file re-judged every
         // adapter in the operator's OWN repository: a genuinely uncertified
         // site adapter flipped to `certification_unjudged`, and — worse — a
@@ -2778,7 +2777,7 @@ final class AdapterSources {
             $grammar = self::grammar_verdict($name, $source, $blocking, $library);
             $adapters[] = [
                 // A bundled adapter's word is `uncertified`, always, and never
-                // one of DUO-3314's signed words: certification binds
+                // one of issue #3314's signed words: certification binds
                 // `adapter.source: "site"` and `adapters/<name>.json` inside
                 // the SIGNED statement, so no certificate can name this
                 // adapter at all. site_certification()'s three-way question
@@ -2805,7 +2804,7 @@ final class AdapterSources {
                 'name' => $name,
                 'path' => (string) $origin['path'],
                 // The same two facts diagnostics() carries, on the inventory
-                // row too: `duo adapter list` is where an operator answers
+                // row too: `wprism adapter list` is where an operator answers
                 // "who says this adapter is certified", and before T6 the only
                 // available answer was the word `third_party_signed` with no
                 // principal attached to it.
@@ -2989,7 +2988,7 @@ final class AdapterSources {
      * The repository's own pins, for the elevation check above and nothing
      * else.
      *
-     * Read straight out of site.duo.json rather than through Policy::load(),
+     * Read straight out of site.wprism.json rather than through Policy::load(),
      * which would refuse the whole repository over any unrelated policy
      * defect and take an inventory down for a reason that is not about
      * adapters at all. A pin list this cannot read is simply not an explicit
@@ -3003,7 +3002,7 @@ final class AdapterSources {
             return [];
         }
         try {
-            $site = Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.duo.json'));
+            $site = Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.wprism.json'));
         } catch (\Throwable $t) {
             return [];
         }
@@ -3030,7 +3029,7 @@ final class AdapterSources {
      * The predicate is `source: "site"`, and the DIGEST is deliberately not
      * part of it, which is a bootstrap fact rather than a looseness: the pin's
      * digest is the final certificate-derived adapter digest, and the only way
-     * to obtain it is to load the adapter (`wp duo manifest-pin`) — which
+     * to obtain it is to load the adapter (`wp wprism manifest-pin`) — which
      * cannot happen while the source refuses to load for want of the pin. So
      * the override is the SOURCE statement, and the digest remains the second,
      * separate review that bind_explicit_pins() gates certification elevation
@@ -3057,7 +3056,7 @@ final class AdapterSources {
 
     /**
      * One adapter's grammar verdict, from the REAL loader — the same posture
-     * `duo manifest-validate` takes, and for the same reason: a second
+     * `wprism manifest-validate` takes, and for the same reason: a second
      * validator here would be a grammar this engine does not enforce.
      *
      * Which repo the load gets is not cosmetic, and neither is what happens
@@ -3078,7 +3077,7 @@ final class AdapterSources {
      *     not stop anything else in that source from being read.
      *
      * Which is why only `scope === 'source'` refusals count here. Without the
-     * filter, DUO-3339's plugin source would have silently changed what every
+     * filter, issue #3339's plugin source would have silently changed what every
      * SITE row reports: one bundled adapter with a typo in a plugin nobody
      * asked about would have marked every site adapter `blocked_by_source_
      * refusal` and dropped the site half of every shipped verdict, which is
@@ -3222,8 +3221,8 @@ final class AdapterSources {
                 $refusals,
                 self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
                 [$siteDir],
-                "duo: site adapter source $siteDir could not be enumerated — "
-                . 'Duo refuses to treat an unreadable repository-owned adapter source as empty',
+                "wprism: site adapter source $siteDir could not be enumerated — "
+                . 'WPrism refuses to treat an unreadable repository-owned adapter source as empty',
                 'restore directory enumeration/read access before loading site adapters'
             );
             return;
@@ -3240,7 +3239,7 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_SYMLINK_SOURCE,
                     [self::SITE_DIR . '/' . $entry],
-                    "duo: site adapter source $siteDir contains the symbolic link '$entry' (-> "
+                    "wprism: site adapter source $siteDir contains the symbolic link '$entry' (-> "
                     . (readlink($full) ?: '?') . ') — an out-of-tree adapter source holds only real files inside '
                     . 'the site repository, so that its recorded provenance travels with the repository',
                     'replace the link with the real file, or remove it from ' . self::SITE_DIR . '/'
@@ -3268,7 +3267,7 @@ final class AdapterSources {
                         self::SITE,
                         self::REFUSAL_NESTED_JSON,
                         [self::SITE_DIR . '/' . $entry . '/' . $nested],
-                        "duo: site adapter source $siteDir contains a nested adapter '$entry/$nested' — adapters are "
+                        "wprism: site adapter source $siteDir contains a nested adapter '$entry/$nested' — adapters are "
                         . 'discovered only at the top level of this directory, so a nested file is never loaded. '
                         . 'Move it to ' . self::SITE_DIR . '/<name>.json',
                         'move it to ' . self::SITE_DIR . '/<name>.json'
@@ -3283,7 +3282,7 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_EXTENSION_CASE_MISMATCH,
                     [self::SITE_DIR . '/' . $entry],
-                    "duo: site adapter source $siteDir contains '$entry', whose extension is not exactly '.json' — "
+                    "wprism: site adapter source $siteDir contains '$entry', whose extension is not exactly '.json' — "
                     . 'it would load on a case-insensitive filesystem and disappear on a case-sensitive one. '
                     . 'Rename it to use a lowercase .json extension',
                     'rename it to use a lowercase .json extension'
@@ -3315,19 +3314,19 @@ final class AdapterSources {
         if ($resolvedSite === false || $resolved === false
             || $resolved !== $resolvedSite . '/' . self::CERTIFICATION_DIR) {
             throw new \RuntimeException(
-                "duo: site adapter certification source $dir is not the repository's real "
+                "wprism: site adapter certification source $dir is not the repository's real "
                 . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . ' directory'
             );
         }
         if (!is_readable($dir)) {
             throw new \RuntimeException(
-                "duo: site adapter certification source $dir is not readable — authority-bearing bytes cannot be treated as absent"
+                "wprism: site adapter certification source $dir is not readable — authority-bearing bytes cannot be treated as absent"
             );
         }
         $entries = @scandir($dir);
         if ($entries === false) {
             throw new \RuntimeException(
-                "duo: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
+                "wprism: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
             );
         }
         foreach ($entries as $entry) {
@@ -3337,13 +3336,13 @@ final class AdapterSources {
             $full = $dir . '/' . $entry;
             if (is_link($full) || !is_file($full)) {
                 throw new \RuntimeException(
-                    "duo: site adapter certification source $dir contains '$entry', which is not a real regular "
+                    "wprism: site adapter certification source $dir contains '$entry', which is not a real regular "
                     . 'file — certificates may not be symlinks, directories, or external paths'
                 );
             }
             if (!str_ends_with($entry, '.json')) {
                 throw new \RuntimeException(
-                    "duo: site adapter certification source $dir contains '$entry' — every entry must be an exact "
+                    "wprism: site adapter certification source $dir contains '$entry' — every entry must be an exact "
                     . 'lowercase <adapter-name>.json certificate'
                 );
             }
@@ -3376,7 +3375,7 @@ final class AdapterSources {
         $files = glob($dir . '/*.json');
         if ($files === false) {
             throw new \RuntimeException(
-                "duo: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
+                "wprism: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
             );
         }
         foreach ($files as $file) {
@@ -3391,7 +3390,7 @@ final class AdapterSources {
                     }
                 }
                 throw new \RuntimeException(
-                    "duo: site adapter certificate '" . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . '/'
+                    "wprism: site adapter certificate '" . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . '/'
                     . basename($file) . "' has no exact companion '" . self::SITE_DIR . "/$name.json'"
                     . ($near === null ? '' : "; '$near' differs only by letter case")
                 );
@@ -3400,7 +3399,7 @@ final class AdapterSources {
             foreach (array_keys($out) as $other) {
                 if ($other !== $name && self::casefold((string) $other) === $folded) {
                     throw new \RuntimeException(
-                        "duo: site adapter certificates '$other' and '$name' differ only by letter case"
+                        "wprism: site adapter certificates '$other' and '$name' differ only by letter case"
                     );
                 }
             }
@@ -3426,8 +3425,8 @@ final class AdapterSources {
         $entries = @scandir($dir);
         if ($entries === false) {
             throw new \RuntimeException(
-                "duo: nested site adapter source $dir could not be enumerated — "
-                . 'Duo refuses to treat unreadable repository-owned adapter content as empty'
+                "wprism: nested site adapter source $dir could not be enumerated — "
+                . 'WPrism refuses to treat unreadable repository-owned adapter content as empty'
             );
         }
         foreach ($entries as $entry) {
@@ -3557,7 +3556,7 @@ final class AdapterSources {
         if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1
             || preg_match('/[a-z]/D', $name) !== 1) {
             throw new \RuntimeException(
-                "duo: $label uses " . self::render($name)
+                "wprism: $label uses " . self::render($name)
                 . ' — canonical lowercase ASCII slugs for adapter/key identities must begin and end with a '
                 . 'letter or digit, containing only letters, digits, dots, underscores, or hyphens, and containing '
                 . 'at least one lowercase letter (numeric-only identities are not safe JSON object-map keys)'
@@ -3576,7 +3575,7 @@ final class AdapterSources {
      */
     public static function assert_plugin_basename(mixed $plugin, string $label = 'plugin basename'): string {
         if (!is_string($plugin) || $plugin === '' || strlen($plugin) > 255) {
-            throw new \RuntimeException("duo: $label must be a non-empty plugin basename");
+            throw new \RuntimeException("wprism: $label must be a non-empty plugin basename");
         }
         $segments = explode('/', $plugin);
         $depthOk = count($segments) <= 2;
@@ -3585,7 +3584,7 @@ final class AdapterSources {
             || in_array('..', $segments, true) || in_array('.', $segments, true)
             || in_array('', $segments, true) || !str_ends_with($file, '.php')) {
             throw new \RuntimeException(
-                "duo: $label " . self::render($plugin)
+                "wprism: $label " . self::render($plugin)
                 . " — a plugin basename is '<directory>/<file>.php' or '<file>.php', never an absolute path and "
                 . 'never one containing a ".." segment; it is concatenated into filesystem paths by the code-half '
                 . 'version checks and provider negotiation'
@@ -3626,12 +3625,12 @@ final class AdapterSources {
             }
             $declared = $manifest['name'] ?? null;
             if (is_string($declared) && $declared !== '') {
-                // Guarded like every other DUO-3314 assertion reachable from
+                // Guarded like every other issue #3314 assertion reachable from
                 // collect mode. A shipped manifest whose FILE name is a legal
                 // slug but whose DECLARED name is not is reachable through an
                 // explicit custom library, and unguarded it made the catalog answer
-                // two different ways about one library: `duo adapter list`
-                // worked, `duo adapter list --repo=...` died with exit 2,
+                // two different ways about one library: `wprism adapter list`
+                // worked, `wprism adapter list --repo=...` died with exit 2,
                 // because only the second reaches this function.
                 if (!self::guarded(
                     $collect,
@@ -3747,7 +3746,7 @@ final class AdapterSources {
     /**
      * The tier AND the declaration that produced it, from one walk.
      *
-     * `tier_basis` is the anti-masquerade receipt DUO-3339 needs: a diagnostic
+     * `tier_basis` is the anti-masquerade receipt issue #3339 needs: a diagnostic
      * line saying `compatibility_shim` invites "says who?", and the honest
      * answer is a coordinate inside the manifest the reader can go open. It is
      * derived beside the tier rather than by a second reader for the reason
@@ -3824,7 +3823,7 @@ final class AdapterSources {
     /**
      * One adapter, one name — asserted for a manifest this scan did not read.
      *
-     * DUO-3314 refuses a disagreeing declared name for the SITE source inside
+     * issue #3314 refuses a disagreeing declared name for the SITE source inside
      * scan(), where the file is opened. The SHIPPED source is not read there at
      * all (see declared_names(): a repository with no adapters/ pays no decode),
      * so its manifests reach Policy::load() with the same disagreement
@@ -3865,7 +3864,7 @@ final class AdapterSources {
         $declared,
         string $name
     ): string {
-        return "duo: $source adapter " . self::render($path) . ' declares name ' . self::render($declared)
+        return "wprism: $source adapter " . self::render($path) . ' declares name ' . self::render($declared)
             . ' but its file name is ' . self::render($name) . ' — a pin names the file while every '
             . 'downstream identity (dispositions, digests, diagnostics) keys off the declared name, so the '
             . 'two disagreeing is ambiguous identity. Make the declared name match the file name';
@@ -3902,10 +3901,9 @@ final class AdapterSources {
         // IDENTITY BEFORE PRIVILEGE (spec/repo-format.md § v3.9, WP-4.10):
         // whether an adapter may own the name it answers to is a cheaper and
         // more basic question than what its declarations may do, so it is
-        // asked first. Ordering costs nothing today because the whole rule
-        // returns on any manifest below `spec_version` 3, which is every
-        // manifest in existence while DUO_SPEC_VERSION is 2 — so no shipped
-        // refusal, and no refusal any site can currently produce, moves.
+        // asked first. The rule returns for accepted v2 manifests and is active
+        // for v3, so the compatibility window does not acquire a new v2
+        // refusal while current declarations still receive the namespace gate.
         // Placed HERE rather than at the two scan sites because this is the
         // one boundary all four out-of-tree entry points share (the site scan,
         // the plugin scan, Policy's post-load re-check and frozen
@@ -3933,7 +3931,7 @@ final class AdapterSources {
         ] as $reserved) {
             if (array_key_exists($reserved, $manifest)) {
                 throw new \RuntimeException(
-                    "duo: $label $shown declares reserved authority field '$reserved' — a data-only "
+                    "wprism: $label $shown declares reserved authority field '$reserved' — a data-only "
                     . 'manifest cannot certify itself or carry a trust root. Put an externally signed companion at '
                     . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json instead"
                 );
@@ -3960,7 +3958,7 @@ final class AdapterSources {
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null
             && !($inheritInterpreter !== null && $same($manifest['interpreter'], $inheritInterpreter))) {
             throw new \RuntimeException(
-                "duo: $label $shown declares interpreter "
+                "wprism: $label $shown declares interpreter "
                 . var_export($manifest['interpreter'], true) . ", but interpreter code loads only from the agent's "
                 . 'manifest library — an out-of-tree manifest is data and acquires no executable privileges. '
                 . "Remediation: $remedy"
@@ -3972,7 +3970,7 @@ final class AdapterSources {
                 && !(array_key_exists((string) $postType, $inheritRegenerators)
                     && $same($inheritRegenerators[(string) $postType], $regenerator))) {
                 throw new \RuntimeException(
-                    "duo: $label $shown post_types.$postType declares regenerator "
+                    "wprism: $label $shown post_types.$postType declares regenerator "
                     . var_export($regenerator, true) . ", but regenerator code loads only from the agent's manifest "
                     . 'library — an out-of-tree manifest is data and acquires no executable privileges. '
                     . "Remediation: $remedy"
@@ -3990,7 +3988,7 @@ final class AdapterSources {
                 && !(isset($inheritProviders[(string) ($declaration['id'] ?? '')])
                     && $same($inheritProviders[(string) ($declaration['id'] ?? '')], $declaration))) {
                 throw new \RuntimeException(
-                    "duo: $label $shown providers[$i] declares source \"manifest\", which resolves to "
+                    "wprism: $label $shown providers[$i] declares source \"manifest\", which resolves to "
                     . "the $providerOwnership $providerTree tree — an out-of-tree "
                     . 'manifest cannot supply provider '
                     . "code. Use source \"plugin\" so the installed plugin remains the code's trust anchor, or: $remedy"
@@ -4004,7 +4002,7 @@ final class AdapterSources {
         $tier = self::trust_tier($manifest);
         if ($tier === self::TIER_COMPATIBILITY_SHIM && $inherit === null) {
             throw new \RuntimeException(
-                "duo: $label $shown reaches the $tier trust tier, which an out-of-tree adapter cannot "
+                "wprism: $label $shown reaches the $tier trust tier, which an out-of-tree adapter cannot "
                 . "hold. Remediation: $remedy"
             );
         }
@@ -4112,7 +4110,7 @@ final class AdapterSources {
             // which of the three were reachable in THIS process, including the
             // one that is only reachable on the target, and says so.
             $searched = $this->searched_sources($manifestDir);
-            throw new \RuntimeException("duo: manifest '$name' not found in " . $searched);
+            throw new \RuntimeException("wprism: manifest '$name' not found in " . $searched);
         }
         return $origin['file'];
     }
@@ -4158,9 +4156,9 @@ final class AdapterSources {
      * Re-prove the out-of-tree privilege boundary for one LOADED manifest,
      * with the label and path this instance actually resolved it from.
      *
-     * Policy::load() has repeated this check since DUO-3314 as defense in
+     * Policy::load() has repeated this check since issue #3314 as defense in
      * depth, hardcoding the site source's noun and path. With a third source
-     * that would have printed "site adapter 'plugins/acme/duo-adapter.json'",
+     * that would have printed "site adapter 'plugins/acme/wprism-adapter.json'",
      * which names the wrong directory to go fix. The origin already knows.
      */
     public function assert_installed_contract(string $name, array $manifest): void {
@@ -4433,7 +4431,7 @@ final class AdapterSources {
      * The predicate is ManifestDispositions::load(), not a stat on the file,
      * because that is what survey() asks: the two methods must not part company
      * over a dispositions document that exists and does not load, which is the
-     * disagreement DUO-3486 removed. The class_exists() guard is survey()'s
+     * disagreement issue #3486 removed. The class_exists() guard is survey()'s
      * too — nothing in this file requires that class, so a caller that loaded
      * AdapterSources alone gets the same answer from both methods rather than a
      * fatal from one.
@@ -4482,7 +4480,7 @@ final class AdapterSources {
                 // nothing to defer to, so the word is `null`, exactly as
                 // survey() answers for the same row: naming `registry` there
                 // would name a review the consumer would then go looking for.
-                // The two projections of one fact disagreeing was DUO-3486.
+                // The two projections of one fact disagreeing was issue #3486.
                 'certification' => $this->certification_word($name, $hasRegistry),
                 'path' => $this->path($name),
                 // On EVERY row, including the ones where both are trivially
@@ -4504,7 +4502,7 @@ final class AdapterSources {
                     : ($source === self::PLUGIN
                         ? ('install this adapter as a repository package at ' . self::SITE_DIR . "/$name.json, "
                             . 'obtain a certificate signed by an authority this agent trusts at ' . self::SITE_DIR
-                            . '/' . self::CERTIFICATION_DIR . "/$name.json, then run `wp duo manifest-pin "
+                            . '/' . self::CERTIFICATION_DIR . "/$name.json, then run `wp wprism manifest-pin "
                             . "--repo=... --name=$name` and commit the emitted {name,source:\"site\",digest} pin. "
                             . 'The site copy wins by precedence and the bundled copy reports as not installed; the '
                             . 'plugin stays active throughout')
@@ -4512,33 +4510,33 @@ final class AdapterSources {
                             ? ($explicit
                                 ? ''
                                 : ('review the signed evidence, then replace this name-only pin with the exact '
-                                    . '{name,source:"site",digest} object emitted by `wp duo manifest-pin '
+                                    . '{name,source:"site",digest} object emitted by `wp wprism manifest-pin '
                                     . '--repo=...`'))
                             // CORRECTED IN WP-6.6, because the old sentence was
                             // measured false end to end. It read "plan and
-                            // apply remain available", and `duo plan` is indeed
+                            // apply remain available", and `wprism plan` is indeed
                             // available — but apply is not, on any repository
-                            // `duo init` created. init REQUIRES
+                            // `wprism init` created. init REQUIRES
                             // `code.management: managed-baseline` and writes a
                             // compiled code descriptor with it
                             // (cli/src/Onboarding/Init.php:580-590), so
                             // `LifecyclePlanner::code_revision_mismatch()`
                             // raises `code_revision_stale` on every environment
-                            // that has not run `duo deploy`, and
+                            // that has not run `wprism deploy`, and
                             // `ApplyPreparationCoordinator::enforce_code_
                             // mismatch_gate()` refuses it as NON-FORCEABLE
                             // (:435-440) — which the same blocker that produced
                             // this row also keeps the operator from clearing,
-                            // since host promotion is what `duo deploy` is. A
+                            // since host promotion is what `wprism deploy` is. A
                             // remediation that promises a verb the product then
                             // refuses costs an operator the afternoon it takes
                             // to disprove it, which is the one thing an
                             // uncertified row is supposed to save them.
                             : ('obtain an externally signed certificate from an authority trusted by this agent, or '
-                                . 'keep it as uncertified support — `duo plan` remains available, while readiness '
+                                . 'keep it as uncertified support — `wprism plan` remains available, while readiness '
                                 . 'and host promotion stay blocked. Apply is blocked with them wherever a compiled '
-                                . 'code revision is pinned, which is every repository `duo init` created: '
-                                . '`wp duo apply` refuses code_revision_stale until `duo deploy <env>` has run, '
+                                . 'code revision is pinned, which is every repository `wprism init` created: '
+                                . '`wp wprism apply` refuses code_revision_stale until `wprism deploy <env>` has run, '
                                 . 'and that ordering invariant is non-forceable'))),
                 'source' => $source,
                 'trust_tier' => self::trust_tier($manifest),
@@ -4587,7 +4585,7 @@ final class AdapterSources {
      * library. This is required even when a caller reconstructs a snapshot
      * without disposition data: deleting one provenance row must not relabel
      * arbitrary site bytes as shipped. That proof is exactly what the retired
-     * v1 wire had no equivalent of, and why it went with duo-policy-snapshot/v4
+     * v1 wire had no equivalent of, and why it went with wprism-policy-snapshot/v4
      * rather than being carried forward. Editing an out-of-tree record in place
      * separately fails through validate_frozen_record() and the adapter digest
      * binding.
@@ -4618,7 +4616,7 @@ final class AdapterSources {
             || (array_is_list($data['out_of_tree']) && $data['out_of_tree'] !== [])
             || !is_array($data['certificates'] ?? null)
             || (array_is_list($data['certificates']) && $data['certificates'] !== [])) {
-            throw new \RuntimeException('duo: frozen adapter source record is malformed');
+            throw new \RuntimeException('wprism: frozen adapter source record is malformed');
         }
         $frozen = $data['out_of_tree'];
         $frozenCertificates = $data['certificates'];
@@ -4651,14 +4649,14 @@ final class AdapterSources {
                     : $package->manifestPath();
                 if (!is_file($file)) {
                     throw new \RuntimeException(
-                        "duo: frozen adapter '$name' is absent from out_of_tree but no shipped manifest exists at "
+                        "wprism: frozen adapter '$name' is absent from out_of_tree but no shipped manifest exists at "
                         . $file
                     );
                 }
                 $shipped = Canon::decode(Canon::read_file($file));
                 if (Canon::encode($shipped) !== Canon::encode($manifest)) {
                     throw new \RuntimeException(
-                        "duo: frozen adapter '$name' is absent from out_of_tree but its bytes do not match the "
+                        "wprism: frozen adapter '$name' is absent from out_of_tree but its bytes do not match the "
                         . 'trusted shipped manifest — frozen provenance cannot relabel site content as shipped'
                     );
                 }
@@ -4681,7 +4679,7 @@ final class AdapterSources {
                 // the message names the actual contradiction.
                 if ($recordSource === self::PLUGIN) {
                     throw new \RuntimeException(
-                        "duo: frozen adapter source record for '$name' is bundled by a plugin and cannot carry a "
+                        "wprism: frozen adapter source record for '$name' is bundled by a plugin and cannot carry a "
                         . 'certificate — a bundled adapter cannot be certified in place; certification binds the '
                         . 'site source and ' . self::SITE_DIR . "/$name.json inside the signed statement"
                     );
@@ -4777,7 +4775,7 @@ final class AdapterSources {
                 } else {
                     if (Canon::encode($verified['disposition']) !== Canon::encode($record)) {
                         throw new \RuntimeException(
-                            "duo: frozen adapter certification for '$name' disagrees with its derived disposition"
+                            "wprism: frozen adapter certification for '$name' disagrees with its derived disposition"
                         );
                     }
                     $certificates[$name] = $verified['envelope'];
@@ -4785,7 +4783,7 @@ final class AdapterSources {
                 }
             }
             // The record's own path, not a re-derived site path: a frozen
-            // plugin record's path is `plugins/<dir>/duo-adapter.json`, and
+            // plugin record's path is `plugins/<dir>/wprism-adapter.json`, and
             // validate_frozen_record() has already proved that string is the
             // ONLY one this record could describe (from its own key for a site
             // record, from the frozen manifest's `plugin` claim for a bundled
@@ -4808,7 +4806,7 @@ final class AdapterSources {
             // arrived — this is the check that proves it.
             if (($record['trust_tier'] ?? null) !== self::trust_tier($manifest)) {
                 throw new \RuntimeException(
-                    "duo: frozen adapter source record for '$name' claims trust tier '{$record['trust_tier']}' but "
+                    "wprism: frozen adapter source record for '$name' claims trust tier '{$record['trust_tier']}' but "
                     . 'its manifest reaches ' . self::trust_tier($manifest)
                 );
             }
@@ -4822,7 +4820,7 @@ final class AdapterSources {
         $unmatched = array_diff(array_keys($frozen), array_keys($provenance));
         if ($unmatched !== []) {
             throw new \RuntimeException(
-                'duo: frozen adapter source record names manifests absent from the snapshot: '
+                'wprism: frozen adapter source record names manifests absent from the snapshot: '
                 . implode(',', $unmatched)
             );
         }
@@ -4833,7 +4831,7 @@ final class AdapterSources {
         );
         if ($unmatchedCertificates !== []) {
             throw new \RuntimeException(
-                'duo: frozen adapter source record names certificates absent from its manifests: '
+                'wprism: frozen adapter source record names certificates absent from its manifests: '
                 . implode(',', $unmatchedCertificates)
             );
         }
@@ -4865,7 +4863,7 @@ final class AdapterSources {
         foreach (array_keys($map) as $name) {
             if (!is_string($name)) {
                 throw new \RuntimeException(
-                    'duo: ' . $label . ' key ' . self::render($name)
+                    'wprism: ' . $label . ' key ' . self::render($name)
                     . ' is not a string canonical identity — numeric-only identities are forbidden because PHP '
                     . 'coerces JSON object-map keys to integers'
                 );
@@ -4890,8 +4888,8 @@ final class AdapterSources {
      *
      * A PLUGIN record derives its path from the frozen manifest's own `plugin`
      * claim instead of from the name — which is precisely what the live
-     * anchor rule exists to make possible, and why DUO-3339 needed no new wire
-     * key and no snapshot format bump: `plugins/<dir>/duo-adapter.json` is a
+     * anchor rule exists to make possible, and why issue #3339 needed no new wire
+     * key and no snapshot format bump: `plugins/<dir>/wprism-adapter.json` is a
      * function of a claim the manifest already carries and the scan already
      * proved against the plugin that bundled it. assert_plugin_basename()
      * closes traversal, absolute paths, backslashes, and depth, exactly as it
@@ -4922,7 +4920,7 @@ final class AdapterSources {
             || !in_array($provenance['source'] ?? null, [self::SITE, self::PLUGIN], true)
             || !is_string($provenance['path'] ?? null)
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($provenance['sha256'] ?? '')) !== 1) {
-            throw new \RuntimeException("duo: frozen adapter source record for '$name' is malformed");
+            throw new \RuntimeException("wprism: frozen adapter source record for '$name' is malformed");
         }
         self::assert_name($name, 'frozen adapter source record name');
         if (($provenance['source'] ?? null) === self::PLUGIN) {
@@ -4933,7 +4931,7 @@ final class AdapterSources {
             $pluginDir = dirname($basename);
             if ($pluginDir === '.' || $pluginDir === '' || str_contains($pluginDir, '/')) {
                 throw new \RuntimeException(
-                    "duo: frozen adapter source record for '$name' claims a plugin source, but its manifest names "
+                    "wprism: frozen adapter source record for '$name' claims a plugin source, but its manifest names "
                     . "the single-file plugin '$basename', which has no directory of its own to bundle an adapter in"
                 );
             }
@@ -4943,7 +4941,7 @@ final class AdapterSources {
         }
         if (!hash_equals($expected, (string) $provenance['path'])) {
             throw new \RuntimeException(
-                "duo: frozen adapter source record for '$name' declares path "
+                "wprism: frozen adapter source record for '$name' declares path "
                 . self::render((string) $provenance['path']) . ' but the only path this record can describe is '
                 . "'$expected'"
             );
@@ -4951,7 +4949,7 @@ final class AdapterSources {
         $actual = hash('sha256', Canon::encode($manifest));
         if (!hash_equals($actual, (string) $provenance['sha256'])) {
             throw new \RuntimeException(
-                "duo: frozen adapter source record for '$name' does not describe its own manifest: recorded "
+                "wprism: frozen adapter source record for '$name' does not describe its own manifest: recorded "
                 . "content hash {$provenance['sha256']}, actual $actual"
             );
         }

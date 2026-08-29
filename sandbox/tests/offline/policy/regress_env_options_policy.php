@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3232's Policy.php-side wiring: validate_env_options()'s mandatory-
+ * issue #3232's Policy.php-side wiring: validate_env_options()'s mandatory-
  * `required`-boolean load-time gate and env_options()'s enumeration
  * (merge precedence, ksort, with_option_autoload() wiring). Uses FAKE
  * fixture manifests through one explicit flat AdapterLibrary, never the real shipped
@@ -12,15 +12,15 @@
  *     every other Apply.php-touching change in this codebase, that needs
  *     a live $wpdb and gets a live, docker-based proof instead (see
  *     sandbox/tests/live/regress_env_set.sh), not a FakeWpdb offline harness.
- * DUO-3255 extends this harness with the cross-manifest contradiction
+ * issue #3255 extends this harness with the cross-manifest contradiction
  * gate, identical-rule dedupe, first-match bulk resolution, and a real
- * fixture site.duo.json proving the explicit site-policy escape path.
+ * fixture site.wprism.json proving the explicit site-policy escape path.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.
  */
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_env_options_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_env_options_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0777, true);
 register_shutdown_function(function () use ($fixtureDir) {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixtureDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -34,14 +34,14 @@ require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
-use Duo\Policy;
+use WPrism\Policy;
 
-// DUO-3247: spec_version is mandatory at Policy::load() — this file never
-// requires agent/duo.php, so DUO_SPEC_VERSION would otherwise be
+// issue #3247: spec_version is mandatory at Policy::load() — this file never
+// requires agent/wprism.php, so WPRISM_SPEC_VERSION would otherwise be
 // undefined here (same fallback-define regress_regen_dependency_policy.php
 // uses). Every fixture below must declare it just to get past that gate.
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = 0;
@@ -79,7 +79,7 @@ echo "\n== validate_env_options() — mandatory 'required' boolean ==\n";
 
 write_manifest($fixtureDir, 'a', [
     'name' => 'a',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['api_key' => ['class' => 'env']], // missing required entirely
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['a']), 'options.api_key.class="env" needs an explicit boolean',
@@ -87,7 +87,7 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['a']), 'op
 
 write_manifest($fixtureDir, 'b', [
     'name' => 'b',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['api_key' => ['class' => 'env', 'required' => 'true']], // string, not bool
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['b']), 'options.api_key.class="env" needs an explicit boolean',
@@ -95,7 +95,7 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['b']), 'op
 
 write_manifest($fixtureDir, 'c', [
     'name' => 'c',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['api_key' => ['class' => 'env', 'required' => 1]], // int, not bool
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['c']), 'options.api_key.class="env" needs an explicit boolean',
@@ -105,7 +105,7 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['c']), 'op
 // only, same as validate_option_storage()'s own authored/managed scoping.
 write_manifest($fixtureDir, 'd', [
     'name' => 'd',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => [
         'runtime_thing' => ['class' => 'runtime'],
         'derived_thing' => ['class' => 'derived'],
@@ -121,7 +121,7 @@ try {
 // Well-formed declarations, both required values, load cleanly.
 write_manifest($fixtureDir, 'e', [
     'name' => 'e',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => [
         'gateway_key' => ['class' => 'env', 'required' => true],
         'install_marker' => ['class' => 'env', 'required' => false],
@@ -148,11 +148,11 @@ check(array_keys($envOpts) === ['gateway_key', 'install_marker'], 'ksort(SORT_ST
 
 // with_option_autoload(): a manifest-level option_autoload default must
 // flow into an env rule's resolved 'autoload' the same way it already
-// does for authored_options()/sub_keyed_options() — DUO-3232 extended
+// does for authored_options()/sub_keyed_options() — issue #3232 extended
 // env_options() to call the identical helper those two already used.
 write_manifest($fixtureDir, 'f', [
     'name' => 'f',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => [
         'inherits_default' => ['class' => 'env', 'required' => true],
@@ -168,24 +168,24 @@ check(($envOptsF['overrides_default']['autoload'] ?? null) === 'no',
 
 // Two non-core manifests declaring materially different rules for one
 // option refuse at load. The same class is not enough: required is part of
-// an env option's effective contract, so the empirical DUO-3232 collision
+// an env option's effective contract, so the empirical issue #3232 collision
 // that previously demonstrated last-pin-wins now demonstrates the owner's
-// DUO-3255 loud-refusal ruling instead.
+// issue #3255 loud-refusal ruling instead.
 write_manifest($fixtureDir, 'g1', [
     'name' => 'g1',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'env', 'required' => true], 'only_in_g1' => ['class' => 'env', 'required' => false]],
 ]);
 write_manifest($fixtureDir, 'g2', [
     'name' => 'g2',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g2' => ['class' => 'env', 'required' => false]],
 ]);
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['g1', 'g2']),
     "manifests 'g1' and 'g2' declare contradictory rules for options.shared_name",
     'same-class env declarations with different required contracts refuse at load');
 check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['g2', 'g1']),
-    'Add an explicit site.duo.json policy.options.shared_name override',
+    'Add an explicit site.wprism.json policy.options.shared_name override',
     'refusal is pin-order independent and names the explicit site-policy resolution path');
 
 // Identical declarations are harmless and dedupe. The bulk env map now
@@ -193,12 +193,12 @@ check_throws(fn() => manifest_fixture_policy_load($fixtureDir, null, ['g2', 'g1'
 // lookup, rather than independently overwriting with the later pin.
 write_manifest($fixtureDir, 'g3', [
     'name' => 'g3',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g3' => ['class' => 'env', 'required' => false]],
 ]);
 write_manifest($fixtureDir, 'g4', [
     'name' => 'g4',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'options' => ['shared_name' => ['class' => 'env', 'required' => false], 'only_in_g4' => ['class' => 'env', 'required' => false]],
 ]);
 $policyG = manifest_fixture_policy_load($fixtureDir, null, ['g3', 'g4']);
@@ -217,10 +217,10 @@ check(isset($envOptsG['only_in_g3']) && isset($envOptsG['only_in_g4']),
 $repo = $fixtureDir . '-site-override';
 mkdir($repo, 0777, true);
 register_shutdown_function(static function () use ($repo): void {
-    @unlink("$repo/site.duo.json");
+    @unlink("$repo/site.wprism.json");
     @rmdir($repo);
 });
-file_put_contents("$repo/site.duo.json", json_encode([
+file_put_contents("$repo/site.wprism.json", json_encode([
     'manifests' => ['g1', 'g2'],
     'policy' => [
         'options' => [
@@ -230,7 +230,7 @@ file_put_contents("$repo/site.duo.json", json_encode([
 ], JSON_PRETTY_PRINT));
 $resolved = manifest_fixture_policy_load($fixtureDir, $repo);
 $resolvedDetails = $resolved->option_rule_details('shared_name');
-check(($resolvedDetails['source'] ?? null) === 'site.duo.json',
+check(($resolvedDetails['source'] ?? null) === 'site.wprism.json',
     'an explicit site policy override resolves the synthetic contradiction on a fresh load');
 check(($resolved->env_options()['shared_name']['required'] ?? null) === true,
     'bulk env enumeration uses the exact same site-resolved rule end to end');
@@ -239,9 +239,9 @@ check(($resolved->env_options()['shared_name']['required'] ?? null) === true,
 // only the runtime effective-rule/query behavior. Keep both loader paths and
 // the published sentinel vocabulary wired directly to the collaborator.
 //
-// DUO-3496 adds a THIRD call site inside Policy — set_rule()'s write boundary,
+// issue #3496 adds a THIRD call site inside Policy — set_rule()'s write boundary,
 // which runs the same two validators over the single rule it is about to write
-// so `wp duo classify` can no longer produce a site.duo.json the next
+// so `wp wprism classify` can no longer produce a site.wprism.json the next
 // Policy::load() refuses. That is the guard's own point rather than an
 // exception to it: the alternative was restating the two checks inside
 // set_rule, which is exactly the duplication this assertion exists to catch.
@@ -249,7 +249,7 @@ check(($resolved->env_options()['shared_name']['required'] ?? null) === true,
 $policySource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $manifestValidatorSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php');
 $sitePolicyValidatorSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/SitePolicyValidator.php');
-$optionGrammar = new \ReflectionClass('Duo\\OptionGrammar');
+$optionGrammar = new \ReflectionClass('WPrism\\OptionGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
     $optionGrammar->hasMethod('validate_env_options')

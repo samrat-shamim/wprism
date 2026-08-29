@@ -58,7 +58,7 @@ declare(strict_types=1);
  *
  *   1. every `sodium_crypto_sign_detached()` call site in agent/, cli/ and
  *      recovery/ is in a file this register covers;
- *   2. every `duo-…-signature/vN` literal in those trees is one of the
+ *   2. every `wprism-…-signature/vN` literal in those trees is one of the
  *      projected domain constants;
  *   3. `AdapterCertification` still has no expiry vocabulary at all (row
  *      R-14 says so, and says what it would cost to add);
@@ -66,7 +66,7 @@ declare(strict_types=1);
  *      key_id, reason}`, lives in exactly one signing file, and `revoked_at`
  *      appears nowhere (rows R-15 and R-26);
  *   5. the shipped `spec_version` acceptance window is exactly {N-1, N} — the
- *      floor is `DUO_SPEC_VERSION - 1` and never deeper (row R-18), measured
+ *      floor is `WPRISM_SPEC_VERSION - 1` and never deeper (row R-18), measured
  *      by probing the shipped validator rather than by reading its condition.
  *   6. the shipped platform trust root is either the empty v1 registry byte for
  *      byte or a v2 document that VERIFIES through the shipped reader (row
@@ -97,7 +97,7 @@ declare(strict_types=1);
  * bytes make permanent, and a bare `id_kind`, an accepted `spec_version`, a
  * declared engine feature name, a recognised top-level manifest key and the arm
  * that key is covered under are each inside bytes this product cannot rewrite
- * afterwards — captured state and `duo_map` rows for the first, every adapter
+ * afterwards — captured state and `wprism_map` rows for the first, every adapter
  * in the field authored against the window for the second, the manifest bytes
  * an adapter digest folds for the next two, and the `surfaces` list inside a
  * signed claim for the last.
@@ -132,32 +132,32 @@ require_once $repo . '/recovery/rollback-control.php';
 
 // The spec-version window (R-18) is a CONDITION inside the shipped validator,
 // not a list, so the only honest way to project it is to run that validator —
-// which needs the define the engine itself reads. Parsed out of agent/duo.php
+// which needs the define the engine itself reads. Parsed out of agent/wprism.php
 // exactly as tools/capability-doc.php:118-127 parses it, rather than requiring
-// the drop-in: agent/duo.php returns immediately outside WordPress
-// (agent/duo.php:8), so the defines would never be reached.
-if (!defined('DUO_SPEC_VERSION')) {
-    $wsDuo = (string) file_get_contents($repo . '/agent/duo.php');
-    if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $wsDuo, $wsSpec) !== 1) {
-        fwrite(STDERR, "wire-surface: agent/duo.php no longer declares DUO_SPEC_VERSION; row R-18 projects it\n");
+// the drop-in: agent/wprism.php returns immediately outside WordPress
+// (agent/wprism.php:8), so the defines would never be reached.
+if (!defined('WPRISM_SPEC_VERSION')) {
+    $wsWPrism = (string) file_get_contents($repo . '/agent/wprism.php');
+    if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $wsWPrism, $wsSpec) !== 1) {
+        fwrite(STDERR, "wire-surface: agent/wprism.php no longer declares WPRISM_SPEC_VERSION; row R-18 projects it\n");
         exit(1);
     }
-    define('DUO_SPEC_VERSION', (int) $wsSpec[1]);
+    define('WPRISM_SPEC_VERSION', (int) $wsSpec[1]);
 }
 
-use Duo\AdapterCertification;
-use Duo\AdapterContractGrammar;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\IdentityNamespaces;
-use Duo\Orchestrator\AdapterDistribution;
-use Duo\Orchestrator\ApplicationContract;
-use Duo\Orchestrator\ContractAttestation;
-use Duo\Recovery\CanonicalJson;
-use Duo\Recovery\RollbackControl;
-use Duo\ReferenceKindGrammar;
-use Duo\StructuredEvidence;
+use WPrism\AdapterCertification;
+use WPrism\AdapterContractGrammar;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\IdentityNamespaces;
+use WPrism\Orchestrator\AdapterDistribution;
+use WPrism\Orchestrator\ApplicationContract;
+use WPrism\Orchestrator\ContractAttestation;
+use WPrism\Recovery\CanonicalJson;
+use WPrism\Recovery\RollbackControl;
+use WPrism\ReferenceKindGrammar;
+use WPrism\StructuredEvidence;
 
 /** The three files that own an Ed25519 signature, relative to the repo root. */
 const WS_SIGNING_FILES = [
@@ -417,7 +417,7 @@ function ws_assert_domain_literals(string $repo, array $domains): void {
     foreach (['agent', 'cli', 'recovery'] as $tree) {
         foreach (ws_php_files($repo . '/' . $tree) as $file) {
             preg_match_all(
-                '/duo-[A-Za-z0-9._-]*-signature\/v[0-9]+/',
+                '/wprism-[A-Za-z0-9._-]*-signature\/v[0-9]+/',
                 (string) file_get_contents($file),
                 $matches
             );
@@ -528,7 +528,7 @@ function ws_assert_reserved_absences(string $repo): void {
  * @return list<int>
  */
 function ws_spec_window(): array {
-    $supported = DUO_SPEC_VERSION;
+    $supported = WPRISM_SPEC_VERSION;
     $accepted = [];
     for ($candidate = $supported - 3; $candidate <= $supported + 2; $candidate++) {
         try {
@@ -539,7 +539,7 @@ function ws_spec_window(): array {
             $accepted[] = $candidate;
         } catch (Throwable) {
             // Outside the window. The refusal is the author's coordinate, not
-            // this register's; `duo manifest-validate` prints it verbatim.
+            // this register's; `wprism manifest-validate` prints it verbatim.
         }
     }
 
@@ -547,7 +547,7 @@ function ws_spec_window(): array {
 }
 
 /**
- * Gate 5: the acceptance window's FLOOR is exactly `DUO_SPEC_VERSION - 1`.
+ * Gate 5: the acceptance window's FLOOR is exactly `WPRISM_SPEC_VERSION - 1`.
  *
  * The window exists so that a format change stages one adapter at a time
  * instead of being a flag day (spec/repo-format.md § v3.1). The failure that
@@ -561,14 +561,14 @@ function ws_spec_window(): array {
  * next release.
  */
 function ws_assert_spec_window(): void {
-    $expected = [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION];
+    $expected = [WPRISM_SPEC_VERSION - 1, WPRISM_SPEC_VERSION];
     $accepted = ws_spec_window();
     if ($accepted === $expected) {
         return;
     }
     ws_fail(
         'the shipped spec_version acceptance window is {' . implode(', ', $accepted) . '}, not {'
-        . implode(', ', $expected) . '} — row R-18 records the floor as exactly DUO_SPEC_VERSION - 1, so '
+        . implode(', ', $expected) . '} — row R-18 records the floor as exactly WPRISM_SPEC_VERSION - 1, so '
         . 'N-2 can never accumulate by inattention and a widened window is a reviewed change here first'
     );
 }
@@ -1398,7 +1398,7 @@ function ws_rows(): array {
             . '` (token) and `' . implode('`, `', ReferenceKindGrammar::engineLedgerKinds())
             . '` (ledger); every other legal value is an `id_kind` a pinned manifest declared for a table '
             . 'it owns. There is no vendor prefix and no reservation mechanism.',
-        'permanent' => 'Captured state and `duo_map` rows embed the BARE kind, so a prefix rule '
+        'permanent' => 'Captured state and `wprism_map` rows embed the BARE kind, so a prefix rule '
             . 'introduced later would have to rewrite every token in every branch of every site — the one '
             . 'migration this product cannot perform, because the branches are the customer\'s data. Two '
             . 'adapters that pick one name collide with no arbiter.',
@@ -1416,7 +1416,7 @@ function ws_rows(): array {
             . 'window that declares a section this engine implements only at a HIGHER version refuses '
             . 'naming the section (`' . implode('`, `', array_keys(AdapterContractGrammar::section_min_spec()))
             . '` today).',
-        'permanent' => 'The floor is DUO_SPEC_VERSION - 1 and never deeper, checked at generation time. '
+        'permanent' => 'The floor is WPRISM_SPEC_VERSION - 1 and never deeper, checked at generation time. '
             . 'Narrowing the window later refuses every adapter in the field that took it at its word, which '
             . 'is a flag day of exactly the kind the window exists to end; widening it to N-2 costs nothing '
             . 'on the day it is done and converts a staging channel with an expiry into permanent tolerance '
@@ -1437,7 +1437,7 @@ function ws_rows(): array {
             . 'forward-looking.',
         'permanent' => 'A declared feature name is inside the manifest bytes '
             . '`ArtifactPolicyIdentity::manifest_rows()` folds into that adapter\'s `digest`, which every '
-            . '`site.duo.json` content pin and every certificate\'s `adapter.canonical_sha256` binds. '
+            . '`site.wprism.json` content pin and every certificate\'s `adapter.canonical_sha256` binds. '
             . 'Renaming or re-spelling a feature therefore moves the digest of every manifest that declares '
             . 'it and invalidates their pins and certificates at once — the same irreversibility R-17 '
             . 'records for `id_kind`, reached through a different door.',
@@ -1492,14 +1492,14 @@ function ws_rows(): array {
             . ws_partition_text() . ' — plus whatever keys its own declared, IMPLEMENTED `engine_features` '
             . 'values claim (today ' . ws_feature_key_text()
             . '). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar '
-            . '`duo adapter-draft` writes — is a recognised authoring-only exception at v2 and refuses from '
+            . '`wprism adapter-draft` writes — is a recognised authoring-only exception at v2 and refuses from '
             . 'v3 with its own remedy, to strip it. Arbitrary keys refuse at both versions. Measured here by asking '
             . 'the shipped validator and the shipped signer for their sets and comparing them in both '
             . 'directions.',
         'permanent' => 'A key REMOVED from the set later refuses every manifest in the field that declared '
             . 'it, and takes its adapter digest with it: the key is inside the manifest bytes '
             . '`ArtifactPolicyIdentity::manifest_rows()` folds, so the remedy is an edit that moves every '
-            . '`site.duo.json` content pin and invalidates every certificate over that adapter (R-19 records '
+            . '`site.wprism.json` content pin and invalidates every certificate over that adapter (R-19 records '
             . 'the same irreversibility for a feature name). Closing the set is therefore a one-way door: it '
             . 'can be opened wider through the growth rule and can never be narrowed. The one definition is '
             . 'load-bearing for the same reason — two lists that agree today diverge silently, and the '
@@ -1528,12 +1528,12 @@ function ws_rows(): array {
             . 'the record embedded in a certificate the frozen path re-validates. The refusal names the '
             . 'covered member. The platform root is exempt, and an EXACT reserved name stays legal '
             . 'everywhere: out of tree a shipped name is reachable only as the reviewed '
-            . '`{name, source:"site"}` override (T6 §3.3), which `duo adapter certify` records by exact '
+            . '`{name, source:"site"}` override (T6 §3.3), which `wprism adapter certify` records by exact '
             . 'name.',
         'permanent' => 'Without it, enrolling a vendor with the namespace its own products live in '
             . 'silently handed that vendor the SHIPPED adapter of the same name — 10 of the '
             . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES) . ' sit inside a legal one '
-            . '(`ninja-*`, `yoast-*`, `duo-*`, `code-*` …) — and an out-of-tree adapter answering a '
+            . '(`ninja-*`, `yoast-*`, `wprism-*`, `code-*` …) — and an out-of-tree adapter answering a '
             . 'shipped name is the override, which INHERITS that adapter\'s interpreter, regenerator and '
             . 'provider declarations. That is executable privilege reached through a name nobody meant '
             . 'to grant. The window closes at the first vendor key: narrowing a namespace after one is '
@@ -1591,7 +1591,7 @@ function ws_rows(): array {
             . ws_set($sets, 'REVOCATION_STATEMENT_KEYS') . ', each entry '
             . ws_set($sets, 'REVOCATION_ENTRY_KEYS') . ', under domain `'
             . ws_bytes((string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_REVOCATION'))
-            . '`. It is installed at `WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json`, outside '
+            . '`. It is installed at `WPMU_PLUGIN_DIR/wprism-control/adapter-revocations.json`, outside '
             . 'the replaceable agent and its embedded adapter library, is signed by a key the shipped '
             . 'platform root carries, and ships ABSENT. An entry binds `fingerprint` = '
             . '`sha256(public_key)`, never the key id. The signer\'s own window is deliberately not '
@@ -1613,7 +1613,7 @@ function ws_rows(): array {
             . 'that never installed one. And the reachability itself is one-way: this is the only channel '
             . 'that reaches an already-frozen snapshot for a site-rooted key, so removing it restores a '
             . 'gap for every vendor key already federated by copy, silently. Its LOCATION is equally '
-            . 'permanent: the operator-owned `duo-control/` sibling survives replacement of `duo/`, so '
+            . 'permanent: the operator-owned `wprism-control/` sibling survives replacement of `wprism/`, so '
             . 'absence cannot be manufactured by an adoption. The flat-library cutover retires an old '
             . '`manifests/capabilities/adapter-revocations.json` only after a byte-identical durable copy '
             . 'already exists; otherwise bootstrap and adoption refuse before moving either library.',
@@ -1635,7 +1635,7 @@ function ws_rows(): array {
             . '` an out-of-tree adapter name is `<vendor>-<name>` and every `providers[].id` it declares '
             . 'sits in that same vendor namespace (`IdentityNamespaces::assert_out_of_tree_identity()`, '
             . 'reached from `AdapterSources::assert_out_of_tree_contract()`, the one boundary all four '
-            // WP-4.12: this clause used to read "so at DUO_SPEC_VERSION 2 it
+            // WP-4.12: this clause used to read "so at WPRISM_SPEC_VERSION 2 it
             // refuses nothing", which was a statement about the engine that
             // happened to be true while the engine sat below NAMESPACED_SINCE.
             // The flip made it false, and a generated row that restates a
@@ -1643,8 +1643,8 @@ function ws_rows(): array {
             // sentence is now the COMPARISON, and it stays true through any
             // later bump without another edit here.
             . 'out-of-tree entry points share). The rule returns before reading a member below that '
-            . 'version, so this engine, at `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`, '
-            . (DUO_SPEC_VERSION >= (int) ws_const(IdentityNamespaces::class, 'NAMESPACED_SINCE')
+            . 'version, so this engine, at `WPRISM_SPEC_VERSION ' . (string) WPRISM_SPEC_VERSION . '`, '
+            . (WPRISM_SPEC_VERSION >= (int) ws_const(IdentityNamespaces::class, 'NAMESPACED_SINCE')
                 ? 'enforces it on every out-of-tree adapter'
                 : 'refuses nothing under it')
             . '. The unprefixed '
@@ -1682,7 +1682,7 @@ function ws_rows(): array {
             . 'scope entry means carrying a certificate into a loader that runs with no certificate in '
             . 'hand, which is a new permanent decision rather than a correction. '
             . 'This row deliberately reserves NOTHING for `tables.<t>.id_kind`. R-17 rules the prefix '
-            . 'RULE out permanently — captured state and `duo_map` rows embed the bare kind — so the '
+            . 'RULE out permanently — captured state and `wprism_map` rows embed the bare kind — so the '
             . (string) count(IdentityNamespaces::GRANDFATHERED_ID_KINDS) . ' shipped kinds are recorded here '
             . 'as a permanent floor and a CONVENTION for authors, never as a break list. A future scheme for '
             . 'that space is a new `id_kind`-carrying wire, not an edit of this one.',
@@ -1791,12 +1791,12 @@ function ws_rows(): array {
             . '` inside the closed key set (§ v3.3, so at `spec_version '
             . (string) ws_const(AdapterContractGrammar::class, 'CLOSED_KEY_SET_SINCE')
             // WP-4.12, for the reason recorded on R-27 above: "inert at
-            // DUO_SPEC_VERSION N" was true only while N sat below
+            // WPRISM_SPEC_VERSION N" was true only while N sat below
             // CLOSED_KEY_SET_SINCE, and the flip crossed it.
             . '` and therefore '
-            . (DUO_SPEC_VERSION >= (int) ws_const(AdapterContractGrammar::class, 'CLOSED_KEY_SET_SINCE')
+            . (WPRISM_SPEC_VERSION >= (int) ws_const(AdapterContractGrammar::class, 'CLOSED_KEY_SET_SINCE')
                 ? 'live at' : 'inert at')
-            . ' `DUO_SPEC_VERSION ' . (string) DUO_SPEC_VERSION . '`); and the statement '
+            . ' `WPRISM_SPEC_VERSION ' . (string) WPRISM_SPEC_VERSION . '`); and the statement '
             . 'members `' . implode('`, `', array_keys($reservedStatement)) . '`. Neither is in any closed '
             . 'set: the statement is still ' . ws_spelled(count((array) ws_const(AdapterCertification::class, 'STATEMENT_KEYS')))
             . ' members (R-06). TWO MORE WERE OPENED at gate G4 by WP-5.2 (§ v3.16), which is what this row '
@@ -2196,7 +2196,7 @@ function ws_build(string $repo): string {
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_AUTHORITIES'),
         // WP-4.9's two statement kinds (spec § v3.8). Registered here rather
         // than anywhere else because gate 2 below refuses the whole run over an
-        // unregistered `duo-…-signature/vN` literal in the shipped trees — which
+        // unregistered `wprism-…-signature/vN` literal in the shipped trees — which
         // is exactly how a new permanent decision is stopped from shipping
         // quietly, and is why these two lines are part of the rider that
         // introduced them rather than a follow-up.
@@ -2298,7 +2298,7 @@ function ws_build(string $repo): string {
     $out .= "2. **No signed surface is missing.** Every `sodium_crypto_sign_detached()` call site in\n";
     $out .= '   `agent/`, `cli/` and `recovery/` is in a file this register covers — '
         . count(WS_SIGNING_FILES) . " today.\n";
-    $out .= "3. **No unregistered domain exists.** Every `duo-…-signature/vN` literal in those trees is\n";
+    $out .= "3. **No unregistered domain exists.** Every `wprism-…-signature/vN` literal in those trees is\n";
     $out .= "   one of the domains in §1, and none is a prefix of another.\n";
     $out .= "4. **The bounded vocabularies are still bounded.** `AdapterCertification`'s expiry\n";
     $out .= "   vocabulary is exactly `not_after`/`not_before` judged against `\$now ?? time()`; the typed\n";
@@ -2307,7 +2307,7 @@ function ws_build(string $repo): string {
     $out .= "5. **The rollback signature really is domain-free.** A signature is minted and verified\n";
     $out .= "   against the unprefixed canonical payload at generation time (R-03).\n";
     $out .= "6. **The spec-version window has not accumulated.** The shipped validator is probed over\n";
-    $out .= '   N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper'
+    $out .= '   N-3 … N+2 and must accept exactly {N-1, N} — floor `WPRISM_SPEC_VERSION - 1`, never deeper'
         . " (R-18).\n\n";
     // Numbered 7 and not 6: the trust-root gate arrived with WP-4.8's merge and
     // kept the previous item's number, so this list printed "6." twice. A

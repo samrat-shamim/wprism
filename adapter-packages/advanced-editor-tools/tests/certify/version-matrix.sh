@@ -71,7 +71,7 @@ AET_INSTALLED_1=$(wp1 plugin get tinymce-advanced --field=version)
   || fail "side 1 installed version mismatch: expected $AET_VERSION, got $AET_INSTALLED_1"
 pass "side 1: tinymce-advanced $AET_VERSION installed from verified artifact, active"
 
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "advanced-editor-tools"],
   "policy": {
@@ -91,8 +91,8 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" push -qu origin main
 
 seed_advanced_editor_tools_content
-wp1 duo capture --repo=/siterepo
-wp1 duo lint --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
+wp1 wprism lint --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: Advanced Editor Tools $AET_VERSION settings"
 "${GIT1[@]}" push -q origin main
@@ -103,14 +103,14 @@ INSTALLED_2=$(wp2 plugin get tinymce-advanced --field=version)
 require_fixture_values INSTALLED_2
 [ "$INSTALLED_2" = "$AET_VERSION" ] \
   || fail "side 2 installed version mismatch: expected $AET_VERSION, got $INSTALLED_2"
-wp2 duo deploy --repo=/siterepo
+wp2 wprism deploy --repo=/siterepo
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at tinymce-advanced $AET_VERSION"
 check_advanced_editor_tools_boundary_content
 
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
 AET_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
 rm -rf "siterepo/${PAIR}2/.tmp-final"
 [ -z "$AET_DIFF" ] \
@@ -125,9 +125,9 @@ pass "Advanced Editor Tools $AET_VERSION deploys, drives native editor behavior,
 # (agent/src/Promotion/Deploy.php) is the real enforcement: it reads the ACTUALLY-
 # installed plugin version via WordPress's own get_plugins(), compares it
 # against the manifest's declared version_range, and — triggered by both
-# `wp duo deploy` and `wp duo apply` — throws an 'outside_version_range'
+# `wp wprism deploy` and `wp wprism apply` — throws an 'outside_version_range'
 # finding naming the plugin, its installed version, and the declared range,
-# unless --force-code-mismatch is passed. This only needs `duo deploy`
+# unless --force-code-mismatch is passed. This only needs `wprism deploy`
 # (code-only reconciliation), not a full capture/apply round-trip — the
 # refusal fires before any target mutation is attempted.
 say "negative control: tinymce-advanced 5.9.0 (adjacent official release below the exact 5.9.2 contract) must be REFUSED"
@@ -140,7 +140,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get tinymce-advanced --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "5.9.2" ] \
   || fail "negative control premise did not install exact tinymce-advanced 5.9.2 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "advanced-editor-tools"],
   "policy": {
@@ -159,7 +159,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: Advanced Editor Tools negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_advanced_editor_tools_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid Advanced Editor Tools state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -174,7 +174,7 @@ INSTALLED_OOR=$(wp1 plugin get tinymce-advanced --field=version)
 AET_REFUSAL_BEFORE=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("tadv_settings", null), get_option("tadv_admin_settings", null)]));')
 require_observed_nonempty "Advanced Editor Tools refusal state baseline" "$AET_REFUSAL_BEFORE"
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] \

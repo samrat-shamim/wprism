@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -26,7 +26,7 @@ final class InitPlanner {
 
     /**
      * The operator's explicit decision to initialize a site whose active
-     * plugins Duo does not manage (round-3 T6 §3.4).
+     * plugins WPrism does not manage (round-3 T6 §3.4).
      *
      * It is a REVIEWED decision rather than a bypass, and the shape enforces
      * that: an unmanaged plugin moves from `unsupported` to `advisories`, it
@@ -45,7 +45,7 @@ final class InitPlanner {
 
     /**
      * The host's per-component code classification, carried as one base64
-     * canonical-JSON argument (DUO-3499).
+     * canonical-JSON argument (issue #3499).
      *
      * It rides inside the proposal exactly as ALLOW_UNMANAGED_PLUGINS does and
      * for the same reason: the classification changes what the repository will
@@ -92,7 +92,7 @@ final class InitPlanner {
             );
         } finally {
             if (!@chdir($binding['previous_cwd'])) {
-                throw new \RuntimeException('duo: init could not restore its process working directory after proposal');
+                throw new \RuntimeException('wprism: init could not restore its process working directory after proposal');
             }
         }
     }
@@ -110,7 +110,7 @@ final class InitPlanner {
     ): array {
         global $wpdb;
         if (!is_object($wpdb)) {
-            throw new \RuntimeException('duo: init requires a loaded WordPress database connection');
+            throw new \RuntimeException('wprism: init requires a loaded WordPress database connection');
         }
 
         $attempt = InitAttemptJournal::read($repo);
@@ -138,7 +138,7 @@ final class InitPlanner {
             'code' => 'repository_external_writer_exclusion',
             'extension' => $logicalRepo,
             'kind' => 'repository',
-            'reason' => 'the init lease and capture lock serialize Duo writers only; first publication requires every non-Duo writer to remain quiescent across the repository namespace',
+            'reason' => 'the init lease and capture lock serialize WPrism writers only; first publication requires every non-WPrism writer to remain quiescent across the repository namespace',
             'remediation' => 'pause package managers, self-updaters, Git or shell automation, and any process that can write .git, code, media, state, or state.capture* until init or retained recovery finishes',
         ]];
         $byPlugin = [];
@@ -166,7 +166,7 @@ final class InitPlanner {
                     'extension' => $theme,
                     'kind' => 'theme',
                     'reason' => 'multiple installed manifests declare this active theme identity',
-                    'remediation' => 'retain one versioned theme adapter, then rerun duo init',
+                    'remediation' => 'retain one versioned theme adapter, then rerun wprism init',
                 ];
             } elseif (count($owners) === 1) {
                 $selected[] = $owners[0];
@@ -189,7 +189,7 @@ final class InitPlanner {
         }
         $muPlugins = function_exists('get_mu_plugins') ? array_keys(get_mu_plugins()) : [];
         $userMuPlugins = array_values(array_filter($muPlugins, static function ($name): bool {
-            return is_string($name) && $name !== 'duo-loader.php';
+            return is_string($name) && $name !== 'wprism-loader.php';
         }));
         foreach ($userMuPlugins as $plugin) {
             $unsupported[] = [
@@ -222,7 +222,7 @@ final class InitPlanner {
         if ($selected[0] !== 'core') {
             $selected = array_values(array_unique(array_merge(['core'], $selected)));
         }
-        // The proposal has no site.duo.json yet, but its installed adapter
+        // The proposal has no site.wprism.json yet, but its installed adapter
         // source is already repository-owned. Resolve the selected manifests
         // once to obtain their canonical digests/provenance, then reload the
         // exact pins that init will publish. This second verification is what
@@ -249,7 +249,7 @@ final class InitPlanner {
         // propose it whenever the
         // active theme is a block theme, and say so; when the profile is not
         // certified or the registry is unreadable, say that instead and leave
-        // the types to `duo classify`.
+        // the types to `wprism classify`.
         //
         // $manifests is passed because the profile's `manifest` is resolved
         // against the registry's own declared names and never against the
@@ -277,10 +277,10 @@ final class InitPlanner {
         // that no rule names — so "leave the plugin unmanaged" has to mean
         // "its types stay local" or init cannot finish (grind_adapter_walk.sh
         // S1: `[incomplete_policy_scope] … scope:post_type:wpforms` inside
-        // `duo init --allow-unmanaged-plugins --yes`). Each such type gets a
+        // `wprism init --allow-unmanaged-plugins --yes`). Each such type gets a
         // reviewed-looking scope rule of class runtime — the exact rule
-        // `duo classify` would write — and is printed as an advisory so the
-        // operator sees what was left local; `duo classify` re-decides it in
+        // `wprism classify` would write — and is printed as an advisory so the
+        // operator sees what was left local; `wprism classify` re-decides it in
         // one line when an adapter arrives.
         // T7 grind A6 widened this from "when unmanaged plugins are present"
         // to always: an ADAPTER-owned plugin can register a rowful type its
@@ -288,7 +288,7 @@ final class InitPlanner {
         // elementor_library — manifests/elementor.json says the site opts
         // it in), and init refusing incomplete_policy_scope at confirmation
         // gave the operator no way to adopt at all. Left local and printed,
-        // the decision is one `duo classify` line, exactly as for a type an
+        // the decision is one `wprism classify` line, exactly as for a type an
         // unmanaged plugin registers.
         $scope = ['post_type' => [], 'taxonomy' => []];
         {
@@ -356,7 +356,7 @@ final class InitPlanner {
             // the lock (components Git does not carry + first_party it does)
             // for every classified site; format 1 only for a site with no
             // lockable component at all, where an empty payload has nothing
-            // to declare (DUO-3499, then the no-third-party-bytes invariant).
+            // to declare (issue #3499, then the no-third-party-bytes invariant).
             'code' => $code['declaration'],
             'manifests' => $pins,
             'policy' => [
@@ -366,7 +366,7 @@ final class InitPlanner {
                 'taxonomies' => $taxonomies,
                 'term_meta' => new \stdClass(),
             ],
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ];
         if ($scope['post_type'] !== [] || $scope['taxonomy'] !== []) {
             $config['policy']['scope'] = array_filter([
@@ -377,7 +377,7 @@ final class InitPlanner {
 
         $dbVersion = (string) $wpdb->get_var('SELECT VERSION()');
         if (!empty($wpdb->last_error)) {
-            throw new \RuntimeException('duo: init database probe failed: ' . $wpdb->last_error);
+            throw new \RuntimeException('wprism: init database probe failed: ' . $wpdb->last_error);
         }
         $media = InitSiteProbe::media();
         $gitLfs = InitRepositoryBoundary::git_lfs_probe(
@@ -394,7 +394,7 @@ final class InitPlanner {
                 'extension' => 'media',
                 'kind' => 'media',
                 'reason' => $media['unavailable'] . ' attachment(s) have neither readable local bytes nor a valid provider source',
-                'remediation' => 'install an offload provider for duo_attachment_capture_source or restore the originals',
+                'remediation' => 'install an offload provider for wprism_attachment_capture_source or restore the originals',
             ];
         }
         if (function_exists('is_multisite') && is_multisite()) {
@@ -409,17 +409,17 @@ final class InitPlanner {
         if ($existing['mode'] === 'unsafe') {
             $unsupported[] = [
                 'code' => 'unsafe_site_config',
-                'extension' => 'site.duo.json',
+                'extension' => 'site.wprism.json',
                 'kind' => 'repository',
-                'reason' => 'site.duo.json is present but is not an ordinary repository-owned regular file',
+                'reason' => 'site.wprism.json is present but is not an ordinary repository-owned regular file',
                 'remediation' => 'replace the link or special file with an ordinary adoption seed, or remove it',
             ];
         } elseif ($existing['mode'] === 'owned') {
             $unsupported[] = [
                 'code' => 'existing_configuration',
-                'extension' => 'site.duo.json',
+                'extension' => 'site.wprism.json',
                 'kind' => 'repository',
-                'reason' => 'the repository already has a non-seed Duo configuration',
+                'reason' => 'the repository already has a non-seed WPrism configuration',
                 'remediation' => 'use ordinary capture/plan workflows or move the existing repository before initialization',
             ];
         }
@@ -474,22 +474,22 @@ final class InitPlanner {
         }
         if ($ledger['rows'] > 0) {
             $unsupported[] = [
-                'code' => 'existing_duo_ledger',
+                'code' => 'existing_wprism_ledger',
                 'extension' => 'wordpress-database',
                 'kind' => 'repository',
-                'reason' => 'Duo ledger rows already exist, so this is not an uninitialized environment',
+                'reason' => 'WPrism ledger rows already exist, so this is not an uninitialized environment',
                 'remediation' => 'use ordinary recovery/capture workflows or explicitly remove the abandoned baseline after review',
             ];
         }
-        // DUO-3497: a site booted with DUO_JOURNAL on arrives here with journal
+        // issue #3497: a site booted with WPRISM_JOURNAL on arrives here with journal
         // rows and no identity at all, which InitSiteProbe::ledger() now counts
         // apart from `rows` above. Init proceeds and preserves them — nothing
-        // on the init or baseline-capture path writes duo_journal (the only
+        // on the init or baseline-capture path writes wprism_journal (the only
         // statement in the shipped runtime that removes journal rows is
         // Cli::journal_reset's TRUNCATE, agent/src/Command/Cli.php:1989, which
         // regress_init_contract.php pins as a tree-wide invariant) — so the
         // operator is told the evidence is there rather than left to discover
-        // an empty `duo pending` after destroying it.
+        // an empty `wprism pending` after destroying it.
         // Deliberately count-free: `advisories` is inside the digest that binds
         // proposal to confirmation, and a number that moves with ordinary
         // traffic would refuse every confirmation on a journaling site.
@@ -499,7 +499,7 @@ final class InitPlanner {
                 'extension' => 'wordpress-database',
                 'kind' => 'repository',
                 'reason' => 'the provenance journal already holds observations recorded before initialization; they are runtime evidence, not baseline identity, and init preserves them',
-                'remediation' => 'read them with wp duo journal-report and expect them in the post-init duo pending review queue; wp duo journal-reset would destroy the only record of writes no adapter declares',
+                'remediation' => 'read them with wp wprism journal-report and expect them in the post-init wprism pending review queue; wp wprism journal-reset would destroy the only record of writes no adapter declares',
             ];
         }
         foreach ($git['blockers'] as $blocker) {
@@ -546,7 +546,7 @@ final class InitPlanner {
     }
 
     /**
-     * Fold the host's classification into the code proposal (DUO-3499).
+     * Fold the host's classification into the code proposal (issue #3499).
      *
      * The agent's job here is verification, not decision. Every classified
      * component must be one this run actually inventoried, at the same version
@@ -598,7 +598,7 @@ final class InitPlanner {
         $seen = [];
         foreach ($lockPlan as $i => $entry) {
             if (!is_array($entry) || array_is_list($entry)) {
-                throw new \RuntimeException("duo: init code classification [$i] must be an object");
+                throw new \RuntimeException("wprism: init code classification [$i] must be an object");
             }
             $keys = array_keys($entry);
             sort($keys, SORT_STRING);
@@ -608,29 +608,29 @@ final class InitPlanner {
                 : ['classification', 'component', 'reason', 'root', 'tree_sha256', 'version'];
             if (!in_array($classification, ['locked', 'first-party', 'unsourced'], true)) {
                 throw new \RuntimeException(
-                    "duo: init code classification [$i] must be locked, first-party or unsourced"
+                    "wprism: init code classification [$i] must be locked, first-party or unsourced"
                 );
             }
             if ($keys !== $expectedKeys) {
                 throw new \RuntimeException(
-                    "duo: init code classification [$i] must contain exactly " . implode(', ', $expectedKeys)
+                    "wprism: init code classification [$i] must contain exactly " . implode(', ', $expectedKeys)
                 );
             }
             if (!is_string($entry['reason']) || trim($entry['reason']) === ''
                 || preg_match('/[\x00-\x1f\x7f]/', $entry['reason']) === 1) {
                 throw new \RuntimeException(
-                    "duo: init code classification [$i] must state a single-line reason; a classification nobody can read is not reviewed"
+                    "wprism: init code classification [$i] must state a single-line reason; a classification nobody can read is not reviewed"
                 );
             }
             $key = (string) $entry['root'] . '/' . (string) $entry['component'];
             $probed = $inventory[$key] ?? null;
             if ($probed === null) {
                 throw new \RuntimeException(
-                    "duo: init code classification names '$key', which is not an active component of this site"
+                    "wprism: init code classification names '$key', which is not an active component of this site"
                 );
             }
             if (isset($seen[$key])) {
-                throw new \RuntimeException("duo: init code classification names '$key' more than once");
+                throw new \RuntimeException("wprism: init code classification names '$key' more than once");
             }
             $seen[$key] = true;
             // The host classified a specific set of bytes. If the site moved
@@ -639,8 +639,8 @@ final class InitPlanner {
             if ((string) $entry['version'] !== (string) $probed['version']
                 || (string) $entry['tree_sha256'] !== (string) $probed['tree_sha256']) {
                 throw new \RuntimeException(
-                    "duo: init code classification for '$key' describes a different version or tree digest than this site has; "
-                    . 'rerun duo init so the classification is made against the current bytes'
+                    "wprism: init code classification for '$key' describes a different version or tree digest than this site has; "
+                    . 'rerun wprism init so the classification is made against the current bytes'
                 );
             }
             $rows[] = $entry;
@@ -661,8 +661,8 @@ final class InitPlanner {
                     'kind' => 'code',
                     'reason' => 'the host could not source this component: ' . (string) $entry['reason']
                         . '. Git must not carry third-party code, so it cannot be vendored by default',
-                    'remediation' => 'import its release archive on the host with `duo code-import <archive.zip>` '
-                        . 'and rerun duo init, or declare it the site\'s own code with `duo init --first-party='
+                    'remediation' => 'import its release archive on the host with `wprism code-import <archive.zip>` '
+                        . 'and rerun wprism init, or declare it the site\'s own code with `wprism init --first-party='
                         . $key . '`',
                 ];
             }
@@ -670,7 +670,7 @@ final class InitPlanner {
         if (count($seen) !== count($inventory)) {
             $missing = array_values(array_diff(array_keys($inventory), array_keys($seen)));
             throw new \RuntimeException(
-                'duo: init code classification is incomplete; it says nothing about ' . implode(', ', $missing)
+                'wprism: init code classification is incomplete; it says nothing about ' . implode(', ', $missing)
                 . '. Every active component must be classified, or one would be carried by omission'
             );
         }
@@ -729,7 +729,7 @@ final class InitPlanner {
      * One capability blocker as an `unsupported` row.
      *
      * AdapterSources::diagnostics() writes one remediation for every consumer
-     * and `wp duo capabilities` keeps it byte-identical, so the init-specific
+     * and `wp wprism capabilities` keeps it byte-identical, so the init-specific
      * instruction is applied HERE rather than by widening that string. At init
      * the honest instruction is narrower and has an order to it: the adapter
      * is already installed, so the operator signs it or removes it, and only
@@ -754,10 +754,10 @@ final class InitPlanner {
             // (grind_adapter_walk.sh S3: this row told the operator to certify a
             // bundled copy the verb would then refuse.)
             $remediation = ($blocker['source'] ?? AdapterSources::SHIPPED) === AdapterSources::PLUGIN
-                ? ((string) $remediation . ' — then rerun duo init (duo adapter certify <site-repo> --name=' . $name
+                ? ((string) $remediation . ' — then rerun wprism init (wprism adapter certify <site-repo> --name=' . $name
                     . ' --pin signs and pins the promoted copy)')
-                : 'certify it with duo adapter certify <site-repo> --name=' . $name
-                    . ', or remove it, then rerun duo init';
+                : 'certify it with wprism adapter certify <site-repo> --name=' . $name
+                    . ', or remove it, then rerun wprism init';
         }
         return [
             'code' => $code,
@@ -814,9 +814,9 @@ final class InitPlanner {
                 // certification signs under a key in the agent-owned
                 // authorities file, and that file ships empty.
                 'remediation' => $owners === []
-                    ? 'rerun duo init --' . self::ALLOW_UNMANAGED_PLUGINS
-                        . ' to leave it unmanaged, or install/certify an adapter (duo adapter certify)'
-                    : 'install or review one versioned adapter, then rerun duo init',
+                    ? 'rerun wprism init --' . self::ALLOW_UNMANAGED_PLUGINS
+                        . ' to leave it unmanaged, or install/certify an adapter (wprism adapter certify)'
+                    : 'install or review one versioned adapter, then rerun wprism init',
             ];
             // Only the no-adapter fact is relaxable. `ambiguous_plugin_adapter`
             // is a different fact — there IS an adapter and the engine cannot
@@ -841,7 +841,7 @@ final class InitPlanner {
      * is not in the proposed authored scope, and is not declared by any
      * selected manifest with a class of its own, is exactly what capture's
      * scope gate would refuse. It receives `{class: runtime}` — the same
-     * whole-type exclusion `duo classify --set=scope:<kind>:<name>=runtime`
+     * whole-type exclusion `wprism classify --set=scope:<kind>:<name>=runtime`
      * writes — and one advisory naming it. Types with no rows are left alone:
      * nothing is decided about a type that holds nothing yet, and the gate
      * only fires on rows.
@@ -885,8 +885,8 @@ final class InitPlanner {
                     'extension' => "$kind:$name",
                     'kind' => 'scope',
                     'reason' => 'registered by no selected adapter and holding ' . (int) $counts[$name] . " $unit; "
-                        . 'left local (class runtime) until an adapter declares it or duo classify decides it',
-                    'remediation' => "to manage it later, run duo classify and decide scope:$kind:$name, or install an adapter that declares it",
+                        . 'left local (class runtime) until an adapter declares it or wprism classify decides it',
+                    'remediation' => "to manage it later, run wprism classify and decide scope:$kind:$name, or install an adapter that declares it",
                 ];
             }
         }
@@ -906,8 +906,8 @@ final class InitPlanner {
      * local either. Init is the site's opt-in.
      *
      * The per-manifest half of that reading is `ScopeAdoption::
-     * declared_authored()`, shared with the post-init opt-in `duo adapter
-     * certify --pin` performs (DUO-3495): an adapter that arrives after init
+     * declared_authored()`, shared with the post-init opt-in `wprism adapter
+     * certify --pin` performs (issue #3495): an adapter that arrives after init
      * has to mean the same thing to the site's scope as one selected during
      * it, and two copies of "declared authored" would eventually disagree.
      *
@@ -999,7 +999,7 @@ final class InitPlanner {
                     'extension' => 'profile:fse',
                     'kind' => 'profile',
                     // Same code, because the operator-facing consequence is
-                    // identical — nothing is proposed and `duo classify`
+                    // identical — nothing is proposed and `wprism classify`
                     // decides — but not the same sentence: "carries no
                     // certified profile" would be false about a library whose
                     // profile IS certified and whose adapter is simply absent,
@@ -1015,9 +1015,9 @@ final class InitPlanner {
                             . 'patterns) are left out of the proposed scope',
                     'remediation' => $dangling
                         ? "install the adapter '$target' that this library's dispositions review, or decide those "
-                            . 'types with duo classify after init'
+                            . 'types with wprism classify after init'
                         : 'install a library whose dispositions certify profiles.fse, or decide those types '
-                            . 'with duo classify after init',
+                            . 'with wprism classify after init',
                 ],
             ];
         }
@@ -1033,7 +1033,7 @@ final class InitPlanner {
                 'reason' => "the active theme '$stylesheet' is a block theme; the certified core FSE profile's scope "
                     . '(' . implode(', ', $postTypes) . '; ' . implode(', ', $taxonomies) . ') is proposed so '
                     . 'site-editor customisations are managed rather than left behind silently',
-                'remediation' => 'to leave any of these types local, run duo classify after init and decide it',
+                'remediation' => 'to leave any of these types local, run wprism classify after init and decide it',
             ],
         ];
     }
@@ -1041,7 +1041,7 @@ final class InitPlanner {
     /**
      * The directory half of `slug/file.php`, which is the identity assess
      * builds its `plugin:<slug>` surface row from (T6 §3.6) and the identity a
-     * bundled `duo-adapter.json` anchors to. A single-file plugin has no
+     * bundled `wprism-adapter.json` anchors to. A single-file plugin has no
      * directory, so its file name without `.php` is the only identity it has.
      */
     private static function plugin_slug(string $plugin): string {
@@ -1068,9 +1068,9 @@ final class InitPlanner {
     }
 
     /**
-     * Whether the repository's site.duo.json is exactly the adoption seed
+     * Whether the repository's site.wprism.json is exactly the adoption seed
      * (possibly carrying explicit out-of-tree pins and the scope rules those
-     * pins wrote — see existing_config()) — the state in which `duo assess`
+     * pins wrote — see existing_config()) — the state in which `wprism assess`
      * previews the init proposal instead of the seed's own `core`-only pin set
      * (T7 grind A3).
      */
@@ -1084,7 +1084,7 @@ final class InitPlanner {
 
     /** @return array{mode:string,identity:string} */
     private static function existing_config(string $repo, ?AdapterLibrary $adapterLibrary = null): array {
-        $file = $repo . '/site.duo.json';
+        $file = $repo . '/site.wprism.json';
         if (is_link($file) || (file_exists($file) && !is_file($file))) {
             return ['mode' => 'unsafe', 'identity' => 'unsafe'];
         }
@@ -1100,10 +1100,10 @@ final class InitPlanner {
                 'post_types' => ['post', 'page', 'attachment'],
                 'taxonomies' => ['category', 'post_tag'],
             ],
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ];
         // T6 §3.4's own remediation order — install the site adapter, certify
-        // it (`duo adapter certify --pin` writes the {name, source:"site",
+        // it (`wprism adapter certify --pin` writes the {name, source:"site",
         // digest} pin), THEN run init — means the seed init receives already
         // carries the operator's explicit out-of-tree pins. Those pins are the
         // pin set init recomputes and republishes exactly (load_selected_policy()
@@ -1130,11 +1130,11 @@ final class InitPlanner {
                     && in_array($pin['source'] ?? null, [AdapterSources::SITE, AdapterSources::PLUGIN], true))
             ));
         }
-        // The SCOPE half of the same pin. Since DUO-3495 `--pin` is the site's
+        // The SCOPE half of the same pin. Since issue #3495 `--pin` is the site's
         // scope opt-in as well as its pin: AdapterCertify::adoptScope()
         // (cli/src/Adapter/AdapterCertify.php:501) writes
         // `policy.scope.<kind>.<name> = {"class":"authored"}` for every surface
-        // the certified adapter declares authored that site.duo.json had not
+        // the certified adapter declares authored that site.wprism.json had not
         // decided (:588-609 is the writer). So the file T6 §3.4's order hands
         // init is the seed PLUS a pin PLUS those rules — and reading only the
         // pin as seed-compatible made the documented order refuse
@@ -1156,14 +1156,14 @@ final class InitPlanner {
         // `policy.post_types`/`taxonomies` entry adapter_scope():842 folds in
         // for every selected adapter's declared-authored surfaces — the same
         // list the pre-init order produces — and the scope rule does not
-        // survive. Two representations would be the divergence risk DUO-3495
+        // survive. Two representations would be the divergence risk issue #3495
         // was careful about in the other direction: a site scope rule OUTRANKS
         // every manifest (Policy::post_type_rule_details():1876-1879 returns the
         // site rule before it looks at one), so a stale `authored` rule would
         // keep classifying a surface the adapter had since reclassified, with
         // the file agreeing with itself and disagreeing with the library. The flat entry cannot diverge that way — it names
         // the type as in scope and leaves the CLASS to the declaring manifest,
-        // which is what DUO-3504 needs `declaring_manifest()` to keep answering.
+        // which is what issue #3504 needs `declaring_manifest()` to keep answering.
         if ($pinned !== []
             && is_array($comparable['policy'] ?? null)
             && is_array($comparable['policy']['scope'] ?? null)) {
@@ -1187,12 +1187,12 @@ final class InitPlanner {
         }
         return [
             'mode' => Canon::encode($comparable) === Canon::encode($seed) ? 'adoption-seed' : 'owned',
-            'identity' => InitOwnedArtifacts::regular_file_identity($file, 'site.duo.json'),
+            'identity' => InitOwnedArtifacts::regular_file_identity($file, 'site.wprism.json'),
         ];
     }
 
     /**
-     * The `policy.scope` entries `duo adapter certify --pin` / `duo adapter
+     * The `policy.scope` entries `wprism adapter certify --pin` / `wprism adapter
      * pin` would have written on the adoption seed for these out-of-tree pins.
      *
      * The manifests are read the way installed_manifests():930 reads them —
@@ -1297,18 +1297,18 @@ final class InitPlanner {
         if (!preg_match('/^[0-9a-f]{64}$/', $expectedDigest)
             || !hash_equals((string) ($proposal['digest'] ?? ''), $expectedDigest)) {
             throw new \RuntimeException(
-                'duo: init proposal changed before confirmation; review the fresh proposal and confirm its new digest'
+                'wprism: init proposal changed before confirmation; review the fresh proposal and confirm its new digest'
             );
         }
         if (empty($proposal['ready'])) {
-            throw new \RuntimeException('duo: init proposal is not ready; resolve every reported unsupported capability first');
+            throw new \RuntimeException('wprism: init proposal is not ready; resolve every reported unsupported capability first');
         }
     }
     /** @param array<string,string> $blocker @return array<string,mixed> */
     private static function blocked_repository_proposal(string $repo, array $blocker): array {
         global $wpdb;
         if (!is_object($wpdb)) {
-            throw new \RuntimeException('duo: init requires a loaded WordPress database connection');
+            throw new \RuntimeException('wprism: init requires a loaded WordPress database connection');
         }
         $proposal = [
             'format' => self::FORMAT,

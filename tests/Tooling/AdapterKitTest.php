@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterKit;
+use WPrism\Tooling\AdapterKit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -14,8 +14,8 @@ use RuntimeException;
  *
  * The estate-level properties — the kit assembles, its skeleton runs on `php`
  * alone from outside a checkout, the shipped FakeWpdb still refuses an
- * uninterpretable statement, and Adopt's tar is still `agent manifests
- * recovery` — are proven against the REAL tree in
+ * uninterpretable statement, and Adopt still embeds the adapter library in
+ * `agent/` before archiving exactly `agent recovery` — are proven against the REAL tree in
  * sandbox/tests/offline/guards/regress_adapter_test_kit.php. What is left for a
  * unit test is the part of tools/adapter-kit.php that decides WHAT goes in a
  * kit and what may leave it, driven against synthetic trees carrying exactly
@@ -35,7 +35,7 @@ final class AdapterKitTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
 
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
@@ -81,7 +81,7 @@ final class AdapterKitTest extends TestCase
 
     private function scratch(string $label): string
     {
-        $root = sys_get_temp_dir() . '/duo-adapter-kit-' . $label . '-' . bin2hex(random_bytes(6));
+        $root = sys_get_temp_dir() . '/wprism-adapter-kit-' . $label . '-' . bin2hex(random_bytes(6));
         $this->roots[] = $root;
         mkdir($root, 0o777, true);
 
@@ -201,9 +201,9 @@ final class AdapterKitTest extends TestCase
         $this->assertSame(AdapterKit::ADOPTION_TAR, AdapterKit::adoptionTar(self::repoRoot()));
 
         $root = $this->fixtureRoot([
-            AdapterKit::ADOPT_PATH => "<?php\n\$cmd = 'tar -cf ' . escapeshellarg(\$localArchive) . ' agent manifests recovery sandbox';\n",
+            AdapterKit::ADOPT_PATH => "<?php\n\$cmd = 'tar -cf ' . escapeshellarg(\$localArchive) . ' agent recovery sandbox';\n",
         ]);
-        $this->assertSame(['agent', 'manifests', 'recovery', 'sandbox'], AdapterKit::adoptionTar($root));
+        $this->assertSame(['agent', 'recovery', 'sandbox'], AdapterKit::adoptionTar($root));
     }
 
     public function testUnreadableAdoptionTarRefuses(): void

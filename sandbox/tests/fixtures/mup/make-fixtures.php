@@ -11,8 +11,8 @@ declare(strict_types=1);
  * ## Why the fixtures are GENERATED and not hand-written
  *
  * The grind's assertions are jq expressions over four shipped documents —
- * `duo-assess-report/v1`, `duo-authorization-plan/v1`, `duo-recovery-claim/v1`
- * and `duo-verify-report/v1`. A hand-written fixture records what the author
+ * `wprism-assess-report/v1`, `wprism-authorization-plan/v1`, `wprism-recovery-claim/v1`
+ * and `wprism-verify-report/v1`. A hand-written fixture records what the author
  * *believed* those documents look like, so a jq path that silently matches
  * nothing keeps passing after the real shape moves. Every PASS fixture here is
  * therefore built by the SHIPPED builder class and validated by the shipped
@@ -44,7 +44,7 @@ declare(strict_types=1);
  *
  * A wholesale re-run reproduces every committed byte beside it, and
  * `sandbox/tests/offline/guards/regress_fixture_makers.sh` fails the corpus if
- * it stops doing so. Between #472 and DUO-3483 this script did not complete at
+ * it stops doing so. Between #472 and issue #3483 this script did not complete at
  * all — `RecoveryClaim::build()` refused its facts with "recovery claim facts
  * carry unknown key(s): checkpoint_at" — so the fixtures were delta-edited
  * instead. Two causes, both recorded because a future edit can reintroduce
@@ -80,14 +80,14 @@ require_once $root . '/cli/src/Recovery/RecoveryProfileSelection.php';
 require_once $root . '/cli/src/Release/AuthorizationPlan.php';
 require_once $root . '/cli/src/Release/JourneyOracle.php';
 
-use Duo\Canon;
-use Duo\Orchestrator\ApplicationContract;
-use Duo\Orchestrator\AssessReport;
-use Duo\Orchestrator\AuthorizationPlan;
-use Duo\Orchestrator\CheckpointCatalog;
-use Duo\Orchestrator\JourneyOracle;
-use Duo\Orchestrator\RecoveryClaim;
-use Duo\Orchestrator\RecoveryProfileSelection;
+use WPrism\Canon;
+use WPrism\Orchestrator\ApplicationContract;
+use WPrism\Orchestrator\AssessReport;
+use WPrism\Orchestrator\AuthorizationPlan;
+use WPrism\Orchestrator\CheckpointCatalog;
+use WPrism\Orchestrator\JourneyOracle;
+use WPrism\Orchestrator\RecoveryClaim;
+use WPrism\Orchestrator\RecoveryProfileSelection;
 
 /** @var list<string> $argvList */
 $argvList = $_SERVER['argv'] ?? [];
@@ -162,7 +162,7 @@ $surfaces = [
         'id' => 'post_type:product',
         'kind' => 'post_type',
         'label' => 'post_type:product',
-        'meaning' => 'authored catalog content Duo manages end to end',
+        'meaning' => 'authored catalog content WPrism manages end to end',
         'next_action' => 'nothing — supported',
         'operations' => [
             'release' => $releaseProjection(
@@ -172,7 +172,7 @@ $surfaces = [
                 'Platform-certified',
                 'prevented',
                 'provider-state restorable',
-                'authored catalog content Duo manages end to end'
+                'authored catalog content WPrism manages end to end'
             ),
         ],
         'state_class' => 'authored',
@@ -254,7 +254,7 @@ $assess = AssessReport::build(
         ],
         'registry_sha256' => str_repeat('8f', 32),
     ],
-    // DUO-3484's host/target comparison, pinned AGREEING: this walk is about
+    // issue #3484's host/target comparison, pinned AGREEING: this walk is about
     // the §6.1 words, and a skewed library would withhold the proposal and
     // change what every step after it reads. The mismatch case has its own
     // fixtures in regress_assess_composition.sh and regress_contract_accept.sh.
@@ -297,7 +297,7 @@ $declaredEffects = [[
 // `plan_digest`.
 $operatorClaim = RecoveryClaim::build([
     'additional_does_not_restore' => [],
-    'covered_resources' => ['encrypted database checkpoint /siterepo/.duo/checkpoints/promote-1.sql.enc'],
+    'covered_resources' => ['encrypted database checkpoint /siterepo/.wprism/checkpoints/promote-1.sql.enc'],
     'declared_external_effects' => $declaredEffects,
     'profile' => RecoveryClaim::OPERATOR_DIRECTED,
 ]);
@@ -389,14 +389,14 @@ mup_json("$out/authorization-plan.fail-no-recovery-reason.json", $noReason);
 $journeys = [
     [
         'affected_surfaces' => ['products', 'store settings'],
-        'expect_contains' => 'Duo Ceramic Mug',
+        'expect_contains' => 'WPrism Ceramic Mug',
         'expect_status' => 200,
         'id' => 'shop-index',
         'url' => '/?post_type=product',
     ],
     [
         'affected_surfaces' => ['pages'],
-        'expect_contains' => 'Duo grind landing page',
+        'expect_contains' => 'WPrism grind landing page',
         'expect_status' => 200,
         'id' => 'landing-page',
         'url' => '/?page_id=1',
@@ -404,10 +404,10 @@ $journeys = [
 ];
 JourneyOracle::validateJourneys($journeys);
 $rows = [
-    ['detail' => '', 'expect_contains' => 'Duo Ceramic Mug', 'expect_status' => 200,
+    ['detail' => '', 'expect_contains' => 'WPrism Ceramic Mug', 'expect_status' => 200,
         'http_status' => 200, 'id' => 'shop-index', 'ok' => true,
         'status' => JourneyOracle::PASS, 'url' => '/?post_type=product'],
-    ['detail' => '', 'expect_contains' => 'Duo grind landing page', 'expect_status' => 200,
+    ['detail' => '', 'expect_contains' => 'WPrism grind landing page', 'expect_status' => 200,
         'http_status' => 200, 'id' => 'landing-page', 'ok' => true,
         'status' => JourneyOracle::PASS, 'url' => '/?page_id=1'],
 ];
@@ -454,7 +454,7 @@ $catalog = CheckpointCatalog::fromStatus(
         'generation' => 1,
         'ok' => true,
         'owner' => 'direct-0000000000000000',
-        'receipt_format' => 'duo-scoped-promotion-receipt/v1',
+        'receipt_format' => 'wprism-scoped-promotion-receipt/v1',
         'receipt_id' => 'scoped-20260817-091300-0001',
         'state' => 'committed',
         'terminal' => true,
@@ -468,7 +468,7 @@ $emptyCatalog = CheckpointCatalog::fromStatus(null, null, $now);
 mup_json("$out/checkpoint-catalog.empty.json", $emptyCatalog);
 
 // ------------------------------------------------------------- text fixtures
-// `duo release --plan-only --format=json` prints the rendered page and THEN
+// `wprism release --plan-only --format=json` prints the rendered page and THEN
 // the canonical document, so the grind needs a tail extractor rather than a
 // bare `jq .`. This records both halves exactly as the command emits them.
 mup_write(
@@ -481,7 +481,7 @@ mup_write(
 );
 
 // `promote` prints one `promote phase: <name>` line per phase, in its own
-// execution order (cli/duo's cmd_promote_internal()). Deploy-before-apply is
+// execution order (cli/wprism's cmd_promote_internal()). Deploy-before-apply is
 // that order, and it is what §6.1 step 9 asserts.
 mup_write(
     "$out/release-phases.ordered.txt",
@@ -515,14 +515,14 @@ $cleanHuman = "stack: WordPress 6.8.2 · PHP 8.3.33 · MariaDB 11.8.8 · single-
     . "\n"
     . "surface             state_class   handling        readiness  certification       containment  recovery\n"
     . "post_type:product   authored      manage          Ready      Platform-certified  prevented    provider-state restorable\n"
-    . "  meaning: authored catalog content Duo manages end to end\n"
+    . "  meaning: authored catalog content WPrism manages end to end\n"
     . "post_type:shop_order runtime      preserve local  Unsupported Platform-certified prevented    not applicable\n"
     . "  meaning: live operational state is never copied\n"
     . "table:acme_catalog  unclassified  block           Not qualified Uncertified      unknown      unknown\n"
     . "  next action: install adapter (release)\n"
     . "\n"
     . "unknown: 41 option names invisible to every installed adapter (use --format=json)\n"
-    . "proposed contract written: .duo/contract/mup1/proposed.json\n";
+    . "proposed contract written: .wprism/contract/mup1/proposed.json\n";
 mup_write("$out/assess-human.clean.txt", $cleanHuman);
 mup_write(
     "$out/assess-human.leaks-uuid.txt",

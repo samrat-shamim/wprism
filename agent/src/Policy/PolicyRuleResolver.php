@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure selection of one exact or pattern-backed Policy classification rule.
@@ -52,7 +52,7 @@ final class PolicyRuleResolver {
      *
      * A non-core declaration of a core name always wins regardless of pin
      * order; among non-core declarations, the first pin still wins. This is
-     * the deliberate core-schema → plugin-refinement layer from DUO-3249, not
+     * the deliberate core-schema → plugin-refinement layer from issue #3249, not
      * a general later-pin-wins rule. CrossManifestGuards separately rejects
      * contradictory non-core declarations, so this selection never hides a
      * competing policy decision.
@@ -66,7 +66,7 @@ final class PolicyRuleResolver {
                 'rule' => $section === 'options'
                     ? ($this->withOptionAutoload)($sitePolicy, $this->site['policy'] ?? [])
                     : $sitePolicy,
-                'source' => 'site.duo.json',
+                'source' => 'site.wprism.json',
             ];
         }
         $coreMatch = null;

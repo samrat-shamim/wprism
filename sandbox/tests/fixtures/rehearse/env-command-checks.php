@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline checks for the two provider-contract properties `duo rehearse`
+ * Offline checks for the two provider-contract properties `wprism rehearse`
  * inherits from the shipped lifecycle (round-3 MUP §2.2):
  *
  *  1. **Capability negotiation.** A provider advertising a subset of what a
@@ -26,7 +26,7 @@
  * target toolchain; `PlanSummary::render()` is the renderer whose own verdict
  * this suite does not exercise. `PlanContract` is deliberately NOT stubbed —
  * the complete-envelope check at the convergence boundary is product
- * behaviour (DUO-3384) and this fixture's `wp` stub emits a complete plan.
+ * behaviour (issue #3384) and this fixture's `wp` stub emits a complete plan.
  *
  * usage: php env-command-checks.php <scratch-dir>
  *
@@ -38,7 +38,7 @@
  */
 declare(strict_types=1);
 
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     /** The B/P/W resolver: a deterministic candidate ref plus a semantic plan file. */
     final class Refresh {
         /** @return array<string,mixed> */
@@ -52,7 +52,7 @@ namespace Duo\Orchestrator {
             $path = $root . '/.git/rehearse-plan-' . hash('sha256', $branch) . '.json';
             file_put_contents($path, json_encode([
                 'context' => ['production_snapshot_hash' => hash('sha256', 'semantic-production')],
-                'format' => 'duo-refresh-plan/v1',
+                'format' => 'wprism-refresh-plan/v1',
                 'plan_hash' => hash('sha256', 'semantic-plan'),
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 
@@ -89,7 +89,7 @@ require_once dirname(__DIR__, 4) . '/cli/src/Transport/EnvironmentDriver.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Plan/PlanContract.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Command/EnvironmentCommand.php';
 
-use Duo\Orchestrator\EnvironmentCommand;
+use WPrism\Orchestrator\EnvironmentCommand;
 
 $scratch = $argv[1] ?? '';
 if ($scratch === '') {
@@ -125,7 +125,7 @@ function ec_actions(string $log): array {
     return array_map(static fn (string $line): string => (string) (json_decode($line, true)['action'] ?? ''), $lines);
 }
 
-/** One complete `wp duo plan --format=json` envelope, as agent/src/Apply/Apply.php emits it. */
+/** One complete `wp wprism plan --format=json` envelope, as agent/src/Apply/Apply.php emits it. */
 function ec_plan(): array {
     return [
         'adapter_dispositions' => [], 'adopt' => [], 'code_drift' => [], 'code_mismatch' => [],
@@ -155,7 +155,7 @@ file_put_contents($repo . '/tracked.txt', "branch\n");
 ec_run(['git', 'add', 'tracked.txt'], $repo);
 ec_run(['git', 'commit', '-m', 'feature'], $repo);
 
-// A `wp` that answers branch convergence (`duo plan --format=json`) and the
+// A `wp` that answers branch convergence (`wprism plan --format=json`) and the
 // source URL-binding read (`eval echo home … uploads …`) the materializer
 // now performs to rebind a rehearsal target off its restored snapshot.
 $wpShim = "#!/usr/bin/env bash\n"
@@ -168,7 +168,7 @@ chmod($bin . '/wp', 0755);
 file_put_contents($scratch . '/plan.json', json_encode(ec_plan(), JSON_UNESCAPED_SLASHES) . "\n");
 putenv('PATH=' . $bin . ':' . getenv('PATH'));
 
-// The fake provider: the duo3324 response shapes, with a capability-subset
+// The fake provider: the environment-materializer response shapes, with a capability-subset
 // knob so negotiation can be exercised without emulating anything.
 $providerScript = $scratch . '/provider.php';
 file_put_contents($providerScript, <<<'PHP'
@@ -199,7 +199,7 @@ $caps = ['environment.attach','environment.create','environment.destroy','enviro
 if ($mode === 'no-repository-materialize') $caps = array_values(array_diff($caps, ['repository.materialize']));
 if ($mode === 'no-snapshot-read') $caps = array_values(array_diff($caps, ['snapshot.set.read']));
 $owner = (string) ($i['mutation_owner'] ?? $i['expected_mutation_owner'] ?? '');
-$materialFence = str_contains($owner, 'duo-env-materialize-');
+$materialFence = str_contains($owner, 'wprism-env-materialize-');
 $fenceId = $materialFence ? 'mutation-material-0001' : 'mutation-reap-0001';
 $heldReceipt = $h($materialFence ? 'mutation-material-held' : 'mutation-reap-held');
 $releasedReceipt = $h($materialFence ? 'mutation-material-released' : 'mutation-reap-released');
@@ -224,7 +224,7 @@ $result = match ($a) {
  'destroy','detach' => ['absence_proof_sha256'=>$h('absence'),'disposition'=>$a === 'destroy' ? 'destroyed' : 'detached','environment_identity'=>'environment-identity-0001','lease_generation'=>3,'lease_id'=>'lease-identity-0001','ownership_receipt_sha256'=>$h('owner'),'resource_id'=>'resource-identity-0001'],
  default => [],
 };
-$response = ['action'=>$a,'environment'=>$request['environment'],'format'=>'duo-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'rehearse-fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
+$response = ['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'rehearse-fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
 echo c($response) . "\n";
 PHP);
 
@@ -264,20 +264,20 @@ $writeEnvs = static function (string $suffix, string $sourceMode, string $target
 };
 
 $promotions = 0;
-$promote = static function (\Duo\Orchestrator\EnvironmentDriver $driver, array $frozenContext) use (&$promotions): array {
+$promote = static function (\WPrism\Orchestrator\EnvironmentDriver $driver, array $frozenContext) use (&$promotions): array {
     $promotions++;
     $summary = $frozenContext['compiled_summary'];
     $body = [
         'artifact_hash' => (string) $summary['artifact_hash'],
         'checkpoint_identity' => hash('sha256', 'checkpoint-' . $frozenContext['operation_id']),
         'code_revision' => (string) $summary['code']['code_revision'],
-        'format' => 'duo-branch-environment-promotion-receipt/v1',
+        'format' => 'wprism-branch-environment-promotion-receipt/v1',
         'operation_id' => $frozenContext['operation_id'],
         'owner' => $frozenContext['promotion_owner'],
         'state_revision' => (string) $summary['revision_hash'],
         'status' => 'completed',
     ];
-    $body['receipt_sha256'] = hash('sha256', \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($body));
+    $body['receipt_sha256'] = hash('sha256', \WPrism\Orchestrator\EnvironmentLifecycleCanon::encode($body));
 
     return $body;
 };
@@ -293,18 +293,18 @@ $status = EnvironmentCommand::run(
     $targetSubset,
     $promote
 );
-duo_check_same(1, $status, 'a target provider missing repository.materialize refuses the materialization');
-duo_check_same(
+wprism_check_same(1, $status, 'a target provider missing repository.materialize refuses the materialization');
+wprism_check_same(
     ['capabilities'],
     ec_actions($scratch . '/target-target-subset.log'),
     'the refusal makes no target mutation: negotiation is the only provider action'
 );
-duo_check_same(
+wprism_check_same(
     ['capabilities'],
     ec_actions($scratch . '/source-target-subset.log'),
     'and no source snapshot session is opened either'
 );
-duo_check_same(0, $promotions, 'a negotiation refusal never reaches promotion');
+wprism_check_same(0, $promotions, 'a negotiation refusal never reaches promotion');
 
 echo "case: source advertises a subset\n";
 $sourceSubset = $writeEnvs('source-subset', 'no-snapshot-read', 'ok');
@@ -313,13 +313,13 @@ $status = EnvironmentCommand::run(
     $sourceSubset,
     $promote
 );
-duo_check_same(1, $status, 'a source provider missing snapshot.set.read refuses the materialization');
-duo_check_same(
+wprism_check_same(1, $status, 'a source provider missing snapshot.set.read refuses the materialization');
+wprism_check_same(
     ['capabilities'],
     ec_actions($scratch . '/source-source-subset.log'),
     'the source refusal happens at negotiation, before any snapshot is prepared'
 );
-duo_check_same(
+wprism_check_same(
     [],
     ec_actions($scratch . '/target-source-subset.log'),
     'the target provider is never invoked once the source cannot serve the operation'
@@ -335,17 +335,17 @@ $status = EnvironmentCommand::run(
     $promote
 );
 $materializeOut = (string) ob_get_clean();
-duo_check_same(0, $status, 'a fully-capable provider pair materializes the rehearsal environment');
+wprism_check_same(0, $status, 'a fully-capable provider pair materializes the rehearsal environment');
 $receipt = json_decode($materializeOut, true);
-duo_check_same('attach', $receipt['mode'] ?? null, 'the rehearsal attaches its target by default');
-duo_check_same(1, $promotions, 'materialization uses the supplied promotion path exactly once');
+wprism_check_same('attach', $receipt['mode'] ?? null, 'the rehearsal attaches its target by default');
+wprism_check_same(1, $promotions, 'materialization uses the supplied promotion path exactly once');
 
 // A reap whose provider identity has changed must refuse, not reap a reused
 // resource. This is the exact compare `--reap` inherits.
 file_put_contents($providerState, "stale\n");
 $status = EnvironmentCommand::run(['reap', 'preview'], $ok, $promote);
-duo_check_same(1, $status, 'a changed provider lease refuses the reap');
-duo_check(
+wprism_check_same(1, $status, 'a changed provider lease refuses the reap');
+wprism_check(
     !in_array('detach', ec_actions($scratch . '/target-ok.log'), true),
     'the stale-identity refusal makes no detach or destroy call'
 );
@@ -354,10 +354,10 @@ file_put_contents($providerState, "current\n");
 ob_start();
 $status = EnvironmentCommand::run(['reap', 'preview', '--format=json'], $ok, $promote);
 $firstReap = (string) ob_get_clean();
-duo_check_same(0, $status, 'the first reap succeeds');
+wprism_check_same(0, $status, 'the first reap succeeds');
 $first = json_decode($firstReap, true);
-duo_check_same('detached', $first['disposition'] ?? null, 'an attached target is released only through detach');
-duo_check(
+wprism_check_same('detached', $first['disposition'] ?? null, 'an attached target is released only through detach');
+wprism_check(
     !in_array('destroy', ec_actions($scratch . '/target-ok.log'), true),
     'an attached target is never destroyed'
 );
@@ -366,21 +366,21 @@ $detachCalls = count(array_filter(ec_actions($scratch . '/target-ok.log'), stati
 ob_start();
 $status = EnvironmentCommand::run(['reap', 'preview', '--format=json'], $ok, $promote);
 $secondReap = (string) ob_get_clean();
-duo_check_same(0, $status, 'a second reap of a reaped identity succeeds');
+wprism_check_same(0, $status, 'a second reap of a reaped identity succeeds');
 $second = json_decode($secondReap, true);
-duo_check_same(
+wprism_check_same(
     $first['receipt_sha256'] ?? 'first',
     $second['receipt_sha256'] ?? 'second',
     'the second reap returns the SAME receipt from absence evidence: --reap is idempotent'
 );
-duo_check_same(true, $second['resumed'] ?? false, 'the repeated reap is reported as resumed, not as a new reap');
-duo_check_same(
+wprism_check_same(true, $second['resumed'] ?? false, 'the repeated reap is reported as resumed, not as a new reap');
+wprism_check_same(
     $detachCalls,
     count(array_filter(ec_actions($scratch . '/target-ok.log'), static fn (string $a): bool => $a === 'detach')),
     'the repeated reap makes no second destructive provider call'
 );
-duo_check_same(1, $promotions, 'no reap replays the journaled promotion');
+wprism_check_same(1, $promotions, 'no reap replays the journaled promotion');
 
 chdir($previous ?: '/');
-duo_check_summary('rehearsal provider contract through EnvironmentCommand');
+wprism_check_summary('rehearsal provider contract through EnvironmentCommand');
 }

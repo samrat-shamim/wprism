@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/WpOrgReleases.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
@@ -10,11 +10,11 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/PathSafety.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeCompatibility.php';
 
-use Duo\Canon;
-use Duo\CodeCompatibility;
-use Duo\CodeSourceLock;
-use Duo\CommandRefusalException;
-use Duo\PathSafety;
+use WPrism\Canon;
+use WPrism\CodeCompatibility;
+use WPrism\CodeSourceLock;
+use WPrism\CommandRefusalException;
+use WPrism\PathSafety;
 
 /**
  * The host's store of imported release archives — the origin a premium,
@@ -24,12 +24,12 @@ use Duo\PathSafety;
  * third-party bytes (agent/src/Code/CodeSourceLock.php). A wp.org release
  * satisfies it by being re-fetchable from a canonical URL; a premium plugin
  * has no such URL — its download is license-keyed, and a ZIP committed in the
- * repository (DUO-3499's `vendored-archive`) is third-party bytes in Git by
+ * repository (issue #3499's `vendored-archive`) is third-party bytes in Git by
  * another name. So the archive lives HERE, on the orchestrator host, in the
  * same content-addressed cache wp.org releases are fetched into, and the lock
  * records only its `archive_sha256`. Nothing credential-bearing and nothing
  * byte-bearing reaches the repository; the operator moves the vendor's ZIP to
- * each host that resolves (`duo code-import`), exactly as they would move it
+ * each host that resolves (`wprism code-import`), exactly as they would move it
  * to each server by hand today.
  *
  * The egress rule is unchanged: nothing here runs on a target, and nothing
@@ -94,7 +94,7 @@ final class ImportedArchives {
                 'an imported archive must be a plugin or a theme component',
                 'pass --root=plugins or --root=themes',
                 [],
-                'duo: code-import root must be one of ' . implode('/', CodeSourceLock::ROOTS) . ", not '$root'"
+                'wprism: code-import root must be one of ' . implode('/', CodeSourceLock::ROOTS) . ", not '$root'"
             );
         }
         if ($component !== null && !PathSafety::safe_component($component)) {
@@ -103,7 +103,7 @@ final class ImportedArchives {
                 'the declared component is not one safe path segment',
                 'pass --component=<slug> with the directory name the component installs under',
                 [],
-                "duo: code-import --component '$component' is not one safe path segment"
+                "wprism: code-import --component '$component' is not one safe path segment"
             );
         }
         if (is_link($archivePath) || !is_file($archivePath) || !is_readable($archivePath)) {
@@ -112,12 +112,12 @@ final class ImportedArchives {
                 'the named archive is not a readable regular file',
                 'name the vendor release archive (.zip) as a regular file on this host',
                 [],
-                "duo: code-import cannot read $archivePath as a regular file"
+                "wprism: code-import cannot read $archivePath as a regular file"
             );
         }
         $archiveSha256 = hash_file('sha256', $archivePath);
         if (!is_string($archiveSha256)) {
-            throw new \RuntimeException("duo: could not digest $archivePath");
+            throw new \RuntimeException("wprism: could not digest $archivePath");
         }
 
         $unpacked = WpOrgReleases::temporaryDirectory();
@@ -137,7 +137,7 @@ final class ImportedArchives {
                     'a release archive unpacks to one plugin or theme directory; pass --component=<slug> when that '
                     . 'directory is not named after the component, and do not import multi-component bundles',
                     [],
-                    "duo: code-import could not read $archivePath as one component: " . $error->getMessage(),
+                    "wprism: code-import could not read $archivePath as one component: " . $error->getMessage(),
                     $error
                 );
             }
@@ -148,7 +148,7 @@ final class ImportedArchives {
         $directory = $this->directory();
         foreach ([$directory, $directory . '/by-tree'] as $needed) {
             if (!is_dir($needed) && !@mkdir($needed, 0775, true) && !is_dir($needed)) {
-                throw new \RuntimeException("duo: could not create the imported-archive store at $needed");
+                throw new \RuntimeException("wprism: could not create the imported-archive store at $needed");
             }
         }
         $stored = $this->archivePathFor($archiveSha256);
@@ -160,14 +160,14 @@ final class ImportedArchives {
             $temporary = $stored . '.part.' . bin2hex(random_bytes(6));
             try {
                 if (!@copy($archivePath, $temporary)) {
-                    throw new \RuntimeException("duo: could not copy $archivePath into the imported-archive store");
+                    throw new \RuntimeException("wprism: could not copy $archivePath into the imported-archive store");
                 }
                 $copied = hash_file('sha256', $temporary);
                 if (!is_string($copied) || !hash_equals($archiveSha256, $copied)) {
-                    throw new \RuntimeException('duo: the archive changed while being imported; nothing was stored');
+                    throw new \RuntimeException('wprism: the archive changed while being imported; nothing was stored');
                 }
                 if (!@rename($temporary, $stored)) {
-                    throw new \RuntimeException("duo: could not publish the imported archive into $stored");
+                    throw new \RuntimeException("wprism: could not publish the imported archive into $stored");
                 }
             } finally {
                 if (is_file($temporary)) {
@@ -252,10 +252,10 @@ final class ImportedArchives {
                 self::REASON_ARCHIVE_MISSING,
                 'a locked component names an imported archive this host\'s code-artifact cache does not hold',
                 'obtain the component\'s release archive from its vendor and import it on this host with '
-                . '`duo code-import <archive.zip>`, then rerun; Duo never fetches from a vendor and the repository '
+                . '`wprism code-import <archive.zip>`, then rerun; WPrism never fetches from a vendor and the repository '
                 . 'deliberately carries no copy',
                 [],
-                "duo: $root/$component version $version is locked to imported archive $archiveSha256, which is not "
+                "wprism: $root/$component version $version is locked to imported archive $archiveSha256, which is not "
                 . 'in the imported-archive store at ' . $this->directory()
             );
         }
@@ -282,7 +282,7 @@ final class ImportedArchives {
                 'inspect the named store entry, remove it by hand, and re-import the archive; nothing overwrites '
                 . 'evidence of a corrupted or tampered cache',
                 [],
-                "duo: the imported archive at $path no longer hashes to $archiveSha256; inspect and remove it by hand"
+                "wprism: the imported archive at $path no longer hashes to $archiveSha256; inspect and remove it by hand"
             );
         }
     }

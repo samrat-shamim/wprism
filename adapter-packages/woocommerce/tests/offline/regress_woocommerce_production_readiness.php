@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 /** Exact WooCommerce 11.0.0/11.0.1 product-attribute repository boundary. */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 3);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 3);
 }
 
 $repoRoot = dirname(__DIR__, 4);
@@ -20,11 +20,11 @@ require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
 
-use Duo\Interpreters\Woocommerce;
-use Duo\Policy;
-use Duo\Canon;
-use Duo\RepositoryCompilationException;
-use Duo\RepositoryCompiler;
+use WPrism\Interpreters\Woocommerce;
+use WPrism\Policy;
+use WPrism\Canon;
+use WPrism\RepositoryCompilationException;
+use WPrism\RepositoryCompiler;
 
 $GLOBALS['wooReadinessBlogId'] = 1;
 $GLOBALS['wooReadinessNativeUrlCalls'] = [];
@@ -81,7 +81,7 @@ $GLOBALS['wpdb'] = new WooReadinessWpdb();
 /** @return array<string,mixed> */
 function woo_readiness_attribute(array $changes = []): array {
     return array_replace([
-        'name' => 'pa_duo-size',
+        'name' => 'pa_wprism-size',
         'value' => '',
         'position' => 0,
         'is_visible' => 1,
@@ -334,7 +334,7 @@ function woo_readiness_compile_term_front(
 
 /** @return array{root:string,variation_path:string} */
 function woo_readiness_compile_repository(string $parentShape): array {
-    $root = sys_get_temp_dir() . '/duo_woo_variation_parent_' . $parentShape . '_' . bin2hex(random_bytes(5));
+    $root = sys_get_temp_dir() . '/wprism_woo_variation_parent_' . $parentShape . '_' . bin2hex(random_bytes(5));
     mkdir($root . '/media', 0777, true);
     register_shutdown_function(static function () use ($root): void {
         if (!is_dir($root)) {
@@ -349,7 +349,7 @@ function woo_readiness_compile_repository(string $parentShape): array {
         }
         @rmdir($root);
     });
-    woo_readiness_compile_put($root, 'site.duo.json', Canon::encode([
+    woo_readiness_compile_put($root, 'site.wprism.json', Canon::encode([
         'manifests' => ['woocommerce'],
         'policy' => [
             'options' => (object) [],
@@ -358,7 +358,7 @@ function woo_readiness_compile_repository(string $parentShape): array {
             'post_types' => ['product', 'product_variation'],
             'taxonomies' => ['product_type', 'product_visibility'],
         ],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
 
     $parentUuid = '51000000-0000-4000-8000-000000000001';
@@ -466,14 +466,14 @@ function woo_readiness_compile_expect_parent_refusal(
     $policy = Policy::load(
         $fixture['root'],
         ['woocommerce'],
-        adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($GLOBALS['repoRoot'], 'woocommerce')
+        adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($GLOBALS['repoRoot'], 'woocommerce')
     );
     try {
         RepositoryCompiler::compile($fixture['root'], $policy);
-        duo_check(false, "RepositoryCompiler accepts invalid Woo variation parent shape '$shape'");
+        wprism_check(false, "RepositoryCompiler accepts invalid Woo variation parent shape '$shape'");
     } catch (RepositoryCompilationException $failure) {
         $matched = woo_readiness_compile_has_parent_diagnostic($failure, $fixture['variation_path'], $locator, $message);
-        duo_check(
+        wprism_check(
             $matched,
             "RepositoryCompiler refuses Woo variation parent shape '$shape' with the exact parent diagnostic"
                 . ($matched ? '' : ': ' . implode(' | ', array_map(
@@ -493,7 +493,7 @@ function woo_readiness_reports(
     string $metaKey = '_product_attributes'
 ): void {
     $diagnostics = woo_readiness_diagnostics($interpreter, $value, $type, $metaKey);
-    duo_check(
+    wprism_check(
         $diagnostics !== []
             && count(array_filter(
                 $diagnostics,
@@ -507,12 +507,12 @@ function woo_readiness_reports(
 $policy = Policy::load(
     null,
     ['woocommerce'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
 );
 $interpreter = $policy->interpreters()['woocommerce'] ?? null;
-duo_check($interpreter instanceof Woocommerce, 'the shipped WooCommerce manifest resolves its digest-bound interpreter');
+wprism_check($interpreter instanceof Woocommerce, 'the shipped WooCommerce manifest resolves its digest-bound interpreter');
 if (!$interpreter instanceof Woocommerce) {
-    duo_check_summary('WooCommerce production readiness');
+    wprism_check_summary('WooCommerce production readiness');
 }
 
 $visibilityTerms = woo_readiness_visibility_terms();
@@ -588,7 +588,7 @@ $visibilityTree = array_merge(
     [$visibilityParent, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
     $visibilityTerms
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics($visibilityTree),
     'canonical post-token parent resolves while mixed featured/catalog/rating/stock and inherited POS visibility crosses repository readiness'
@@ -596,7 +596,7 @@ duo_check_same(
 
 $rawParentTree = $visibilityTree;
 $rawParentTree[1]['data']['parent'] = $visibilityParentUuid;
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics($rawParentTree))),
         'exact product parent in the repository'
@@ -605,7 +605,7 @@ duo_check(
 );
 $malformedParentTree = $visibilityTree;
 $malformedParentTree[1]['data']['parent'] = '{{post:not-a-uuid}}';
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics($malformedParentTree))),
         'exact product parent in the repository'
@@ -620,15 +620,15 @@ try {
         Policy::load(
             $compiledCanonicalFixture['root'],
             ['woocommerce'],
-            adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
+            adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
         )
     );
-    duo_check(
+    wprism_check(
         isset($compiledCanonical->tree()['51000000-0000-4000-8000-000000000002']),
         'RepositoryCompiler compiles a captured-style Woo variation with one canonical post parent'
     );
 } catch (\Throwable $failure) {
-    duo_check(false, 'RepositoryCompiler compiles a captured-style Woo variation with one canonical post parent: ' . $failure->getMessage());
+    wprism_check(false, 'RepositoryCompiler compiles a captured-style Woo variation with one canonical post parent: ' . $failure->getMessage());
 }
 $exactParentDiagnostic = 'WooCommerce variation visibility requires an exact product parent in the repository';
 foreach (['raw', 'malformed', 'null', 'absent', 'missing-target', 'wrong-target-type'] as $invalidParentShape) {
@@ -643,7 +643,7 @@ woo_readiness_compile_expect_parent_refusal(
 $missingVisibilityInventory = $visibilityTree;
 array_pop($missingVisibilityInventory);
 $missingVisibilityDiagnostics = $interpreter->repository_diagnostics($missingVisibilityInventory);
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($missingVisibilityDiagnostics)),
         'exactly one of every core product_visibility term'
@@ -655,7 +655,7 @@ $duplicateTerm = $visibilityTerms[0];
 $duplicateTerm['data']['uuid'] = '40000000-0000-4000-8000-000000000005';
 $duplicateTerm['path'] = 'state/terms/product_visibility/40000000-0000-4000-8000-000000000005--duplicate.json';
 $duplicateVisibilityInventory[] = $duplicateTerm;
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages(
             $interpreter->repository_diagnostics($duplicateVisibilityInventory)
@@ -667,7 +667,7 @@ duo_check(
 
 $badRatedParent = $visibilityParent;
 $badRatedParent['data']['terms']['product_visibility'][] = $visibilityUuids['rated-4'];
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$badRatedParent, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
@@ -679,7 +679,7 @@ duo_check(
 );
 $badVariation = $visibilityChild;
 $badVariation['data']['terms']['product_visibility'][] = $visibilityUuids['featured'];
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$visibilityParent, $badVariation, $posVisibilityTerm, $variableTypeTerm],
@@ -691,7 +691,7 @@ duo_check(
 );
 $visibleVariation = $visibilityChild;
 $visibleVariation['data']['terms']['pos_product_visibility'] = [];
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$visibilityParent, $visibleVariation, $posVisibilityTerm, $variableTypeTerm],
@@ -703,7 +703,7 @@ duo_check(
 );
 $downloadablePos = $visibilityParent;
 $downloadablePos['data']['meta']['_downloadable'] = 'yes';
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$downloadablePos, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
@@ -715,7 +715,7 @@ duo_check(
 );
 $duplicateRelationship = $visibilityParent;
 $duplicateRelationship['data']['terms']['product_visibility'][] = $visibilityUuids['featured'];
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$duplicateRelationship, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
@@ -727,7 +727,7 @@ duo_check(
 );
 $missingProductType = $visibilityParent;
 $missingProductType['data']['terms']['product_type'] = [];
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$missingProductType, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
@@ -739,7 +739,7 @@ duo_check(
 );
 $multipleProductTypes = $visibilityParent;
 $multipleProductTypes['data']['terms']['product_type'][] = $simpleTypeUuid;
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$multipleProductTypes, $visibilityChild, $posVisibilityTerm, $variableTypeTerm, $simpleTypeTerm],
@@ -751,7 +751,7 @@ duo_check(
 );
 $simpleVisibilityParent = $visibilityParent;
 $simpleVisibilityParent['data']['terms']['product_type'] = [$simpleTypeUuid];
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$simpleVisibilityParent, $visibilityChild, $posVisibilityTerm, $simpleTypeTerm],
@@ -764,7 +764,7 @@ duo_check(
 $malformedProductTypeTerm = $variableTypeTerm;
 $malformedProductTypeTerm['data']['slug'] = 'subscription';
 $malformedProductTypeTerm['data']['name'] = 'subscription';
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
             [$visibilityParent, $visibilityChild, $posVisibilityTerm, $malformedProductTypeTerm],
@@ -778,7 +778,7 @@ $missingPosIdentityTree = array_merge(
     [$visibilityParent, $visibilityChild, $variableTypeTerm],
     $visibilityTerms
 );
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages(
             $interpreter->repository_diagnostics($missingPosIdentityTree)
@@ -788,30 +788,30 @@ duo_check(
     'referenced POS visibility requires its exact core pos-hidden identity'
 );
 
-duo_check_same(
+wprism_check_same(
     $policy->post_meta_rule('_product_attributes'),
     $interpreter->post_meta_rule('_product_attributes', []),
     'the interpreter preserves the authored order-preserving static rule'
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored', 'plain_data' => true],
     $interpreter->post_meta_rule('_downloadable_files', []),
     'download rows use recursive plain-data URL rebinding rather than opaque serialized passthrough'
 );
-duo_check_same(null, $interpreter->post_meta_rule('_sku', []), 'unrelated WooCommerce meta defers to ordinary policy');
+wprism_check_same(null, $interpreter->post_meta_rule('_sku', []), 'unrelated WooCommerce meta defers to ordinary policy');
 foreach (['_button_text', '_cogs_total_value', '_cogs_value_is_additive', '_product_url'] as $metaKey) {
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored'],
         $interpreter->post_meta_rule($metaKey, []),
         "$metaKey is a reviewed exact WooCommerce 11.0.x authored product field"
     );
 }
-duo_check_same(
+wprism_check_same(
     null,
     $interpreter->post_meta_rule('_wc_additional_variation_images', []),
     'an active extension-owned variation gallery row remains loudly unclassified'
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'env'],
     $interpreter->post_meta_rule('_wc_additional_variation_images', [
         '_wc_variation_gallery_legacy_fallback_disabled' => 'yes',
@@ -819,7 +819,7 @@ duo_check_same(
     'the exact core migration sentinel proves a residual legacy gallery row is inert and nonportable'
 );
 foreach (['no', 'YES', '', true, 1, ['yes']] as $hostileSentinel) {
-    duo_check_same(
+    wprism_check_same(
         null,
         $interpreter->post_meta_rule('_wc_additional_variation_images', [
             '_wc_variation_gallery_legacy_fallback_disabled' => $hostileSentinel,
@@ -829,48 +829,48 @@ foreach (['no', 'YES', '', true, 1, ['yes']] as $hostileSentinel) {
 }
 
 foreach (['color', 'display_type', 'icon', 'tracking_url_template'] as $metaKey) {
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored'],
         $interpreter->term_meta_rule($metaKey, []),
         "$metaKey is an exact WooCommerce-authored term field"
     );
 }
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored', 'lint_ok' => true],
     $interpreter->term_meta_rule('order', []),
     'attribute-term menu order is authored and audited as a numeric ordering scalar rather than an entity reference'
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored', 'ref' => 'post'],
     $interpreter->term_meta_rule('image', []),
     'visual attribute images cross the attachment ledger instead of copying a source id'
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'derived'],
     $interpreter->term_meta_rule('product_ids', []),
     'Woo product_ids term cache is derived'
 );
 foreach (['product_cat', 'product_tag', 'product_brand'] as $countedTaxonomy) {
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'derived'],
         $interpreter->term_meta_rule("product_count_$countedTaxonomy", []),
         "Woo's exact _wc_term_recount cache for $countedTaxonomy is derived"
     );
 }
 foreach (['product_count_', 'product_count_pa_color', 'product_count_product', 'product_count_product_cat_extra'] as $nearMiss) {
-    duo_check_same(
+    wprism_check_same(
         null,
         $interpreter->term_meta_rule($nearMiss, []),
         "$nearMiss is outside Woo core's exact _wc_term_recount key inventory"
     );
 }
-duo_check_same(
+wprism_check_same(
     null,
     $policy->meta_rule_for_post('product_count_product_cat', []),
     'an identically named post-meta row remains unknown instead of inheriting the term-only derived ruling'
 );
 foreach (['auto_fulfill_downloadable', 'auto_fulfill_virtual'] as $optionName) {
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored', 'autoload' => 'preserve'],
         $interpreter->option_rule($optionName, []),
         "$optionName uses the reviewed exact authored option rule"
@@ -906,7 +906,7 @@ foreach ([
     'woocommerce_rest_api_enable_cache_headers',
     'woocommerce_shop_page_display',
 ] as $optionName) {
-    duo_check_same(
+    wprism_check_same(
         'authored',
         $policy->option_rule($optionName)['class'] ?? null,
         "$optionName is exact portable merchant-authored WooCommerce state"
@@ -916,7 +916,7 @@ foreach ([
     'woocommerce_thumbnail_cropping_custom_height',
     'woocommerce_thumbnail_cropping_custom_width',
 ] as $optionName) {
-    duo_check_same(
+    wprism_check_same(
         true,
         $policy->option_rule($optionName)['lint_ok'] ?? null,
         "$optionName is audited as a numeric Customizer ratio dimension rather than an entity reference"
@@ -929,26 +929,26 @@ foreach ([
     'woocommerce_gateway_order',
     'woocommerce_pickup_location_settings',
 ] as $optionName) {
-    duo_check_same(
+    wprism_check_same(
         true,
         $policy->option_rule($optionName)['plain_data'] ?? null,
         "$optionName crosses the class-disabled recursive plain-data boundary"
     );
 }
 foreach (['woocommerce_address_autocomplete_provider', 'woocommerce_rest_api_enable_backend_caching', 'woocommerce_share_key'] as $optionName) {
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'env', 'required' => false, 'autoload' => 'preserve'],
         $policy->meta_rule_for_option($optionName, []),
         "$optionName stays optional target-environment state"
     );
 }
-duo_check_same(
+wprism_check_same(
     ['class' => 'derived', 'autoload' => 'preserve'],
     $policy->meta_rule_for_option('woocommerce_analytics_import_interval', []),
     'the localized analytics import interval label stays derived'
 );
 $codRule = $policy->meta_rule_for_option('woocommerce_cod_settings', []);
-duo_check_same(
+wprism_check_same(
     true,
     ($codRule['closed_sub_keys'] ?? null) === true
         && ($codRule['sub_keys']['enable_for_methods']['json_refs'][0]['kind'] ?? null) === 'wc_zone_method',
@@ -958,19 +958,19 @@ foreach ([
     'woocommerce_analytics_scheduled_import',
     'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
 ] as $optionName) {
-    duo_check_same(
+    wprism_check_same(
         'authored',
         $policy->meta_rule_for_option($optionName, [])['class'] ?? null,
         "$optionName is typed portable state with an exact native side-effect provider"
     );
 }
-duo_check_same(
+wprism_check_same(
     ['class' => 'runtime'],
     $interpreter->user_meta_rule('wc_push_notification_preferences_wp', []),
     'the single-site/blog-1 suffix used by Woo remains target-local device state'
 );
 $GLOBALS['wooReadinessBlogId'] = 7;
-duo_check_same(
+wprism_check_same(
     ['class' => 'runtime'],
     $interpreter->user_meta_rule('wc_push_notification_preferences_wp_7', []),
     'the exact current multisite-blog suffix remains target-local device state'
@@ -982,25 +982,25 @@ foreach ([
     'wp_7_wc_push_notification_preferences',
     'wc_push_notification_preferences',
 ] as $foreignKey) {
-    duo_check_same(
+    wprism_check_same(
         null,
         $interpreter->user_meta_rule($foreignKey, []),
         "$foreignKey cannot claim another site's or an extension's user metadata"
     );
 }
 $GLOBALS['wooReadinessBlogId'] = 1;
-duo_check_same(null, $interpreter->user_meta_rule('customer_preferences', []), 'unrelated user metadata remains unclaimed');
+wprism_check_same(null, $interpreter->user_meta_rule('customer_preferences', []), 'unrelated user metadata remains unclaimed');
 
-$global = ['pa_duo-size' => woo_readiness_attribute()];
-duo_check_same([], woo_readiness_diagnostics($interpreter, $global), 'the exact WooCommerce 11.0.x global-attribute row is clean');
+$global = ['pa_wprism-size' => woo_readiness_attribute()];
+wprism_check_same([], woo_readiness_diagnostics($interpreter, $global), 'the exact WooCommerce 11.0.x global-attribute row is clean');
 $multibyteGlobal = ['pa_尺寸' => woo_readiness_attribute(['name' => 'pa_尺寸'])];
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_diagnostics($interpreter, $multibyteGlobal),
     'the exact pa_尺寸 Woo-native multibyte global-attribute taxonomy survives interpreter readiness'
 );
-duo_check_same([], woo_readiness_diagnostics($interpreter, []), 'the native empty attribute map remains valid');
-duo_check_same(
+wprism_check_same([], woo_readiness_diagnostics($interpreter, []), 'the native empty attribute map remains valid');
+wprism_check_same(
     [],
     woo_readiness_diagnostics($interpreter, [
         'custom-material' => woo_readiness_attribute([
@@ -1017,25 +1017,25 @@ duo_check_same(
 woo_readiness_reports($interpreter, 'malformed-string', 'must be an object');
 woo_readiness_reports($interpreter, [woo_readiness_attribute()], 'not a positional list');
 woo_readiness_reports($interpreter, [7 => woo_readiness_attribute()], 'keys must be non-empty strings');
-woo_readiness_reports($interpreter, ['pa_duo-size' => ['name', 'value']], 'rows must be named objects');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => ['name', 'value']], 'rows must be named objects');
 
 $missing = woo_readiness_attribute();
 unset($missing['position'], $missing['is_visible']);
-woo_readiness_reports($interpreter, ['pa_duo-size' => $missing], 'missing required field(s): position, is_visible');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => $missing], 'missing required field(s): position, is_visible');
 woo_readiness_reports(
     $interpreter,
-    ['pa_duo-size' => woo_readiness_attribute(['extension_plain_field' => ['addon' => true]])],
+    ['pa_wprism-size' => woo_readiness_attribute(['extension_plain_field' => ['addon' => true]])],
     'unsupported addon-owned field(s): extension_plain_field'
 );
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['name' => 7])], 'name must be a non-empty string');
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['value' => ['not' => 'text']])], 'value must be a string');
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['position' => -1])], 'position must be a non-negative integer');
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['position' => '9007199254740993'])], 'position must be a non-negative integer');
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['is_visible' => true])], 'is_visible must be integer 0 or 1');
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['is_variation' => 2])], 'is_variation must be integer 0 or 1');
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['is_taxonomy' => -1])], 'is_taxonomy must be integer 0 or 1');
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['name' => 'pa_other'])], 'must equal its pa_* object key');
-woo_readiness_reports($interpreter, ['PA_DUO_SIZE' => woo_readiness_attribute(['name' => 'PA_DUO_SIZE'])], 'must equal its pa_* object key');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['name' => 7])], 'name must be a non-empty string');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['value' => ['not' => 'text']])], 'value must be a string');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['position' => -1])], 'position must be a non-negative integer');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['position' => '9007199254740993'])], 'position must be a non-negative integer');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['is_visible' => true])], 'is_visible must be integer 0 or 1');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['is_variation' => 2])], 'is_variation must be integer 0 or 1');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['is_taxonomy' => -1])], 'is_taxonomy must be integer 0 or 1');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['name' => 'pa_other'])], 'must equal its pa_* object key');
+woo_readiness_reports($interpreter, ['PA_WPRISM_SIZE' => woo_readiness_attribute(['name' => 'PA_WPRISM_SIZE'])], 'must equal its pa_* object key');
 woo_readiness_reports($interpreter, ['pa_Pa色' => woo_readiness_attribute(['name' => 'pa_Pa色'])], 'must equal its pa_* object key');
 woo_readiness_reports($interpreter, ['pa_★' => woo_readiness_attribute(['name' => 'pa_★'])], 'must equal its pa_* object key');
 woo_readiness_reports($interpreter, ['pa_Ⅷ' => woo_readiness_attribute(['name' => 'pa_Ⅷ'])], 'must equal its pa_* object key');
@@ -1052,7 +1052,7 @@ woo_readiness_reports(
     [$invalidUtf8Taxonomy => woo_readiness_attribute(['name' => $invalidUtf8Taxonomy])],
     'must equal its pa_* object key'
 );
-woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['value' => 'source-local option'])], 'global attribute value must be empty');
+woo_readiness_reports($interpreter, ['pa_wprism-size' => woo_readiness_attribute(['value' => 'source-local option'])], 'global attribute value must be empty');
 woo_readiness_reports($interpreter, $global, 'valid only on product entities', 'product_variation');
 
 $download = [
@@ -1063,7 +1063,7 @@ $download = [
         'enabled' => true,
     ],
 ];
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_diagnostics($interpreter, $download, 'product_variation', '_downloadable_files'),
     'current downloadable-file rows are valid on products and variations'
@@ -1073,7 +1073,7 @@ unset(
     $legacyDownload['0123456789abcdef0123456789abcdef']['id'],
     $legacyDownload['0123456789abcdef0123456789abcdef']['enabled']
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_diagnostics($interpreter, $legacyDownload, 'product', '_downloadable_files'),
     'still-readable legacy name/file download rows remain valid'
@@ -1096,7 +1096,7 @@ woo_readiness_reports(
     '_downloadable_files'
 );
 
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_diagnostics(
         $interpreter,
@@ -1106,7 +1106,7 @@ duo_check_same(
     ),
     'an internal external-product URL is tokenized and portable'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_diagnostics(
         $interpreter,
@@ -1116,7 +1116,7 @@ duo_check_same(
     ),
     'a third-party HTTPS external-product URL remains supported'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_diagnostics($interpreter, 'اشتر الآن — 東京', 'product', '_button_text'),
     'external-product button text preserves bounded Unicode and RTL content'
@@ -1148,13 +1148,13 @@ foreach ([' Buy now ', '<b>Buy now</b>', 'Buy%20now'] as $nonCanonicalButton) {
         '_button_text'
     );
 }
-duo_check(
+wprism_check(
     $GLOBALS['wooReadinessNativeUrlCalls'] !== [] && $GLOBALS['wooReadinessNativeTextCalls'] !== [],
     'repository validation executes the native URL and text canonicalization boundaries'
 );
 
 foreach (['-0.25', '1.23454', '1.23455', '1.234565', '-1.23455', '1.0E-7', '9.999999999999E+14'] as $cogsValue) {
-    duo_check_same(
+    wprism_check_same(
         [],
         woo_readiness_diagnostics($interpreter, $cogsValue, 'product', '_cogs_total_value'),
         "native authored Cost of Goods postmeta $cogsValue is portable before lookup-column coercion"
@@ -1169,7 +1169,7 @@ foreach (['1.2300', '1.0E+3', '0E+9', '0.0000'] as $nonWriterCogsValue) {
         '_cogs_total_value'
     );
 }
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_diagnostics($interpreter, '0', 'product_variation', '_cogs_total_value'),
     'variation Cost of Goods preserves an explicit zero because its native setter disables base-product normalization'
@@ -1181,7 +1181,7 @@ woo_readiness_reports(
     'product',
     '_cogs_total_value'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(array_merge([
         woo_readiness_valid_variation_parent(),
@@ -1207,13 +1207,13 @@ woo_readiness_reports($interpreter, true, "must be exact 'yes'", 'product_variat
 woo_readiness_reports($interpreter, 'yes', 'valid only on product_variation', 'product', '_cogs_value_is_additive');
 $cogsMarker = 'secret_cogs_marker_DO_NOT_ECHO';
 $cogsMarkerDiagnostics = woo_readiness_diagnostics($interpreter, $cogsMarker, 'product', '_cogs_total_value');
-duo_check(
+wprism_check(
     $cogsMarkerDiagnostics !== []
         && !str_contains(implode(' | ', woo_readiness_messages($cogsMarkerDiagnostics)), $cogsMarker),
     'malformed Cost of Goods diagnostics never echo merchant-shaped input'
 );
 
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_term_diagnostics($interpreter, 'product_cat', [
         'display_type' => 'both',
@@ -1222,7 +1222,7 @@ duo_check_same(
     ], [woo_readiness_post_entity('33333333-3333-4333-8333-333333333333')]),
     'product category display, order, and divergent attachment reference are valid together'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_term_diagnostics($interpreter, 'product_brand', [
         'display_type' => 'both',
@@ -1231,19 +1231,19 @@ duo_check_same(
     ], [woo_readiness_post_entity('44444444-4444-4444-8444-444444444444')]),
     'core brand REST display/order and thumbnail fields share the exact portable term boundary'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', ['color' => '#A1b2C3', 'order' => '0']),
     'visual multibyte global attributes preserve exact native color and ordering'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', [
         'image' => '{{post:55555555-5555-4555-8555-555555555555}}',
     ], [woo_readiness_post_entity('55555555-5555-4555-8555-555555555555')]),
     'visual attribute image mode preserves a divergent attachment identity'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', []),
     'removing both visual rows is the exact native none-state transition'
@@ -1256,13 +1256,13 @@ foreach ([
     $imageDiagnostics = woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', [
         'image' => '{{post:55555555-5555-4555-8555-555555555555}}',
     ], $relatedPosts);
-    duo_check(
+    wprism_check(
         $imageDiagnostics !== []
             && str_contains(implode(' | ', woo_readiness_messages($imageDiagnostics)), 'live image attachment'),
         "$description cannot satisfy Woo's wp_attachment_is_image semantic boundary"
     );
 }
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_term_diagnostics($interpreter, 'wc_fulfillment_shipping_provider', [
         'tracking_url_template' => 'https://carrier.example/track?id=__PLACEHOLDER__',
@@ -1276,7 +1276,7 @@ foreach ([
     'https://carrier.example/track?a=__PLACEHOLDER__&b=__PLACEHOLDER__' => 'native replacement permits multiple placeholder occurrences',
     'https://carrier.example/track/%E6%9D%B1%E4%BA%AC?literal=100%25' => 'percent-encoded Unicode and percent data follow the native URL filter',
 ] as $trackingTemplate => $message) {
-    duo_check_same(
+    wprism_check_same(
         [],
         woo_readiness_term_diagnostics($interpreter, 'wc_fulfillment_shipping_provider', [
             'tracking_url_template' => $trackingTemplate,
@@ -1304,7 +1304,7 @@ $termCases = [
 ];
 foreach ($termCases as [$taxonomy, $meta, $fragment]) {
     $diagnostics = woo_readiness_term_diagnostics($interpreter, $taxonomy, $meta);
-    duo_check(
+    wprism_check(
         $diagnostics !== [] && str_contains(implode(' | ', woo_readiness_messages($diagnostics)), $fragment),
         "malformed $taxonomy term state refuses with a bounded diagnostic: $fragment"
     );
@@ -1315,13 +1315,13 @@ $termSecretDiagnostics = woo_readiness_term_diagnostics(
     'wc_fulfillment_shipping_provider',
     ['tracking_url_template' => $termSecret]
 );
-duo_check(
+wprism_check(
     $termSecretDiagnostics !== []
         && !str_contains(implode(' | ', woo_readiness_messages($termSecretDiagnostics)), 'term_secret_marker_DO_NOT_ECHO'),
     'fulfillment URL refusal never echoes embedded credential-shaped bytes'
 );
 
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_option_diagnostics($interpreter, [
         'auto_fulfill_downloadable' => ['state' => 'present', 'value' => 'yes'],
@@ -1329,7 +1329,7 @@ duo_check_same(
     ]),
     'both native automatic-fulfillment settings accept exact yes/no states'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_option_diagnostics($interpreter, [
         'auto_fulfill_downloadable' => ['state' => 'deleted'],
@@ -1339,7 +1339,7 @@ duo_check_same(
 $badFulfillmentOption = woo_readiness_option_diagnostics($interpreter, [
     'auto_fulfill_virtual' => ['state' => 'present', 'value' => true],
 ]);
-duo_check(
+wprism_check(
     $badFulfillmentOption !== []
         && str_contains(implode(' | ', woo_readiness_messages($badFulfillmentOption)), 'must be exact yes or no'),
     'malformed automatic-fulfillment option state refuses'
@@ -1427,12 +1427,12 @@ $validSettings = [
     'woocommerce_thumbnail_cropping_custom_width' => ['state' => 'present', 'value' => '16'],
     'woocommerce_thumbnail_image_width' => ['state' => 'present', 'value' => '500'],
 ];
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_option_diagnostics($interpreter, $validSettings),
     'direct-read Woo settings accept exact native enums, arrays, Unicode, HTML, GraphQL, and gateway-order shapes'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_option_diagnostics($interpreter, [
         'woocommerce_gateway_order' => ['state' => 'present', 'value' => []],
@@ -1454,7 +1454,7 @@ duo_check_same(
     ]),
     'native empty maps/text/enums and option deletion remain portable where the exact writer permits them, including every image control'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_option_diagnostics($interpreter, [
         'woocommerce_thumbnail_cropping' => ['state' => 'present', 'value' => '1:1'],
@@ -1464,7 +1464,7 @@ duo_check_same(
     ]),
     'Customizer-native zero absint values remain portable and Woo applies its exact max-one ratio semantics'
 );
-duo_check_same(
+wprism_check_same(
     [],
     woo_readiness_option_diagnostics($interpreter, [
         'woocommerce_thumbnail_cropping' => ['state' => 'present', 'value' => 'uncropped'],
@@ -1484,7 +1484,7 @@ foreach ([
     ['cost' => str_repeat('9', 1024)],
     ['enabled' => 'no', 'cost' => '0'],
 ] as $partialPickupSettings) {
-    duo_check_same(
+    wprism_check_same(
         [],
         woo_readiness_option_diagnostics($interpreter, [
             'woocommerce_pickup_location_settings' => [
@@ -1639,7 +1639,7 @@ foreach ($invalidSettings as [$name, $value, $fragment]) {
     $diagnostics = woo_readiness_option_diagnostics($interpreter, [
         $name => ['state' => 'present', 'value' => $value],
     ]);
-    duo_check(
+    wprism_check(
         $diagnostics !== []
             && str_contains(implode(' | ', woo_readiness_messages($diagnostics)), $fragment),
         "$name rejects malformed repository state at its exact native boundary: $fragment"
@@ -1650,7 +1650,7 @@ $tooManyPickupLocations = array_fill(0, 257, $validPickupLocations[0]);
 $tooManyPickupDiagnostics = woo_readiness_option_diagnostics($interpreter, [
     'pickup_location_pickup_locations' => ['state' => 'present', 'value' => $tooManyPickupLocations],
 ]);
-duo_check(
+wprism_check(
     str_contains(implode(' | ', woo_readiness_messages($tooManyPickupDiagnostics)), 'at most 256'),
     'local-pickup inventory refuses before accepting more than 256 locations'
 );
@@ -1666,13 +1666,13 @@ $oversizedPickupDiagnostics = woo_readiness_option_diagnostics($interpreter, [
         'value' => array_fill(0, 32, $oversizedPickup),
     ],
 ]);
-duo_check(
+wprism_check(
     str_contains(implode(' | ', woo_readiness_messages($oversizedPickupDiagnostics)), 'one-megabyte aggregate'),
     'local-pickup inventory enforces its aggregate decoded-byte bound before field traversal'
 );
 
 $statusFlood = array_fill(0, 129, 'processing');
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages(woo_readiness_option_diagnostics($interpreter, [
             'woocommerce_actionable_order_statuses' => ['state' => 'present', 'value' => $statusFlood],
@@ -1685,7 +1685,7 @@ $settingsSecret = 'settings_secret_marker_DO_NOT_ECHO';
 $settingsSecretDiagnostics = woo_readiness_option_diagnostics($interpreter, [
     'woocommerce_graphql_endpoint_url' => ['state' => 'present', 'value' => "wc/$settingsSecret!"],
 ]);
-duo_check(
+wprism_check(
     $settingsSecretDiagnostics !== []
         && !str_contains(implode(' | ', woo_readiness_messages($settingsSecretDiagnostics)), $settingsSecret),
     'settings schema refusals identify only the option and shape, never merchant bytes'
@@ -1696,7 +1696,7 @@ $oversizedThumbnailProjection = woo_readiness_option_diagnostics($interpreter, [
     'woocommerce_thumbnail_cropping_custom_width' => ['state' => 'present', 'value' => '1'],
     'woocommerce_thumbnail_image_width' => ['state' => 'present', 'value' => '32768'],
 ]);
-duo_check(
+wprism_check(
     str_contains(
         implode(' | ', woo_readiness_messages($oversizedThumbnailProjection)),
         'would exceed the 32768-pixel derived image boundary'
@@ -1707,12 +1707,12 @@ $thumbnailSecret = 'thumbnail_secret_marker_DO_NOT_ECHO';
 $thumbnailSecretDiagnostics = woo_readiness_option_diagnostics($interpreter, [
     'woocommerce_thumbnail_image_width' => ['state' => 'present', 'value' => "500$thumbnailSecret"],
 ]);
-duo_check(
+wprism_check(
     $thumbnailSecretDiagnostics !== []
         && !str_contains(implode(' | ', woo_readiness_messages($thumbnailSecretDiagnostics)), $thumbnailSecret),
     'thumbnail option refusal identifies only the option and bounded grammar, never hostile merchant bytes'
 );
-duo_check(
+wprism_check(
     $GLOBALS['wooReadinessNativeTextCalls'] !== []
         && $GLOBALS['wooReadinessNativeHtmlCalls'] !== []
         && !function_exists('wc_format_decimal'),
@@ -1727,11 +1727,11 @@ woo_readiness_reports(
 );
 
 $multi = woo_readiness_diagnostics($interpreter, [
-    'pa_duo-size' => woo_readiness_attribute(['position' => -1, 'is_visible' => 3]),
+    'pa_wprism-size' => woo_readiness_attribute(['position' => -1, 'is_visible' => 3]),
 ]);
-duo_check_same(2, count($multi), 'one corrupted row reports every independent field violation in one compiler pass');
-duo_check_same(
-    ['meta._product_attributes.pa_duo-size.position', 'meta._product_attributes.pa_duo-size.is_visible'],
+wprism_check_same(2, count($multi), 'one corrupted row reports every independent field violation in one compiler pass');
+wprism_check_same(
+    ['meta._product_attributes.pa_wprism-size.position', 'meta._product_attributes.pa_wprism-size.is_visible'],
     array_column($multi, 'locator'),
     'field diagnostics point at the exact canonical locations a reviewer must repair'
 );
@@ -1743,7 +1743,7 @@ $woocommerceReadiness = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 $scopeEvidence = $woocommerceReadiness['covered']['scope-platform'] ?? [];
-duo_check(
+wprism_check(
     in_array('adapter-packages/woocommerce/tests/live/regress_woocommerce_multisite_refusal.sh', $scopeEvidence, true),
     'WooCommerce readiness binds scope-platform to the exact populated multisite refusal suite'
 );
@@ -1751,7 +1751,7 @@ $multisiteRefusal = (string) file_get_contents(
     dirname(__DIR__) . '/live/regress_woocommerce_multisite_refusal.sh'
 );
 foreach ([
-    'DUO_EXPECTED_SOURCE_SHA',
+    'WPRISM_EXPECTED_SOURCE_SHA',
     'validate_artifact_library',
     'fetch_artifact woocommerce 11.0.1 cli1 plugin',
     'woo_plugin_identity',
@@ -1759,31 +1759,31 @@ foreach ([
     'woo_plugin_tree_hash',
     'woocommerce_custom_orders_table_enabled',
     'woo_storage_fingerprint',
-    'duo_tables',
-    'duo_options',
+    'wprism_tables',
+    'wprism_options',
     'repo_git_fingerprint',
-    'duo_woocommerce_multisite_canary',
+    'wprism_woocommerce_multisite_canary',
     'wp1 core multisite-convert',
     'for command in capture plan deploy apply; do',
     'reason_code == "multisite_unsupported"',
     'state.capture-staging',
-    'site.duo.json',
+    'site.wprism.json',
     'GREEN=0',
 ] as $multisiteEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($multisiteRefusal, $multisiteEvidence),
         "WooCommerce multisite refusal statically binds $multisiteEvidence"
     );
 }
 
 $lifecycleEvidence = $woocommerceReadiness['covered']['lifecycle'] ?? [];
-duo_check(
+wprism_check(
     in_array('adapter-packages/woocommerce/fixtures/woocommerce-destructive-lifecycle.sh', $lifecycleEvidence, true),
     'WooCommerce readiness binds lifecycle to the explicit destructive-uninstall recovery fragment'
 );
 $checksScript = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
 foreach ([
-    'DUO_TEST_PROMOTION_PAUSE_MS=30000',
+    'WPRISM_TEST_PROMOTION_PAUSE_MS=30000',
     'process_fence_held',
     'woocommerce_provider_guard',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
@@ -1798,7 +1798,7 @@ foreach ([
     'fixtures/woocommerce-destructive-lifecycle.sh',
     'check_woocommerce_destructive_lifecycle',
 ] as $conformanceEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($checksScript, $conformanceEvidence),
         "WooCommerce exact conformance statically binds $conformanceEvidence"
     );
@@ -1809,7 +1809,7 @@ $destructiveLifecycle = (string) file_get_contents(
 );
 foreach ([
     'WC_REMOVE_ALL_DATA',
-    'duo identity-export --repo=/siterepo',
+    'wprism identity-export --repo=/siterepo',
     'db export /siterepo/.tmp-woocommerce-remove-all.sql --add-drop-table',
     'canonical mapped identity|refusing to (create|infer|rebind)',
     'plan minted or rewrote identities before refusal',
@@ -1820,7 +1820,7 @@ foreach ([
     '(.actions | length) == 0',
     'did not recapture byte-identically',
 ] as $destructiveEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($destructiveLifecycle, $destructiveEvidence),
         "WooCommerce destructive lifecycle statically binds $destructiveEvidence"
     );
@@ -1839,12 +1839,12 @@ foreach ([
     'count($mappedRows) !== count($kinds)',
     'canonicalIdentityRecoveryRequired($failure)',
 ] as $guardEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($canonicalMapGuard, $guardEvidence),
         "WooCommerce destructive recovery guard statically binds $guardEvidence"
     );
 }
-duo_check(
+wprism_check(
     substr_count($snapshotService, 'CanonicalLedgerMapGuard::assert_pre_prune($policy, $repository)') === 2
         && strpos($snapshotService, 'CanonicalLedgerMapGuard::assert_pre_prune($policy, $repository)')
             < strpos($snapshotService, 'Ledger::prune_dead_map()')
@@ -1859,7 +1859,7 @@ $matrixDriver = (string) file_get_contents(
 $woocommerceMatrix = (string) file_get_contents(
     dirname(__DIR__) . '/certify/version-matrix.sh'
 );
-duo_check(
+wprism_check(
     str_contains($woocommerceMatrix, 'check_woocommerce_in_range_downgrade "$ARTIFACT_1" "$ARTIFACT_2"'),
     'WooCommerce version matrix invokes the in-range downgrade with both exact retained artifacts'
 );
@@ -1874,7 +1874,7 @@ foreach ([
     '$package_tests/../fixtures/woocommerce-downgrade-recapture.php',
     'in-range downgrade recapture diverged outside declared derived product timestamps',
 ] as $downgradeEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($woocommerceMatrix, $downgradeEvidence),
         "WooCommerce exact version matrix statically binds $downgradeEvidence"
     );
@@ -1882,7 +1882,7 @@ foreach ([
 $downgradeComparator = (string) file_get_contents(
     dirname(__DIR__, 2) . '/fixtures/woocommerce-downgrade-recapture.php'
 );
-duo_check(
+wprism_check(
     str_contains($downgradeComparator, "str_starts_with(\$path, 'posts/product/')")
         && str_contains($downgradeComparator, "['conformance-widget', 'conformance-precision-download']")
         && str_contains($downgradeComparator, "['modified', 'modified_gmt']")
@@ -1894,4 +1894,4 @@ duo_check(
     'WooCommerce downgrade timestamp allowance is exact-path, raw-byte, field-presence, and tree-inventory bounded'
 );
 
-duo_check_summary('WooCommerce production readiness');
+wprism_check_summary('WooCommerce production readiness');

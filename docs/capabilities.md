@@ -1,4 +1,4 @@
-# Duo capability boundary
+# WPrism capability boundary
 
 The exact adapter matrix is rendered from the current checkout rather than
 checked in as a second adapter inventory:
@@ -27,7 +27,7 @@ A status means exactly three things:
 
 It does not mean that a digest seals the claim to a particular test run or
 artifact bundle. Outside a declared version, surface, operation, or lifecycle
-boundary, Duo refuses instead of guessing.
+boundary, WPrism refuses instead of guessing.
 
 | Status | Meaning |
 |---|---|
@@ -44,9 +44,9 @@ boundary, Duo refuses instead of guessing.
 - `integration-scenarios/<name>/scenario.json` — checked cross-adapter participants
 - `platform/adapter-library/` — WordPress core policy, profile vocabulary,
   platform compatibility, and adapter trust roots
-- `agent/duo.php` — loaded agent/spec versions
+- `agent/wprism.php` — loaded agent/spec versions
 
-For a particular managed repository, use `duo capabilities <environment>`.
+For a particular managed repository, use `wprism capabilities <environment>`.
 That command evaluates the repository's exact pins and, when available, the
 live target rather than the whole source library.
 

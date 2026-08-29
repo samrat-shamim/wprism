@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
@@ -37,7 +37,7 @@ final class RegenerationContextStore {
         $wpdb->last_error = '';
         $value = $wpdb->get_var($sql);
         if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+            throw new \RuntimeException("wprism: regeneration bookkeeping read failed: $context");
         }
         return $value;
     }
@@ -47,7 +47,7 @@ final class RegenerationContextStore {
         $wpdb->last_error = '';
         $row = $wpdb->get_row($sql, ARRAY_A);
         if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+            throw new \RuntimeException("wprism: regeneration bookkeeping read failed: $context");
         }
         return $row;
     }
@@ -58,7 +58,7 @@ final class RegenerationContextStore {
         $wpdb->last_error = '';
         $rows = $wpdb->get_col($sql);
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: regeneration bookkeeping read failed: $context");
+            throw new \RuntimeException("wprism: regeneration bookkeeping read failed: $context");
         }
         return $rows;
     }
@@ -89,7 +89,7 @@ final class RegenerationContextStore {
                     $mappedUuid = Ledger::uuid_for($adoptId, Ledger::KIND_POST);
                     if ($mappedUuid !== null && $mappedUuid !== $uuid) {
                         throw new \RuntimeException(
-                            "duo: cannot capture reparent context for adopted post $adoptId ($uuid): "
+                            "wprism: cannot capture reparent context for adopted post $adoptId ($uuid): "
                             . "the local id is already mapped to canonical post $mappedUuid"
                         );
                     }

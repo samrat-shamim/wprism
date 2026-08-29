@@ -12,9 +12,9 @@ mutation. Cleanup removes host paths only after pair destruction plus Docker
 resource and database absence are all verified; an uncertain teardown fails
 the run and preserves its exact paths for diagnosis.
 
-## DUO-3337 move matrix
+## issue #3337 move matrix
 
-The machine-readable [DUO-3337 move matrix](../../sandbox/tests/grind/grind_ecommerce_developer.matrix.json)
+The machine-readable [issue #3337 move matrix](../../sandbox/tests/grind/grind_ecommerce_developer.matrix.json)
 is the acceptance index for this proof. Every row has the same fields:
 move ID, intent, public command, status, code delta, authored-state delta,
 generated-state policy, required capabilities, semantic plan, expected write
@@ -47,10 +47,10 @@ exact-rollback proof, and static assertions. It is green in this matrix; the
 intentional `reproduced_gap` refusal rows do not substitute for that
 before-fix/after-fix convergence path.
 
-The explicit gaps are initialization/adoption (DUO-3336), branch
-materialization (DUO-3324), authored-user synchronization (DUO-3344),
-refresh/rebase live-grind coverage (the public workflow landed in DUO-3343),
-and scoped promotion (DUO-3344). The proof exercises a reviewed
+The explicit gaps are initialization/adoption (issue #3336), branch
+materialization (issue #3324), authored-user synchronization (issue #3344),
+refresh/rebase live-grind coverage (the public workflow landed in issue #3343),
+and scoped promotion (issue #3344). The proof exercises a reviewed
 parent/child theme upgrade with failure/retry, a non-forceable incompatible
 downgrade, unsafe parent-removal refusal, dependency-safe child removal after
 a public theme switch with an explicit `--force-theirs` acceptance of the
@@ -58,7 +58,7 @@ reviewed theme-state intent, and exact rollback while preserving theme settings,
 navigation, and media. It also exercises one representative plugin identity
 replacement through the generic plan/promote path and one bounded named
 WordPress-cron event. Reproduced boundaries include unsupported Woo deletion
-(DUO-3338) and dependency refusal (DUO-3338). Compatibility refusal (DUO-3326)
+(issue #3338) and dependency refusal (issue #3338). Compatibility refusal (issue #3326)
 is exercised by the live proof. These
 statuses prevent the current clone-based setup from being mistaken for
 coverage of the missing public workflows.
@@ -88,7 +88,7 @@ canonical taxonomy policy.
 The first capture is state-only. Code is then opted into by copying the
 verified Woo/ACF bytes plus the in-house v1 extension and parent/child theme
 into `code/`. The author installation activates the extension and switches
-themes through WordPress APIs before an ordinary `duo capture`, so lifecycle
+themes through WordPress APIs before an ordinary `wprism capture`, so lifecycle
 hooks and the captured managed options are real developer actions.
 
 The ACF check binds the complete group/field schema: group key, title,
@@ -108,7 +108,7 @@ SKUs, tax classes, attribute terms, and `in_stock` rows. The cap's authored
 That runtime move exposed a second-order boundary: WooCommerce product saves
 also advance `post_modified` and `post_modified_gmt`, even when only
 target-local stock changed. The Woo manifest therefore classifies those two
-front-matter fields as derived for products and variations. Duo still captures
+front-matter fields as derived for products and variations. WPrism still captures
 their current values for operator visibility and uses them when creating a new
 row, but timestamp-only differences neither create state drift nor overwrite
 an existing environment's persistence timestamps. Other post types retain the
@@ -116,17 +116,17 @@ default authored timestamp behavior.
 
 The extension requires WooCommerce, owns a runtime events table, and requires
 an env-owned gateway secret. Its option contract is deliberately site-local
-in `site.duo.json`: synthetic project code is not smuggled into the external
+in `site.wprism.json`: synthetic project code is not smuggled into the external
 registry as a self-certified shipped adapter. Exact code bytes and the
 `Requires Plugins` header still govern materialization and lifecycle ordering.
 The source and target secrets are intentionally different; only the target is
-provisioned through public `duo env-set`, and the secret is checked to stay out
+provisioned through public `wprism env-set`, and the secret is checked to stay out
 of canonical state at every capture/apply/rollback checkpoint. ACF is installed and active on the author, initially
 inactive on the target, and its product field value and schema are verified
 after promotion. The target frontend is exercised over bounded curl requests:
 the parent body class, child template marker, and dependency-ordered
 parent/child stylesheet output must all be present. The extension's public
-`/wp-json/duo-commerce/v1/status` endpoint is checked for exact HTTP 200,
+`/wp-json/wprism-commerce/v1/status` endpoint is checked for exact HTTP 200,
 extension version, schema, and Woo availability.
 
 Storefront acceptance is deliberately two-layered. The Store API price and
@@ -152,11 +152,11 @@ The live sequence covers:
   shape; after source-table migration its identity/label/time must remain
   unchanged and its new `context` value must be the empty default;
 - a sacrificial global-attribute product carried through v1/v2, then deleted
-  through public Woo tooling at the end of the source sequence. Duo capture
+  through public Woo tooling at the end of the source sequence. WPrism capture
   refuses the unsupported `post:product` disappearance with the exact
   fail-closed diagnostic; the canonical state tree, local/published repository
   identities, target product and both lookup roots, catalog, code, and runtime
-  probes remain unchanged, and no Duo tombstone is created or promoted;
+  probes remain unchanged, and no WPrism tombstone is created or promoted;
 - Woo product/variation/grouped/shipping/tax creation and update paths remain
   covered by the catalog and author-update probes. Positive Woo deletion
   authority is intentionally not claimed: generic child/typed-row deletion
@@ -172,7 +172,7 @@ The live sequence covers:
   bytes, checkpoint SHA-256, recovery lease, and import are bound to one
   promotion identity;
 - a real author-side grouped-child price and merchandising edit captured and
-  promoted through Duo, with the grouped root's exact min/max lookup refreshed
+  promoted through WPrism, with the grouped root's exact min/max lookup refreshed
   while target-only runtime order/stock survives;
 - pinned WooCommerce 10.9.4 source compatibility refusal before
   `promotion-begin`, with the entire target plugin tree and code revision
@@ -221,9 +221,9 @@ before the first capture, while a real target customer/order/event is created
 after the v1 checkpoint. None is captured into canonical state or copied to
 the opposite site. The final rollback enters WordPress maintenance mode,
 verifies the retained checkpoint bytes, and imports the pre-order checkpoint
-through Duo's isolated control-plane `db import` operation. This order
+through WPrism's isolated control-plane `db import` operation. This order
 matters: the checkpoint puts the custom extension back in `active_plugins`
-while its v1 files are still absent from the target, so the public `duo
+while its v1 files are still absent from the target, so the public `wprism
 promote` must stage the exact v1 code before its lifecycle window. Maintenance
 remains held across both the import and promote and is released only after
 promote succeeds. A failed import/promote leaves the disposable pair
@@ -256,14 +256,14 @@ Every deploy receipt is selected as exactly one new `deploy-<run>.json` file
 relative to the pre-deploy inventory. Every promote receipt is derived from
 the command's printed `promote-<run>.sql` checkpoint, requires that non-empty
 pair-local checkpoint, and is verified by recomputing the artifact hash with
-the repository's `Duo\Canon::encode` contract after removing
+the repository's `WPrism\Canon::encode` contract after removing
 `artifact_hash`. This verifies the receipt content and associates the receipt
 and checkpoint by their exact run name; it does not claim that the SQL bytes
 are cryptographically included in the promotion receipt.
 
 The deletion boundary is intentionally explicit: ordinary Woo public deletion
 can remove a source product, but capture refuses before mutating canonical
-state or Duo's `duo_map`, `duo_state`, and `duo_kv` ledgers because no exhaustive Woo/extension reverse-reference authority is
+state or WPrism's `wprism_map`, `wprism_state`, and `wprism_kv` ledgers because no exhaustive Woo/extension reverse-reference authority is
 declared. Operators must perform relation repair and migration manually (for
 example grouped `_children`, download/subscription/order references, and
 shipping/tax cache/API effects) until a future version-pinned adapter contract
@@ -279,7 +279,7 @@ heartbeats around its bounded loops. `wc_product_attributes_lookup` is an
 explicit manual regeneration/verification boundary. Manifest cache commands are
 selected only when the current authored table or option surfaces intersect
 their exact triggers. The legacy whole-catalog `WooCommerceContract::rebuild()`
-projection is deleted from engine core outright (DUO-3341); the bounded batch
+projection is deleted from engine core outright (issue #3341); the bounded batch
 regeneration above is the only automatic projection path. In particular,
 `wc_category_lookup` remains derived but outside this certification because
 WooCommerce 11.0.0 exposes only a public whole-catalog regeneration method;

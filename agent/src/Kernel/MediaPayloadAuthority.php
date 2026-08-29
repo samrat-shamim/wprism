@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * One target-independent byte authority for portable attachment originals.
@@ -74,18 +74,18 @@ final class MediaPayloadAuthority {
         // Deterministic test-only interleave for the prior defect: an
         // in-place same-size rewrite between reads must not publish a hybrid
         // content address as though it described a stable source state.
-        if (defined('DUO_TEST_MODE') && DUO_TEST_MODE === true
-            && is_callable($GLOBALS['duo_media_observation_interleave'] ?? null)) {
-            ($GLOBALS['duo_media_observation_interleave'])($path);
+        if (defined('WPRISM_TEST_MODE') && WPRISM_TEST_MODE === true
+            && is_callable($GLOBALS['wprism_media_observation_interleave'] ?? null)) {
+            ($GLOBALS['wprism_media_observation_interleave'])($path);
         }
 
         $secondShape = self::assertFileShape($path);
         if ($secondShape !== $firstShape) {
-            throw new \RuntimeException('duo: media source identity changed between its stability observations');
+            throw new \RuntimeException('wprism: media source identity changed between its stability observations');
         }
         $secondHash = self::streamHash($path, $secondShape);
         if (!hash_equals($firstHash, $secondHash)) {
-            throw new \RuntimeException('duo: media source bytes changed between its stability observations');
+            throw new \RuntimeException('wprism: media source bytes changed between its stability observations');
         }
         $extension = self::extensionFor($uploadPath);
         if (self::kindFor($mime, $extension) !== 'raster') {
@@ -95,7 +95,7 @@ final class MediaPayloadAuthority {
         $bytes = self::readOpenedFile($path, $secondShape, $secondHash);
         $witness = self::witness($bytes, $uploadPath, $mime);
         if (!hash_equals($secondHash, $witness['sha256'])) {
-            throw new \RuntimeException('duo: media source changed after its stable content observation');
+            throw new \RuntimeException('wprism: media source changed after its stable content observation');
         }
         return $witness;
     }
@@ -126,18 +126,18 @@ final class MediaPayloadAuthority {
         if (count($source) !== 2
             || $hasPath === $hasBytes
             || !is_array($witness)) {
-            throw new \RuntimeException('duo: captured media source has an invalid bounded payload contract');
+            throw new \RuntimeException('wprism: captured media source has an invalid bounded payload contract');
         }
         self::assertWitness($witness);
         self::assertMediaName($name, $witness);
         if ($hasPath) {
             if (!is_string($source['path'])) {
-                throw new \RuntimeException('duo: captured media source path is malformed');
+                throw new \RuntimeException('wprism: captured media source path is malformed');
             }
             return self::readFile($source['path'], $witness);
         }
         if (!is_string($source['bytes'])) {
-            throw new \RuntimeException('duo: captured media source bytes are malformed');
+            throw new \RuntimeException('wprism: captured media source bytes are malformed');
         }
         self::assertBytes($source['bytes'], $witness);
         return $source['bytes'];
@@ -157,7 +157,7 @@ final class MediaPayloadAuthority {
         $path = self::physicalLocalFilePath($path);
         $firstShape = self::assertFileShape($path, self::MAX_ARTIFACT_DOCUMENT_BYTES);
         if ($expectedShape !== null && $firstShape !== self::assertArtifactDocumentShape($expectedShape)) {
-            throw new \RuntimeException('duo: compiled artifact pathname does not match its bounded transport handoff');
+            throw new \RuntimeException('wprism: compiled artifact pathname does not match its bounded transport handoff');
         }
         // A wire-size multiplier cannot bound json_decode(..., true): a
         // 10,000,001-byte `[0,...]` document reached a 128 MiB allocation
@@ -175,18 +175,18 @@ final class MediaPayloadAuthority {
         // This narrow test interleave proves that the persisted-artifact
         // boundary has the same stability rule as capture: an equal-length
         // rewrite must fail before Canon can decode a mixed document.
-        if (defined('DUO_TEST_MODE') && DUO_TEST_MODE === true
-            && is_callable($GLOBALS['duo_compiled_artifact_observation_interleave'] ?? null)) {
-            ($GLOBALS['duo_compiled_artifact_observation_interleave'])($path);
+        if (defined('WPRISM_TEST_MODE') && WPRISM_TEST_MODE === true
+            && is_callable($GLOBALS['wprism_compiled_artifact_observation_interleave'] ?? null)) {
+            ($GLOBALS['wprism_compiled_artifact_observation_interleave'])($path);
         }
         $secondShape = self::assertFileShape($path, self::MAX_ARTIFACT_DOCUMENT_BYTES);
         $secondHash = self::streamHash($path, $secondShape);
         if ($secondShape !== $firstShape || !hash_equals($firstHash, $secondHash)) {
-            throw new \RuntimeException('duo: compiled artifact changed between bounded file observations');
+            throw new \RuntimeException('wprism: compiled artifact changed between bounded file observations');
         }
         $secondStructure = self::artifactStructure($path, $secondShape);
         if ($secondStructure !== $structure) {
-            throw new \RuntimeException('duo: compiled artifact structure changed between bounded file observations');
+            throw new \RuntimeException('wprism: compiled artifact structure changed between bounded file observations');
         }
         self::assertDocumentHeadroom(
             $secondShape['size'],
@@ -219,7 +219,7 @@ final class MediaPayloadAuthority {
             if (!is_string($name)
                 || !is_string($front['file'] ?? null)
                 || !is_string($front['mime'] ?? null)) {
-                throw new \RuntimeException('duo: compiled artifact attachment media authority is malformed');
+                throw new \RuntimeException('wprism: compiled artifact attachment media authority is malformed');
             }
             $attachments[$name][] = [
                 'file' => $front['file'],
@@ -231,11 +231,11 @@ final class MediaPayloadAuthority {
         $inline = 0;
         foreach ($media as $name => $row) {
             if (!is_string($name) || !is_array($row) || !is_string($row['sha256'] ?? null)) {
-                throw new \RuntimeException('duo: compiled artifact media row is malformed');
+                throw new \RuntimeException('wprism: compiled artifact media row is malformed');
             }
             $parsed = self::parseMediaName($name);
             if (!hash_equals($parsed['sha256'], $row['sha256'])) {
-                throw new \RuntimeException('duo: compiled artifact media row disagrees with its content-addressed name');
+                throw new \RuntimeException('wprism: compiled artifact media row disagrees with its content-addressed name');
             }
             $keys = array_keys($row);
             sort($keys, SORT_STRING);
@@ -247,20 +247,20 @@ final class MediaPayloadAuthority {
                 && is_int($row['size'])) {
                 self::assertFileBytes($row['size']);
                 if ($row['size'] <= self::MAX_INLINE_ARTIFACT_BYTES) {
-                    throw new \RuntimeException('duo: small compiled media must use its canonical inline encoding');
+                    throw new \RuntimeException('wprism: small compiled media must use its canonical inline encoding');
                 }
                 $size = $row['size'];
             } else {
-                throw new \RuntimeException('duo: compiled artifact media row is malformed');
+                throw new \RuntimeException('wprism: compiled artifact media row is malformed');
             }
             $aggregate = self::addToAggregate($aggregate, $size);
             if (!isset($attachments[$name])) {
-                throw new \RuntimeException('duo: compiled artifact carries media without an attachment authority');
+                throw new \RuntimeException('wprism: compiled artifact carries media without an attachment authority');
             }
         }
         foreach ($attachments as $name => $_refs) {
             if (!array_key_exists($name, $media)) {
-                throw new \RuntimeException('duo: compiled artifact attachment has no media payload');
+                throw new \RuntimeException('wprism: compiled artifact attachment has no media payload');
             }
         }
         self::assertArtifactHeadroom($inline);
@@ -290,11 +290,11 @@ final class MediaPayloadAuthority {
                 }
                 self::assertMediaName($name, $current);
                 if ($external && $current['size'] !== $row['size']) {
-                    throw new \RuntimeException('duo: compiled external media size does not verify');
+                    throw new \RuntimeException('wprism: compiled external media size does not verify');
                 }
                 if ($witness !== null && $witness !== $current) {
                     throw new \RuntimeException(
-                        'duo: compiled artifact media has inconsistent immutable blob witness authority'
+                        'wprism: compiled artifact media has inconsistent immutable blob witness authority'
                     );
                 }
                 $witness = $current;
@@ -316,7 +316,7 @@ final class MediaPayloadAuthority {
             || !array_key_exists('sha256', $row)
             || !array_key_exists('base64', $row)
             || !hash_equals($parsed['sha256'], $row['sha256'])) {
-            throw new \RuntimeException("duo: compiled artifact media payload '$name' is malformed");
+            throw new \RuntimeException("wprism: compiled artifact media payload '$name' is malformed");
         }
         $length = self::canonicalBase64DecodedLength($row['base64'], 'compiled artifact media decode');
         self::assertMemoryHeadroom($length, 2, 'compiled artifact media decode');
@@ -324,7 +324,7 @@ final class MediaPayloadAuthority {
         if (!is_string($bytes)
             || strlen($bytes) !== $length
             || !hash_equals($row['sha256'], hash('sha256', $bytes))) {
-            throw new \RuntimeException("duo: compiled artifact media payload '$name' does not verify");
+            throw new \RuntimeException("wprism: compiled artifact media payload '$name' does not verify");
         }
         return $bytes;
     }
@@ -340,7 +340,7 @@ final class MediaPayloadAuthority {
             return 0;
         }
         if (($length % 4) !== 0) {
-            throw new \RuntimeException("duo: $label is not canonical base64");
+            throw new \RuntimeException("wprism: $label is not canonical base64");
         }
         $padding = str_ends_with($encoded, '==') ? 2 : (str_ends_with($encoded, '=') ? 1 : 0);
         $alphabetLength = $length - $padding;
@@ -350,13 +350,13 @@ final class MediaPayloadAuthority {
         // JIT or recursion limits; the separate suffix and unused-bit proofs
         // below retain canonical padding rather than merely valid decoding.
         if (strspn($encoded, self::BASE64_ALPHABET, 0, $alphabetLength) !== $alphabetLength) {
-            throw new \RuntimeException("duo: $label is not canonical base64");
+            throw new \RuntimeException("wprism: $label is not canonical base64");
         }
         if ($padding === 2 && (self::base64Value($encoded[$length - 3]) & 0x0F) !== 0) {
-            throw new \RuntimeException("duo: $label is not canonical base64");
+            throw new \RuntimeException("wprism: $label is not canonical base64");
         }
         if ($padding === 1 && (self::base64Value($encoded[$length - 2]) & 0x03) !== 0) {
-            throw new \RuntimeException("duo: $label is not canonical base64");
+            throw new \RuntimeException("wprism: $label is not canonical base64");
         }
         $decoded = (intdiv($length, 4) * 3) - $padding;
         self::assertFileBytes($decoded);
@@ -374,7 +374,7 @@ final class MediaPayloadAuthority {
         $path = self::physicalLocalFilePath($path);
         $shape = self::assertFileShape($path);
         if ($shape['size'] !== $expected['size']) {
-            throw new \RuntimeException('duo: media source size changed after its bounded observation');
+            throw new \RuntimeException('wprism: media source size changed after its bounded observation');
         }
         self::assertMemoryHeadroom($shape['size'], 2, 'media payload read');
         $bytes = self::readOpenedFile($path, $shape, $expected['sha256']);
@@ -392,16 +392,16 @@ final class MediaPayloadAuthority {
     public static function copyFileToStream(string $path, array $expected, $output): void {
         self::assertWitness($expected);
         if (!is_resource($output)) {
-            throw new \InvalidArgumentException('duo: media destination must be a stream');
+            throw new \InvalidArgumentException('wprism: media destination must be a stream');
         }
         $path = self::physicalLocalFilePath($path);
         $shape = self::assertFileShape($path);
         if ($shape['size'] !== $expected['size']) {
-            throw new \RuntimeException('duo: media source size changed after its bounded observation');
+            throw new \RuntimeException('wprism: media source size changed after its bounded observation');
         }
         $input = @fopen($path, 'rb');
         if (!is_resource($input)) {
-            throw new \RuntimeException('duo: media source could not be opened for bounded transfer');
+            throw new \RuntimeException('wprism: media source could not be opened for bounded transfer');
         }
         try {
             self::assertOpenedShape($input, $shape);
@@ -410,11 +410,11 @@ final class MediaPayloadAuthority {
             while (!feof($input)) {
                 $chunk = fread($input, self::READ_CHUNK_BYTES);
                 if (!is_string($chunk)) {
-                    throw new \RuntimeException('duo: media source read failed during bounded transfer');
+                    throw new \RuntimeException('wprism: media source read failed during bounded transfer');
                 }
                 if ($chunk === '') {
                     if (!feof($input)) {
-                        throw new \RuntimeException('duo: media source stalled during bounded transfer');
+                        throw new \RuntimeException('wprism: media source stalled during bounded transfer');
                     }
                     break;
                 }
@@ -422,11 +422,11 @@ final class MediaPayloadAuthority {
                 self::writeStream($output, $chunk);
                 $written += strlen($chunk);
                 if ($written > $expected['size']) {
-                    throw new \RuntimeException('duo: media source grew during bounded transfer');
+                    throw new \RuntimeException('wprism: media source grew during bounded transfer');
                 }
             }
             if ($written !== $expected['size'] || !hash_equals($expected['sha256'], hash_final($hash))) {
-                throw new \RuntimeException('duo: media payload bytes disagree with their content witness');
+                throw new \RuntimeException('wprism: media payload bytes disagree with their content witness');
             }
             self::assertOpenedShape($input, $shape);
             self::assertNamedShape($path, $shape);
@@ -441,7 +441,7 @@ final class MediaPayloadAuthority {
         while ($offset < strlen($bytes)) {
             $count = fwrite($output, substr($bytes, $offset));
             if (!is_int($count) || $count <= 0) {
-                throw new \RuntimeException('duo: media destination write failed');
+                throw new \RuntimeException('wprism: media destination write failed');
             }
             $offset += $count;
         }
@@ -455,7 +455,7 @@ final class MediaPayloadAuthority {
         self::assertMemoryHeadroom(strlen($bytes), 2, 'media payload revalidation');
         if (strlen($bytes) !== $expected['size']
             || !hash_equals($expected['sha256'], hash('sha256', $bytes))) {
-            throw new \RuntimeException('duo: media payload bytes disagree with their content witness');
+            throw new \RuntimeException('wprism: media payload bytes disagree with their content witness');
         }
     }
 
@@ -472,7 +472,7 @@ final class MediaPayloadAuthority {
      */
     public static function assertMediaName(string $name, array $witness): void {
         if (!hash_equals(self::mediaName($witness), $name)) {
-            throw new \RuntimeException('duo: media filename disagrees with its exact immutable content witness');
+            throw new \RuntimeException('wprism: media filename disagrees with its exact immutable content witness');
         }
     }
 
@@ -490,10 +490,10 @@ final class MediaPayloadAuthority {
         $secondShape = self::assertFileShape($path);
         $actual = self::streamHash($path, $secondShape);
         if ($secondShape !== $firstShape || !hash_equals($first, $actual)) {
-            throw new \RuntimeException('duo: media catalog blob changed between its stability observations');
+            throw new \RuntimeException('wprism: media catalog blob changed between its stability observations');
         }
         if (!hash_equals($parsed['sha256'], $actual)) {
-            throw new \RuntimeException('duo: media catalog blob does not match its content address');
+            throw new \RuntimeException('wprism: media catalog blob does not match its content address');
         }
         return ['sha256' => $actual, 'size' => $secondShape['size']];
     }
@@ -509,7 +509,7 @@ final class MediaPayloadAuthority {
         $path = self::physicalLocalFilePath($path);
         $shape = self::assertFileShape($path);
         if ($shape['size'] !== $observed['size']) {
-            throw new \RuntimeException('duo: media catalog blob size changed after bounded observation');
+            throw new \RuntimeException('wprism: media catalog blob size changed after bounded observation');
         }
         self::assertMemoryHeadroom($shape['size'], 2, 'media catalog payload read');
         return self::readOpenedFile($path, $shape, $observed['sha256']);
@@ -518,7 +518,7 @@ final class MediaPayloadAuthority {
     /** @return array{extension:string,sha256:string} */
     public static function parseMediaName(string $name): array {
         if (preg_match('/^([0-9a-f]{64})\.([A-Za-z0-9]{1,190})$/D', $name, $match) !== 1) {
-            throw new \RuntimeException('duo: media filename is not a canonical bounded content address');
+            throw new \RuntimeException('wprism: media filename is not a canonical bounded content address');
         }
         return ['sha256' => $match[1], 'extension' => $match[2]];
     }
@@ -526,7 +526,7 @@ final class MediaPayloadAuthority {
     /** Add one unique payload to the shared absolute aggregate frontier. */
     public static function addToAggregate(int $current, int $bytes): int {
         if ($current < 0 || $bytes < 0 || $bytes > self::MAX_AGGREGATE_BYTES - $current) {
-            throw new \RuntimeException('duo: media payloads exceed their 64 GiB aggregate byte authority');
+            throw new \RuntimeException('wprism: media payloads exceed their 64 GiB aggregate byte authority');
         }
         return $current + $bytes;
     }
@@ -540,7 +540,7 @@ final class MediaPayloadAuthority {
     public static function assertCatalogMapHeadroom(int $entries): void {
         if ($entries < 0 || $entries > self::MAX_CATALOG_FILES
             || $entries > intdiv(PHP_INT_MAX, self::ARTIFACT_SLOT_MEMORY_BYTES)) {
-            throw new \RuntimeException('duo: media catalog has an invalid bounded entry authority');
+            throw new \RuntimeException('wprism: media catalog has an invalid bounded entry authority');
         }
         self::assertMemoryBudget(
             $entries * self::ARTIFACT_SLOT_MEMORY_BYTES,
@@ -556,7 +556,7 @@ final class MediaPayloadAuthority {
      */
     public static function assertArtifactHeadroom(int $rawBytes): void {
         if ($rawBytes < 0 || $rawBytes > self::MAX_AGGREGATE_BYTES) {
-            throw new \RuntimeException('duo: media artifact input exceeds its aggregate byte authority');
+            throw new \RuntimeException('wprism: media artifact input exceeds its aggregate byte authority');
         }
         self::assertMemoryHeadroom($rawBytes, 5, 'compiled media base64/canonicalization');
     }
@@ -564,7 +564,7 @@ final class MediaPayloadAuthority {
     /** Refresh emits the same raw/base64/canonical-JSON shape as compile. */
     public static function assertRefreshExportHeadroom(int $rawBytes): void {
         if ($rawBytes < 0 || $rawBytes > self::MAX_AGGREGATE_BYTES) {
-            throw new \RuntimeException('duo: media refresh export exceeds its aggregate byte authority');
+            throw new \RuntimeException('wprism: media refresh export exceeds its aggregate byte authority');
         }
         self::assertMemoryHeadroom($rawBytes, 5, 'refresh media base64/canonicalization');
     }
@@ -572,7 +572,7 @@ final class MediaPayloadAuthority {
     /** Bound a remote refresh JSON envelope before json_decode retains it. */
     public static function assertRefreshEnvelopeBytes(int $bytes): void {
         if ($bytes < 0 || $bytes > self::MAX_ARTIFACT_DOCUMENT_BYTES) {
-            throw new \RuntimeException('duo: refresh export envelope exceeds its absolute byte authority');
+            throw new \RuntimeException('wprism: refresh export envelope exceeds its absolute byte authority');
         }
         self::assertMemoryHeadroom($bytes, 3, 'refresh export envelope parse/canonicalization');
     }
@@ -600,15 +600,15 @@ final class MediaPayloadAuthority {
         }
         if (is_array($extensions)) {
             throw new \RuntimeException(
-                'duo: media payload is MIME/extension-mismatched for the reviewed raster branch'
+                'wprism: media payload is MIME/extension-mismatched for the reviewed raster branch'
             );
         }
         if ($mime === ''
             || strlen($mime) > 191
             || preg_match('/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/D', $mime) !== 1) {
-            throw new \RuntimeException('duo: media payload has a malformed MIME authority');
+            throw new \RuntimeException('wprism: media payload has a malformed MIME authority');
         }
-        // Non-raster originals deliberately take Duo's closed filesize-only
+        // Non-raster originals deliberately take WPrism's closed filesize-only
         // metadata branch. Core's PDF cover-image and audio/video metadata
         // delegates are never called, so SVG/PDF/AV bytes remain portable
         // without granting an unbounded codec or subprocess authority.
@@ -637,7 +637,7 @@ final class MediaPayloadAuthority {
             || preg_match('/[\x00-\x1F\x7F]/', $path) === 1
             || array_filter($segments, static fn(string $part): bool =>
                 $part === '' || $part === '.' || $part === '..' || strlen($part) > 255)) {
-            throw new \RuntimeException('duo: attachment media path is not a normalized relative upload path');
+            throw new \RuntimeException('wprism: attachment media path is not a normalized relative upload path');
         }
     }
 
@@ -651,7 +651,7 @@ final class MediaPayloadAuthority {
             || !str_starts_with($path, '/')
             || str_contains($path, "\0")
             || str_contains($path, '://')) {
-            throw new \RuntimeException('duo: media source path is not an absolute local filesystem path');
+            throw new \RuntimeException('wprism: media source path is not an absolute local filesystem path');
         }
         clearstatcache(true, $path);
         $stat = @lstat($path);
@@ -660,7 +660,7 @@ final class MediaPayloadAuthority {
             || is_link($path)
             || (((int) ($stat['mode'] ?? 0)) & 0170000) !== 0100000
             || !is_string($real)) {
-            throw new \RuntimeException('duo: media source path is missing, linked, or not a local regular file');
+            throw new \RuntimeException('wprism: media source path is missing, linked, or not a local regular file');
         }
         // Store and later re-open the physical name, not the provider's
         // potentially symlinked ancestor spelling. A later ancestor retarget
@@ -679,7 +679,7 @@ final class MediaPayloadAuthority {
         if ($kind === 'raster') {
             if (!self::imageContainerIsExact($mime, $bytes)) {
                 throw new \RuntimeException(
-                    'duo: media raster container is truncated, malformed, or carries trailing bytes'
+                    'wprism: media raster container is truncated, malformed, or carries trailing bytes'
                 );
             }
             self::assertRasterDecodable($mime, $bytes);
@@ -695,7 +695,7 @@ final class MediaPayloadAuthority {
         $extension = pathinfo($uploadPath, PATHINFO_EXTENSION);
         if ($extension === '' || strlen($extension) > self::MAX_MEDIA_EXTENSION_BYTES
             || preg_match('/^[A-Za-z0-9]+$/D', $extension) !== 1) {
-            throw new \RuntimeException('duo: media payload has no canonical portable extension authority');
+            throw new \RuntimeException('wprism: media payload has no canonical portable extension authority');
         }
 
         return $extension;
@@ -710,7 +710,7 @@ final class MediaPayloadAuthority {
             || !is_string($witness['sha256'] ?? null)
             || preg_match('/^[0-9a-f]{64}$/D', $witness['sha256']) !== 1
             || !is_int($witness['size'] ?? null)) {
-            throw new \RuntimeException('duo: media content witness is malformed');
+            throw new \RuntimeException('wprism: media content witness is malformed');
         }
         self::assertFileBytes($witness['size']);
     }
@@ -727,12 +727,12 @@ final class MediaPayloadAuthority {
             || is_link($path)
             || !is_readable($path)
             || $size === null) {
-            throw new \RuntimeException('duo: media source is missing, unreadable, linked, or special');
+            throw new \RuntimeException('wprism: media source is missing, unreadable, linked, or special');
         }
         if ($maxBytes === self::MAX_FILE_BYTES) {
             self::assertFileBytes($size);
         } elseif ($maxBytes < 0 || $size > $maxBytes) {
-            throw new \RuntimeException('duo: media source exceeds its bounded byte authority');
+            throw new \RuntimeException('wprism: media source exceeds its bounded byte authority');
         }
         return [
             'dev' => (string) ($stat['dev'] ?? ''),
@@ -753,7 +753,7 @@ final class MediaPayloadAuthority {
             || ($shape['mode'] & 0777) !== 0600
             || $shape['size'] < 0
             || $shape['size'] > self::MAX_ARTIFACT_DOCUMENT_BYTES) {
-            throw new \RuntimeException('duo: compiled artifact transport handoff identity is malformed');
+            throw new \RuntimeException('wprism: compiled artifact transport handoff identity is malformed');
         }
         return $shape;
     }
@@ -764,7 +764,7 @@ final class MediaPayloadAuthority {
     private static function streamHash(string $path, array $shape): string {
         $handle = @fopen($path, 'rb');
         if (!is_resource($handle)) {
-            throw new \RuntimeException('duo: media source could not be opened for bounded hashing');
+            throw new \RuntimeException('wprism: media source could not be opened for bounded hashing');
         }
         try {
             self::assertOpenedShape($handle, $shape);
@@ -773,23 +773,23 @@ final class MediaPayloadAuthority {
             while (!feof($handle)) {
                 $chunk = fread($handle, self::READ_CHUNK_BYTES);
                 if (!is_string($chunk)) {
-                    throw new \RuntimeException('duo: media source read failed during bounded hashing');
+                    throw new \RuntimeException('wprism: media source read failed during bounded hashing');
                 }
                 if ($chunk === '') {
                     if (!feof($handle)) {
-                        throw new \RuntimeException('duo: media source stalled during bounded hashing');
+                        throw new \RuntimeException('wprism: media source stalled during bounded hashing');
                     }
                     break;
                 }
                 $length = strlen($chunk);
                 if ($read > $shape['size'] - $length) {
-                    throw new \RuntimeException('duo: media source grew during bounded hashing');
+                    throw new \RuntimeException('wprism: media source grew during bounded hashing');
                 }
                 $read += $length;
                 hash_update($hash, $chunk);
             }
             if ($read !== $shape['size']) {
-                throw new \RuntimeException('duo: media source changed size during bounded hashing');
+                throw new \RuntimeException('wprism: media source changed size during bounded hashing');
             }
             self::assertOpenedShape($handle, $shape);
             self::assertNamedShape($path, $shape);
@@ -805,7 +805,7 @@ final class MediaPayloadAuthority {
     private static function readOpenedFile(string $path, array $shape, ?string $expectedHash): string {
         $handle = @fopen($path, 'rb');
         if (!is_resource($handle)) {
-            throw new \RuntimeException('duo: media source could not be opened for bounded transfer');
+            throw new \RuntimeException('wprism: media source could not be opened for bounded transfer');
         }
         try {
             self::assertOpenedShape($handle, $shape);
@@ -814,26 +814,26 @@ final class MediaPayloadAuthority {
             while (!feof($handle)) {
                 $chunk = fread($handle, self::READ_CHUNK_BYTES);
                 if (!is_string($chunk)) {
-                    throw new \RuntimeException('duo: media source read failed during bounded transfer');
+                    throw new \RuntimeException('wprism: media source read failed during bounded transfer');
                 }
                 if ($chunk === '') {
                     if (!feof($handle)) {
-                        throw new \RuntimeException('duo: media source stalled during bounded transfer');
+                        throw new \RuntimeException('wprism: media source stalled during bounded transfer');
                     }
                     break;
                 }
                 if (strlen($bytes) > $shape['size'] - strlen($chunk)) {
-                    throw new \RuntimeException('duo: media source grew during bounded transfer');
+                    throw new \RuntimeException('wprism: media source grew during bounded transfer');
                 }
                 $bytes .= $chunk;
                 hash_update($hash, $chunk);
             }
             $actual = hash_final($hash);
             if (strlen($bytes) !== $shape['size']) {
-                throw new \RuntimeException('duo: media source changed size during bounded transfer');
+                throw new \RuntimeException('wprism: media source changed size during bounded transfer');
             }
             if ($expectedHash !== null && !hash_equals($expectedHash, $actual)) {
-                throw new \RuntimeException('duo: media source bytes changed after their content observation');
+                throw new \RuntimeException('wprism: media source bytes changed after their content observation');
             }
             self::assertOpenedShape($handle, $shape);
             self::assertNamedShape($path, $shape);
@@ -851,7 +851,7 @@ final class MediaPayloadAuthority {
             || (string) ($stat['ino'] ?? '') !== $shape['ino']
             || self::canonicalSize($stat['size'] ?? null) !== $shape['size']
             || ((int) ($stat['mode'] ?? 0)) !== $shape['mode']) {
-            throw new \RuntimeException('duo: media source inode changed during its bounded observation');
+            throw new \RuntimeException('wprism: media source inode changed during its bounded observation');
         }
     }
 
@@ -865,13 +865,13 @@ final class MediaPayloadAuthority {
             || (string) ($stat['ino'] ?? '') !== $shape['ino']
             || self::canonicalSize($stat['size'] ?? null) !== $shape['size']
             || ((int) ($stat['mode'] ?? 0)) !== $shape['mode']) {
-            throw new \RuntimeException('duo: media source pathname changed during its bounded observation');
+            throw new \RuntimeException('wprism: media source pathname changed during its bounded observation');
         }
     }
 
     private static function assertFileBytes(int $bytes): void {
         if ($bytes < 0 || $bytes > self::MAX_FILE_BYTES) {
-            throw new \RuntimeException('duo: media payload exceeds its 8 GiB per-file byte authority');
+            throw new \RuntimeException('wprism: media payload exceeds its 8 GiB per-file byte authority');
         }
     }
 
@@ -887,7 +887,7 @@ final class MediaPayloadAuthority {
         self::assertMemoryHeadroom(self::READ_CHUNK_BYTES, 2, 'compiled artifact structural preflight');
         $handle = @fopen($path, 'rb');
         if (!is_resource($handle)) {
-            throw new \RuntimeException('duo: compiled artifact could not be opened for bounded structural preflight');
+            throw new \RuntimeException('wprism: compiled artifact could not be opened for bounded structural preflight');
         }
         try {
             self::assertOpenedShape($handle, $shape);
@@ -898,7 +898,7 @@ final class MediaPayloadAuthority {
             while (!feof($handle)) {
                 $chunk = fread($handle, self::READ_CHUNK_BYTES);
                 if (!is_string($chunk)) {
-                    throw new \RuntimeException('duo: compiled artifact read failed during bounded structural preflight');
+                    throw new \RuntimeException('wprism: compiled artifact read failed during bounded structural preflight');
                 }
                 $length = strlen($chunk);
                 for ($offset = 0; $offset < $length; $offset++) {
@@ -918,14 +918,14 @@ final class MediaPayloadAuthority {
                     } elseif ($character === '{' || $character === '[') {
                         $depth++;
                         if ($depth > self::MAX_ARTIFACT_STRUCTURE_DEPTH) {
-                            throw new \RuntimeException('duo: compiled artifact exceeds its 64-level structural depth authority');
+                            throw new \RuntimeException('wprism: compiled artifact exceeds its 64-level structural depth authority');
                         }
                     } elseif ($character === '}' || $character === ']') {
                         $depth--;
                     } elseif ($character === ':' || $character === ',') {
                         if ($slots >= self::MAX_ARTIFACT_STRUCTURE_SLOTS) {
                             throw new \RuntimeException(
-                                'duo: compiled artifact exceeds its 16777216-slot bounded decoding authority'
+                                'wprism: compiled artifact exceeds its 16777216-slot bounded decoding authority'
                             );
                         }
                         $slots++;
@@ -946,7 +946,7 @@ final class MediaPayloadAuthority {
             || $slots > self::MAX_ARTIFACT_STRUCTURE_SLOTS
             || $documentBytes > intdiv(PHP_INT_MAX, 3)
             || $slots > intdiv(PHP_INT_MAX - ($documentBytes * 3), self::ARTIFACT_SLOT_MEMORY_BYTES)) {
-            throw new \RuntimeException("duo: $label has an invalid bounded decoding authority");
+            throw new \RuntimeException("wprism: $label has an invalid bounded decoding authority");
         }
         self::assertMemoryBudget(
             ($documentBytes * 3) + ($slots * self::ARTIFACT_SLOT_MEMORY_BYTES),
@@ -978,13 +978,13 @@ final class MediaPayloadAuthority {
             } elseif ($character === '{' || $character === '[') {
                 $depth++;
                 if ($depth > self::MAX_ARTIFACT_STRUCTURE_DEPTH) {
-                    throw new \RuntimeException("duo: $label exceeds its 64-level structural depth authority");
+                    throw new \RuntimeException("wprism: $label exceeds its 64-level structural depth authority");
                 }
             } elseif ($character === '}' || $character === ']') {
                 $depth--;
             } elseif ($character === ':' || $character === ',') {
                 if ($slots >= self::MAX_ARTIFACT_STRUCTURE_SLOTS) {
-                    throw new \RuntimeException("duo: $label exceeds its 16777216-slot bounded decoding authority");
+                    throw new \RuntimeException("wprism: $label exceeds its 16777216-slot bounded decoding authority");
                 }
                 $slots++;
             }
@@ -995,7 +995,7 @@ final class MediaPayloadAuthority {
     private static function base64Value(string $character): int {
         $position = strpos(self::BASE64_ALPHABET, $character);
         if (!is_int($position)) {
-            throw new \LogicException('duo: canonical base64 alphabet check lost its validated character');
+            throw new \LogicException('wprism: canonical base64 alphabet check lost its validated character');
         }
         return $position;
     }
@@ -1009,21 +1009,21 @@ final class MediaPayloadAuthority {
 
     private static function assertMemoryHeadroom(int $bytes, int $copies, string $label): void {
         if ($bytes < 0 || $copies <= 0 || $bytes > intdiv(PHP_INT_MAX, $copies)) {
-            throw new \RuntimeException("duo: $label has an invalid memory authority");
+            throw new \RuntimeException("wprism: $label has an invalid memory authority");
         }
         self::assertMemoryBudget(($bytes * $copies), $label);
     }
 
     private static function assertMemoryBudget(int $neededBytes, string $label): void {
         if ($neededBytes < 0 || $neededBytes > PHP_INT_MAX - self::MEMORY_RESERVE_BYTES) {
-            throw new \RuntimeException("duo: $label has an invalid memory authority");
+            throw new \RuntimeException("wprism: $label has an invalid memory authority");
         }
         $limit = self::memoryLimitBytes((string) ini_get('memory_limit'));
         if ($limit === null) $limit = self::UNLIMITED_MEMORY_FALLBACK_BYTES;
         $used = memory_get_usage(true);
         $needed = $neededBytes + self::MEMORY_RESERVE_BYTES;
         if ($used < 0 || $needed > $limit - min($used, $limit)) {
-            throw new \RuntimeException("duo: $label exceeds the bounded PHP memory headroom");
+            throw new \RuntimeException("wprism: $label exceeds the bounded PHP memory headroom");
         }
     }
 
@@ -1106,7 +1106,7 @@ final class MediaPayloadAuthority {
 
     private static function assertRasterDecodable(string $mime, string $bytes): void {
         if (!function_exists('getimagesizefromstring') || !function_exists('imagecreatefromstring')) {
-            throw new \RuntimeException('duo: media raster authority requires the reviewed GD decoder');
+            throw new \RuntimeException('wprism: media raster authority requires the reviewed GD decoder');
         }
         $dimensions = @getimagesizefromstring($bytes);
         $width = is_array($dimensions) ? ($dimensions[0] ?? null) : null;
@@ -1121,13 +1121,13 @@ final class MediaPayloadAuthority {
             || $width > intdiv(self::MAX_SOURCE_PIXELS, $height)
             || !is_string($detected)
             || !hash_equals($mime, $detected)) {
-            throw new \RuntimeException('duo: media raster dimensions or decoder MIME exceed the bounded authority');
+            throw new \RuntimeException('wprism: media raster dimensions or decoder MIME exceed the bounded authority');
         }
         $pixels = $width * $height;
         self::assertMemoryHeadroom($pixels * 4, 2, 'media raster GD decode');
         $image = @imagecreatefromstring($bytes);
         if (!is_object($image) && !is_resource($image)) {
-            throw new \RuntimeException('duo: media raster bytes are not decodable by the reviewed GD path');
+            throw new \RuntimeException('wprism: media raster bytes are not decodable by the reviewed GD path');
         }
         unset($image);
     }

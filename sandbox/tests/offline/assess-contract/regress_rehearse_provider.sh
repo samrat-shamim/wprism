@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — round-3 MUP §2.2 / §4.4 / §6.2: `duo rehearse`'s provider
+# Regression — round-3 MUP §2.2 / §4.4 / §6.2: `wprism rehearse`'s provider
 # contract and its containment disclosure.
 #
 # Five properties, none of which needs a pair, docker, WordPress or a network:
@@ -23,7 +23,7 @@
 #      capability negotiation runs through the REAL orchestrator client
 #      (`CommandEnvironmentProvider`), which re-encodes and byte-compares
 #      every response — so the byte-compatibility with the proven
-#      sandbox/tests/fixtures/duo3324-live-provider.php shape is a gate, not a
+#      sandbox/tests/fixtures/environment-materializer-live-provider.php shape is a gate, not a
 #      claim. Its argument-validation paths run through the documented
 #      `--print-plan` (alias `--dry-run`) mode, which names the external-command
 #      boundary and executes none of it. The suite's plan section deliberately
@@ -34,7 +34,7 @@
 #      while stale prior-generation cleanup cannot clear the new occupant.
 #      Its external-command boundary answers with the CHILD's exit status and
 #      stderr, so a `docker exec -i` that refuses the dump on stdin is diagnosed
-#      by what docker said, never by this provider's own broken pipe (DUO-3492).
+#      by what docker said, never by this provider's own broken pipe (issue #3492).
 #
 #   5. THE CONTAINMENT BANNER. `RehearsalDisclosure` prints MUP §2.2's literal
 #      disclosure, once, at the top of the preview, with the consequence that
@@ -50,7 +50,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-rehearse-provider.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-rehearse-provider.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -64,7 +64,7 @@ OP='20260817-090000-0000000000000000abcdefab'
 
 # request <action> <environment> <input-json> -> one canonical provider request
 request() {
-  printf '{"action":"%s","environment":"%s","format":"duo-branch-environment-provider-request/v1","input":%s,"operation_id":"%s"}\n' \
+  printf '{"action":"%s","environment":"%s","format":"wprism-branch-environment-provider-request/v1","input":%s,"operation_id":"%s"}\n' \
     "$1" "$2" "$3" "$OP"
 }
 
@@ -140,12 +140,12 @@ fi
 php -r '
 $d = json_decode(file_get_contents($argv[1]), true);
 $fail = static function (string $m): void { fwrite(STDERR, "FAIL: $m\n"); exit(1); };
-if (($d["format"] ?? null) !== "duo-reference-env-provider-plan/v1") $fail("the dry run is not a plan document");
+if (($d["format"] ?? null) !== "wprism-reference-env-provider-plan/v1") $fail("the dry run is not a plan document");
 if (($d["executed"] ?? null) !== false) $fail("a dry run must state that it executed nothing");
 if (($d["url_source"] ?? null) !== "config") $fail("a dry run must say its URL came from the config, not the port map");
 if (($d["provider"]["protocol"] ?? null) !== 1) $fail("the plan does not pin protocol 1");
 $argv0 = $d["commands"][0]["argv"] ?? [];
-if ($argv0 !== ["docker", "port", "duo-mup-wp2-1", "80/tcp"] || count($d["commands"] ?? []) !== 1) {
+if ($argv0 !== ["docker", "port", "wprism-mup-wp2-1", "80/tcp"] || count($d["commands"] ?? []) !== 1) {
     $fail("attach does not limit itself to a physical-presence proof: " . json_encode($d["commands"] ?? []));
 }
 if (($d["capabilities_required"] ?? []) !== ["environment.attach", "environment.url.discover", "operation.receipts"]) {
@@ -207,7 +207,7 @@ validate 'a TTL below the protocol floor refuses' \
 
 # A malformed protocol envelope is refused with the same boundary
 # CommandEnvironmentProvider enforces.
-printf '{"action":"attach","environment":"mup2","format":"duo-branch-environment-provider-request/v0","input":{"mode":"attach"},"operation_id":"%s"}\n' "$OP" \
+printf '{"action":"attach","environment":"mup2","format":"wprism-branch-environment-provider-request/v0","input":{"mode":"attach"},"operation_id":"%s"}\n' "$OP" \
   | php "$PROVIDER" --print-plan "$TMP/config.json" > /dev/null 2> "$TMP/plan.err"
 STATUS=$?
 if [ "$STATUS" = 1 ] && grep -Fq 'invalid protocol shape' "$TMP/plan.err"; then
@@ -216,7 +216,7 @@ else
   fail "a foreign protocol version was accepted (exit $STATUS)"
 fi
 
-printf '{"action":"attach","environment":"mup2","format":"duo-branch-environment-provider-request/v1","input":["mode"],"operation_id":"%s"}\n' "$OP" \
+printf '{"action":"attach","environment":"mup2","format":"wprism-branch-environment-provider-request/v1","input":["mode"],"operation_id":"%s"}\n' "$OP" \
   | php "$PROVIDER" --print-plan "$TMP/config.json" > /dev/null 2> "$TMP/plan.err"
 STATUS=$?
 if [ "$STATUS" = 1 ] && grep -Fq 'invalid protocol shape' "$TMP/plan.err"; then
@@ -294,7 +294,7 @@ echo "ok\n";
 
 # The provider's external-command boundary on the write side. A child that
 # stops reading its stdin is diagnosed by its own exit status, not by the EPIPE
-# this provider sees — DUO-3492 read that pipe as the provider's own failure and
+# this provider sees — issue #3492 read that pipe as the provider's own failure and
 # turned every `docker exec -i … mariadb` call into a scheduling coin flip.
 if php "$FIX/provider-stdin-checks.php" > "$TMP/stdin.out" 2> "$TMP/stdin.err"; then
   pass 'the provider command boundary answers with the child, not with its own pipe'

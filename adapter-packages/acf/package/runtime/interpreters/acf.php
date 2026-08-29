@@ -1,8 +1,8 @@
 <?php
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 
-use Duo\Policy;
-use Duo\PlainData;
+use WPrism\Policy;
+use WPrism\PlainData;
 
 /**
  * ACF interpreter (design finding #12): which meta values are id refs is
@@ -12,14 +12,14 @@ use Duo\PlainData;
  * reads the same pointer and looks up the field definition it names.
  *
  * Storage shapes below are as observed against ACF (free) 6.x via the
- * spike-e seed (sandbox/tests/spike/spike_e_acf.sh — an image field and a
+ * spike-e seed (adapter-packages/acf/tests/spike/spike_e_acf.sh — an image field and a
  * relationship field) and the acf conformance seed (sandbox/conformance/
  * seeds/acf.sh — taxonomy checkbox/radio + user fields, task #16's
  * end-to-end exercise; see that seed and its conformance run for the trace):
  *   - acf-field-group / acf-field posts: the field/group config (everything
  *     but the handful of properties promoted to real post columns — key,
  *     label/title, menu_order, parent) is a serialize()'d PHP array in
- *     post_content; post_name is the key (e.g. "field_duo_hero"). Consumed
+ *     post_content; post_name is the key (e.g. "field_wprism_hero"). Consumed
  *     decoded through the acf manifest's body:"serialized" contract,
  *     tokenized only at string leaves, and re-serialized so embedded string
  *     byte lengths remain correct on every environment.
@@ -102,9 +102,9 @@ final class Acf {
         'group',
     ];
     /**
-     * DUO-3263: options-page field storage prefix, empirically confirmed
-     * (fresh ACF 6.8.7, free plugin — sandbox/tests/spike/spike_e_acf.sh's sibling
-     * probe, see the DUO-3263 PR body for the exact session). ACF's
+     * issue #3263: options-page field storage prefix, empirically confirmed
+     * (fresh ACF 6.8.7, free plugin — adapter-packages/acf/tests/spike/spike_e_acf.sh's sibling
+     * probe, see the issue #3263 PR body for the exact session). ACF's
      * "acf_add_options_page()" admin-UI registration function does NOT
      * exist in the free plugin (grepped the installed plugin source: no
      * options-page-functions file, only a PRO upsell preview view) — but
@@ -174,7 +174,7 @@ final class Acf {
                 $front = $entity['data'];
                 $body = (string) ($entity['body'] ?? '');
             } else {
-                [$front, $body] = \Duo\Canon::parse_post_file((string) $entity['content']);
+                [$front, $body] = \WPrism\Canon::parse_post_file((string) $entity['content']);
             }
             $postType = (string) ($front['type'] ?? '');
             if (!in_array($postType, ['acf-field', 'acf-field-group'], true)) {
@@ -268,7 +268,7 @@ final class Acf {
             if (($entity['type'] ?? '') !== 'post') {
                 continue;
             }
-            $front = $entity['data'] ?? \Duo\Canon::parse_post_file((string) $entity['content'])[0];
+            $front = $entity['data'] ?? \WPrism\Canon::parse_post_file((string) $entity['content'])[0];
             $meta = (array) ($front['meta'] ?? []);
             foreach ($meta as $shadow => $pointer) {
                 if (!is_string($shadow) || !str_starts_with($shadow, '_')) {
@@ -346,14 +346,14 @@ final class Acf {
     }
 
     /**
-     * DUO-3263: term-attached ACF fields use the exact same shadow-key
+     * issue #3263: term-attached ACF fields use the exact same shadow-key
      * convention against wp_termmeta that post_meta_rule() already resolves
      * against wp_postmeta — ACF's field-type update_value()/get_value()
      * methods are attachment-agnostic (they don't know or care whether the
      * owning object is a post or a term), and Capture::term_meta_map()'s
      * "first value per key" shape is byte-identical to post_meta_map()'s
      * (both confirmed by reading Capture.php). Capture's term_meta call
-     * sites already dispatch through Policy::meta_rule_for_term() (DUO-3262),
+     * sites already dispatch through Policy::meta_rule_for_term() (issue #3262),
      * so this is pure reuse — zero new resolution logic.
      */
     public function term_meta_rule(string $key, array $allMeta): ?array {
@@ -366,10 +366,10 @@ final class Acf {
     }
 
     /**
-     * DUO-3263: ACF options-page fields (manifests/interpreters/acf.php's
+     * issue #3263: ACF options-page fields (manifests/interpreters/acf.php's
      * own class docblock has the full empirical grounding for the
      * 'options_'/'_options_' prefix convention this resolves against).
-     * $allOptions is Duo's own option-name classification map (raw values
+     * $allOptions is WPrism's own option-name classification map (raw values
      * during live capture; present values plus valid deletion witnesses for
      * repository-side authorization/compilation — see
      * Policy::meta_rule_for_option()'s own docblock) — NOT ACF's internal
@@ -546,7 +546,7 @@ final class Acf {
         }
         if (function_exists('acf_is_local_field') && acf_is_local_field($fieldKey)) {
             throw new \RuntimeException(
-                "duo: ACF local PHP/JSON field '$fieldKey' overrides DB schema; refusing schema-dependent capture"
+                "wprism: ACF local PHP/JSON field '$fieldKey' overrides DB schema; refusing schema-dependent capture"
             );
         }
         global $wpdb;

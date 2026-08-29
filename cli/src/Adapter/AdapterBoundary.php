@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/AdapterLibrary.php';
 
-use Duo\AdapterLibrary;
-use Duo\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
 
 /**
- * `duo adapter boundary` — version-range bisection as EVIDENCE, never as an edit.
+ * `wprism adapter boundary` — version-range bisection as EVIDENCE, never as an edit.
  *
  * ## The cost this exists to bound
  *
@@ -28,7 +28,7 @@ use Duo\Canon;
  *
  * ## What it produces, and what it deliberately does not
  *
- * It emits a `duo-adapter-boundary-search/v1` document: which releases were
+ * It emits a `wprism-adapter-boundary-search/v1` document: which releases were
  * probed, in what order, what each one did, and — when the evidence supports
  * one — a proposed package-owned `evidence/artifacts.lock.json` fragment in
  * the library's OWN three-role vocabulary, shaped so `ArtifactLibrary`
@@ -47,7 +47,7 @@ use Duo\Canon;
  *
  * ## Why the release list is a RECORDED input
  *
- * The candidate set is a `duo-adapter-release-list/v1` document naming, for
+ * The candidate set is a `wprism-adapter-release-list/v1` document naming, for
  * every candidate release, its exact download URL and sha256. Three
  * consequences, all deliberate:
  *
@@ -134,12 +134,12 @@ use Duo\Canon;
  * the failure mode being a boundary claimed from a partial record.
  */
 final class AdapterBoundary {
-    /** The one sub-verb this owner claims off `duo adapter`. */
+    /** The one sub-verb this owner claims off `wprism adapter`. */
     public const VERBS = ['boundary'];
 
-    public const FORMAT = 'duo-adapter-boundary-search/v1';
-    public const RELEASES_FORMAT = 'duo-adapter-release-list/v1';
-    public const OUTCOMES_FORMAT = 'duo-adapter-boundary-outcomes/v1';
+    public const FORMAT = 'wprism-adapter-boundary-search/v1';
+    public const RELEASES_FORMAT = 'wprism-adapter-release-list/v1';
+    public const OUTCOMES_FORMAT = 'wprism-adapter-boundary-outcomes/v1';
 
     public const OUTCOME_GREEN = 'green';
     public const OUTCOME_BOOT_FATAL = 'boot-fatal';
@@ -225,7 +225,7 @@ final class AdapterBoundary {
         };
     }
 
-    private const USAGE = 'run `duo adapter boundary --releases=<release-list.json> --anchor=<version> '
+    private const USAGE = 'run `wprism adapter boundary --releases=<release-list.json> --anchor=<version> '
         . '[--outcomes=<outcomes.json>] [--from=<version>] [--to=<version>] [--manifest=<name>] [--format=json]`';
 
     /**
@@ -235,7 +235,7 @@ final class AdapterBoundary {
      * @param array{slug:string, releases:list<array<string,mixed>>, source:string, recorded_at:string} $releases
      * @param array<string, array{version:string, outcome:string, signature:string}> $outcomes keyed by version
      * @param array{anchor:string, from:?string, to:?string, manifest:?string, declared_range:?array<string,string>} $options
-     * @return array<string,mixed> a duo-adapter-boundary-search/v1 document
+     * @return array<string,mixed> a wprism-adapter-boundary-search/v1 document
      */
     public static function search(array $releases, array $outcomes, array $options): array {
         $slug = $releases['slug'];
@@ -578,7 +578,7 @@ final class AdapterBoundary {
 
     /**
      * Printed in the document on EVERY run, complete or blocked, for the same
-     * reason `duo lint-tree` prints its deferred classes unconditionally
+     * reason `wprism lint-tree` prints its deferred classes unconditionally
      * (`LintTree.php:41-51`): a tool that discloses its limits only when
      * something goes wrong lets silence read as "everything was checked".
      *
@@ -934,9 +934,9 @@ final class AdapterBoundary {
         }
         $blocked = $document['blocked'] ?? null;
         if (is_array($blocked)) {
-            fwrite(STDERR, 'duo: adapter boundary: ' . (string) $blocked['reason'] . ': '
+            fwrite(STDERR, 'wprism: adapter boundary: ' . (string) $blocked['reason'] . ': '
                 . (string) $blocked['detail'] . "\n");
-            fwrite(STDERR, 'duo: adapter boundary: releases: '
+            fwrite(STDERR, 'wprism: adapter boundary: releases: '
                 . implode(', ', array_map('strval', (array) $blocked['versions'])) . "\n");
         }
         $boundary = $document['boundary'] ?? null;
@@ -984,8 +984,8 @@ final class AdapterBoundary {
             CommandOutput::renderRefusalJson('adapter boundary', $reason, $message, $remediation);
             return $code;
         }
-        fwrite(STDERR, 'duo: adapter boundary: ' . $message . "\n");
-        fwrite(STDERR, 'duo: adapter boundary: remedy: ' . $remediation . "\n");
+        fwrite(STDERR, 'wprism: adapter boundary: ' . $message . "\n");
+        fwrite(STDERR, 'wprism: adapter boundary: remedy: ' . $remediation . "\n");
         return $code;
     }
 }

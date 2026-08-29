@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3214(b) / task #123: Canon::normalize()'s alphabetical ksort()
+ * issue #3214(b) / task #123: Canon::normalize()'s alphabetical ksort()
  * permanently reorders any order-sensitive associative array a meta rule
  * doesn't explicitly protect — WooCommerce's variation-title generator
  * reads the parent's `_product_attributes` array order directly
@@ -26,7 +26,7 @@
  * product's variation TITLE literally converging byte-for-byte, not just
  * as an anagram) are live sandbox-pair evidence instead — see the PR body;
  * Capture::build() is not offline-stubbable end-to-end (same reasoning as
- * DUO-3213's Publish.php split and DUO-3214(a)'s guard_secret() split).
+ * issue #3213's Publish.php split and issue #3214(a)'s guard_secret() split).
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.
@@ -35,8 +35,8 @@
 require __DIR__ . '/../../../../agent/src/Kernel/OrderPreserved.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 
-use Duo\Canon;
-use Duo\OrderPreserved;
+use WPrism\Canon;
+use WPrism\OrderPreserved;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {

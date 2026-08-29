@@ -1,5 +1,5 @@
 {
-  "$comment": "Module map for agent/src and cli/src (round 3 TRAIN 1 landed: directory now equals module). DUO-3493: this is the single per-path {module, layer} source -- tools/layers.json's old hand-maintained path=>layer map was proven to equal this file's per-module `layer` expanded over `files` (zero mismatches over all 225 agent/src files) and was retired; sandbox/tests/offline/guards/regress_agent_src_requires.php's directional layer lint derives its file=>layer map from here directly. `layer_notes` carries layers.json's old free-text rationale for placements a filename suffix would suggest otherwise (e.g. a *Materializer file classified repository, not engine).",
+  "$comment": "Module map for agent/src and cli/src (round 3 TRAIN 1 landed: directory now equals module). issue #3493: this is the single per-path {module, layer} source -- at its retirement, tools/layers.json's hand-maintained path=>layer map was proven to equal this file's per-module `layer` expanded over `files` (zero mismatches over the then-225 agent/src files); sandbox/tests/offline/guards/regress_agent_src_requires.php's directional layer lint now derives its file=>layer map from here directly. `layer_notes` carries layers.json's old free-text rationale for placements a filename suffix would suggest otherwise (e.g. a *Materializer file classified repository, not engine).",
   "ladder": [
     "kernel",
     "policy",
@@ -10,16 +10,16 @@
   ],
   "rules": [
     "Every file under a root belongs to exactly one module directory.",
-    "A module has exactly one layer; that is what lets sandbox/tests/offline/guards/regress_agent_src_requires.php's directional layer lint derive each file's layer straight from here instead of a second, separately hand-maintained tools/layers.json (DUO-3493).",
+    "A module has exactly one layer; that is what lets sandbox/tests/offline/guards/regress_agent_src_requires.php's directional layer lint derive each file's layer straight from here instead of a second, separately hand-maintained tools/layers.json (issue #3493).",
     "Within a root, a module may reference only modules in a strictly lower layer, plus itself; every same-layer or upward edge that exists today is listed in that module's `exceptions` and is a ratchet (may shrink, never grow).",
     "cli modules may reference agent modules named in `depends_on` (written `agent:<Module>`); the agent root must never reference cli.",
     "`entry_points` are the classes other modules already reference; a new cross-module reference to a non-entry-point class is a design change, not a refactor.",
-    "Namespaces do not change in this move: agent/src stays `namespace Duo;`, cli/src stays `namespace Duo\\Orchestrator;`. The additive classmap (agent/duo-classmap.php, cli/duo-classmap.php) maps FQCN to path, so directory != namespace is legal. Sub-namespaces migrate later, per module, Kernel first.",
+    "Namespaces do not change in this move: agent/src stays `namespace WPrism;`, cli/src stays `namespace WPrism\\Orchestrator;`. The additive classmap (agent/wprism-classmap.php, cli/wprism-classmap.php) maps FQCN to path, so directory != namespace is legal. Sub-namespaces migrate later, per module, Kernel first.",
     "A reserved (0-file) module carries no `exceptions`: composition across engine modules happens in the surface module (`cli/src/Command/`, `agent/src/Command/`), which is where every verb boundary class lives. The one designed exception is a surface->surface dispatch edge the ladder cannot avoid (agent Command -> Assess); when a reserved module lands, any exception it actually needs is a reviewed map change, not a pre-authorised budget."
   ],
   "layer_notes": {
     "src/Apply/TypedTableMaterializer.php": "Engine with the rest of the *Materializer family, for the same reason as TypedTableCapture.",
-    "src/Assess/AssessInventory.php": "Surface with Cli.php: the read-only assess projection (round-3 MUP §4.5) is a command-shaped composition over policy, adapter and review, reached only from the wp duo verb that publishes it.",
+    "src/Assess/AssessInventory.php": "Surface with Cli.php: the read-only assess projection (round-3 MUP §4.5) is a command-shaped composition over policy, adapter and review, reached only from the wp wprism verb that publishes it.",
     "src/Capture/TypedTableCapture.php": "Engine with the rest of the *Capture family even though it only reads kernel files; the recorded Snapshot -> TypedTableCapture edge names the real seam (a repository state model driving engine capture) instead of hiding it behind a convenient placement.",
     "src/Code/CodeMaterializer.php": "Repository, not engine, despite the *Materializer suffix: it depends only on PathSafety and is used solely by Code. The engine *Materializer family materializes authored state; this one materializes code bytes for the repository half.",
     "src/Code/CodeOwnershipPruner.php": "Repository for the same reason as CodeMaterializer: a Code-owned pruner over PathSafety, not an engine apply step.",
@@ -52,7 +52,7 @@
   },
   "agent": {
     "root": "agent/src",
-    "namespace": "Duo",
+    "namespace": "WPrism",
     "modules": {
       "Kernel": {
         "layer": "kernel",
@@ -154,7 +154,7 @@
       },
       "Policy": {
         "layer": "policy",
-        "purpose": "Loads, validates and pins the manifest and site policy that decides which WordPress state Duo owns, and answers every ownership question the engine asks.",
+        "purpose": "Loads, validates and pins the manifest and site policy that decides which WordPress state WPrism owns, and answers every ownership question the engine asks.",
         "status": "populated",
         "entry_points": [
           "AdapterLibrary",
@@ -1201,7 +1201,7 @@
       },
       "Command": {
         "layer": "surface",
-        "purpose": "The `wp duo …` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
+        "purpose": "The `wp wprism …` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
         "status": "populated",
         "entry_points": [
           "Cli"
@@ -1241,7 +1241,7 @@
       },
       "Assess": {
         "layer": "surface",
-        "purpose": "Read-only inventory and projection commands answering 'what is here, and what can Duo do with it' before any write.",
+        "purpose": "Read-only inventory and projection commands answering 'what is here, and what can WPrism do with it' before any write.",
         "status": "populated",
         "entry_points": [
           "AssessInventory"
@@ -1266,7 +1266,7 @@
   },
   "cli": {
     "root": "cli/src",
-    "namespace": "Duo\\Orchestrator",
+    "namespace": "WPrism\\Orchestrator",
     "modules": {
       "Transport": {
         "layer": "kernel",
@@ -1302,7 +1302,7 @@
       },
       "Plan": {
         "layer": "kernel",
-        "purpose": "The plan wire contract and its operator/JSON renderings, with no I/O of its own, plus `HumanViewLimit` -- the one `--limit=<1..200>` grammar and `N more (use --format=json)` tail every human view shares (DUO-3521). It sits at this rung because `cli:Plan` is the lowest one: `cli:Assess`, `cli:Release` and `cli:Rehearse` are engine and reference downward to it, where a shared class in the surface module `cli:Command` would have made all three reference upward (rule 3).",
+        "purpose": "The plan wire contract and its operator/JSON renderings, with no I/O of its own, plus `HumanViewLimit` -- the one `--limit=<1..200>` grammar and `N more (use --format=json)` tail every human view shares (issue #3521). It sits at this rung because `cli:Plan` is the lowest one: `cli:Assess`, `cli:Release` and `cli:Rehearse` are engine and reference downward to it, where a shared class in the surface module `cli:Command` would have made all three reference upward (rule 3).",
         "status": "populated",
         "entry_points": [
           "HumanViewLimit",
@@ -1374,7 +1374,7 @@
       },
       "Recovery": {
         "layer": "engine",
-        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds. Round-3 T5 adds the retained release checkpoints (RetainedCheckpoints), the second catalog source every transport has. DUO-3514 adds CheckpointPrune, the pure decision behind the one operator verb that REMOVES a retained checkpoint; nothing here prunes automatically.",
+        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds. Round-3 T5 adds the retained release checkpoints (RetainedCheckpoints), the second catalog source every transport has. issue #3514 adds CheckpointPrune, the pure decision behind the one operator verb that REMOVES a retained checkpoint; nothing here prunes automatically.",
         "status": "populated",
         "entry_points": [
           "RollbackAuthority",
@@ -1435,7 +1435,7 @@
       },
       "Adapter": {
         "layer": "adapter",
-        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, the operator's own Ed25519 certification authority (keygen/certify/pin), `lint-tree` -- the WordPress-free half of the suspicious-reference linter, which replays a recorded lint environment into the engine's own Lint::scan_tree() -- `boundary`, the version-range bisector, which reads a recorded release list plus an accumulating probe-outcome table and emits package-owned artifact rows as EVIDENCE, never a manifest edit, and `proposals`, the scheduled job around that planner: it re-bisects every pinned plugin from its own recorded ledger, emits the range bump as BOTH edits in the Canon-byte-equal shape ManifestDispositions.php:632-637 demands, and derives a per-adapter last_verified that deliberately lives outside manifests/ (a byte there is adapter identity, so storing freshness beside a manifest would re-pin the fleet on every re-verification). WP-5.6 adds `distribution`: `discover|install|update` over a duo-adapter-index/v1 pointer document, the only verbs in this module with a transport at all -- digest-pinned resolution that never falls through, verification in a staging root through the agent's own AdapterCertification::verifyFile(), and a package that lands as the two files certify already writes, so the engine cannot tell it from a hand-placed adapter.",
+        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, the operator's own Ed25519 certification authority (keygen/certify/pin), `lint-tree` -- the WordPress-free half of the suspicious-reference linter, which replays a recorded lint environment into the engine's own Lint::scan_tree() -- `boundary`, the version-range bisector, which reads a recorded release list plus an accumulating probe-outcome table and emits package-owned artifact rows as EVIDENCE, never a manifest edit, and `proposals`, the scheduled job around that planner: it re-bisects every pinned plugin from its own recorded ledger, emits the range bump as BOTH edits in the Canon-byte-equal shape ManifestDispositions.php:632-637 demands, and derives a per-adapter last_verified that deliberately lives outside manifests/ (a byte there is adapter identity, so storing freshness beside a manifest would re-pin the fleet on every re-verification). WP-5.6 adds `distribution`: `discover|install|update` over a wprism-adapter-index/v1 pointer document, the only verbs in this module with a transport at all -- digest-pinned resolution that never falls through, verification in a staging root through the agent's own AdapterCertification::verifyFile(), and a package that lands as the two files certify already writes, so the engine cannot tell it from a hand-placed adapter.",
         "status": "populated",
         "entry_points": [
           "AdapterBoundary",
@@ -1478,7 +1478,7 @@
       },
       "Code": {
         "layer": "policy",
-        "purpose": "Host-side code-half sourcing: the wp.org release cache, fetch, verify, unpack and tree-digest primitives, the imported-archive store `duo code-import` fills for components with no wp.org release, the locked / first-party / unsourced classification behind `duo init` and `duo code-classify`, and the lock resolver `duo code-resolve` materializes with.",
+        "purpose": "Host-side code-half sourcing: the wp.org release cache, fetch, verify, unpack and tree-digest primitives, the imported-archive store `wprism code-import` fills for components with no wp.org release, the locked / first-party / unsourced classification behind `wprism init` and `wprism code-classify`, and the lock resolver `wprism code-resolve` materializes with.",
         "status": "populated",
         "entry_points": [
           "CodeClassifier",
@@ -1502,7 +1502,7 @@
       },
       "Command": {
         "layer": "surface",
-        "purpose": "The `duo` verb handlers, agent passthrough, option parsing, preflight and operator output. Composition across engine modules happens here: a `*Command` calls each engine module downward and hands the results to the next, which is why the populated cli modules need no intra-layer exceptions.",
+        "purpose": "The `wprism` verb handlers, agent passthrough, option parsing, preflight and operator output. Composition across engine modules happens here: a `*Command` calls each engine module downward and hands the results to the next, which is why the populated cli modules need no intra-layer exceptions.",
         "status": "populated",
         "entry_points": [
           "PassthroughCommand",
@@ -1569,7 +1569,7 @@
       },
       "Assess": {
         "layer": "engine",
-        "purpose": "The assess mechanism — stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9). `FleetCensus` is the one file here with no target at all: it folds N `duo-assess-inventory/v1` documents into `duo-fleet-census/v1` against a manifest library on this machine, which is why it reaches agent:Policy (the reviewed-claim projector) and agent:Review (the one option-prefix grammar the residual is grouped in) as data sources rather than through any cli module. `CohortRebaseline` (WP-6.3) is one level further out and reaches nothing at all: it folds TWO census documents into `duo-cohort-rebaseline/v1` — the coverage-ratio delta, the funnel movement and the per-adapter surface attribution a cohort's exit criterion reads — so its only inputs are documents `FleetCensus` already published, and it depends on that class alone.",
+        "purpose": "The assess mechanism — stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `wprism-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9). `FleetCensus` is the one file here with no target at all: it folds N `wprism-assess-inventory/v1` documents into `wprism-fleet-census/v1` against a manifest library on this machine, which is why it reaches agent:Policy (the reviewed-claim projector) and agent:Review (the one option-prefix grammar the residual is grouped in) as data sources rather than through any cli module. `CohortRebaseline` (WP-6.3) is one level further out and reaches nothing at all: it folds TWO census documents into `wprism-cohort-rebaseline/v1` — the coverage-ratio delta, the funnel movement and the per-adapter surface attribution a cohort's exit criterion reads — so its only inputs are documents `FleetCensus` already published, and it depends on that class alone.",
         "status": "populated",
         "entry_points": [
           "StackInventory",
@@ -1605,7 +1605,7 @@
       },
       "Release": {
         "layer": "engine",
-        "purpose": "The release mechanism — `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `duo-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `duo-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference — which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The release mechanism — `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `wprism-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `wprism-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference — which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
         "status": "populated",
         "entry_points": [
           "AuthorizationPlan",
@@ -1687,7 +1687,7 @@
     }
   },
   "not_moved": {
-    "cli/duo": "stays at cli/duo (the executable); its require list is rewritten by the codemod",
+    "cli/wprism": "stays at cli/wprism (the executable); its require list is rewritten by the codemod",
     "recovery/": "untouched by this move"
   }
 }

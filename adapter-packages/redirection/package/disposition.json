@@ -31,7 +31,7 @@
     },
     "default_authored_keyspaces": [],
     "evidence": {
-        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-redirection",
             "exact-artifact-version-matrix"
@@ -59,7 +59,7 @@
         },
         {
             "operation": "all",
-            "reason": "Duo v1 and the provider are certified for single-site tables only.",
+            "reason": "WPrism v1 and the provider are certified for single-site tables only.",
             "surface": "multisite"
         }
     ]

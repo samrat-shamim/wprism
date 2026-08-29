@@ -54,7 +54,7 @@ foreach (['en', 'fr', 'ar'] as $language) {
     $p = $post($slugs[$language], 'post');
     $page = $post($pageSlugs[$language], 'page');
     $block = $post($blockSlugs[$language], 'wp_block');
-    $a = $post("duo-polylang-media-$language", 'attachment');
+    $a = $post("wprism-polylang-media-$language", 'attachment');
     $t = $term($categorySlugs[$language]);
     $m = $menu($menuNames[$language]);
     $posts[$language] = [
@@ -162,7 +162,7 @@ echo wp_json_encode([
     'runtime' => [
         'language_from_content' => get_option('pll_language_from_content_available'),
         'language_taxonomies' => get_option('pll_language_taxonomies'),
-        'undeclared_neighbor' => get_option('duo_polylang_undeclared_neighbor'),
+        'undeclared_neighbor' => get_option('wprism_polylang_undeclared_neighbor'),
     ],
     'switcher' => $switcher,
     'terms' => $terms,
@@ -182,9 +182,9 @@ PHPEOF
 }
 
 commit_polylang_source() { # <message>
-  wp_conf1 duo capture --repo=/siterepo >/dev/null
+  wp_conf1 wprism capture --repo=/siterepo >/dev/null
   git -C "$CONF_REPO1" add -A
-  git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm "$1"
+  git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "$1"
   git -C "$CONF_REPO1" push -q origin main
   git -C "$CONF_REPO2" pull -q origin main
 }
@@ -367,11 +367,11 @@ jq -e --argjson id "$PAGE_EN_ID" '.id == $id and .status == "publish" and (.cont
   || fail "Polylang target REST API did not consume the translated target page: $PAGE_REST"
 pass 'frontend language switching, per-language menus, public post/page routes, Arabic RTL, media URLs and REST all consume target-local state'
 
-ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang zero-change plan' json "$ZERO_PLAN"
+ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang zero-change plan' json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null || fail "Polylang retry retained work: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang zero-change apply' json "$ZERO_APPLY"
+ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null || fail "Polylang no-op apply reran effects or mutated state: $ZERO_APPLY"
 pass 'Polylang zero-change plan/apply is mutation-free and idempotent'
 
@@ -392,8 +392,8 @@ require_fixture_ids SOURCE_PAGE_FR SOURCE_BLOCK_FR TARGET_PAGE_FR_BEFORE TARGET_
 wp_conf1 eval "\$result=wp_update_post(['ID'=>(int)$SOURCE_PAGE_FR,'post_title'=>'Repository private French page refresh 東京 🚀'],true); if (is_wp_error(\$result)) throw new RuntimeException(\$result->get_error_message());" >/dev/null
 wp_conf1 eval "\$result=wp_update_post(['ID'=>(int)$SOURCE_BLOCK_FR,'post_content'=>'<!-- wp:paragraph --><p>Repository scheduled French pattern refresh 東京 🚀.</p><!-- /wp:paragraph -->'],true); if (is_wp_error(\$result)) throw new RuntimeException(\$result->get_error_message());" >/dev/null
 commit_polylang_source 'conformance: recapture Polylang private page and scheduled pattern'
-PAGE_BLOCK_RECAPTURE=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang page/pattern recapture apply' json "$PAGE_BLOCK_RECAPTURE"
+PAGE_BLOCK_RECAPTURE=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang page/pattern recapture apply' json "$PAGE_BLOCK_RECAPTURE"
 PAGE_BLOCK_RECAPTURED=$(observe_polylang conf2)
 jq -e --argjson page_id "$TARGET_PAGE_FR_BEFORE" --argjson block_id "$TARGET_BLOCK_FR_BEFORE" '
   .pages.fr.id == $page_id and .pages.fr.status == "private" and
@@ -402,8 +402,8 @@ jq -e --argjson page_id "$TARGET_PAGE_FR_BEFORE" --argjson block_id "$TARGET_BLO
   (.blocks.fr.content | contains("Repository scheduled French pattern refresh 東京 🚀"))
 ' <<<"$PAGE_BLOCK_RECAPTURED" >/dev/null \
   || fail "Polylang page/pattern recapture did not preserve target identities, hidden statuses, and source intent: $PAGE_BLOCK_RECAPTURED"
-PAGE_BLOCK_ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-PAGE_BLOCK_ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+PAGE_BLOCK_ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+PAGE_BLOCK_ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$PAGE_BLOCK_ZERO_PLAN" >/dev/null \
   || fail "Polylang page/pattern recapture retained work: $PAGE_BLOCK_ZERO_PLAN"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$PAGE_BLOCK_ZERO_APPLY" >/dev/null \
@@ -430,7 +430,7 @@ wp_conf1 eval '
   $wpdb->update($wpdb->term_taxonomy,["description"=>"a:2:{broken"],["term_taxonomy_id"=>(int)$b["group"]["term_taxonomy_id"]]);
 ' >/dev/null
 MALFORMED_RC=0
-MALFORMED_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
+MALFORMED_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
 [ "$MALFORMED_RC" -ne 0 ] && grep -Eqi 'description|serialized|unserialize|array' <<<"$MALFORMED_OUT" \
   || fail "malformed Polylang translation description did not refuse: $MALFORMED_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BASELINE" ] \
@@ -445,7 +445,7 @@ wp_conf1 eval '
   $wpdb->update($wpdb->term_taxonomy,["description"=>"a:3:{broken"],["term_taxonomy_id"=>(int)$b["language"]["term_taxonomy_id"]]);
 ' >/dev/null
 LANGUAGE_SCHEMA_RC=0
-LANGUAGE_SCHEMA_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || LANGUAGE_SCHEMA_RC=$?
+LANGUAGE_SCHEMA_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || LANGUAGE_SCHEMA_RC=$?
 [ "$LANGUAGE_SCHEMA_RC" -ne 0 ] && grep -Fq 'Polylang live language description must be canonical PHP-serialized plain data' <<<"$LANGUAGE_SCHEMA_OUT" \
   || fail "malformed Polylang language description did not refuse: $LANGUAGE_SCHEMA_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BASELINE" ] \
@@ -462,7 +462,7 @@ wp_conf1 eval '
   update_post_meta((int)$b["switcher"]["post_id"],"_pll_menu_item",$value);
 ' >/dev/null
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || SECRET_RC=$?
 [ "$SECRET_RC" -ne 0 ] && grep -Eqi 'Polylang live _pll_menu_item|switcher keys|secret guard' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
   || fail "Polylang switcher schema/secret did not refuse and redact: $SECRET_OUT"
@@ -485,7 +485,7 @@ else
   wp_conf1 eval "if (false === update_term_meta($LANG_TERM, '_pll_strings_translations', [['Hello', 'Bonjour']])) throw new RuntimeException('failed to update Polylang string catalog fixture');" >/dev/null
 fi
 STRINGS_STATE="$CONF_REPO1/.tmp-polylang-strings"
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-strings >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-strings >/dev/null
 jq -s -e 'any(.[]; .meta._pll_strings_translations == [["Hello", "Bonjour"]])' \
   "$STRINGS_STATE"/terms/language/*.json >/dev/null \
   || fail 'populated Polylang string translations were not captured as the reviewed plain-data termmeta shape'
@@ -498,7 +498,7 @@ else
   wp_conf1 term meta update "$LANG_TERM" _pll_strings_translations '' >/dev/null
 fi
 EMPTY_STRINGS_STATE="$CONF_REPO1/.tmp-polylang-empty-strings"
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-empty-strings >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-empty-strings >/dev/null
 jq -s -e 'any(.[]; .slug == "fr" and (.meta | has("_pll_strings_translations") | not))' \
   "$EMPTY_STRINGS_STATE"/terms/language/*.json >/dev/null \
   || fail 'Polylang exact empty string-catalog sentinel entered canonical authored state'
@@ -514,10 +514,10 @@ wp_conf1 eval '
   clean_term_cache((int)$term->term_id,"language");
 ' >/dev/null
 DELETE_RC=0
-DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json) || DELETE_RC=$?
-require_duo_answered 'Polylang unsupported language deletion capture' json "$DELETE_OUT"
+DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json) || DELETE_RC=$?
+require_wprism_answered 'Polylang unsupported language deletion capture' json "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && jq -e '
-  .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
+  .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
   any(.diagnostics[]?; .code == "unsupported_deletion" and (.surface | contains("term:")))
 ' <<<"$DELETE_OUT" >/dev/null || fail "Polylang language deletion did not refuse atomically: $DELETE_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BASELINE" ] \
@@ -528,7 +528,7 @@ wp_conf1 eval '
   clean_term_cache((int)$row["term_id"],"language");
 ' >/dev/null
 rm -f "$BACKUP" "$DELETE_BACKUP"
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-restored >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-polylang-restored" \
   || fail 'Polylang source did not restore exactly after malformed/secret/strings/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-polylang-restored"
@@ -543,17 +543,17 @@ wp_conf1 post update "$SOURCE_FR" --post_title='Repository competing French titl
 commit_polylang_source 'conformance: competing Polylang translation intent'
 wp_conf2 post update "$TARGET_FR" --post_title='Target competing French title' >/dev/null
 CONFLICT_BEFORE=$(polylang_target_hash)
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang competing branch plan' json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang competing branch plan' json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "Polylang managed divergence did not produce a typed conflict: $CONFLICT_PLAN"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi conflict <<<"$CONFLICT_OUT" \
   || fail "Polylang unforced conflict did not refuse: $CONFLICT_OUT"
 [ "$(polylang_target_hash)" = "$CONFLICT_BEFORE" ] || fail 'Polylang unforced conflict partially mutated target state'
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang forced competing branch apply' json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang forced competing branch apply' json "$FORCED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict >= 1' <<<"$FORCED" >/dev/null \
   || fail "Polylang forced repository choice did not converge: $FORCED"
 CONVERGED=$(observe_polylang conf2)
@@ -589,44 +589,44 @@ commit_polylang_source 'conformance: Polylang provider-fault recovery intent'
 FAULT_HOOK="$CONF_REPO2/.tmp-polylang-provider-fault.php"
 cat > "$FAULT_HOOK" <<'PHPEOF'
 <?php
-if (is_file(WP_CONTENT_DIR . '/.duo-polylang-provider-fault')
+if (is_file(WP_CONTENT_DIR . '/.wprism-polylang-provider-fault')
     && ($GLOBALS['argv'][1] ?? null) === 'eval'
-    && str_contains((string) ($GLOBALS['argv'][2] ?? ''), 'DUO_PLL_NATIVE:')) {
+    && str_contains((string) ($GLOBALS['argv'][2] ?? ''), 'WPRISM_PLL_NATIVE:')) {
     fwrite(STDERR, "injected Polylang native-catalog verification child failure\n");
     exit(70);
 }
 PHPEOF
 $COMPOSE run --rm -T --user=0 cli2 sh -c '
-  install -m 0644 /siterepo/.tmp-polylang-provider-fault.php /var/www/html/wp-content/mu-plugins/duo-polylang-provider-fault.php
-  touch /var/www/html/wp-content/.duo-polylang-provider-fault
+  install -m 0644 /siterepo/.tmp-polylang-provider-fault.php /var/www/html/wp-content/mu-plugins/wprism-polylang-provider-fault.php
+  touch /var/www/html/wp-content/.wprism-polylang-provider-fault
 ' || fail 'could not install the Polylang provider fault hook into the disposable target volume'
 rm -f "$FAULT_HOOK"
-FAILURE_REV_BEFORE=$(wp_conf2 eval 'echo (string)\Duo\Ledger::kv_get("applied_revision");')
+FAILURE_REV_BEFORE=$(wp_conf2 eval 'echo (string)\WPrism\Ledger::kv_get("applied_revision");')
 FAULT_REWRITE_BEFORE=$(wp_conf2 db query "SELECT SHA2(option_value,256) FROM wp_options WHERE option_name='rewrite_rules'" --skip-column-names)
 require_observed_nonempty 'Polylang provider-fault precondition rewrite fingerprint' "$FAULT_REWRITE_BEFORE"
 FAULT_RC=0
-FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
-require_duo_answered 'Polylang provider retained-write failure' human "$FAULT_OUT"
+FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
+require_wprism_answered 'Polylang provider retained-write failure' human "$FAULT_OUT"
 [ "$FAULT_RC" -ne 0 ] && grep -q "provider 'polylang-nav-menus' capability 'synchronize_runtime' failed" <<<"$FAULT_OUT" \
   || fail "Polylang retained provider verification did not refuse exactly: $FAULT_OUT"
-[ "$(wp_conf2 eval 'echo (string)\Duo\Ledger::kv_get("applied_revision");')" = "$FAILURE_REV_BEFORE" ] \
+[ "$(wp_conf2 eval 'echo (string)\WPrism\Ledger::kv_get("applied_revision");')" = "$FAILURE_REV_BEFORE" ] \
   || fail 'Polylang provider failure advanced applied_revision'
-[ "$(wp_conf2 eval 'echo null===\Duo\Ledger::kv_get("apply_in_progress")?"clear":"retained";')" = retained ] \
+[ "$(wp_conf2 eval 'echo null===\WPrism\Ledger::kv_get("apply_in_progress")?"clear":"retained";')" = retained ] \
   || fail 'Polylang provider failure did not retain retry authority'
 [ "$(wp_conf2 eval '$o=get_option("polylang"); echo $o["default_lang"];')" = fr ] \
   || fail 'Polylang provider failure did not retain post-commit authored intent'
-[ "$(wp_conf2 option get duo_polylang_undeclared_neighbor)" = target-only-preserved ] \
+[ "$(wp_conf2 option get wprism_polylang_undeclared_neighbor)" = target-only-preserved ] \
   || fail 'Polylang provider failure crossed the unrelated target option boundary'
 [ "$(wp_conf2 db query "SELECT SHA2(option_value,256) FROM wp_options WHERE option_name='rewrite_rules'" --skip-column-names)" = "$FAULT_REWRITE_BEFORE" ] \
   || fail 'Polylang provider verification failure ran rewrite generation despite the preceding action refusal'
 $COMPOSE run --rm -T --user=0 cli2 rm -f \
-  /var/www/html/wp-content/.duo-polylang-provider-fault \
-  /var/www/html/wp-content/mu-plugins/duo-polylang-provider-fault.php \
+  /var/www/html/wp-content/.wprism-polylang-provider-fault \
+  /var/www/html/wp-content/mu-plugins/wprism-polylang-provider-fault.php \
   || fail 'could not remove the Polylang provider fault hook from the disposable target volume'
 RETRY_RC=0
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }') \
+RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }') \
   || RETRY_RC=$?
-require_duo_answered 'Polylang provider retry after exact repair' json "$RETRY"
+require_wprism_answered 'Polylang provider retry after exact repair' json "$RETRY"
 [ "$RETRY_RC" -eq 0 ] || fail "Polylang provider retry after exact repair failed: $RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
@@ -647,8 +647,8 @@ commit_polylang_source 'conformance: concurrent Polylang apply intent'
 CONCURRENT_A="$CONF_REPO2/.tmp-polylang-concurrent-a.log"
 CONCURRENT_B="$CONF_REPO2/.tmp-polylang-concurrent-b.log"
 set +e
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
 wait "$PID_A"; RC_A=$?
 wait "$PID_B"; RC_B=$?
 set -e
@@ -668,7 +668,7 @@ rm -f "$CONCURRENT_A" "$CONCURRENT_B"
 CONCURRENT=$(observe_polylang conf2)
 jq -e '.posts.fr.title == "Concurrent Polylang intent 東京 🚀" and .default_category.language == "fr"' <<<"$CONCURRENT" >/dev/null \
   || fail "competing Polylang applies lost authored or derived intent: $CONCURRENT"
-CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+CONCURRENT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "competing Polylang applies left retained work: $CONCURRENT_PLAN"
 pass 'competing Polylang applies serialize and leave one exact idempotent multilingual result'
@@ -678,9 +678,9 @@ pass 'competing Polylang applies serialize and leave one exact idempotent multil
 # retained-data reinstall and the opt-in destructive recovery branch.
 wp_conf2 plugin deactivate polylang >/dev/null
 wp_conf2 plugin is-active polylang >/dev/null 2>&1 && fail 'Polylang deactivation premise did not land'
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang deploy after deactivation' json "$REACTIVATE"
-wp_conf2 plugin is-active polylang >/dev/null || fail 'Duo deploy did not reactivate exact Polylang code'
+REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang deploy after deactivation' json "$REACTIVATE"
+wp_conf2 plugin is-active polylang >/dev/null || fail 'WPrism deploy did not reactivate exact Polylang code'
 wp_conf2 plugin deactivate polylang >/dev/null
 wp_conf2 plugin uninstall polylang >/dev/null
 wp_conf2 plugin is-installed polylang >/dev/null 2>&1 && fail 'Polylang default uninstall left plugin code installed'
@@ -700,10 +700,10 @@ jq -e '
   .translation_rows >= 2 and .switcher_rows >= 1 and .widget_exists == true
 ' <<<"$DEFAULT_RESIDUE" >/dev/null \
   || fail "Polylang default uninstall did not retain its native state exactly: $DEFAULT_RESIDUE"
-[ "$(wp_conf2 option get duo_polylang_undeclared_neighbor)" = target-only-preserved ] \
+[ "$(wp_conf2 option get wprism_polylang_undeclared_neighbor)" = target-only-preserved ] \
   || fail 'Polylang default uninstall mutated an unrelated target option'
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing Polylang code did not refuse at compatibility: $MISSING_OUT"
 POLYLANG_SHA=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa
@@ -712,8 +712,8 @@ POLYLANG_ARTIFACT="/artifacts-cache/plugin-polylang-3.8.6-${POLYLANG_SHA}.zip"
   || fail 'cached Polylang reinstall artifact digest moved'
 wp_conf2 plugin install "$POLYLANG_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get polylang --field=version)" = 3.8.6 ] || fail 'Polylang exact reinstall reported wrong version'
-RESIDUE_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang deploy after retained-data reinstall' json "$RESIDUE_DEPLOY"
+RESIDUE_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang deploy after retained-data reinstall' json "$RESIDUE_DEPLOY"
 RESIDUE_OBSERVED=$(observe_polylang conf2)
 jq -e '
   .version == "3.8.6" and .options.default_lang == "fr" and
@@ -721,14 +721,14 @@ jq -e '
   .default_category.language == "fr" and .theme_locations.primary == .menus.fr.id
 ' <<<"$RESIDUE_OBSERVED" >/dev/null \
   || fail "Polylang retained-data reinstall did not preserve native behavior: $RESIDUE_OBSERVED"
-RESIDUE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+RESIDUE_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$RESIDUE_PLAN" >/dev/null \
   || fail "Polylang retained-data reinstall was not idempotent: $RESIDUE_PLAN"
 
 REMOVE_ALL_DB="$CONF_REPO2/.tmp-polylang-remove-all.sql"
 REMOVE_ALL_IDENTITY="$CONF_REPO2/.tmp-polylang-remove-all-identity.json"
-wp_conf2 duo identity-export --repo=/siterepo --out=/siterepo/.tmp-polylang-remove-all-identity.json >/dev/null
-jq -e '.format == "duo-identity-ledger/v1" and any(.maps[]?; .id_kind == "widget_polylang")' \
+wp_conf2 wprism identity-export --repo=/siterepo --out=/siterepo/.tmp-polylang-remove-all-identity.json >/dev/null
+jq -e '.format == "wprism-identity-ledger/v1" and any(.maps[]?; .id_kind == "widget_polylang")' \
   "$REMOVE_ALL_IDENTITY" >/dev/null \
   || fail 'Polylang destructive-uninstall recovery sidecar omitted the owned widget identity'
 wp_conf2 db export /siterepo/.tmp-polylang-remove-all.sql --add-drop-table >/dev/null
@@ -741,7 +741,7 @@ defined('PLL_REMOVE_ALL_DATA') || define('PLL_REMOVE_ALL_DATA', true);
 PHPEOF
 $COMPOSE run --rm -T --user=0 cli2 install -m 0644 \
   /siterepo/.tmp-polylang-remove-all.php \
-  /var/www/html/wp-content/mu-plugins/duo-polylang-remove-all.php \
+  /var/www/html/wp-content/mu-plugins/wprism-polylang-remove-all.php \
   || fail 'could not install the Polylang complete-uninstall control'
 rm -f "$REMOVE_ALL_HOOK"
 wp_conf2 plugin deactivate polylang >/dev/null
@@ -753,25 +753,25 @@ DESTRUCTIVE_RESIDUE=$(wp_conf2 eval '
     "option_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name IN ('\''polylang'\'', '\''widget_polylang'\'')"),
     "taxonomy_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE taxonomy IN ('\''language'\'', '\''term_language'\'', '\''post_translations'\'', '\''term_translations'\'')"),
     "switcher_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '\''_pll_menu_item'\''"),
-    "neighbor" => get_option("duo_polylang_undeclared_neighbor"),
+    "neighbor" => get_option("wprism_polylang_undeclared_neighbor"),
   ]);
 ' | awk 'NF { line=$0 } END { print line }')
 jq -e '.option_rows == 0 and .taxonomy_rows == 0 and .switcher_rows == 0 and .neighbor == "target-only-preserved"' \
   <<<"$DESTRUCTIVE_RESIDUE" >/dev/null \
   || fail "Polylang complete uninstall left owned data or crossed its boundary: $DESTRUCTIVE_RESIDUE"
 $COMPOSE run --rm -T --user=0 cli2 rm -f \
-  /var/www/html/wp-content/mu-plugins/duo-polylang-remove-all.php \
+  /var/www/html/wp-content/mu-plugins/wprism-polylang-remove-all.php \
   || fail 'could not remove the Polylang complete-uninstall control'
 wp_conf2 plugin install "$POLYLANG_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get polylang --field=version)" = 3.8.6 ] || fail 'Polylang complete-uninstall reinstall reported wrong version'
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang deploy after complete uninstall and exact reinstall' json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang deploy after complete uninstall and exact reinstall' json "$REINSTALL_DEPLOY"
 LOST_PLAN_RC=0
-LOST_PLAN=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || LOST_PLAN_RC=$?
+LOST_PLAN=$(wp_conf2 wprism plan --repo=/siterepo 2>&1) || LOST_PLAN_RC=$?
 [ "$LOST_PLAN_RC" -ne 0 ] && grep -q 'widget identity history is missing' <<<"$LOST_PLAN" \
   || fail "Polylang destructive uninstall did not refuse lost widget history exactly: $LOST_PLAN"
 STALE_IDENTITY_RC=0
-STALE_IDENTITY=$(wp_conf2 duo identity-import --repo=/siterepo --in=/siterepo/.tmp-polylang-remove-all-identity.json 2>&1) \
+STALE_IDENTITY=$(wp_conf2 wprism identity-import --repo=/siterepo --in=/siterepo/.tmp-polylang-remove-all-identity.json 2>&1) \
   || STALE_IDENTITY_RC=$?
 [ "$STALE_IDENTITY_RC" -ne 0 ] \
   && grep -Eq 'embedded identity does not verify|identity sidecar witness mismatch' <<<"$STALE_IDENTITY" \
@@ -779,8 +779,8 @@ STALE_IDENTITY=$(wp_conf2 duo identity-import --repo=/siterepo --in=/siterepo/.t
 wp_conf2 db import /siterepo/.tmp-polylang-remove-all.sql >/dev/null
 wp_conf2 plugin is-active polylang >/dev/null \
   || fail 'Polylang database recovery did not restore the exact active-plugin preimage'
-RESTORED_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang plan after destructive-uninstall database recovery' json "$RESTORED_PLAN"
+RESTORED_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang plan after destructive-uninstall database recovery' json "$RESTORED_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' \
   <<<"$RESTORED_PLAN" >/dev/null \
   || fail "Polylang destructive-uninstall database recovery did not restore the exact base: $RESTORED_PLAN"
@@ -819,12 +819,12 @@ wp_conf1 eval '
   update_option("polylang", $option);
 ' >/dev/null
 commit_polylang_source 'conformance: Polylang complete-uninstall recovery intent'
-REINSTALL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang complete-uninstall recovery plan' json "$REINSTALL_PLAN"
+REINSTALL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang complete-uninstall recovery plan' json "$REINSTALL_PLAN"
 jq -e '(.drift | length) == 0 and (.conflict | length) == 0 and (.update | length) >= 8' <<<"$REINSTALL_PLAN" >/dev/null \
   || fail "Polylang destructive lifecycle did not surface explicit recovery work: $REINSTALL_PLAN"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Polylang exact reinstall recovery apply' json "$REINSTALL_APPLY"
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Polylang exact reinstall recovery apply' json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "Polylang exact reinstall did not recover canonical state: $REINSTALL_APPLY"
 RECOVERED=$(observe_polylang conf2)
@@ -846,10 +846,10 @@ RECOVERY_URL=$(jq -r '.posts.ar.permalink' <<<"$RECOVERED")
 RECOVERY_URL=${RECOVERY_URL/\/\/localhost\//\/\/localhost:${CONF2_PORT}\/}
 RECOVERY_FRONT=$(curl -fsSL "$RECOVERY_URL") || fail 'Polylang recovered Arabic page did not render'
 grep -Fq 'محتوى عربي قابل للنقل' <<<"$RECOVERY_FRONT" || fail 'Polylang recovered frontend did not consume Arabic authored data'
-FINAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "Polylang recovery was not idempotent: $FINAL_PLAN"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-final >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-final >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-polylang-final" \
   || fail 'Polylang final recovered state was not byte-identical'
 rm -rf "$CONF_REPO2/.tmp-polylang-final"

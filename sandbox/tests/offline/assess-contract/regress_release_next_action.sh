@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — round-3 MUP §2.3: `duo release` answers every failure with
+# Regression — round-3 MUP §2.3: `wprism release` answers every failure with
 # EXACTLY ONE next action from the closed set
 # `resume|reconcile|retry|recover|requalify|escalate`, and never with an
 # action from the other closed set.
@@ -24,18 +24,18 @@
 #     because retry reuses the same operation identity and is safe only after
 #     durable receipt reconciliation proves the prior attempt wrote nothing.
 #
-# This drives the real `php cli/duo release` over a `local` transport with a
+# This drives the real `php cli/wprism release` over a `local` transport with a
 # fake `wp` on PATH, not the command class in isolation: the verb reaching
 # the dispatch match arm, `EnvironmentCommandPreflight::ENVIRONMENT_VERBS`
 # admitting it, and `DriverCapabilityReport::requirements()` knowing the
 # operation all live outside `ReleaseCommand`, and a suite that constructed
-# the command by hand would pass with all three broken (DUO-3344).
+# the command by hand would pass with all three broken (issue #3344).
 #
 # Offline: no docker, no WordPress, no network, no target.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-release-next-action.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-release-next-action.XXXXXX")"
 RESPONDER_PID=""
 cleanup() {
   if [ -n "$RESPONDER_PID" ]; then
@@ -52,7 +52,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 say()  { printf '\n== %s ==\n' "$*"; }
 
 printf '== syntax ==\n'
-for file in "$ROOT/cli/duo" \
+for file in "$ROOT/cli/wprism" \
   "$ROOT/cli/src/Command/ReleaseCommand.php" \
   "$ROOT/cli/src/Command/VerifyCommand.php" \
   "$ROOT/cli/src/Release/NextAction.php" \
@@ -72,9 +72,9 @@ php "$ROOT/sandbox/tests/fixtures/release/make-release-site.php" "$TMP/site" >/d
   || { echo "FAIL: could not build the release fixture" >&2; exit 1; }
 
 SITE="$TMP/site/repo"
-export DUO_FIXTURES="$TMP/site/fixtures"
-export DUO_SITE_REPO="$SITE"
-export DUO_CALLS="$TMP/calls.txt"
+export WPRISM_FIXTURES="$TMP/site/fixtures"
+export WPRISM_SITE_REPO="$SITE"
+export WPRISM_CALLS="$TMP/calls.txt"
 PATH="$TMP/site/bin:$PATH"
 export PATH
 php "$ROOT/sandbox/tests/fixtures/release/journey-responder.php" "$TMP/journey-address" \
@@ -85,19 +85,19 @@ for _ in $(seq 1 100); do
   sleep 0.01
 done
 [ -s "$TMP/journey-address" ] || { cat "$TMP/journey-responder.err" >&2; exit 1; }
-export DUO_JOURNEY_URL="http://$(cat "$TMP/journey-address")/release-ready"
+export WPRISM_JOURNEY_URL="http://$(cat "$TMP/journey-address")/release-ready"
 
-# duo <stdout-file> [args...] -> exit code
-duo() {
+# wprism <stdout-file> [args...] -> exit code
+wprism() {
   local out="$1"; shift
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/site/envs.json" "$@" ) \
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/site/envs.json" "$@" ) \
     > "$out" 2> "$out.err"
 }
 
 # The reviewed contract this site releases under, produced through the real
 # propose -> review -> accept path so the fixture cannot drift from what
-# `duo contract accept` actually writes.
-duo "$TMP/propose.txt" contract fixture propose \
+# `wprism contract accept` actually writes.
+wprism "$TMP/propose.txt" contract fixture propose \
   || { fail 'contract propose failed'; cat "$TMP/propose.txt.err" >&2; }
 php -r '
 $path = $argv[1];
@@ -129,12 +129,12 @@ $contract["declarations"]["journeys"] = [[
     "expect_contains" => "release journey ready",
     "expect_status" => 200,
     "id" => "release-ready",
-    "url" => getenv("DUO_JOURNEY_URL"),
+    "url" => getenv("WPRISM_JOURNEY_URL"),
 ]];
 $proposal["contract"] = $contract;
 file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-' "$SITE/.duo/contract/fixture/proposed.json"
-duo "$TMP/accept.txt" contract fixture accept \
+' "$SITE/.wprism/contract/fixture/proposed.json"
+wprism "$TMP/accept.txt" contract fixture accept \
   || { fail 'contract accept failed'; cat "$TMP/accept.txt.err" >&2; }
 
 # assert_action <stdout+stderr file> <expected action> <forbidden action> <message>
@@ -155,8 +155,8 @@ assert_action() {
 # release <name> [args...] -> writes $TMP/<name>.txt and .err
 release() {
   local name="$1"; shift
-  rm -f "$DUO_FIXTURES/plan-calls"
-  duo "$TMP/$name.txt" release fixture "$@"
+  rm -f "$WPRISM_FIXTURES/plan-calls"
+  wprism "$TMP/$name.txt" release fixture "$@"
   local status=$?
   cat "$TMP/$name.txt.err" >> "$TMP/$name.txt"
   return $status
@@ -164,8 +164,8 @@ release() {
 
 # --------------------------------------------------------- pre-freeze refusal
 say 'a pre-authorization refusal carries a gap action, never a next action'
-RELEASE_DIR="$SITE/.duo/releases"
-DUO_PLAN=plan-deletes release "deletes" --yes
+RELEASE_DIR="$SITE/.wprism/releases"
+WPRISM_PLAN=plan-deletes release "deletes" --yes
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a plan with deletions and no --with-deletes refuses (exit 1)' \
   || fail "a plan with deletions exited $STATUS"
@@ -184,7 +184,7 @@ pass 'a pre-authorization refusal offers no release next action at all'
 
 # ---------------------------------------------- the §2.7 surface label line
 say 'an unclean target names the WordPress surface, not a bucket'
-DUO_PLAN=plan-drift release "unclean" --yes
+WPRISM_PLAN=plan-drift release "unclean" --yes
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'an unclean target refuses before anything is authorized (exit 1)' \
   || fail "an unclean target exited $STATUS"
@@ -207,7 +207,7 @@ grep -Fq 'Authorize this release to fixture?' "$TMP/planonly.txt" \
   && pass 'the rendered plan ends in the single authorization question' \
   || fail 'the plan did not end in its question'
 [ -d "$RELEASE_DIR" ] && [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
-  && fail '--plan-only wrote into .duo/releases, which is a mutation of the site repository' \
+  && fail '--plan-only wrote into .wprism/releases, which is a mutation of the site repository' \
   || pass '--plan-only writes no frozen plan'
 
 # ------------------------------------------------------ post-freeze failures
@@ -215,7 +215,7 @@ say 'every observed post-freeze failure maps to exactly one next action'
 
 # incomplete_lifecycle -> recover. The lifecycle phase fails, and the target's
 # own re-read then reports the interrupted window.
-DUO_CODE_ENABLED=1 DUO_LIFECYCLE_EXIT=7 DUO_PLAN_AFTER=plan-incomplete-lifecycle DUO_PLAN_AFTER_CALL=3 \
+WPRISM_CODE_ENABLED=1 WPRISM_LIFECYCLE_EXIT=7 WPRISM_PLAN_AFTER=plan-incomplete-lifecycle WPRISM_PLAN_AFTER_CALL=3 \
   release "lifecycle" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed release exits 1' || fail "a failed release exited $STATUS"
@@ -226,27 +226,27 @@ grep -Eq '"status": *"failed"' "$TMP/lifecycle.txt" \
   || fail 'the failure outcome did not use the failed vocabulary'
 
 # incomplete_apply -> recover.
-DUO_APPLY_EXIT=9 DUO_PLAN_AFTER=plan-incomplete-apply DUO_PLAN_AFTER_CALL=3 \
+WPRISM_APPLY_EXIT=9 WPRISM_PLAN_AFTER=plan-incomplete-apply WPRISM_PLAN_AFTER_CALL=3 \
   release "apply" --yes --format=json
 assert_action "$TMP/apply.txt" recover retry \
   'an interrupted authored-state transaction is `recover`'
 
 # drift_detected -> reconcile, never retry.
-DUO_APPLY_EXIT=9 DUO_PLAN_AFTER=plan-drift DUO_PLAN_AFTER_CALL=3 \
+WPRISM_APPLY_EXIT=9 WPRISM_PLAN_AFTER=plan-drift WPRISM_PLAN_AFTER_CALL=3 \
   release "drift" --yes --format=json
 assert_action "$TMP/drift.txt" reconcile retry \
-  'a target that changed outside Duo is `reconcile`, never `retry`'
+  'a target that changed outside WPrism is `reconcile`, never `retry`'
 
 # nothing_safe -> escalate. The promotion failed and the target reports a
 # state this command cannot positively classify.
-DUO_APPLY_EXIT=9 release "unclassified" --yes --format=json
+WPRISM_APPLY_EXIT=9 release "unclassified" --yes --format=json
 assert_action "$TMP/unclassified.txt" escalate retry \
   'a failure that cannot be positively classified is `escalate`, never an automated action'
 
 # plan_changed -> retry, and only because nothing was written. Call 2 is the
 # re-verification `ReleaseCommand` performs immediately before the mutating
 # call: call 1 is the plan the authorization was built from.
-DUO_PLAN_AFTER=plan-drift DUO_PLAN_AFTER_CALL=2 release "changed" --yes --format=json
+WPRISM_PLAN_AFTER=plan-drift WPRISM_PLAN_AFTER_CALL=2 release "changed" --yes --format=json
 assert_action "$TMP/changed.txt" retry recover \
   'a target that moved between freeze and confirmation is `retry`; nothing was written'
 grep -Fq 'plan_changed' "$TMP/changed.txt" \
@@ -255,7 +255,7 @@ grep -Fq 'plan_changed' "$TMP/changed.txt" \
 
 # ------------------------------------------------------- the successful path
 say 'a successful release still runs promote, byte for byte, and then verifies'
-DUO_PLAN_AFTER=plan-converged DUO_PLAN_AFTER_CALL=3 release "released" --yes
+WPRISM_PLAN_AFTER=plan-converged WPRISM_PLAN_AFTER_CALL=3 release "released" --yes
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a clean release exits 0' \
   || { fail "a clean release exited $STATUS"; sed -n '1,40p' "$TMP/released.txt" >&2; }
@@ -276,33 +276,33 @@ grep -Fq 'released to fixture' "$TMP/released.txt" \
   && pass 'the outcome uses the released vocabulary' \
   || fail 'the success outcome was not recorded'
 [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
-  && pass 'the authorization plan is durably written under .duo/releases' \
+  && pass 'the authorization plan is durably written under .wprism/releases' \
   || fail 'a released release froze no plan'
 
-# ------------------------------------------------------------- cli/duo wiring
-say 'cli/duo wiring'
-grep -Fq "'release' => cmd_release(\$transport, \$extra)" "$ROOT/cli/duo" \
+# ------------------------------------------------------------- cli/wprism wiring
+say 'cli/wprism wiring'
+grep -Fq "'release' => cmd_release(\$transport, \$extra)" "$ROOT/cli/wprism" \
   && pass 'release is registered in the dispatch match' \
-  || fail 'release is not registered in cli/duo dispatch'
-grep -Fq 'duo release <env>' "$ROOT/cli/duo" \
+  || fail 'release is not registered in cli/wprism dispatch'
+grep -Fq 'wprism release <env>' "$ROOT/cli/wprism" \
   && pass 'release appears in the public usage text' \
-  || fail 'release is missing from duo_usage()'
-grep -Fq 'cmd_promote($driver, $args)' "$ROOT/cli/duo" \
+  || fail 'release is missing from wprism_usage()'
+grep -Fq 'cmd_promote($driver, $args)' "$ROOT/cli/wprism" \
   && pass 'release composes the EXISTING promote entry point rather than forking it' \
   || fail 'cmd_release does not inject cmd_promote'
 for verb in verify recover rehearse; do
-  grep -Fq "'$verb' => cmd_$verb(" "$ROOT/cli/duo" \
+  grep -Fq "'$verb' => cmd_$verb(" "$ROOT/cli/wprism" \
     && pass "$verb is registered in the dispatch match" \
-    || fail "$verb is not registered in cli/duo dispatch"
-  grep -Fq "duo $verb" "$ROOT/cli/duo" \
+    || fail "$verb is not registered in cli/wprism dispatch"
+  grep -Fq "wprism $verb" "$ROOT/cli/wprism" \
     && pass "$verb appears in the public usage text" \
-    || fail "$verb is missing from duo_usage()"
+    || fail "$verb is missing from wprism_usage()"
 done
 php -r '
 require $argv[1] . "/cli/src/Command/EnvironmentCommandPreflight.php";
 require $argv[1] . "/cli/src/Transport/EnvironmentDriver.php";
-$verbs = \Duo\Orchestrator\EnvironmentCommandPreflight::environmentVerbs();
-$requirements = new ReflectionMethod(\Duo\Orchestrator\DriverCapabilityReport::class, "requirements");
+$verbs = \WPrism\Orchestrator\EnvironmentCommandPreflight::environmentVerbs();
+$requirements = new ReflectionMethod(\WPrism\Orchestrator\DriverCapabilityReport::class, "requirements");
 foreach (["release", "verify", "recover", "rehearse"] as $verb) {
     if (!in_array($verb, $verbs, true)) { fwrite(STDERR, "FAIL: $verb is not an environment verb\n"); exit(1); }
     $requirements->invoke(null, $verb);

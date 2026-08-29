@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /** Immutable authored-state inputs selected by apply preparation. */
 final class ApplyWorkset {

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Environment/EnvironmentProviderProtocol.php';
@@ -16,19 +16,20 @@ require_once __DIR__ . '/../Transport/DockerTransport.php';
 require_once __DIR__ . '/../Transport/SshTransport.php';
 
 /**
- * `duo env provider-check <env>` — diagnose a branch-environment provider
+ * `wprism env provider-check <env>` — diagnose a branch-environment provider
  * before it is trusted with a production snapshot.
  *
  * WHY THIS COMMAND EXISTS
  * -----------------------
- * Duo orchestrates providers; it does not supply hosting, so every customer
+ * WPrism orchestrates providers; it does not supply hosting, so every customer
  * writes their own (tools/reference-env-provider.php:2-11 is DEV-ONLY, and
- * Adopt.php tars only `agent manifests recovery`). Before this command the
- * only way to exercise a provider was `duo env materialize`, whose second
+ * Adopt.php embeds the assembled adapters in agent/ and tars only
+ * `agent recovery`). Before this command the
+ * only way to exercise a provider was `wprism env materialize`, whose second
  * provider action is `snapshot-prepare` — the one that FREEZES the named
  * production source (EnvironmentLifecycle.php:1013-1021). Learning the
  * contract one refusal at a time therefore meant learning it against prod.
- * This is the same posture `duo doctor` already takes toward a target:
+ * This is the same posture `wprism doctor` already takes toward a target:
  * diagnose before you trust.
  *
  * WHY IT CANNOT DRIFT FROM THE ORCHESTRATOR
@@ -52,11 +53,11 @@ require_once __DIR__ . '/../Transport/SshTransport.php';
  *    rather than retained and the target destroyed/detached in a finally.
  *    `--confirm-disposable` is mandatory because `snapshot-prepare` freezes
  *    the named source; the harness never infers disposability from a name, a
- *    TTL, or the absence of a site.duo.json entry. Same posture as
- *    `duo recover --prune-retained --confirm-prune`.
+ *    TTL, or the absence of a site.wprism.json entry. Same posture as
+ *    `wprism recover --prune-retained --confirm-prune`.
  */
 final class EnvironmentProviderCheckCommand {
-    public const FORMAT = 'duo-branch-environment-provider-check/v1';
+    public const FORMAT = 'wprism-branch-environment-provider-check/v1';
     /** Bounded, provider-owned, and reaped in the same run; never an operator input. */
     private const CYCLE_TTL_SECONDS = 300;
 
@@ -75,7 +76,7 @@ final class EnvironmentProviderCheckCommand {
                 ? $command->cycle($targetName, $options, $envsFileOverride)
                 : $command->negotiate($targetName, $options, $envsFileOverride);
         } catch (\Throwable $e) {
-            fwrite(STDERR, "duo: env provider-check: {$e->getMessage()}\n");
+            fwrite(STDERR, "wprism: env provider-check: {$e->getMessage()}\n");
             return 1;
         }
         $command->render($body, $options['json']);
@@ -168,8 +169,8 @@ final class EnvironmentProviderCheckCommand {
             'source_environment' => $sourceName,
             'target_environment' => $targetName,
         ]));
-        $owner = 'duo-provider-check-materialize-' . $operationId;
-        $reapOwner = 'duo-provider-check-reap-' . $operationId;
+        $owner = 'wprism-provider-check-materialize-' . $operationId;
+        $reapOwner = 'wprism-provider-check-reap-' . $operationId;
         $prepared = null;
         $identity = null;
         $fence = null;
@@ -181,13 +182,13 @@ final class EnvironmentProviderCheckCommand {
                 return $this->finish($body);
             }
             $prepared = $this->act($sourceProvider, 'snapshot-prepare', $operationId,
-                self::identityInput($source) + ['snapshot_session_id' => 'duo-provider-check-session-' . $operationId]);
+                self::identityInput($source) + ['snapshot_session_id' => 'wprism-provider-check-session-' . $operationId]);
             if ($prepared === null) {
                 return $this->finish($body);
             }
             $session = self::sessionInput($prepared);
             $snapshot = $this->act($sourceProvider, 'snapshot-create', $operationId, $session + [
-                'expected_semantic_snapshot_sha256' => hash('sha256', 'duo-provider-check-semantic:' . $operationId),
+                'expected_semantic_snapshot_sha256' => hash('sha256', 'wprism-provider-check-semantic:' . $operationId),
                 'production_commit' => $branch['commit'],
             ]);
             if ($snapshot === null) {
@@ -378,7 +379,7 @@ final class EnvironmentProviderCheckCommand {
                 $prefix . 'environment_provider configuration',
                 $e->getMessage(),
                 'environment_provider is privileged host configuration: put {"command": ["/absolute/path", ...],'
-                . ' "timeout_seconds": 1..3600} under this environment in .duo-envs.json, never in site.duo.json.'
+                . ' "timeout_seconds": 1..3600} under this environment in .wprism-envs.json, never in site.wprism.json.'
             );
             return null;
         }
@@ -565,7 +566,7 @@ final class EnvironmentProviderCheckCommand {
 
     /** Long enough for CommandEnvironmentProvider::assertIdentifier's 8..256 bound. */
     private static function operationId(): string {
-        return 'duo-provider-check-' . bin2hex(random_bytes(8));
+        return 'wprism-provider-check-' . bin2hex(random_bytes(8));
     }
 
     private function pass(string $check, string $detail): void {

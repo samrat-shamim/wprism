@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline characterization for RepositoryStateFileCatalog (DUO-3348 slice
+ * Offline characterization for RepositoryStateFileCatalog (issue #3348 slice
  * 44). The catalog owns recursive state-partition enumeration and link
  * refusal only; RepositoryCompiler retains the state-root preflight,
  * parsing/routing, and aggregate refusal/sort.
@@ -18,7 +18,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\Duo\RepositoryStateFileCatalog::class, false) && !class_exists(\Duo\RepositoryCompiler::class, false) && !class_exists(\Duo\Policy::class, false) && !function_exists("get_option") ? "loaded\n" : "broken\n";', $catalogPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\WPrism\RepositoryStateFileCatalog::class, false) && !class_exists(\WPrism\RepositoryCompiler::class, false) && !class_exists(\WPrism\Policy::class, false) && !function_exists("get_option") ? "loaded\n" : "broken\n";', $catalogPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -38,9 +38,9 @@ $check(
 
 require_once $catalogPath;
 
-use Duo\RepositoryStateFileCatalog;
+use WPrism\RepositoryStateFileCatalog;
 
-$tmp = sys_get_temp_dir() . '/duo-state-file-catalog-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-state-file-catalog-' . bin2hex(random_bytes(6));
 $remove = static function (string $path) use (&$remove): void {
     if (is_link($path) || is_file($path)) {
         @unlink($path);

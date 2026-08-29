@@ -80,7 +80,7 @@ namespace {
             $projection = ['catalogs' => []];
             return (object) [
                 'return_code' => 0,
-                'stdout' => 'DUO_PLL_NATIVE:'
+                'stdout' => 'WPRISM_PLL_NATIVE:'
                     . base64_encode((string) json_encode($projection)) . "\n",
                 'stderr' => '',
             ];
@@ -109,7 +109,7 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {
         public const SURFACE_PATTERN = '/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D';
     }
@@ -131,7 +131,7 @@ namespace Duo {
             $projection = ['catalogs' => []];
             return [
                 'return_code' => 0,
-                'stdout' => 'DUO_PLL_NATIVE:'
+                'stdout' => 'WPRISM_PLL_NATIVE:'
                     . base64_encode((string) json_encode($projection)) . "\n",
                 'stderr' => '',
             ];
@@ -151,7 +151,7 @@ namespace {
         512,
         JSON_THROW_ON_ERROR
     );
-    $provider = new \Duo\Providers\PolylangNavMenus($manifest['providers'][0]);
+    $provider = new \WPrism\Providers\PolylangNavMenus($manifest['providers'][0]);
     $action = [
         'kind' => 'provider',
         'provider' => 'polylang-nav-menus',
@@ -163,11 +163,11 @@ namespace {
         'authority_hash' => str_repeat('a', 64),
         'lease_session_id' => 'polylang-fixture-session',
         'operation_id' => 'polylang-fixture-operation',
-        'input_hash' => \Duo\Providers::scoped_input_hash($action, $declaration),
+        'input_hash' => \WPrism\Providers::scoped_input_hash($action, $declaration),
         'effect_hash' => str_repeat('c', 64),
     ];
-    $invoked = \Duo\Providers::invoke_scoped($provider, $action, $declaration, $operation);
-    $reconciled = \Duo\Providers::reconcile_scoped($provider, $action, $declaration, $operation);
+    $invoked = \WPrism\Providers::invoke_scoped($provider, $action, $declaration, $operation);
+    $reconciled = \WPrism\Providers::reconcile_scoped($provider, $action, $declaration, $operation);
     echo json_encode([
         'invoke_status' => $invoked['status'] ?? null,
         'reconcile_status' => $reconciled['status'] ?? null,

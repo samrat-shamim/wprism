@@ -1,26 +1,26 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\PlainData;
-use Duo\Policy;
-use Duo\WpCliChildProcess;
+use WPrism\PlainData;
+use WPrism\Policy;
+use WPrism\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    $duoLayoutRoot = dirname(__DIR__, 5);
-    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
-        ? $duoLayoutRoot . '/agent'
-        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
-    if ($duoAgentRoot === null) {
-        throw new \RuntimeException('duo: WooCommerce provider cannot resolve the explicit source or embedded agent layout');
+    $wprismLayoutRoot = dirname(__DIR__, 5);
+    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
+        ? $wprismLayoutRoot . '/agent'
+        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
+    if ($wprismAgentRoot === null) {
+        throw new \RuntimeException('wprism: WooCommerce provider cannot resolve the explicit source or embedded agent layout');
     }
-    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($duoLayoutRoot, $duoAgentRoot);
+    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($wprismLayoutRoot, $wprismAgentRoot);
 }
 
 /**
  * WooCommerce 11.0.x category/brand hierarchy projection provider.
  *
- * Duo materializes term_taxonomy rows and options with SQL, so neither
+ * WPrism materializes term_taxonomy rows and options with SQL, so neither
  * WordPress's hierarchy-option maintenance nor WooCommerce's category lookup
  * callbacks run. Exact WooCommerce 11.0.0 and 11.0.1 expose the same public
  * CategoryLookup::regenerate() whole-taxonomy boundary, not a supported
@@ -35,7 +35,7 @@ final class WoocommerceHierarchyLookups {
 
     private const CAPABILITY = 'rebuild_hierarchy_lookups';
     private const PERMALINK_CAPABILITY = 'rebuild_product_permalink_routes';
-    private const CHILD_FORMAT = 'duo-woocommerce-hierarchy-child/v1';
+    private const CHILD_FORMAT = 'wprism-woocommerce-hierarchy-child/v1';
     private const CATEGORY_TABLE = 'wc_category_lookup';
     private const TAXONOMIES = ['product_cat', 'product_brand'];
     private const MAX_OPTION_BYTES = 16777216;
@@ -86,7 +86,7 @@ final class WoocommerceHierarchyLookups {
                 'idempotent' => true,
                 'timeout_seconds' => 300,
                 'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
                     'reconcile' => true,
                 ],
             ],
@@ -106,7 +106,7 @@ final class WoocommerceHierarchyLookups {
                 'idempotent' => true,
                 'timeout_seconds' => 300,
                 'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
                     'reconcile' => true,
                 ],
             ],
@@ -118,19 +118,19 @@ final class WoocommerceHierarchyLookups {
         if ($capability === self::PERMALINK_CAPABILITY) {
             if ($args !== []) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product permalink repair accepts no arguments'
+                    'wprism: WooCommerce product permalink repair accepts no arguments'
                 );
             }
             return $this->repair_product_permalinks();
         }
         if ($capability !== self::CAPABILITY) {
             throw new \RuntimeException(
-                "duo: WooCommerce hierarchy provider does not implement capability '$capability'"
+                "wprism: WooCommerce hierarchy provider does not implement capability '$capability'"
             );
         }
         if (!array_key_exists('flush_rewrite', $args) || !is_bool($args['flush_rewrite'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy provider requires the exact boolean flush_rewrite argument'
+                'wprism: WooCommerce hierarchy provider requires the exact boolean flush_rewrite argument'
             );
         }
         return $this->repair((bool) $args['flush_rewrite']);
@@ -152,7 +152,7 @@ final class WoocommerceHierarchyLookups {
         if ($capability === self::PERMALINK_CAPABILITY) {
             if ($args !== []) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product permalink reconciliation accepts no arguments'
+                    'wprism: WooCommerce product permalink reconciliation accepts no arguments'
                 );
             }
             $after = self::product_permalink_projection(true, true);
@@ -165,12 +165,12 @@ final class WoocommerceHierarchyLookups {
         }
         if ($capability !== self::CAPABILITY) {
             throw new \RuntimeException(
-                "duo: WooCommerce hierarchy provider does not implement capability '$capability'"
+                "wprism: WooCommerce hierarchy provider does not implement capability '$capability'"
             );
         }
         if (!array_key_exists('flush_rewrite', $args) || !is_bool($args['flush_rewrite'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy reconciliation requires the exact boolean flush_rewrite argument'
+                'wprism: WooCommerce hierarchy reconciliation requires the exact boolean flush_rewrite argument'
             );
         }
         $after = self::projection_snapshot(true, (bool) $args['flush_rewrite']);
@@ -188,7 +188,7 @@ final class WoocommerceHierarchyLookups {
     private function repair(bool $flushRewrite): array {
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy repair requires a fresh WP-CLI child process'
+                'wprism: WooCommerce hierarchy repair requires a fresh WP-CLI child process'
             );
         }
 
@@ -204,7 +204,7 @@ final class WoocommerceHierarchyLookups {
         self::assert_authored_source_unchanged($before, $after, $flushRewrite);
         if ($childAfter !== $after) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy child receipt disagrees with checked parent-process state; '
+                'wprism: WooCommerce hierarchy child receipt disagrees with checked parent-process state; '
                 . 'recovery_required'
             );
         }
@@ -215,7 +215,7 @@ final class WoocommerceHierarchyLookups {
     private function repair_product_permalinks(): array {
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
-                'duo: WooCommerce product permalink repair requires a fresh WP-CLI child process'
+                'wprism: WooCommerce product permalink repair requires a fresh WP-CLI child process'
             );
         }
 
@@ -227,7 +227,7 @@ final class WoocommerceHierarchyLookups {
         // option-filtered projection (Yoast/Polylang/TEC included) without
         // this Woo adapter guessing a closed set of plugin callbacks.
         $before = self::product_permalink_projection(true, false);
-        \Duo\NativeActions::execute('rewrite.flush', []);
+        \WPrism\NativeActions::execute('rewrite.flush', []);
         $after = self::product_permalink_projection(true, true);
         // Native rewrite evidence is post-action verification rather than a
         // second writable surface or a preimage. Validate it without placing
@@ -262,7 +262,7 @@ final class WoocommerceHierarchyLookups {
             if (!array_key_exists($key, $before) || !array_key_exists($key, $after)
                 || $before[$key] !== $after[$key]) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce authored product permalink state changed during native repair; '
+                    'wprism: WooCommerce authored product permalink state changed during native repair; '
                     . 'recovery_required'
                 );
             }
@@ -288,7 +288,7 @@ final class WoocommerceHierarchyLookups {
             if (!array_key_exists($key, $before) || !array_key_exists($key, $after)
                 || $before[$key] !== $after[$key]) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce authored hierarchy source changed during native repair; recovery_required'
+                    'wprism: WooCommerce authored hierarchy source changed during native repair; recovery_required'
                 );
             }
         }
@@ -297,7 +297,7 @@ final class WoocommerceHierarchyLookups {
     /** @return array<string,int|string|bool> */
     private function launch_child(bool $flushRewrite): array {
         $code = 'require_once ' . var_export(__FILE__, true) . '; '
-            . '\\Duo\\Providers\\WoocommerceHierarchyLookups::run_child('
+            . '\\WPrism\\Providers\\WoocommerceHierarchyLookups::run_child('
             . ($flushRewrite ? 'true' : 'false') . ');';
         try {
             // The canonical child receipt is capped at 16 KiB below. Bound
@@ -312,7 +312,7 @@ final class WoocommerceHierarchyLookups {
             );
         } catch (\Throwable $exception) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy child process could not start; recovery_required',
+                'wprism: WooCommerce hierarchy child process could not start; recovery_required',
                 0,
                 $exception
             );
@@ -323,19 +323,19 @@ final class WoocommerceHierarchyLookups {
             // keep the failure actionable without copying those bytes into a
             // promotion receipt or operator log.
             throw new \RuntimeException(
-                "duo: WooCommerce hierarchy child exited {$result['return_code']}; recovery_required"
+                "wprism: WooCommerce hierarchy child exited {$result['return_code']}; recovery_required"
             );
         }
         $stderr = $result['stderr'];
         if ($stderr !== '') {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy child emitted stderr despite exit 0; recovery_required'
+                'wprism: WooCommerce hierarchy child emitted stderr despite exit 0; recovery_required'
             );
         }
         $stdout = $result['stdout'];
         if ($stdout === '' || strlen($stdout) > 16384) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy child returned a missing or oversized receipt; recovery_required'
+                'wprism: WooCommerce hierarchy child returned a missing or oversized receipt; recovery_required'
             );
         }
         try {
@@ -346,7 +346,7 @@ final class WoocommerceHierarchyLookups {
             );
         } catch (\Throwable $exception) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy child returned malformed receipt data; recovery_required',
+                'wprism: WooCommerce hierarchy child returned malformed receipt data; recovery_required',
                 0,
                 $exception
             );
@@ -355,7 +355,7 @@ final class WoocommerceHierarchyLookups {
             || ($decoded['format'] ?? null) !== self::CHILD_FORMAT
             || !is_array($decoded['after']) || $canonical !== $stdout) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy child returned noncanonical or trailing output; recovery_required'
+                'wprism: WooCommerce hierarchy child returned noncanonical or trailing output; recovery_required'
             );
         }
         /** @var array<string,int|string|bool> $after */
@@ -382,20 +382,20 @@ final class WoocommerceHierarchyLookups {
         $lookupClass = '\\Automattic\\WooCommerce\\Internal\\Admin\\CategoryLookup';
         if (!is_callable([$lookupClass, 'instance'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce public category lookup regenerator is unavailable; recovery_required'
+                'wprism: WooCommerce public category lookup regenerator is unavailable; recovery_required'
             );
         }
         $lookup = $lookupClass::instance();
         if (!is_object($lookup) || !is_callable([$lookup, 'regenerate'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce public category lookup instance is unreadable; recovery_required'
+                'wprism: WooCommerce public category lookup instance is unreadable; recovery_required'
             );
         }
         $wpdb->last_error = '';
         $lookup->regenerate();
         if ((string) $wpdb->last_error !== '') {
             throw new \RuntimeException(
-                'duo: WooCommerce native category lookup regeneration reported a database failure; '
+                'wprism: WooCommerce native category lookup regeneration reported a database failure; '
                 . 'recovery_required'
             );
         }
@@ -405,13 +405,13 @@ final class WoocommerceHierarchyLookups {
             $hierarchy = _get_term_hierarchy($taxonomy);
             if (!is_array($hierarchy)) {
                 throw new \RuntimeException(
-                    'duo: WordPress native hierarchy regeneration returned unreadable state; recovery_required'
+                    'wprism: WordPress native hierarchy regeneration returned unreadable state; recovery_required'
                 );
             }
         }
 
         if ($flushRewrite) {
-            \Duo\NativeActions::execute('rewrite.flush', []);
+            \WPrism\NativeActions::execute('rewrite.flush', []);
             self::native_rewrite_evidence();
         }
         $after = self::projection_snapshot(true, $flushRewrite);
@@ -433,7 +433,7 @@ final class WoocommerceHierarchyLookups {
     private static function assert_option_absent(string $option): void {
         if (self::option_witness($option) !== null) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy option deletion did not persist; recovery_required'
+                'wprism: WooCommerce hierarchy option deletion did not persist; recovery_required'
             );
         }
     }
@@ -507,26 +507,26 @@ final class WoocommerceHierarchyLookups {
         $table = $wpdb->prefix . self::CATEGORY_TABLE;
         if (isset($wpdb->wc_category_lookup) && (string) $wpdb->wc_category_lookup !== $table) {
             throw new \RuntimeException(
-                'duo: WooCommerce category lookup table identity is outside the adapter contract'
+                'wprism: WooCommerce category lookup table identity is outside the adapter contract'
             );
         }
-        $columnCount = self::strict_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+        $columnCount = self::strict_uint(\WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
             'SELECT COUNT(*) FROM information_schema.COLUMNS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
             $table
         ), 'WooCommerce category lookup schema cardinality witness'), true, 'category lookup column count');
         if ($columnCount > self::MAX_TABLE_COLUMNS) {
             throw new \RuntimeException(
-                'duo: WooCommerce category lookup schema returned an oversized column inventory'
+                'wprism: WooCommerce category lookup schema returned an oversized column inventory'
             );
         }
-        $columns = \Duo\ProviderSdk::checked_get_results(
+        $columns = \WPrism\ProviderSdk::checked_get_results(
             "SHOW COLUMNS FROM `$table`",
             'WooCommerce category lookup schema'
         );
         if (count($columns) !== $columnCount) {
             throw new \RuntimeException(
-                'duo: WooCommerce category lookup schema changed after its cardinality witness'
+                'wprism: WooCommerce category lookup schema changed after its cardinality witness'
             );
         }
         $actual = [];
@@ -535,7 +535,7 @@ final class WoocommerceHierarchyLookups {
             $type = $column['Type'] ?? null;
             if (!is_string($field) || !is_string($type)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce category lookup schema returned an unreadable column'
+                    'wprism: WooCommerce category lookup schema returned an unreadable column'
                 );
             }
             $actual[$field] = strtolower($type);
@@ -543,13 +543,13 @@ final class WoocommerceHierarchyLookups {
         ksort($actual, SORT_STRING);
         if (array_keys($actual) !== ['category_id', 'category_tree_id']) {
             throw new \RuntimeException(
-                'duo: WooCommerce category lookup schema has unknown or missing columns'
+                'wprism: WooCommerce category lookup schema has unknown or missing columns'
             );
         }
         foreach ($actual as $type) {
             if (preg_match('/^bigint(?:\(20\))? unsigned$/D', $type) !== 1) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce category lookup schema has an incompatible column type'
+                    'wprism: WooCommerce category lookup schema has an incompatible column type'
                 );
             }
         }
@@ -558,14 +558,14 @@ final class WoocommerceHierarchyLookups {
     /** @return array<int,int> */
     private static function term_parent_map(string $taxonomy): array {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT term_id, parent FROM {$wpdb->term_taxonomy} "
             . 'WHERE taxonomy = %s ORDER BY term_id ASC LIMIT ' . (self::MAX_TERMS + 1),
             $taxonomy
         ), "WooCommerce $taxonomy parent projection");
         if (count($rows) > self::MAX_TERMS) {
             throw new \RuntimeException(
-                "duo: WooCommerce $taxonomy exceeds the bounded hierarchy contract"
+                "wprism: WooCommerce $taxonomy exceeds the bounded hierarchy contract"
             );
         }
         $map = [];
@@ -574,7 +574,7 @@ final class WoocommerceHierarchyLookups {
             $parent = self::strict_uint($row['parent'] ?? null, true, "$taxonomy parent");
             if (isset($map[$id])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $taxonomy parent projection contains duplicate term identities"
+                    "wprism: WooCommerce $taxonomy parent projection contains duplicate term identities"
                 );
             }
             $map[$id] = $parent;
@@ -589,7 +589,7 @@ final class WoocommerceHierarchyLookups {
         foreach ($map as $id => $parent) {
             if ($parent > 0 && !isset($map[$parent])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $taxonomy term hierarchy contains a dangling parent"
+                    "wprism: WooCommerce $taxonomy term hierarchy contains a dangling parent"
                 );
             }
         }
@@ -606,7 +606,7 @@ final class WoocommerceHierarchyLookups {
             while ($cursor > 0 && ($state[$cursor] ?? 0) !== 2) {
                 if (($state[$cursor] ?? 0) === 1) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce $taxonomy term hierarchy contains a cycle"
+                        "wprism: WooCommerce $taxonomy term hierarchy contains a cycle"
                     );
                 }
                 $state[$cursor] = 1;
@@ -665,7 +665,7 @@ final class WoocommerceHierarchyLookups {
             $closureRows += $depths[$id];
             if ($closureRows > self::MAX_CATEGORY_LOOKUP_ROWS) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce category lookup projection exceeds the bounded row contract'
+                    'wprism: WooCommerce category lookup projection exceeds the bounded row contract'
                 );
             }
         }
@@ -689,7 +689,7 @@ final class WoocommerceHierarchyLookups {
     private static function category_lookup_state(array $expected, bool $verify): array {
         global $wpdb;
         $table = $wpdb->prefix . self::CATEGORY_TABLE;
-        $stored = \Duo\ProviderSdk::checked_get_results(
+        $stored = \WPrism\ProviderSdk::checked_get_results(
             "SELECT category_tree_id, category_id FROM `$table` "
             . 'ORDER BY category_tree_id ASC, category_id ASC LIMIT '
             . (self::MAX_CATEGORY_LOOKUP_ROWS + 1),
@@ -698,7 +698,7 @@ final class WoocommerceHierarchyLookups {
         if (count($stored) > self::MAX_CATEGORY_LOOKUP_ROWS) {
             if ($verify) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce category lookup exceeds the bounded row contract; recovery_required'
+                    'wprism: WooCommerce category lookup exceeds the bounded row contract; recovery_required'
                 );
             }
             return [
@@ -725,7 +725,7 @@ final class WoocommerceHierarchyLookups {
             } catch (\Throwable $exception) {
                 if ($verify) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce category lookup contains malformed or duplicate rows; recovery_required',
+                        'wprism: WooCommerce category lookup contains malformed or duplicate rows; recovery_required',
                         0,
                         $exception
                     );
@@ -736,7 +736,7 @@ final class WoocommerceHierarchyLookups {
         usort($rows, static fn(array $left, array $right): int => $left <=> $right);
         if ($verify && $rows !== $expected) {
             throw new \RuntimeException(
-                'duo: WooCommerce category lookup exact row projection mismatch (expected '
+                'wprism: WooCommerce category lookup exact row projection mismatch (expected '
                 . count($expected) . ', observed ' . count($rows) . '); recovery_required'
             );
         }
@@ -780,7 +780,7 @@ final class WoocommerceHierarchyLookups {
         $valid = $normalized === $expected;
         if ($verify && !$valid) {
             throw new \RuntimeException(
-                "duo: WooCommerce $taxonomy hierarchy option disagrees with exact term parents; recovery_required"
+                "wprism: WooCommerce $taxonomy hierarchy option disagrees with exact term parents; recovery_required"
             );
         }
         $links = 0;
@@ -824,7 +824,7 @@ final class WoocommerceHierarchyLookups {
         if ($witness === null) {
             if ($verify && !$allowMissing) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $name option is missing; recovery_required"
+                    "wprism: WooCommerce $name option is missing; recovery_required"
                 );
             }
             return null;
@@ -832,7 +832,7 @@ final class WoocommerceHierarchyLookups {
         if ($witness['bytes'] > $maxBytes) {
             if ($verify) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $name option exceeds the bounded plain-data contract; recovery_required"
+                    "wprism: WooCommerce $name option exceeds the bounded plain-data contract; recovery_required"
                 );
             }
             return null;
@@ -846,7 +846,7 @@ final class WoocommerceHierarchyLookups {
         if ($value === null) {
             if ($verify) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $name option changed during bounded readback; recovery_required"
+                    "wprism: WooCommerce $name option changed during bounded readback; recovery_required"
                 );
             }
             return null;
@@ -857,7 +857,7 @@ final class WoocommerceHierarchyLookups {
         if ($confirmed === null || !hash_equals($valueHash, hash('sha256', $confirmed))) {
             if ($verify) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $name option changed during bounded readback; recovery_required"
+                    "wprism: WooCommerce $name option changed during bounded readback; recovery_required"
                 );
             }
             return null;
@@ -874,7 +874,7 @@ final class WoocommerceHierarchyLookups {
     /** @param array{id:int,bytes:int,autoload:string} $witness */
     private static function option_payload(string $name, array $witness): ?string {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, autoload, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
             . 'WHERE option_id = %d AND BINARY option_name = BINARY %s '
@@ -898,7 +898,7 @@ final class WoocommerceHierarchyLookups {
     /** @return null|array{id:int,bytes:int,autoload:string} */
     private static function option_witness(string $name): ?array {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
             . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
@@ -909,14 +909,14 @@ final class WoocommerceHierarchyLookups {
         }
         if (count($rows) !== 1 || ($rows[0]['option_name'] ?? null) !== $name) {
             throw new \RuntimeException(
-                "duo: WooCommerce $name option is missing, aliased, or duplicated; recovery_required"
+                "wprism: WooCommerce $name option is missing, aliased, or duplicated; recovery_required"
             );
         }
         $autoload = $rows[0]['autoload'] ?? null;
         if (!is_string($autoload)
             || !in_array($autoload, ['yes', 'no', 'auto', 'on', 'off', 'auto-on', 'auto-off'], true)) {
             throw new \RuntimeException(
-                "duo: WooCommerce $name option carries an invalid autoload wire; recovery_required"
+                "wprism: WooCommerce $name option carries an invalid autoload wire; recovery_required"
             );
         }
         return [
@@ -938,7 +938,7 @@ final class WoocommerceHierarchyLookups {
                 $wpdb->prefix . self::CATEGORY_TABLE
             ) !== 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce hierarchy verification requires the exact site database identity'
+                'wprism: WooCommerce hierarchy verification requires the exact site database identity'
             );
         }
     }
@@ -952,7 +952,7 @@ final class WoocommerceHierarchyLookups {
             || $wpdb->options !== $wpdb->prefix . 'options'
             || preg_match(self::TABLE_IDENTIFIER_PATTERN, $wpdb->options) !== 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce permalink verification requires the exact site options-table identity'
+                'wprism: WooCommerce permalink verification requires the exact site options-table identity'
             );
         }
     }
@@ -962,7 +962,7 @@ final class WoocommerceHierarchyLookups {
         global $wp_filter;
         if (isset($wp_filter) && !is_array($wp_filter)) {
             throw new \RuntimeException(
-                'duo: WooCommerce native hook registry is unreadable; recovery_required'
+                'wprism: WooCommerce native hook registry is unreadable; recovery_required'
             );
         }
         $registered = $wp_filter[$hook] ?? null;
@@ -972,24 +972,24 @@ final class WoocommerceHierarchyLookups {
         if (!class_exists('\\WP_Hook') || !$registered instanceof \WP_Hook
             || !is_array($registered->callbacks ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce native hook topology is unreadable or extension-owned; recovery_required'
+                'wprism: WooCommerce native hook topology is unreadable or extension-owned; recovery_required'
             );
         }
         foreach ($registered->callbacks as $priority => $callbacks) {
             if (!is_int($priority) || !is_array($callbacks)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native hook topology is malformed; recovery_required'
+                    'wprism: WooCommerce native hook topology is malformed; recovery_required'
                 );
             }
             foreach ($callbacks as $callback) {
                 if (!is_array($callback) || array_keys($callback) !== ['function', 'accepted_args']
                     || !is_int($callback['accepted_args'])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce native hook topology has an extension callback; recovery_required'
+                        'wprism: WooCommerce native hook topology has an extension callback; recovery_required'
                     );
                 }
                 throw new \RuntimeException(
-                    'duo: WooCommerce native hook topology has an extension callback; recovery_required'
+                    'wprism: WooCommerce native hook topology has an extension callback; recovery_required'
                 );
             }
         }
@@ -998,19 +998,19 @@ final class WoocommerceHierarchyLookups {
     /** @return list<array{0:int,1:list<int>}> */
     private static function normalize_children(mixed $value, string $context): array {
         if (!is_array($value) || count($value) > self::MAX_TERMS) {
-            throw new \RuntimeException("duo: $context has an invalid hierarchy shape");
+            throw new \RuntimeException("wprism: $context has an invalid hierarchy shape");
         }
         $normalized = [];
         foreach ($value as $parent => $children) {
             $parent = self::strict_uint($parent, false, "$context parent");
             if (!is_array($children) || !array_is_list($children) || count($children) > self::MAX_TERMS) {
-                throw new \RuntimeException("duo: $context has an invalid child list");
+                throw new \RuntimeException("wprism: $context has an invalid child list");
             }
             $ids = [];
             foreach ($children as $child) {
                 $id = self::strict_uint($child, false, "$context child");
                 if (isset($ids[$id])) {
-                    throw new \RuntimeException("duo: $context repeats a child identity");
+                    throw new \RuntimeException("wprism: $context repeats a child identity");
                 }
                 $ids[$id] = $id;
             }
@@ -1049,7 +1049,7 @@ final class WoocommerceHierarchyLookups {
                 || $confirmedState['autoload'] !== $rawState['autoload']
                 || !hash_equals($rawHash, $confirmedState['raw_sha256'])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product permalink validation changed authored storage; recovery_required'
+                    'wprism: WooCommerce product permalink validation changed authored storage; recovery_required'
                 );
             }
         } catch (\Throwable $exception) {
@@ -1085,18 +1085,18 @@ final class WoocommerceHierarchyLookups {
             'use_verbose_page_rules',
         ];
         if (!is_array($value) || count($value) !== count($fields)) {
-            throw new \RuntimeException("duo: $context is not the exact native five-field record");
+            throw new \RuntimeException("wprism: $context is not the exact native five-field record");
         }
         $actualFields = array_keys($value);
         sort($actualFields, SORT_STRING);
         $expectedFields = $fields;
         sort($expectedFields, SORT_STRING);
         if ($actualFields !== $expectedFields) {
-            throw new \RuntimeException("duo: $context is not the exact native five-field record");
+            throw new \RuntimeException("wprism: $context is not the exact native five-field record");
         }
         if (!function_exists('wc_sanitize_permalink')) {
             throw new \RuntimeException(
-                'duo: WooCommerce native permalink sanitizer is unavailable; recovery_required'
+                'wprism: WooCommerce native permalink sanitizer is unavailable; recovery_required'
             );
         }
         // Woo 11.0.x calls $wpdb->strip_invalid_text_for_column() then
@@ -1112,19 +1112,19 @@ final class WoocommerceHierarchyLookups {
                 || strlen($part) > self::MAX_PERMALINK_PART_BYTES
                 || preg_match('//u', $part) !== 1
                 || ($field !== 'attribute_base' && $part === '')) {
-                throw new \RuntimeException("duo: $context contains an invalid bounded permalink part");
+                throw new \RuntimeException("wprism: $context contains an invalid bounded permalink part");
             }
             $canonical = wc_sanitize_permalink($part);
             if (!is_string($canonical) || !hash_equals($part, $canonical)) {
-                throw new \RuntimeException("duo: $context contains noncanonical native permalink bytes");
+                throw new \RuntimeException("wprism: $context contains noncanonical native permalink bytes");
             }
         }
         if (!is_bool($value['use_verbose_page_rules'])) {
-            throw new \RuntimeException("duo: $context contains a non-boolean verbose-rule flag");
+            throw new \RuntimeException("wprism: $context contains a non-boolean verbose-rule flag");
         }
         if (rtrim($value['product_base'], "/\\") . '/' === '/%product_brand%/') {
             throw new \RuntimeException(
-                "duo: $context uses the reserved sole product-brand base rejected by WooCommerce"
+                "wprism: $context uses the reserved sole product-brand base rejected by WooCommerce"
             );
         }
         // Native Woo writers have more than one key order: migrations write
@@ -1157,7 +1157,7 @@ final class WoocommerceHierarchyLookups {
         if (!is_string($decoded) || !hash_equals($state['raw'], $decoded)
             || preg_match('/[\x00-\x1F\x7F]/', $decoded) === 1) {
             throw new \RuntimeException(
-                'duo: WordPress permalink_structure is not an exact bounded native raw string; recovery_required'
+                'wprism: WordPress permalink_structure is not an exact bounded native raw string; recovery_required'
             );
         }
         return [
@@ -1219,13 +1219,13 @@ final class WoocommerceHierarchyLookups {
      * @return array<string,int|string|bool>
      */
     private static function native_rewrite_evidence(): array {
-        if (!is_callable(['\Duo\NativeActions', 'rewrite_evidence'])) {
+        if (!is_callable(['\WPrism\NativeActions', 'rewrite_evidence'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce product permalink repair requires Core\'s strict rewrite evidence accessor; '
+                'wprism: WooCommerce product permalink repair requires Core\'s strict rewrite evidence accessor; '
                 . 'recovery_required'
             );
         }
-        $evidence = \Duo\NativeActions::rewrite_evidence();
+        $evidence = \WPrism\NativeActions::rewrite_evidence();
         $keys = [
             'permalink_present',
             'permalink_hash',
@@ -1255,7 +1255,7 @@ final class WoocommerceHierarchyLookups {
             || ($evidence['rules_type'] === 'string' && $evidence['rules_count'] !== 0)
             || ($evidence['runtime_rules_type'] === 'string' && $evidence['runtime_rules_count'] !== 0)) {
             throw new \RuntimeException(
-                'duo: Core rewrite evidence is outside the reviewed native projection; recovery_required'
+                'wprism: Core rewrite evidence is outside the reviewed native projection; recovery_required'
             );
         }
         return [
@@ -1287,14 +1287,14 @@ final class WoocommerceHierarchyLookups {
             $decoded = PlainData::decode($raw, 'woocommerce_brand_permalink raw option');
             if (!is_string($decoded) || !hash_equals($raw, $decoded)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce brand permalink is not an exact native raw string; recovery_required'
+                    'wprism: WooCommerce brand permalink is not an exact native raw string; recovery_required'
                 );
             }
             $value = $decoded;
         }
         if (strlen($value) > 200 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce brand permalink is outside the bounded string contract'
+                'wprism: WooCommerce brand permalink is outside the bounded string contract'
             );
         }
         $effectiveHash = hash('sha256', $value);
@@ -1312,14 +1312,14 @@ final class WoocommerceHierarchyLookups {
     /** @return list<array{0:string,1:string}> */
     private static function normalize_rewrite_rules(mixed $value, string $context): array {
         if (!is_array($value) || count($value) > self::MAX_REWRITE_RULES) {
-            throw new \RuntimeException("duo: $context has an invalid or oversized rule map");
+            throw new \RuntimeException("wprism: $context has an invalid or oversized rule map");
         }
         $rules = [];
         foreach ($value as $pattern => $query) {
             if (!is_string($pattern) || !is_string($query)
                 || $pattern === '' || strlen($pattern) > self::MAX_REWRITE_PART_BYTES
                 || strlen($query) > self::MAX_REWRITE_PART_BYTES) {
-                throw new \RuntimeException("duo: $context contains an invalid bounded rule");
+                throw new \RuntimeException("wprism: $context contains an invalid bounded rule");
             }
             $rules[] = [$pattern, $query];
         }
@@ -1329,11 +1329,11 @@ final class WoocommerceHierarchyLookups {
     private static function strict_uint(mixed $value, bool $allowZero, string $context): int {
         if ((!is_int($value) && !is_string($value))
             || preg_match($allowZero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D', (string) $value) !== 1) {
-            throw new \RuntimeException("duo: $context is not a canonical unsigned integer");
+            throw new \RuntimeException("wprism: $context is not a canonical unsigned integer");
         }
         $number = (int) $value;
         if ($number < ($allowZero ? 0 : 1) || (string) $number !== (string) $value) {
-            throw new \RuntimeException("duo: $context exceeds the supported integer boundary");
+            throw new \RuntimeException("wprism: $context exceeds the supported integer boundary");
         }
         return $number;
     }

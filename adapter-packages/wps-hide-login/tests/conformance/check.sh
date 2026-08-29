@@ -32,7 +32,7 @@ echo wp_json_encode([
         'long_length' => strlen(sanitize_title_with_dashes(str_repeat('A', 240))),
         'path' => sanitize_title_with_dashes('login/foo'),
         'traversal' => sanitize_title_with_dashes('../login'),
-        'unicode' => sanitize_title_with_dashes("Duo Login 東京 🚀"),
+        'unicode' => sanitize_title_with_dashes("WPrism Login 東京 🚀"),
         'wp_login' => sanitize_title_with_dashes('wp-login.php'),
     ],
 ], JSON_UNESCAPED_SLASHES);
@@ -60,8 +60,8 @@ trap cleanup_wps_request EXIT
 wps_request() { # <GET|POST> <path> [form data]
   local method="$1" path="$2" data="${3:-}" url
   cleanup_wps_request
-  WPS_BODY=$(mktemp "${TMPDIR:-/tmp}/duo-wps-body.XXXXXX")
-  WPS_HEADERS=$(mktemp "${TMPDIR:-/tmp}/duo-wps-headers.XXXXXX")
+  WPS_BODY=$(mktemp "${TMPDIR:-/tmp}/wprisms-body.XXXXXX")
+  WPS_HEADERS=$(mktemp "${TMPDIR:-/tmp}/wprisms-headers.XXXXXX")
   url="http://localhost:${CONF2_PORT}${path}"
   if [ "$method" = POST ]; then
     WPS_CODE=$(curl --path-as-is --max-time 20 -sS -X POST \
@@ -93,7 +93,7 @@ assert_wps_routes() { # <login slug> <redirect slug>
     && grep -Fq "/${login}/" "$WPS_BODY" \
     || fail "custom lost-password route did not serve its native form (status=$WPS_CODE)"
 
-  wps_request POST "/${login}/" 'log=duo-no-such-user&pwd=wrong&wp-submit=Log+In&redirect_to=%2Fwp-admin%2F&testcookie=1'
+  wps_request POST "/${login}/" 'log=wprism-no-such-user&pwd=wrong&wp-submit=Log+In&redirect_to=%2Fwp-admin%2F&testcookie=1'
   [ "$WPS_CODE" = 200 ] && grep -Fq 'id="loginform"' "$WPS_BODY" \
     && grep -Fq 'login_error' "$WPS_BODY" \
     || fail "custom login POST did not remain on the plugin-routed login form with a native error (status=$WPS_CODE)"
@@ -128,7 +128,7 @@ assert_wps_routes() { # <login slug> <redirect slug>
 save_wps_profile() { # <conf1|conf2> <initial|reinstall|repository|target>
   local side="$1" profile="$2" login redirect eval_code
   case "$profile" in
-    initial) login='duo-login'; redirect='duo-missing' ;;
+    initial) login='wprism-login'; redirect='wprism-missing' ;;
     reinstall) login='recovered-login'; redirect='recovered-missing' ;;
     repository) login='branch-login'; redirect='branch-missing' ;;
     target) login='hostile-login'; redirect='hostile-missing' ;;
@@ -156,33 +156,33 @@ install_wps_rewrite_probe() {
 
 INITIAL=$(observe_wps_hide_login conf2)
 printf '%s\n' "$INITIAL" | jq -e --arg port "$CONF2_PORT" '
-  .login == "duo-login" and .redirect == "duo-missing" and
+  .login == "wprism-login" and .redirect == "wprism-missing" and
   .runtime == "target-only-runtime-marker" and
   .neighbor == "target-only-neighbor" and .sentinel == true and
   .rewrite_hash == .rewrite_probe_hash and
-  (.login_url | endswith("/duo-login/")) and
-  (.site_login_url | endswith("/duo-login/")) and
-  (.lostpassword_url | contains("/duo-login/")) and
-  (.registration_url | contains("/duo-login/")) and
+  (.login_url | endswith("/wprism-login/")) and
+  (.site_login_url | endswith("/wprism-login/")) and
+  (.lostpassword_url | contains("/wprism-login/")) and
+  (.registration_url | contains("/wprism-login/")) and
   .sanitizers.empty == "" and .sanitizers.long_length == 200 and
   .sanitizers.path == "loginfoo" and .sanitizers.traversal == "login" and
-  .sanitizers.unicode == "duo-login-%e6%9d%b1%e4%ba%ac-%f0%9f%9a%80" and
+  .sanitizers.unicode == "wprism-login-%e6%9d%b1%e4%ba%ac-%f0%9f%9a%80" and
   .sanitizers.wp_login == "wp-login-php"
 ' >/dev/null || fail "WPS Hide Login target APIs did not consume the applied settings without rewriting target state: $INITIAL"
-assert_wps_routes duo-login duo-missing
+assert_wps_routes wprism-login wprism-missing
 pass "raw option apply converges both routes while preserving stale rewrite bytes, runtime state, a neighbor, login APIs, GET/POST forms, old-path refusals, and public routing"
 
 # Prove a successful authenticated journey through the custom path, then the
 # logged-in wp-admin branch that anonymous requests above cannot reach.
-COOKIE_JAR=$(mktemp "${TMPDIR:-/tmp}/duo-wps-cookies.XXXXXX")
-LOGIN_HEADERS=$(mktemp "${TMPDIR:-/tmp}/duo-wps-login-headers.XXXXXX")
-LOGIN_BODY=$(mktemp "${TMPDIR:-/tmp}/duo-wps-login-body.XXXXXX")
-curl --max-time 20 -sS -c "$COOKIE_JAR" "http://localhost:${CONF2_PORT}/duo-login/" -o /dev/null \
+COOKIE_JAR=$(mktemp "${TMPDIR:-/tmp}/wprisms-cookies.XXXXXX")
+LOGIN_HEADERS=$(mktemp "${TMPDIR:-/tmp}/wprisms-login-headers.XXXXXX")
+LOGIN_BODY=$(mktemp "${TMPDIR:-/tmp}/wprisms-login-body.XXXXXX")
+curl --max-time 20 -sS -c "$COOKIE_JAR" "http://localhost:${CONF2_PORT}/wprism-login/" -o /dev/null \
   || fail "custom login cookie premise request failed"
 LOGIN_CODE=$(curl --max-time 20 -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -D "$LOGIN_HEADERS" -o "$LOGIN_BODY" -w '%{http_code}' -X POST \
   --data "log=admin&pwd=admin&wp-submit=Log+In&redirect_to=http%3A%2F%2Flocalhost%3A${CONF2_PORT}%2Fwp-admin%2F&testcookie=1" \
-  "http://localhost:${CONF2_PORT}/duo-login/")
+  "http://localhost:${CONF2_PORT}/wprism-login/")
 LOGIN_LOCATION=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/\r$/, ""); print substr($0, 11) }' "$LOGIN_HEADERS" | tail -1)
 [ "$LOGIN_CODE" = 302 ] && [ "$LOGIN_LOCATION" = "http://localhost:${CONF2_PORT}/wp-admin/" ] \
   && grep -q 'wordpress_logged_in' "$COOKIE_JAR" \
@@ -204,17 +204,17 @@ pass "custom-path authentication succeeds, authenticated wp-admin remains reacha
 
 BEFORE_DEACTIVATE=$(observe_wps_hide_login conf2)
 wp_conf2 plugin deactivate wps-hide-login >/dev/null
-[ "$(wp_conf2 option get whl_page)" = "duo-login" ] \
-  && [ "$(wp_conf2 option get whl_redirect_admin)" = "duo-missing" ] \
+[ "$(wp_conf2 option get whl_page)" = "wprism-login" ] \
+  && [ "$(wp_conf2 option get whl_redirect_admin)" = "wprism-missing" ] \
   || fail "WPS Hide Login deactivation changed authored route settings"
-DEPLOY_AFTER_DEACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login deploy after deactivation" json "$DEPLOY_AFTER_DEACTIVATE"
+DEPLOY_AFTER_DEACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login deploy after deactivation" json "$DEPLOY_AFTER_DEACTIVATE"
 wp_conf2 plugin is-active wps-hide-login >/dev/null \
-  || fail "Duo deploy did not reactivate exact WPS Hide Login code"
+  || fail "WPrism deploy did not reactivate exact WPS Hide Login code"
 AFTER_REACTIVATE=$(observe_wps_hide_login conf2)
 [ "$(jq -r '.rewrite_hash' <<<"$AFTER_REACTIVATE")" = "$(jq -r '.rewrite_hash' <<<"$BEFORE_DEACTIVATE")" ] \
   || fail "WPS Hide Login deactivate/reactivate changed rewrite bytes despite having no rewrite lifecycle hook"
-assert_wps_routes duo-login duo-missing
+assert_wps_routes wprism-login wprism-missing
 pass "deactivation preserves settings/rewrite state and deploy reactivation restores every request branch"
 
 wp_conf2 plugin uninstall wps-hide-login --deactivate >/dev/null
@@ -234,8 +234,8 @@ require_observed_nonempty "WPS Hide Login rewrite hash after uninstall" "$UNINST
 
 MISSING_BEFORE=$(wp_conf2 eval 'echo hash("sha256", maybe_serialize([get_option("whl_page", null), get_option("whl_redirect_admin", null), get_option("whl_redirect", null), get_option("wps-hide-login-target-runtime-probe", null), get_option("rewrite_rules")]));')
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered "WPS Hide Login deploy with code absent" human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered "WPS Hide Login deploy with code absent" human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing WPS Hide Login code did not refuse at the compatibility boundary: $MISSING_OUT"
 if wp_conf2 plugin is-installed wps-hide-login >/dev/null 2>&1; then
@@ -253,8 +253,8 @@ require_observed_nonempty "WPS Hide Login cached artifact digest" "$OBSERVED_SHA
 wp_conf2 plugin install "$WPS_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get wps-hide-login --field=version)" = "1.9.19" ] \
   || fail "WPS Hide Login exact reinstall reported the wrong version"
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login deploy after exact reinstall" json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login deploy after exact reinstall" json "$REINSTALL_DEPLOY"
 if wp_conf2 option get whl_page >/dev/null 2>&1 || wp_conf2 option get whl_redirect_admin >/dev/null 2>&1; then
   fail "WPS Hide Login activation invented authored route options before repository reconciliation"
 fi
@@ -266,19 +266,19 @@ install_wps_rewrite_probe
 # so target absence plus repository change becomes an explicit conflict; only
 # the reviewed force flag may recover it.
 save_wps_profile conf1 reinstall
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: WPS Hide Login reinstall recovery intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: WPS Hide Login reinstall recovery intent'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-REINSTALL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login reinstall recovery plan" json "$REINSTALL_PLAN"
+REINSTALL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login reinstall recovery plan" json "$REINSTALL_PLAN"
 jq -e '.conflict | any(.uuid == "options/core" and .type == "options")' <<<"$REINSTALL_PLAN" >/dev/null \
   || fail "WPS Hide Login reinstall absence plus new source intent did not become a typed conflict: $REINSTALL_PLAN"
 REINSTALL_REWRITE_BEFORE=$(wp_conf2 option get wps-hide-login-target-rewrite-hash)
 REINSTALL_RC=0
-REINSTALL_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
-require_duo_answered "WPS Hide Login unforced reinstall recovery" human "$REINSTALL_OUT"
+REINSTALL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
+require_wprism_answered "WPS Hide Login unforced reinstall recovery" human "$REINSTALL_OUT"
 [ "$REINSTALL_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$REINSTALL_OUT" \
   || fail "WPS Hide Login reinstall recovery did not refuse before explicit authorization: $REINSTALL_OUT"
 if wp_conf2 option get whl_page >/dev/null 2>&1 || wp_conf2 option get whl_redirect_admin >/dev/null 2>&1; then
@@ -286,8 +286,8 @@ if wp_conf2 option get whl_page >/dev/null 2>&1 || wp_conf2 option get whl_redir
 fi
 [ "$(wp_conf2 eval 'echo hash("sha256", maybe_serialize(get_option("rewrite_rules")));')" = "$REINSTALL_REWRITE_BEFORE" ] \
   || fail "unforced WPS Hide Login reinstall conflict changed rewrite bytes"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login forced reinstall recovery" json "$REINSTALL_APPLY"
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login forced reinstall recovery" json "$REINSTALL_APPLY"
 [ "$(jq -r '.canary' <<<"$REINSTALL_APPLY")" = clean ] \
   || fail "WPS Hide Login forced reinstall recovery dirtied the apply canary: $REINSTALL_APPLY"
 jq -e '.warnings | any(contains("FORCED conflict options/core"))' <<<"$REINSTALL_APPLY" >/dev/null \
@@ -302,28 +302,28 @@ assert_wps_routes recovered-login recovered-missing
 pass "uninstall cleanup, missing-code refusal, digest-bound reinstall, typed conflict, explicit recovery, and retry restore real routing without partial state"
 
 save_wps_profile conf1 repository
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: WPS Hide Login repository branch intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: WPS Hide Login repository branch intent'
 git -C "$CONF_REPO1" push -q origin main
 save_wps_profile conf2 target
 git -C "$CONF_REPO2" pull -q origin main
 
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login competing-settings plan" json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login competing-settings plan" json "$CONFLICT_PLAN"
 jq -e '.conflict | any(.uuid == "options/core" and .type == "options")' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "competing WPS Hide Login slugs did not produce a typed options conflict: $CONFLICT_PLAN"
 CONFLICT_BEFORE=$(observe_wps_hide_login conf2)
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered "WPS Hide Login unforced competing-settings apply" human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered "WPS Hide Login unforced competing-settings apply" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$CONFLICT_OUT" \
   || fail "WPS Hide Login competing settings did not refuse before mutation: $CONFLICT_OUT"
 CONFLICT_AFTER=$(observe_wps_hide_login conf2)
 [ "$CONFLICT_AFTER" = "$CONFLICT_BEFORE" ] \
   || fail "unforced WPS Hide Login conflict partially mutated target options, runtime state, or rewrite bytes"
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login forced competing-settings apply" json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login forced competing-settings apply" json "$FORCED"
 jq -e '.warnings | any(contains("FORCED conflict options/core"))' <<<"$FORCED" >/dev/null \
   || fail "forced WPS Hide Login conflict did not report its destructive override: $FORCED"
 BRANCH=$(observe_wps_hide_login conf2)
@@ -334,32 +334,32 @@ printf '%s\n' "$BRANCH" | jq -e '
 ' >/dev/null || fail "forced WPS Hide Login conflict did not converge without collateral mutation: $BRANCH"
 assert_wps_routes branch-login branch-missing
 
-ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login zero-change plan" json "$ZERO_PLAN"
+ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login zero-change plan" json "$ZERO_PLAN"
 jq -e '(.create|length)==0 and (.update|length)==0 and (.conflict|length)==0 and (.drift|length)==0' <<<"$ZERO_PLAN" >/dev/null \
   || fail "WPS Hide Login retry was not a zero-change plan: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login zero-change apply" json "$ZERO_APPLY"
+ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login zero-change apply" json "$ZERO_APPLY"
 [ "$(jq -r '.canary' <<<"$ZERO_APPLY")" = clean ] \
   || fail "WPS Hide Login zero-change retry dirtied the apply canary: $ZERO_APPLY"
 pass "competing route branches refuse atomically, forced intent converges, real routes switch, and retry is idempotent"
 
 wp_conf1 eval "delete_option('whl_redirect_admin'); flush_rewrite_rules(true);" >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete WPS Hide Login redirect setting'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: delete WPS Hide Login redirect setting'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 
 DELETE_RC=0
-DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_RC=$?
-require_duo_answered "WPS Hide Login option deletion without authorization" human "$DELETE_OUT"
+DELETE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_RC=$?
+require_wprism_answered "WPS Hide Login option deletion without authorization" human "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && grep -q 'authored option deletion intent requires --with-deletes' <<<"$DELETE_OUT" \
   || fail "WPS Hide Login option deletion did not require explicit authorization: $DELETE_OUT"
 [ "$(wp_conf2 option get whl_redirect_admin)" = branch-missing ] \
   || fail "unauthorized WPS Hide Login option deletion partially mutated the target"
-DELETE_APPLY=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "WPS Hide Login authorized option deletion" json "$DELETE_APPLY"
+DELETE_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "WPS Hide Login authorized option deletion" json "$DELETE_APPLY"
 if wp_conf2 option get whl_redirect_admin >/dev/null 2>&1; then
   fail "authorized WPS Hide Login redirect deletion left the row present"
 fi
@@ -375,7 +375,7 @@ wps_request GET '/wp-admin/'
 # The authenticated admin journey above can leave core's transient Customizer
 # sentinel at -1; it is not adapter state and would make capture warn here.
 wp_conf2 eval "remove_theme_mod('custom_css_post_id');" >/dev/null
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-wps-hide-login-delete-state >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-wps-hide-login-delete-state >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-wps-hide-login-delete-state" \
   || fail "WPS Hide Login authorized deletion did not recapture byte-identically"
 rm -rf "$CONF_REPO2/.tmp-wps-hide-login-delete-state"

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure projection of the effective typed-table declaration surface.
@@ -7,7 +7,7 @@ namespace Duo;
  * Table grammar and cross-manifest ownership validation stay with their
  * existing validators. This class only preserves Policy's established raw
  * declaration precedence: later pinned manifests overwrite earlier values,
- * then site.duo.json overrides them wholesale without changing a key's
+ * then site.wprism.json overrides them wholesale without changing a key's
  * original insertion position.
  */
 final class TableDeclarationResolver {
@@ -43,7 +43,7 @@ final class TableDeclarationResolver {
         }
         if (isset($this->site['policy']['tables'][$name])) {
             $rule = $this->site['policy']['tables'][$name];
-            $source = 'site.duo.json';
+            $source = 'site.wprism.json';
         }
         return ['rule' => $rule, 'source' => $source];
     }

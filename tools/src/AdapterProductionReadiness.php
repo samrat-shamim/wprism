@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 use RuntimeException;
 
 /** Read package-owned readiness records without a flat adapter registry. */
 final class AdapterProductionReadiness
 {
-    public const AGGREGATE_FORMAT = 'duo-adapter-production-readiness/v1';
-    public const RECORD_FORMAT = 'duo-adapter-production-readiness-record/v1';
+    public const AGGREGATE_FORMAT = 'wprism-adapter-production-readiness/v1';
+    public const RECORD_FORMAT = 'wprism-adapter-production-readiness-record/v1';
 
     /** @var list<string> */
     public const SCENARIO_FAMILIES = [

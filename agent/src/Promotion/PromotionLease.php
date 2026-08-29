@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/ProcessFence.php';
@@ -58,7 +58,7 @@ final class PromotionLeaseRecord {
  * The host orchestrator runs deploy and apply in separate wp-cli processes,
  * so a process-local mutex or MySQL connection advisory lock cannot span the
  * lifecycle boundary. The lease therefore lives in the target database's
- * duo_kv table. Acquisition is one INSERT ... ON DUPLICATE KEY UPDATE whose
+ * wprism_kv table. Acquisition is one INSERT ... ON DUPLICATE KEY UPDATE whose
  * conditional assignment admits a still-live current owner or a different
  * owner recovering an expired lease; readback proves who won the race. The
  * host's promotion-begin records its session at checkpoint time. A standalone
@@ -76,7 +76,7 @@ final class PromotionLeaseRecord {
  * process drops its advisory fence automatically and leaves only the bounded
  * row for a new owner to recover after expiry.
  *
- * These gates serialize Duo writers only. Public reads and unrelated runtime
+ * These gates serialize WPrism writers only. Public reads and unrelated runtime
  * writes remain available; Apply's optimistic recheck is the second half of
  * the safety boundary for authored state changed by live traffic.
  */
@@ -110,7 +110,7 @@ class PromotionLease {
     ): array {
         self::assert_identity($owner, $artifactHash);
         if (preg_match('/^[a-f0-9]{64}$/D', $receiptHash) !== 1) {
-            throw new \RuntimeException('duo: scoped promotion requires the signed receipt payload hash');
+            throw new \RuntimeException('wprism: scoped promotion requires the signed receipt payload hash');
         }
         self::assert_scoped_authority_witness($authorityWitness, $owner, $artifactHash, $receiptHash, $scopeHash);
         $metadata = self::scoped_session_metadata($authorityWitness, $receiptHash, $scopeHash);
@@ -126,7 +126,7 @@ class PromotionLease {
         if (($session['profile'] ?? null) !== 'scoped-checkpoint-v1') {
             self::assert_reclaimable_ordinary_session($session);
             if (self::current() !== null) {
-                throw new \RuntimeException('duo: scoped promotion begin found a live ordinary target promotion lock');
+                throw new \RuntimeException('wprism: scoped promotion begin found a live ordinary target promotion lock');
             }
             $begun = self::acquire_internal(
                 $owner, $artifactHash, 'checkpoint', $ttl, false, true, $metadata, true, false
@@ -137,7 +137,7 @@ class PromotionLease {
         }
         if (!hash_equals($owner, (string) ($session['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
-            throw new \RuntimeException('duo: scoped promotion begin found a different target promotion session');
+            throw new \RuntimeException('wprism: scoped promotion begin found a different target promotion session');
         }
         $sessionId = self::normalized_session_id($session);
         self::assert_scoped_session_id($sessionId);
@@ -161,7 +161,7 @@ class PromotionLease {
         if ($session === null
             || !hash_equals($owner, (string) ($session['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
-            throw new \RuntimeException('duo: scoped promotion target session is absent or superseded');
+            throw new \RuntimeException('wprism: scoped promotion target session is absent or superseded');
         }
         self::assert_scoped_session_id(self::normalized_session_id($session));
         self::assert_scoped_profile_session($session, $receiptHash, $scopeHash, $authorityWitness);
@@ -171,7 +171,7 @@ class PromotionLease {
     public static function assert_no_unbound_scoped_continuation(): void {
         $session = self::current_session();
         if (($session['profile'] ?? null) === 'scoped-checkpoint-v1') {
-            throw new \RuntimeException('duo: externally checkpointed scoped promotion requires its exact signed continuation');
+            throw new \RuntimeException('wprism: externally checkpointed scoped promotion requires its exact signed continuation');
         }
     }
 
@@ -243,7 +243,7 @@ class PromotionLease {
     /**
      * Publish the direct-apply session only after every locked pre-mutation
      * gate has passed.  The continuously held lease/process fence proves no
-     * other Duo writer can replace the boundary between preflight and this
+     * other WPrism writer can replace the boundary between preflight and this
      * write.  Continuation applies already carry a host-begun session and may
      * not call this entry point.
      */
@@ -275,18 +275,18 @@ class PromotionLease {
             || !hash_equals($owner, (string) ($current['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))) {
             throw new \RuntimeException(
-                "duo: direct $operation lost its preflight lease before the promotion session began"
+                "wprism: direct $operation lost its preflight lease before the promotion session began"
             );
         }
         $existingSession = PromotionSessionJournal::readAny();
         if ($existingSession !== null
             && hash_equals($owner, $existingSession->owner())
             && hash_equals($artifactHash, $existingSession->artifactHash())) {
-            throw new \RuntimeException("duo: direct $operation promotion session was already begun");
+            throw new \RuntimeException("wprism: direct $operation promotion session was already begun");
         }
         if (LifecycleJournal::incompleteAny() !== null) {
             throw new \RuntimeException(
-                'duo: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint using its original owner/artifact recovery commands'
+                'wprism: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint using its original owner/artifact recovery commands'
             );
         }
         // Planning/provider code may legitimately run longer than the row
@@ -306,7 +306,7 @@ class PromotionLease {
             || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
             || (int) ($current['expires_at'] ?? 0) <= $now) {
             throw new \RuntimeException(
-                "duo: direct $operation lost its preflight lease before the promotion session began"
+                "wprism: direct $operation lost its preflight lease before the promotion session began"
             );
         }
         // A direct mutation reaches this boundary only after its locked gates.
@@ -343,23 +343,23 @@ class PromotionLease {
             $existingSession = self::current_session($replaceProfilelessOrdinarySession || $requireSessionAbsentAfterFence);
             if ($requireSessionAbsentAfterFence && $existingSession !== null) {
                 throw new \RuntimeException(
-                    'duo: scoped promotion initial begin found a target promotion session after fencing; retry so its recovery contract can be classified'
+                    'wprism: scoped promotion initial begin found a target promotion session after fencing; retry so its recovery contract can be classified'
                 );
             }
             if ($replaceProfilelessOrdinarySession) {
                 self::assert_transactional_replacement_storage();
                 if ($before !== null) {
-                    throw new \RuntimeException('duo: scoped promotion begin found a live ordinary target promotion lock');
+                    throw new \RuntimeException('wprism: scoped promotion begin found a live ordinary target promotion lock');
                 }
                 if ($existingSession === null) {
-                    throw new \RuntimeException('duo: scoped promotion ordinary session changed before fenced replacement');
+                    throw new \RuntimeException('wprism: scoped promotion ordinary session changed before fenced replacement');
                 }
                 self::assert_reclaimable_ordinary_session($existingSession);
             }
             if (!$requireExisting) {
                 if (($existingSession['profile'] ?? null) === 'scoped-checkpoint-v1') {
                     throw new \RuntimeException(
-                        'duo: an externally checkpointed scoped promotion session must reach exact completion or rollback before a new ordinary promotion begins'
+                        'wprism: an externally checkpointed scoped promotion session must reach exact completion or rollback before a new ordinary promotion begins'
                     );
                 }
                 $attempt = self::session_lifecycle_attempt($existingSession);
@@ -369,7 +369,7 @@ class PromotionLease {
                         || !hash_equals($owner, (string) ($existingSession['owner'] ?? ''))
                         || !hash_equals($artifactHash, (string) ($existingSession['artifact_hash'] ?? ''))) {
                         throw new \RuntimeException(
-                            'duo: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint using its original owner/artifact recovery commands'
+                            'wprism: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint using its original owner/artifact recovery commands'
                         );
                     }
                     // The exact original owner/artifact may reacquire only so
@@ -387,28 +387,28 @@ class PromotionLease {
                     || !hash_equals($owner, (string) ($session['owner'] ?? ''))
                     || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
                     throw new \RuntimeException(
-                        'duo: promotion continuation refused — the begun owner/artifact session was superseded'
+                        'wprism: promotion continuation refused — the begun owner/artifact session was superseded'
                     );
                 }
                 if ($before === null) {
                     throw new \RuntimeException(
-                        'duo: promotion continuation refused — no live promotion-begin session exists'
+                        'wprism: promotion continuation refused — no live promotion-begin session exists'
                     );
                 }
                 if (!hash_equals($owner, (string) ($before['owner'] ?? ''))
                     || !hash_equals($artifactHash, (string) ($before['artifact_hash'] ?? ''))) {
                     throw new \RuntimeException(
-                        'duo: promotion continuation refused — the begun owner/artifact session was replaced'
+                        'wprism: promotion continuation refused — the begun owner/artifact session was replaced'
                     );
                 }
                 if ((int) ($before['expires_at'] ?? 0) <= $now) {
                     throw new \RuntimeException(
-                        'duo: promotion continuation refused — the begun session expired before handoff'
+                        'wprism: promotion continuation refused — the begun session expired before handoff'
                     );
                 }
             }
             $payload = self::payload($owner, $artifactHash, $phase, $now, $now + $ttl);
-            $table = $wpdb->prefix . 'duo_kv';
+            $table = $wpdb->prefix . 'wprism_kv';
             $sql = $wpdb->prepare(
                 "INSERT INTO `$table` (k, v) VALUES (%s, %s)
                  ON DUPLICATE KEY UPDATE v = IF(
@@ -438,7 +438,7 @@ class PromotionLease {
                 $heldPhase = (string) ($current['phase'] ?? 'unknown');
                 $expires = (int) ($current['expires_at'] ?? 0);
                 // TYPED for the same reason the two abort refusals below are
-                // (see the DUO-3506 block at assert_abort_ownership()): a bare
+                // (see the issue #3506 block at assert_abort_ownership()): a bare
                 // \RuntimeException reached `Cli::halt_json_failure()`'s
                 // catch-all (agent/src/Command/Cli.php:83-98) and an
                 // orchestrator running `promotion-begin --format=json` saw only
@@ -453,14 +453,14 @@ class PromotionLease {
                 // Passing today's exact sentence as `$operatorMessage` keeps
                 // `getMessage()` byte-identical (CommandRefusal.php:52), which
                 // is what sandbox/tests/live/regress_promotion_lock.sh:194 greps
-                // and what cli/duo:3267 str_contains() to tell a definite live
+                // and what cli/wprism:3267 str_contains() to tell a definite live
                 // contender from an uncertain begin.
                 throw new CommandRefusalException(
                     'promotion_lease_held',
                     'a promotion lease on this target is held by another release; concurrent target mutation was refused',
                     'wait for the recorded promotion to finish, or release its lease through the release that holds it, before promoting this target again',
                     [],
-                    "duo: promotion lock held by '$heldBy' in phase '$heldPhase' until epoch $expires; "
+                    "wprism: promotion lock held by '$heldBy' in phase '$heldPhase' until epoch $expires; "
                     . 'concurrent target mutation refused'
                 );
             }
@@ -470,7 +470,7 @@ class PromotionLease {
                     'the promotion lease expired before this handoff; the promotion was refused rather than revived',
                     'begin a new promotion instead of reviving this one; an expired owner must not resume a half-finished release',
                     [],
-                    'duo: promotion lock expired before handoff; start a new promotion rather than reviving this owner'
+                    'wprism: promotion lock expired before handoff; start a new promotion rather than reviving this owner'
                 );
             }
             if (!hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))) {
@@ -479,7 +479,7 @@ class PromotionLease {
                     'the promotion lease owner attempted to change its compiled artifact mid-promotion; target mutation was refused',
                     'abort this promotion and begin a new one for the exact compiled artifact you intend to release',
                     [],
-                    'duo: promotion lock owner attempted to change its compiled artifact'
+                    'wprism: promotion lock owner attempted to change its compiled artifact'
                 );
             }
             $current['recovered'] = $before !== null
@@ -555,7 +555,7 @@ class PromotionLease {
                 'the promotion lease this command holds is gone or expired; target mutation was refused',
                 'do not retry in place: abort this promotion, inspect the recorded lifecycle and recovery evidence, then begin a new promotion',
                 [],
-                'duo: promotion lock lost or expired; mutation refused'
+                'wprism: promotion lock lost or expired; mutation refused'
             );
         }
         $payload = self::payload(
@@ -565,7 +565,7 @@ class PromotionLease {
             (int) ($current['acquired_at'] ?? $now),
             $now + $ttl
         );
-        $table = $wpdb->prefix . 'duo_kv';
+        $table = $wpdb->prefix . 'wprism_kv';
         Db::query($wpdb->prepare(
             "UPDATE `$table` SET v = %s WHERE k = %s
              AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
@@ -585,7 +585,7 @@ class PromotionLease {
                 'the promotion lease this command holds is gone or expired; target mutation was refused',
                 'do not retry in place: abort this promotion, inspect the recorded lifecycle and recovery evidence, then begin a new promotion',
                 [],
-                'duo: promotion lock lost during renewal; mutation refused'
+                'wprism: promotion lock lost during renewal; mutation refused'
             );
         }
     }
@@ -617,18 +617,18 @@ class PromotionLease {
                 || !hash_equals($owner, (string) ($session['owner'] ?? ''))
                 || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))
                 || !hash_equals($sessionId, self::normalized_session_id($session))) {
-                throw new \RuntimeException('duo: scoped recovery promotion session was superseded');
+                throw new \RuntimeException('wprism: scoped recovery promotion session was superseded');
             }
             $now = time();
             $current = self::current();
             if ($current !== null && (int) ($current['expires_at'] ?? 0) > $now) {
                 if (!hash_equals($owner, (string) ($current['owner'] ?? ''))
                     || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))) {
-                    throw new \RuntimeException('duo: scoped recovery is blocked by another live promotion lease');
+                    throw new \RuntimeException('wprism: scoped recovery is blocked by another live promotion lease');
                 }
                 $continued = self::acquire($owner, $artifactHash, 'scoped-recovery', $ttl, true);
                 if (!hash_equals($sessionId, (string) $continued['session_id'])) {
-                    throw new \RuntimeException('duo: scoped recovery generation changed during continuation');
+                    throw new \RuntimeException('wprism: scoped recovery generation changed during continuation');
                 }
                 return $continued;
             }
@@ -636,10 +636,10 @@ class PromotionLease {
                 && (!hash_equals($owner, (string) ($current['owner'] ?? ''))
                     || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? '')))) {
                 throw new \RuntimeException(
-                    'duo: scoped recovery found an expired lease with a different owner/artifact; refusing implicit takeover'
+                    'wprism: scoped recovery found an expired lease with a different owner/artifact; refusing implicit takeover'
                 );
             }
-            $table = $wpdb->prefix . 'duo_kv';
+            $table = $wpdb->prefix . 'wprism_kv';
             if ($current !== null) {
                 Db::query($wpdb->prepare(
                     "DELETE FROM `$table` WHERE k = %s
@@ -660,14 +660,14 @@ class PromotionLease {
                 wp_json_encode($payload)
             ), 'scoped promotion lease recovery acquire');
             if ((int) $inserted !== 1) {
-                throw new \RuntimeException('duo: scoped recovery lost the promotion lease race');
+                throw new \RuntimeException('wprism: scoped recovery lost the promotion lease race');
             }
             $after = self::current();
             if ($after === null
                 || !hash_equals($owner, (string) ($after['owner'] ?? ''))
                 || !hash_equals($artifactHash, (string) ($after['artifact_hash'] ?? ''))
                 || (int) ($after['expires_at'] ?? 0) <= $now) {
-                throw new \RuntimeException('duo: scoped recovery promotion lease readback failed');
+                throw new \RuntimeException('wprism: scoped recovery promotion lease readback failed');
             }
             self::$leaseSessionOwner = $owner;
             self::$leaseSessionArtifact = $artifactHash;
@@ -883,13 +883,13 @@ class PromotionLease {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
         if (preg_match('/^[a-f0-9]{64}$/D', $receiptHash) !== 1) {
-            throw new \RuntimeException('duo: scoped promotion requires the signed receipt payload hash');
+            throw new \RuntimeException('wprism: scoped promotion requires the signed receipt payload hash');
         }
         self::assert_scoped_authority_witness($authorityWitness, $owner, $artifactHash, $receiptHash, $scopeHash);
         self::claim_process_fence();
         try {
             if (self::current() !== null) {
-                throw new \RuntimeException('duo: scoped promotion session completion requires its target lease to be absent');
+                throw new \RuntimeException('wprism: scoped promotion session completion requires its target lease to be absent');
             }
             $session = self::current_session();
             if ($session === null) {
@@ -897,10 +897,10 @@ class PromotionLease {
             }
             if (!hash_equals($owner, (string) ($session['owner'] ?? ''))
                 || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
-                throw new \RuntimeException('duo: scoped promotion session completion found a different owner/artifact');
+                throw new \RuntimeException('wprism: scoped promotion session completion found a different owner/artifact');
             }
             self::assert_scoped_profile_session($session, $receiptHash, $scopeHash, $authorityWitness);
-            $table = $wpdb->prefix . 'duo_kv';
+            $table = $wpdb->prefix . 'wprism_kv';
             $deleted = Db::query($wpdb->prepare(
                 "DELETE FROM `$table` WHERE k = %s
                  AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
@@ -916,7 +916,7 @@ class PromotionLease {
                 (string) $authorityWitness['target_id']
             ), 'scoped promotion session complete');
             if ((int) $deleted !== 1) {
-                throw new \RuntimeException('duo: scoped promotion session completion lost its exact target row');
+                throw new \RuntimeException('wprism: scoped promotion session completion lost its exact target row');
             }
             return ['owner' => $owner, 'artifact_hash' => $artifactHash, 'released' => true, 'already_absent' => false];
         } finally {
@@ -929,7 +929,7 @@ class PromotionLease {
         self::assert_identity($owner, $artifactHash);
         self::claim_process_fence();
         try {
-            $table = $wpdb->prefix . 'duo_kv';
+            $table = $wpdb->prefix . 'wprism_kv';
             $deleted = Db::query($wpdb->prepare(
                 "DELETE FROM `$table` WHERE k = %s
                  AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
@@ -939,7 +939,7 @@ class PromotionLease {
                 $artifactHash
             ), 'promotion lock release');
             if ((int) $deleted !== 1) {
-                throw new \RuntimeException('duo: promotion lock lost before release; completion refused');
+                throw new \RuntimeException('wprism: promotion lock lost before release; completion refused');
             }
         } finally {
             self::release_process_fence();
@@ -971,7 +971,7 @@ class PromotionLease {
             }
             self::assert_abort_ownership($current, $owner, $artifactHash);
 
-            $table = $wpdb->prefix . 'duo_kv';
+            $table = $wpdb->prefix . 'wprism_kv';
             $deleted = Db::query($wpdb->prepare(
                 "DELETE FROM `$table` WHERE k = %s
                  AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
@@ -1003,7 +1003,7 @@ class PromotionLease {
                 ];
             }
             self::assert_abort_ownership($after, $owner, $artifactHash);
-            throw new \RuntimeException('duo: promotion lock abort did not remove the matching lease');
+            throw new \RuntimeException('wprism: promotion lock abort did not remove the matching lease');
         } finally {
             self::release_process_fence();
         }
@@ -1044,7 +1044,7 @@ class PromotionLease {
         // let connection recovery bail out of PHP: the outer catch must retain
         // the original apply failure as the primary operator-facing error.
         if (!$wpdb->check_connection(false)) {
-            throw new \RuntimeException('duo: could not reconnect to release promotion lock after failure');
+            throw new \RuntimeException('wprism: could not reconnect to release promotion lock after failure');
         }
         self::release($owner, $artifactHash);
     }
@@ -1066,7 +1066,7 @@ class PromotionLease {
         }
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) {
-            throw new \RuntimeException('duo: malformed promotion lock record; refusing to guess ownership');
+            throw new \RuntimeException('wprism: malformed promotion lock record; refusing to guess ownership');
         }
         return $decoded;
     }
@@ -1101,14 +1101,14 @@ class PromotionLease {
             || !is_string($decoded['artifact_hash'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/D', $decoded['artifact_hash']) !== 1
             || !is_int($decoded['begun_at'] ?? null)) {
-            throw new \RuntimeException('duo: malformed promotion session record; refusing to guess checkpoint ownership');
+            throw new \RuntimeException('wprism: malformed promotion session record; refusing to guess checkpoint ownership');
         }
         $scopedMarkers = [
             'profile', 'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
             'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id', 'scoped_target_id',
         ];
         if (array_intersect($scopedMarkers, array_keys($decoded)) !== []) {
-            throw $typedFailure ?? new \RuntimeException('duo: malformed scoped promotion session record');
+            throw $typedFailure ?? new \RuntimeException('wprism: malformed scoped promotion session record');
         }
         return $decoded;
     }
@@ -1144,7 +1144,7 @@ class PromotionLease {
             || !hash_equals($owner, (string) ($session['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))
             || (int) ($current['expires_at'] ?? 0) <= time()) {
-            throw new \RuntimeException('duo: promotion session identity is not live for this owner/artifact');
+            throw new \RuntimeException('wprism: promotion session identity is not live for this owner/artifact');
         }
         return self::normalized_session_id($session);
     }
@@ -1166,7 +1166,7 @@ class PromotionLease {
 
     private static function assert_scoped_session_id(string $sessionId): void {
         if (preg_match('/^ps-[a-f0-9]{32}$/D', $sessionId) !== 1) {
-            throw new \RuntimeException('duo: scoped recovery requires the exact random promotion session generation');
+            throw new \RuntimeException('wprism: scoped recovery requires the exact random promotion session generation');
         }
     }
 
@@ -1187,7 +1187,7 @@ class PromotionLease {
             || !hash_equals((string) ($session['scoped_signing_key_id'] ?? ''), (string) ($authorityWitness['signing_key_id'] ?? ''))
             || !is_bool($session['scoped_allow_deletes'] ?? null)
             || $session['scoped_allow_deletes'] !== ($authorityWitness['allow_deletes'] ?? null)) {
-            throw new \RuntimeException('duo: scoped promotion target session does not match its external signed receipt');
+            throw new \RuntimeException('wprism: scoped promotion target session does not match its external signed receipt');
         }
     }
 
@@ -1199,7 +1199,7 @@ class PromotionLease {
         string $receiptHash,
         string $scopeHash
     ): void {
-        if (($authorityWitness['format'] ?? null) !== 'duo-scoped-promotion-witness/v1'
+        if (($authorityWitness['format'] ?? null) !== 'wprism-scoped-promotion-witness/v1'
             || ($authorityWitness['exclusion_state'] ?? null) !== 'held'
             || ($authorityWitness['recovery_ready'] ?? null) !== true
             || !is_bool($authorityWitness['allow_deletes'] ?? null)
@@ -1207,7 +1207,7 @@ class PromotionLease {
             || !hash_equals($artifactHash, (string) ($authorityWitness['artifact_hash'] ?? ''))
             || !hash_equals($receiptHash, (string) ($authorityWitness['receipt_payload_sha256'] ?? ''))
             || !hash_equals($scopeHash, (string) ($authorityWitness['scope_hash'] ?? ''))) {
-            throw new \RuntimeException('duo: scoped promotion target received no exact external authority witness');
+            throw new \RuntimeException('wprism: scoped promotion target received no exact external authority witness');
         }
     }
 
@@ -1228,12 +1228,12 @@ class PromotionLease {
     /** @param array<string,mixed>|null $session */
     private static function normalized_session_id(?array $session): string {
         if ($session === null) {
-            throw new \RuntimeException('duo: promotion session identity is missing');
+            throw new \RuntimeException('wprism: promotion session identity is missing');
         }
         if (array_key_exists('session_id', $session)) {
             $explicit = $session['session_id'];
             if (!is_string($explicit) || preg_match('/^ps-[a-f0-9]{32}$/D', $explicit) !== 1) {
-                throw new \RuntimeException('duo: malformed promotion session generation');
+                throw new \RuntimeException('wprism: malformed promotion session generation');
             }
             return $explicit;
         }
@@ -1253,32 +1253,32 @@ class PromotionLease {
         ];
         foreach (array_keys($session) as $key) {
             if (!is_string($key) || !in_array($key, $allowed, true)) {
-                throw new \RuntimeException('duo: unknown ordinary promotion session recovery field blocks scoped promotion session replacement');
+                throw new \RuntimeException('wprism: unknown ordinary promotion session recovery field blocks scoped promotion session replacement');
             }
         }
         if (array_key_exists('profile', $session)) {
-            throw new \RuntimeException('duo: scoped promotion begin found a profiled non-scoped target promotion session');
+            throw new \RuntimeException('wprism: scoped promotion begin found a profiled non-scoped target promotion session');
         }
         if (self::session_lifecycle_attempt($session) !== null) {
-            throw new \RuntimeException('duo: unresolved lifecycle attempt blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
+            throw new \RuntimeException('wprism: unresolved lifecycle attempt blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
         }
         if (array_key_exists('pending_state_transition', $session)) {
-            throw new \RuntimeException('duo: pending lifecycle state transition blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
+            throw new \RuntimeException('wprism: pending lifecycle state transition blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
         }
         self::normalized_session_id($session);
         $phases = self::session_lifecycle_phases($session);
         if ($phases === ['retire']) {
-            throw new \RuntimeException('duo: incomplete lifecycle phase receipt blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
+            throw new \RuntimeException('wprism: incomplete lifecycle phase receipt blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
         }
         if (!array_key_exists('state_transition', $session)) {
             return;
         }
         if ($phases !== ['retire', 'activate']) {
-            throw new \RuntimeException('duo: lifecycle state transition without complete lifecycle phases blocks scoped promotion session replacement');
+            throw new \RuntimeException('wprism: lifecycle state transition without complete lifecycle phases blocks scoped promotion session replacement');
         }
         $transition = $session['state_transition'];
         if (!is_array($transition)) {
-            throw new \RuntimeException('duo: malformed completed lifecycle state transition blocks scoped promotion session replacement');
+            throw new \RuntimeException('wprism: malformed completed lifecycle state transition blocks scoped promotion session replacement');
         }
         $keys = array_keys($transition);
         sort($keys, SORT_STRING);
@@ -1286,20 +1286,20 @@ class PromotionLease {
             || !is_string($transition['entity'] ?? null)
             || !is_string($transition['before_hash'] ?? null)
             || !is_string($transition['after_hash'] ?? null)) {
-            throw new \RuntimeException('duo: malformed completed lifecycle state transition blocks scoped promotion session replacement');
+            throw new \RuntimeException('wprism: malformed completed lifecycle state transition blocks scoped promotion session replacement');
         }
         self::assert_state_transition($transition['entity'], $transition['before_hash'], $transition['after_hash']);
     }
 
     private static function assert_transactional_replacement_storage(): void {
         global $wpdb;
-        $table = $wpdb->prefix . 'duo_kv';
+        $table = $wpdb->prefix . 'wprism_kv';
         $engine = $wpdb->get_var($wpdb->prepare(
             'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
             $table
         ));
         if (!is_string($engine) || strcasecmp($engine, 'InnoDB') !== 0) {
-            throw new \RuntimeException('duo: scoped ordinary session replacement requires an InnoDB duo_kv table; refusing a nontransactional promotion handoff');
+            throw new \RuntimeException('wprism: scoped ordinary session replacement requires an InnoDB wprism_kv table; refusing a nontransactional promotion handoff');
         }
     }
 
@@ -1310,7 +1310,7 @@ class PromotionLease {
         }
         $attempt = $session['lifecycle_attempt'];
         if (!is_array($attempt)) {
-            throw new \RuntimeException('duo: malformed unresolved lifecycle attempt');
+            throw new \RuntimeException('wprism: malformed unresolved lifecycle attempt');
         }
         $keys = array_keys($attempt);
         sort($keys, SORT_STRING);
@@ -1320,7 +1320,7 @@ class PromotionLease {
             || !in_array($attempt['phase'], ['all', 'retire', 'activate'], true)
             || !is_string($attempt['before_hash'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/D', $attempt['before_hash']) !== 1) {
-            throw new \RuntimeException('duo: malformed unresolved lifecycle attempt');
+            throw new \RuntimeException('wprism: malformed unresolved lifecycle attempt');
         }
         return $attempt;
     }
@@ -1333,28 +1333,28 @@ class PromotionLease {
         $phases = $session['lifecycle_phases'];
         if (!is_array($phases) || !array_is_list($phases)
             || ($phases !== ['retire'] && $phases !== ['retire', 'activate'])) {
-            throw new \RuntimeException('duo: malformed completed lifecycle phase receipt');
+            throw new \RuntimeException('wprism: malformed completed lifecycle phase receipt');
         }
         return $phases;
     }
 
     private static function ttl(?int $ttl): int {
-        if ($ttl === null && getenv('DUO_TEST_MODE') === '1' && getenv('DUO_TEST_PROMOTION_TTL') !== false) {
-            $ttl = (int) getenv('DUO_TEST_PROMOTION_TTL');
+        if ($ttl === null && getenv('WPRISM_TEST_MODE') === '1' && getenv('WPRISM_TEST_PROMOTION_TTL') !== false) {
+            $ttl = (int) getenv('WPRISM_TEST_PROMOTION_TTL');
         }
         $ttl ??= self::DEFAULT_TTL;
         if ($ttl < 1 || $ttl > 3600) {
-            throw new \RuntimeException('duo: promotion lock TTL must be between 1 and 3600 seconds');
+            throw new \RuntimeException('wprism: promotion lock TTL must be between 1 and 3600 seconds');
         }
         return $ttl;
     }
 
     private static function assert_identity(string $owner, string $artifactHash): void {
         if (!preg_match('/^[A-Za-z0-9._:-]{8,128}$/', $owner)) {
-            throw new \RuntimeException('duo: invalid promotion lock owner token');
+            throw new \RuntimeException('wprism: invalid promotion lock owner token');
         }
         if (!preg_match('/^[a-f0-9]{64}$/', $artifactHash)) {
-            throw new \RuntimeException('duo: promotion lock requires the compiled artifact sha256');
+            throw new \RuntimeException('wprism: promotion lock requires the compiled artifact sha256');
         }
     }
 
@@ -1362,7 +1362,7 @@ class PromotionLease {
         if ($entity !== 'options/core'
             || !preg_match('/^[a-f0-9]{64}$/', $beforeHash)
             || !preg_match('/^[a-f0-9]{64}$/', $afterHash)) {
-            throw new \RuntimeException('duo: malformed lifecycle state transition; refusing three-way bypass');
+            throw new \RuntimeException('wprism: malformed lifecycle state transition; refusing three-way bypass');
         }
     }
 
@@ -1372,10 +1372,10 @@ class PromotionLease {
         if ($lease === null
             || !hash_equals($owner, (string) ($lease['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($lease['artifact_hash'] ?? ''))) {
-            throw new \RuntimeException('duo: lifecycle state transition lost its promotion session');
+            throw new \RuntimeException('wprism: lifecycle state transition lost its promotion session');
         }
         PromotionSessionJournal::readFor($owner, $artifactHash)
-            ?? throw new \RuntimeException('duo: lifecycle state transition lost its promotion session');
+            ?? throw new \RuntimeException('wprism: lifecycle state transition lost its promotion session');
     }
 
     /** One live PHP mutation process fences long hooks/filesystem walks. */
@@ -1413,11 +1413,11 @@ class PromotionLease {
      * Both abort refusals below are DELIBERATE, DOCUMENTED safety decisions
      * (docs/guides/code-updates.md:207-209, cli/README.md:1008-1010), so each
      * one names a stable reason code instead of arriving as an unclassified
-     * Throwable. Before DUO-3506 they were bare `\RuntimeException`s, which
+     * Throwable. Before issue #3506 they were bare `\RuntimeException`s, which
      * meant `Cli::halt_json_failure()` classified them through its catch-all
      * (`agent/src/Command/Cli.php:79-94`): the machine caller received
      * `promotion_abort_failed` plus `details_redacted: true`, and
-     * `duo recover --restore=<older retained id>` reduced that to one
+     * `wprism recover --restore=<older retained id>` reduced that to one
      * constant sentence — "the target refused or failed this step".
      *
      * The public message and remediation are constant and value-free because
@@ -1444,7 +1444,7 @@ class PromotionLease {
                 'release the exact recorded lease through the release that holds it, or restore its database '
                     . 'checkpoint, before aborting again',
                 [],
-                "duo: promotion abort refused; lock belongs to '$currentOwner' for artifact '$currentArtifact'"
+                "wprism: promotion abort refused; lock belongs to '$currentOwner' for artifact '$currentArtifact'"
             );
         }
     }
@@ -1468,7 +1468,7 @@ class PromotionLease {
                     . 'checkpoint is not a safe recovery source, so recover this target through the provider '
                     . 'that owns its backups instead',
                 [],
-                "duo: promotion abort refused; the latest begun session belongs to '$sessionOwner' "
+                "wprism: promotion abort refused; the latest begun session belongs to '$sessionOwner' "
                     . "for artifact '$sessionArtifact'"
             );
         }

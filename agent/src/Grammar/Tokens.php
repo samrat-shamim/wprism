@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/IdentityTokenCodec.php';
 require_once __DIR__ . '/../Kernel/StructuredReferenceCodec.php';
@@ -18,7 +18,7 @@ final class Tokens {
     private string $home;
     private string $uploadsUrl;
     /** The pure {{home}}/{{uploads}} URL-prefix substitution lives in
-     *  TextTokenizer (DUO-3354); the distinct query-reference protocol is
+     *  TextTokenizer (issue #3354); the distinct query-reference protocol is
      *  delegated separately to UrlQueryReferenceCodec below. */
     private TextTokenizer $textTokenizer;
     /** @var string[] capture-time warnings (unmapped ids etc.) */
@@ -45,7 +45,7 @@ final class Tokens {
      * @var list<array{post:string,shortcode:string,attr:string,kind:string,id:int,target_type:string}>
      * Shortcode-attribute-ref violations, the SAME shape as
      * $unscopedBlockRefs above (task #73's triage, ported a second time
-     * this session — DUO-3259 — for Shortcodes.php): a declared
+     * this session — issue #3259 — for Shortcodes.php): a declared
      * shortcode_attrs ref whose id names a REAL row genuinely outside
      * policy scope, as opposed to a merely dangling one. Shortcodes.php
      * resolves the dangling-vs-unscoped question via the shared
@@ -62,7 +62,7 @@ final class Tokens {
     public array $unscopedShortcodeRefs = [];
     /**
      * @var list<array{context:string,param:string,id:int,target_type:string}>
-     * URL-query-ref violations (DUO-3260, task #73's triage ported a
+     * URL-query-ref violations (issue #3260, task #73's triage ported a
      * third time): a `?p=`/`?page_id=`/`?attachment_id=` value whose id
      * names a REAL row genuinely outside policy scope. Unlike $unscoped
      * BlockRefs/$unscopedShortcodeRefs above, tokenize_text() is called
@@ -95,7 +95,7 @@ final class Tokens {
     /** Fallback for unresolvable user tokens on apply (set by Apply). */
     public ?int $defaultUserId = null;
     /**
-     * DUO-3260: set once by Capture (constructor — Capture always has a
+     * issue #3260: set once by Capture (constructor — Capture always has a
      * Policy from its own construction) rather than threaded as a
      * parameter through tokenize_text()'s many call sites (block_attrs'
      * "tokenize":"text" rule, the main content rewrite closure,
@@ -121,7 +121,7 @@ final class Tokens {
      * $rewriteString AND the same flag Shortcodes::capture_rewrite_text()
      * vs. apply_rewrite_text() is chosen on — so tokenize_text() is
      * structurally unreachable through Apply's Tokens instance on every
-     * path (full call-site enumeration in the DUO-3260 PR body).
+     * path (full call-site enumeration in the issue #3260 PR body).
      * Because that is a proof about the CURRENT call graph and not a
      * language-level guarantee against a future caller constructing its
      * own Tokens for capture-direction work and forgetting this, null is
@@ -138,7 +138,7 @@ final class Tokens {
      * actually consumes $policy, not the shared entry point.)
      */
     public ?Policy $policy = null;
-    /** DUO-3260: mirrors $policy above — set once per build (Capture::
+    /** issue #3260: mirrors $policy above — set once per build (Capture::
      *  build()'s own $forceUnresolvedRefs parameter), not threaded
      *  per call, for the identical "can't be silently forgotten"
      *  reason. */
@@ -148,7 +148,7 @@ final class Tokens {
      * The binding is this environment's own `home` option and uploads base
      * URL — unless a caller observes AS ANOTHER environment. Plan does that
      * for a target whose database was just restored from a source snapshot
-     * (`duo rehearse` materialization): the restored bytes and the restored
+     * (`wprism rehearse` materialization): the restored bytes and the restored
      * ledger are the source's binding of the same authored content, and
      * without a foreign-bound observation every `{{home}}`-bearing entity
      * reads as drift on the target (grind_adoption A6, wp_navigation links).
@@ -196,7 +196,7 @@ final class Tokens {
     /**
      * Mirrors Blocks::queue_unscoped()/Shortcodes::queue_unscoped() but
      * delegates the whole three-way decision to ReferenceScopeClassifier
-     * directly (the extraction DUO-3259 added specifically
+     * directly (the extraction issue #3259 added specifically
      * so a third caller wouldn't need a third hand-copy) rather than
      * re-deriving it. Called by UrlQueryReferenceCodec's unresolved sink for EVERY id
      * that id_to_token() fails to resolve, before classification —
@@ -226,7 +226,7 @@ final class Tokens {
             // caller that constructs its own Tokens for capture-direction
             // work and forgets.
             throw new \RuntimeException(
-                "duo: tokenize_text() found an unmapped url-query ref ('$param=$id') that needs the "
+                "wprism: tokenize_text() found an unmapped url-query ref ('$param=$id') that needs the "
                 . 'dangling-vs-unscoped triage (task #73\'s loud-and-blocking gate), but this Tokens '
                 . "instance's \$policy was never set, so the triage cannot run. Refusing rather than "
                 . 'silently treating it as dangling: set Tokens::$policy (and $forceUnresolvedRefs) before '
@@ -267,11 +267,11 @@ final class Tokens {
 
     /**
      * The three core keyspaces keep their short, historical token spelling
-     * ({{post:...}} not {{Duo\Ledger::KIND_POST:...}}) for every canonical
+     * ({{post:...}} not {{WPrism\Ledger::KIND_POST:...}}) for every canonical
      * file already shipped; anything else is a manifest-declared id_kind
      * STRING used verbatim as both the token's kind-name and the ledger
      * lookup kind — Ledger::id_for()/uuid_for()/set() have taken an
-     * arbitrary id_kind string since day one (duo_map has no enum
+     * arbitrary id_kind string since day one (wprism_map has no enum
      * constraint on the column, only PHP's own call sites were narrowed to
      * these three), so Snapshot.php's typed-snapshot tables (id_kind values
      * like "nf3_form", "attr_taxonomy" — see its docblock for the VARCHAR(16)
@@ -280,8 +280,8 @@ final class Tokens {
      * beyond what's already declared in their own manifest.
      */
     /**
-     * A manifest-written ref KIND translated to the duo_map `id_kind` it is
-     * stored under (DUO-3318).
+     * A manifest-written ref KIND translated to the wprism_map `id_kind` it is
+     * stored under (issue #3318).
      *
      * The rename is invisible for every declared table id_kind and for
      * post/term, and load-bearing for exactly one value: `tt` is written in
@@ -300,7 +300,7 @@ final class Tokens {
     /**
      * id -> "{{<kind>:uuid}}" (capture direction). Returns null when unmapped.
      *
-     * DUO-3212: deliberately silent on failure — this method has no opinion
+     * issue #3212: deliberately silent on failure — this method has no opinion
      * on disposition, because there isn't one universal disposition. Its
      * callers currently do at least three different things with a null
      * return: drop-with-warning (options, meta, block attrs, key_refs),
@@ -333,7 +333,7 @@ final class Tokens {
     public function token_to_id(string $token): int {
         $id = $this->bound_token_id($token);
         if ($id === null) {
-            throw new \RuntimeException("duo: unresolvable ref $token (entity not in this environment)");
+            throw new \RuntimeException("wprism: unresolvable ref $token (entity not in this environment)");
         }
         return $id;
     }
@@ -348,7 +348,7 @@ final class Tokens {
     public function register_shortcode_alternate(string $token, string $metaKey, string $postType, string $value): void {
         if (!preg_match('/^\{\{post:[0-9a-f-]{36}\}\}$/D', $token)
             || $metaKey === '' || $postType === '' || !self::is_positive_decimal_alternate($value)) {
-            throw new \RuntimeException('duo: malformed positional shortcode alternate witness');
+            throw new \RuntimeException('wprism: malformed positional shortcode alternate witness');
         }
         $this->register_shortcode_alternate_value($token, $metaKey, $postType, $value, 'positional');
     }
@@ -363,7 +363,7 @@ final class Tokens {
         if (!preg_match('/^\{\{post:[0-9a-f-]{36}\}\}$/D', $token)
             || $metaKey === '' || $postType === '' || $length <= 0
             || strlen($value) !== $length || !preg_match('/^[0-9a-f]+$/D', $value)) {
-            throw new \RuntimeException('duo: malformed named shortcode alternate witness');
+            throw new \RuntimeException('wprism: malformed named shortcode alternate witness');
         }
         $this->register_shortcode_alternate_value($token, $metaKey, $postType, $value, 'named');
     }
@@ -381,13 +381,13 @@ final class Tokens {
         $existingToken = $this->shortcodeAlternateValues[$valueKey] ?? null;
         if ($existingToken !== null && $existingToken !== $token) {
             throw new \RuntimeException(
-                "duo: $form shortcode alternate '$value' is ambiguous in $postType.$metaKey"
+                "wprism: $form shortcode alternate '$value' is ambiguous in $postType.$metaKey"
             );
         }
         $existingValue = $this->shortcodeAlternates[$tokenKey] ?? null;
         if ($existingValue !== null && $existingValue !== $value) {
             throw new \RuntimeException(
-                "duo: $form shortcode token has conflicting $postType.$metaKey alternates"
+                "wprism: $form shortcode token has conflicting $postType.$metaKey alternates"
             );
         }
         $this->shortcodeAlternates[$tokenKey] = $value;
@@ -444,7 +444,7 @@ final class Tokens {
     /** "user:<login>" -> id (apply), falling back to the configured default. */
     public function user_token_to_id(string $token): int {
         if (!str_starts_with($token, 'user:') || strlen($token) === 5) {
-            throw new \RuntimeException('duo: malformed user reference token (expected user:<non-empty-login>)');
+            throw new \RuntimeException('wprism: malformed user reference token (expected user:<non-empty-login>)');
         }
         $login = substr($token, 5);
         if (!isset($this->userIds[$login])) {

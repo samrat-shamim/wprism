@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/ProcessGroup.php';
@@ -11,7 +11,7 @@ require_once __DIR__ . '/ProcessGroup.php';
  *
  * Keeping this boundary narrower than SshTransport makes the double-failure
  * contract executable offline without coupling the transaction to one
- * transport. The capability row is target-free: `duo adopt` performs a
+ * transport. The capability row is target-free: `wprism adopt` performs a
  * separate read-only eligibility proof before calling install().
  */
 interface AdoptionTransport {
@@ -37,13 +37,13 @@ interface AdoptionTransport {
 /**
  * A transport knows how to run `wp <args...>` and arbitrary shell snippets
  * against one environment (local shell, docker compose, ssh) and how to
- * describe itself for `duo envs`. Every environment carries a `repo_path`
+ * describe itself for `wprism envs`. Every environment carries a `repo_path`
  * — the site-repo path as seen *from inside that environment* — regardless
  * of transport.
  *
  * Command strings are assembled with escapeshellarg() on every variable
  * token, then executed either streamed (passthru — for the passthrough
- * verbs, so the user sees exactly what `wp duo …` would print locally) or
+ * verbs, so the user sees exactly what `wp wprism …` would print locally) or
  * captured (proc_open with separate stdout/stderr pipes — for doctor/status,
  * which parse output and must not have it corrupted by e.g. `docker compose
  * run`'s own container-lifecycle chatter, which lands on stderr).
@@ -149,7 +149,7 @@ abstract class Transport implements BoundedControlDriver {
         }
     }
 
-    /** One-line description for `duo envs`. */
+    /** One-line description for `wprism envs`. */
     abstract public function describe(): string;
 
     /** Build the full, already-escaped shell command that runs `wp <wpArgs...>`. */
@@ -177,7 +177,7 @@ abstract class Transport implements BoundedControlDriver {
      * @return array{exit:int, stdout:string, stderr:string}
      */
     public function captureWpPipeline(array $producerArgs, array $consumerArgs): array {
-        $statusPath = tempnam(sys_get_temp_dir(), 'duo-wp-pipeline-');
+        $statusPath = tempnam(sys_get_temp_dir(), 'wprism-pipeline-');
         if ($statusPath === false) {
             return ['exit' => 1, 'stdout' => '', 'stderr' => 'could not create pipeline status boundary'];
         }
@@ -266,7 +266,7 @@ abstract class Transport implements BoundedControlDriver {
 
     /**
      * The HOST directory this environment's repository is on, or null when the
-     * host cannot write it (DUO-3526).
+     * host cannot write it (issue #3526).
      *
      * Null is the honest default and the safe one: a transport that keeps its
      * repository on the far side of itself — ssh today — cannot be resolved
@@ -296,7 +296,7 @@ abstract class Transport implements BoundedControlDriver {
         // child filled the ~64KB stderr pipe buffer before closing stdout:
         // the child blocks writing stderr, this process blocks reading stdout,
         // and neither ever proceeds. Measured 2026-08-24: the SSH rollback
-        // certification's `duo adopt` install script hung exactly there on two
+        // certification's `wprism adopt` install script hung exactly there on two
         // consecutive runs (an idle sshd-session on the target, a live mux
         // client on the host, zero remote processes), and a 200KB-stderr
         // child reproduces the hang in isolation. select-based draining is
@@ -732,12 +732,12 @@ abstract class Transport implements BoundedControlDriver {
     /** @param resource $stream */
     private static function writeAll($stream, string $bytes): void {
         // This one fault hook exists only in the offline regression's child
-        // process; an actual transport never sets DUO_TEST_MODE. Its purpose
+        // process; an actual transport never sets WPRISM_TEST_MODE. Its purpose
         // is to prove the exceptional write path terminates and reaps rather
         // than merely closing the local descriptor.
-        if (getenv('DUO_TEST_MODE') === '1'
-            && is_callable($GLOBALS['duo_transport_spool_write_fault'] ?? null)) {
-            ($GLOBALS['duo_transport_spool_write_fault'])();
+        if (getenv('WPRISM_TEST_MODE') === '1'
+            && is_callable($GLOBALS['wprism_transport_spool_write_fault'] ?? null)) {
+            ($GLOBALS['wprism_transport_spool_write_fault'])();
         }
         $offset = 0;
         $length = strlen($bytes);

@@ -28,12 +28,12 @@ require_once $root . '/sandbox/tests/support/wp-shortcode-stub.php';
 require_once $root . '/agent/src/Review/ShortcodeReferenceScanner.php';
 require_once $root . '/tools/src/ArtifactLibrary.php';
 
-use Duo\Canon;
-use Duo\Policy;
-use Duo\ShortcodeReferenceScanner;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\ShortcodeReferenceScanner;
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 $names = [
     'advanced-editor-tools',
@@ -42,7 +42,7 @@ $names = [
     'wps-hide-login',
     'yoast-duplicate-post',
 ];
-$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree($root);
+$sourceLibrary = \WPrism\AdapterLibrary::fromSourceTree($root);
 
 /** @var array<string,array<string,mixed>> $manifests */
 $manifests = [];
@@ -61,11 +61,11 @@ $standaloneEntries = [
     'wps-hide-login' => Canon::decode(Canon::read_file($root . '/adapter-packages/wps-hide-login/tests/conformance/entry.json')),
     'yoast-duplicate-post' => Canon::decode(Canon::read_file($root . '/adapter-packages/yoast-duplicate-post/tests/conformance/entry.json')),
 ];
-$artifactLock = \Duo\Tooling\ArtifactLibrary::load($root);
+$artifactLock = \WPrism\Tooling\ArtifactLibrary::load($root);
 
 $policy = Policy::load(null, $names, adapterLibrary: $sourceLibrary);
 
-duo_check_same($names, array_column($policy->manifests, 'name'), 'the real policy loader accepts exactly the five shipped adapter manifests');
+wprism_check_same($names, array_column($policy->manifests, 'name'), 'the real policy loader accepts exactly the five shipped adapter manifests');
 
 $artifacts = [
     'advanced-editor-tools' => [
@@ -99,13 +99,13 @@ $effectiveRanges = $policy->version_ranges();
 $certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login', 'yoast-duplicate-post'];
 foreach ($artifacts as $name => $artifact) {
     $manifest = $manifests[$name];
-    duo_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
-    duo_check_same($artifact['range'], $manifest['version_range'] ?? null, "$name admits only the observed patch boundary");
-    duo_check(
+    wprism_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
+    wprism_check_same($artifact['range'], $manifest['version_range'] ?? null, "$name admits only the observed patch boundary");
+    wprism_check(
         str_contains(implode("\n", $manifest['notes'] ?? []), $artifact['sha256']),
         "$name records the exact official artifact SHA-256 in shipped identity"
     );
-    duo_check_same(
+    wprism_check_same(
         $artifact['range'] + ['manifest' => $name],
         $effectiveRanges[$artifact['plugin']] ?? null,
         "$name exposes the same bounded range through Policy::version_ranges()"
@@ -113,78 +113,78 @@ foreach ($artifacts as $name => $artifact) {
 
     $entry = $policy->manifest_disposition($name);
     $expectedStatus = in_array($name, $certified, true) ? 'certified' : 'experimental';
-    duo_check_same($expectedStatus, $entry['status'] ?? null, "$name carries its reviewed certification status");
-    duo_check_json_equal(
+    wprism_check_same($expectedStatus, $entry['status'] ?? null, "$name carries its reviewed certification status");
+    wprism_check_json_equal(
         ['plugin' => $artifact['plugin'], 'range' => $artifact['range']],
         $entry['supported_versions'] ?? null,
         "$name disposition repeats the exact artifact boundary"
     );
     if (in_array($name, $certified, true)) {
-        duo_check_same(
-            ['bundle_schema' => 'duo-subject-certification-bundle/v1', 'tests' => ["conformance-$name", 'exact-artifact-version-matrix']],
+        wprism_check_same(
+            ['bundle_schema' => 'wprism-subject-certification-bundle/v1', 'tests' => ["conformance-$name", 'exact-artifact-version-matrix']],
             $entry['evidence'] ?? null,
             "$name cites its isolated adversarial round trip and adjacent-version matrix"
         );
-        duo_check(
+        wprism_check(
             !in_array('promote', array_column($entry['unsupported'] ?? [], 'operation'), true),
             "$name has no stale production promotion blocker"
         );
     } else {
-        duo_check_same(
-            ['bundle_schema' => 'duo-subject-certification-bundle/v1', 'tests' => ['conformance-ecosystem-adapter-batch']],
+        wprism_check_same(
+            ['bundle_schema' => 'wprism-subject-certification-bundle/v1', 'tests' => ['conformance-ecosystem-adapter-batch']],
             $entry['evidence'] ?? null,
             "$name cites the exact-artifact live capture-plan suite"
         );
-        duo_check(
+        wprism_check(
             in_array('promote', array_column($entry['unsupported'] ?? [], 'operation'), true),
             "$name keeps its explicit promotion blocker"
         );
     }
 }
-duo_check_same(
+wprism_check_same(
     'certified-boundary',
     $artifactLock['plugins']['code-snippets']['3.9.6']['role'] ?? null,
     'Code Snippets 3.9.6 is independently locked as the upper certified patch boundary'
 );
-duo_check_same(
+wprism_check_same(
     'ab5822db426858b43d7c010481a87d0eaffb056cc483e93e057d96f6e6fdd4f4',
     $artifactLock['plugins']['code-snippets']['3.9.6']['sha256'] ?? null,
     'Code Snippets 3.9.6 upper-boundary evidence is digest-pinned'
 );
 
 foreach (['wpforms', 'custom-post-type-ui'] as $rejected) {
-    duo_check($sourceLibrary->package($rejected) === null, "$rejected remains rejected instead of gaining an unsafe package");
+    wprism_check($sourceLibrary->package($rejected) === null, "$rejected remains rejected instead of gaining an unsafe package");
 }
-duo_check(
+wprism_check(
     $sourceLibrary->package('redirection') !== null
         && is_file($root . '/adapter-packages/redirection/tests/offline/regress_redirection_adapter.php'),
     'Redirection left the rejected-candidate set only with its own exact adapter and regression evidence'
 );
 
-duo_check_same('ecosystem-adapter-batch', $conformanceEntry['manifest'] ?? null, 'the shared live suite has a convention-discoverable fixture entry');
-duo_check_same('capture-plan', $conformanceEntry['entry']['mode'] ?? null, 'the shared live suite stops before every explicitly unsupported apply path');
-duo_check_same(
+wprism_check_same('ecosystem-adapter-batch', $conformanceEntry['manifest'] ?? null, 'the shared live suite has a convention-discoverable fixture entry');
+wprism_check_same('capture-plan', $conformanceEntry['entry']['mode'] ?? null, 'the shared live suite stops before every explicitly unsupported apply path');
+wprism_check_same(
     ['core', ...$names],
     $conformanceEntry['entry']['pin'] ?? null,
     'the live suite pins core plus exactly the five new adapters'
 );
-duo_check(is_file($root . '/sandbox/conformance/seeds/ecosystem-adapter-batch.sh'), 'the live suite authors representative state through plugin APIs');
-duo_check(is_file($root . '/sandbox/conformance/capture-checks/ecosystem-adapter-batch.sh'), 'the live suite checks plugin consumption and canonical reference bytes');
+wprism_check(is_file($root . '/sandbox/conformance/seeds/ecosystem-adapter-batch.sh'), 'the live suite authors representative state through plugin APIs');
+wprism_check(is_file($root . '/sandbox/conformance/capture-checks/ecosystem-adapter-batch.sh'), 'the live suite checks plugin consumption and canonical reference bytes');
 foreach ($artifacts as $name => $artifact) {
     $slug = explode('/', $artifact['plugin'], 2)[0];
     $version = $artifact['range']['min'];
     $locked = $artifactLock['plugins'][$slug][$version] ?? null;
-    duo_check_same($artifact['sha256'], $locked['sha256'] ?? null, "$slug $version live evidence is locked to the researched artifact digest");
+    wprism_check_same($artifact['sha256'], $locked['sha256'] ?? null, "$slug $version live evidence is locked to the researched artifact digest");
     $expectedRole = in_array($name, $certified, true) ? 'certified-boundary' : 'exercise-fixture';
-    duo_check_same($expectedRole, $locked['role'] ?? null, "$slug $version carries the reviewed evidence role");
+    wprism_check_same($expectedRole, $locked['role'] ?? null, "$slug $version carries the reviewed evidence role");
 }
 
 foreach ($standaloneEntries as $name => $fixture) {
-    duo_check_same($name, $fixture['manifest'] ?? null, "$name has an independently runnable live profile");
-    duo_check(!isset($fixture['entry']['mode']), "$name standalone evidence uses the complete roundtrip path");
-    duo_check_same(['core', $name], $fixture['entry']['pin'] ?? null, "$name live profile isolates core plus one adapter");
+    wprism_check_same($name, $fixture['manifest'] ?? null, "$name has an independently runnable live profile");
+    wprism_check(!isset($fixture['entry']['mode']), "$name standalone evidence uses the complete roundtrip path");
+    wprism_check_same(['core', $name], $fixture['entry']['pin'] ?? null, "$name live profile isolates core plus one adapter");
     foreach (['seeds' => 'seed.sh', 'postdeploy' => 'postdeploy.sh', 'checks' => 'check.sh'] as $phase => $file) {
-        duo_check(
+        wprism_check(
             is_file($root . "/adapter-packages/$name/tests/conformance/$file"),
             "$name live profile has a separately diagnosable $phase hook"
         );
@@ -215,8 +215,8 @@ $refusalArtifacts = [
 ];
 foreach ($refusalArtifacts as $slug => $artifact) {
     $locked = $artifactLock['plugins'][$slug][$artifact['version']] ?? null;
-    duo_check_same($artifact['sha256'], $locked['sha256'] ?? null, "$slug adjacent official refusal artifact is digest-pinned");
-    duo_check_same('refusal-fixture', $locked['role'] ?? null, "$slug adjacent official release can never be credited as admitted evidence");
+    wprism_check_same($artifact['sha256'], $locked['sha256'] ?? null, "$slug adjacent official refusal artifact is digest-pinned");
+    wprism_check_same('refusal-fixture', $locked['role'] ?? null, "$slug adjacent official release can never be credited as admitted evidence");
 }
 
 $expectedOptions = [
@@ -249,11 +249,11 @@ $expectedOptions = [
 ];
 
 foreach ($expectedOptions as $manifestName => $inventory) {
-    duo_check_same(array_keys($inventory), array_keys($manifests[$manifestName]['options'] ?? []), "$manifestName option inventory is exact and closed");
+    wprism_check_same(array_keys($inventory), array_keys($manifests[$manifestName]['options'] ?? []), "$manifestName option inventory is exact and closed");
     foreach ($inventory as $option => $class) {
         $details = $policy->option_rule_details($option);
-        duo_check_same($manifestName, $details['source'] ?? null, "options.$option is owned by $manifestName");
-        duo_check_same($class, $details['rule']['class'] ?? null, "options.$option resolves as $class through the product policy");
+        wprism_check_same($manifestName, $details['source'] ?? null, "options.$option is owned by $manifestName");
+        wprism_check_same($class, $details['rule']['class'] ?? null, "options.$option resolves as $class through the product policy");
     }
 }
 
@@ -288,27 +288,27 @@ $duplicateOptions = [
     'duplicate_post_types_enabled',
 ];
 $duplicateInventory = array_keys($manifests['yoast-duplicate-post']['options'] ?? []);
-duo_check_same([...$duplicateOptions, 'duplicate_post_version'], $duplicateInventory, 'Yoast Duplicate Post declares the closed 28-setting registry plus its runtime version gate');
+wprism_check_same([...$duplicateOptions, 'duplicate_post_version'], $duplicateInventory, 'Yoast Duplicate Post declares the closed 28-setting registry plus its runtime version gate');
 foreach ($duplicateOptions as $option) {
-    duo_check_same('authored', $policy->option_rule($option)['class'] ?? null, "options.$option is portable authored policy");
+    wprism_check_same('authored', $policy->option_rule($option)['class'] ?? null, "options.$option is portable authored policy");
 }
-duo_check_same('runtime', $policy->option_rule('duplicate_post_version')['class'] ?? null, 'options.duplicate_post_version remains an environment-local upgrade gate');
+wprism_check_same('runtime', $policy->option_rule('duplicate_post_version')['class'] ?? null, 'options.duplicate_post_version remains an environment-local upgrade gate');
 $duplicateRoleActions = array_values(array_filter(
     $policy->actions_for(['option:duplicate_post_roles']),
     static fn(array $action): bool => ($action['provider'] ?? null) === 'yoast-duplicate-post-role-capabilities'
 ));
-duo_check_same(1, count($duplicateRoleActions), 'Yoast Duplicate Post role policy schedules exactly one bounded provider');
-duo_check_same(
+wprism_check_same(1, count($duplicateRoleActions), 'Yoast Duplicate Post role policy schedules exactly one bounded provider');
+wprism_check_same(
     'reconcile_role_capabilities',
     $duplicateRoleActions[0]['capability'] ?? null,
     'Yoast Duplicate Post invokes the exact role-capability projection capability'
 );
-duo_check_same(
+wprism_check_same(
     [['id' => 'yoast-duplicate-post-role-capability-map', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]],
     $duplicateRoleActions[0]['effects'] ?? null,
     'Yoast Duplicate Post checkpoints the prefix-dependent merged role map before mutation'
 );
-duo_check(
+wprism_check(
     is_file($root . '/adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php'),
     'the shipped Yoast Duplicate Post role provider source exists beside its manifest identity'
 );
@@ -320,15 +320,15 @@ foreach ([
     'whl_secret',
     'duplicate_post_api_key',
 ] as $neighbor) {
-    duo_check_same(null, $policy->option_rule($neighbor), "undeclared neighbor options.$neighbor remains loud pending work");
+    wprism_check_same(null, $policy->option_rule($neighbor), "undeclared neighbor options.$neighbor remains loud pending work");
 }
 
 $snippetTable = $policy->table_rule('snippets');
-duo_check_same('authored_snapshot', $snippetTable['class'] ?? null, 'Code Snippets rows use the implemented authored snapshot table class');
-duo_check_same('code_snippet', $snippetTable['id_kind'] ?? null, 'Code Snippets owns one explicit mapped identity keyspace');
-duo_check_same('id', $snippetTable['pk'] ?? null, 'Code Snippets declares the real snippets primary key');
-duo_check_same([], $snippetTable['refs'] ?? null, 'Code Snippets declares that its observed single-site row has no foreign-id columns');
-duo_check_same(
+wprism_check_same('authored_snapshot', $snippetTable['class'] ?? null, 'Code Snippets rows use the implemented authored snapshot table class');
+wprism_check_same('code_snippet', $snippetTable['id_kind'] ?? null, 'Code Snippets owns one explicit mapped identity keyspace');
+wprism_check_same('id', $snippetTable['pk'] ?? null, 'Code Snippets declares the real snippets primary key');
+wprism_check_same([], $snippetTable['refs'] ?? null, 'Code Snippets declares that its observed single-site row has no foreign-id columns');
+wprism_check_same(
     [
         'active' => 'authored',
         'cloud_id' => 'env',
@@ -349,23 +349,23 @@ $snippetActions = array_values(array_filter(
     $policy->actions_for(['table:snippets']),
     static fn(array $action): bool => ($action['provider'] ?? null) === 'code-snippets-state'
 ));
-duo_check_same(1, count($snippetActions), 'Code Snippets table mutation schedules exactly one state-rebuild provider');
-duo_check_same('rebuild_snippet_state', $snippetActions[0]['capability'] ?? null, 'Code Snippets invokes the bounded cache and flat-file rebuild capability');
-duo_check_same(
+wprism_check_same(1, count($snippetActions), 'Code Snippets table mutation schedules exactly one state-rebuild provider');
+wprism_check_same('rebuild_snippet_state', $snippetActions[0]['capability'] ?? null, 'Code Snippets invokes the bounded cache and flat-file rebuild capability');
+wprism_check_same(
     ['cache', 'filesystem'],
     array_column($snippetActions[0]['effects'] ?? [], 'kind'),
     'Code Snippets declares both irreversible external projections before mutation'
 );
-duo_check(is_file($root . '/adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php'), 'the shipped provider source exists inside its package identity');
+wprism_check(is_file($root . '/adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php'), 'the shipped provider source exists inside its package identity');
 
 $shortcodes = $policy->shortcode_attr_rules();
 $snippetRefRules = [
     ['kind' => 'code_snippet', 'path' => 'id'],
     ['kind' => 'code_snippet', 'path' => 'snippet_id'],
 ];
-duo_check_same($snippetRefRules, $shortcodes['code_snippet'] ?? null, 'code_snippet rewrites both registered id aliases');
-duo_check_same($snippetRefRules, $shortcodes['code_snippet_source'] ?? null, 'code_snippet_source rewrites both registered id aliases');
-duo_check(!isset($shortcodes['code-snippets/source']), 'an unobserved Code Snippets block schema is not guessed');
+wprism_check_same($snippetRefRules, $shortcodes['code_snippet'] ?? null, 'code_snippet rewrites both registered id aliases');
+wprism_check_same($snippetRefRules, $shortcodes['code_snippet_source'] ?? null, 'code_snippet_source rewrites both registered id aliases');
+wprism_check(!isset($shortcodes['code-snippets/source']), 'an unobserved Code Snippets block schema is not guessed');
 
 $missingAliasRules = $shortcodes;
 $missingAliasRules['code_snippet'] = array_values(array_filter(
@@ -379,28 +379,28 @@ $missingAliasFindings = ShortcodeReferenceScanner::scan(
     '',
     static fn(int $id): ?array => $id === 67 ? ['id' => 67, 'kind' => 'code_snippet'] : null
 );
-duo_check_same(
+wprism_check_same(
     ['unregistered_shortcode_attr'],
     array_column($missingAliasFindings, 'class'),
     'removing one valid shortcode alias is caught by the production lint scanner before the local id can be trusted'
 );
-duo_check_same(
+wprism_check_same(
     'shortcode.code_snippet.attrs.snippet_id',
     $missingAliasFindings[0]['locator'] ?? null,
     'the removed-reference refusal identifies the exact missing Code Snippets attribute'
 );
 
-duo_check_same(['class' => 'authored', 'ref' => 'post'], $policy->post_meta_rule('_dp_original'), '_dp_original is a typed durable post reference');
+wprism_check_same(['class' => 'authored', 'ref' => 'post'], $policy->post_meta_rule('_dp_original'), '_dp_original is a typed durable post reference');
 foreach (['_dp_creation_date_gmt', '_dp_has_been_republished', '_dp_has_rewrite_republish_copy', '_dp_is_rewrite_republish_copy'] as $workflowKey) {
-    duo_check_same('runtime', $policy->post_meta_rule($workflowKey)['class'] ?? null, "post_meta.$workflowKey remains in-progress workflow state");
+    wprism_check_same('runtime', $policy->post_meta_rule($workflowKey)['class'] ?? null, "post_meta.$workflowKey remains in-progress workflow state");
 }
 
 foreach ($names as $name) {
     $operations = $policy->manifest_disposition($name)['capabilities']['operations'] ?? [];
     if (in_array($name, $certified, true)) {
-        duo_check(in_array('apply', $operations, true), "$name claims the isolated apply path its target profile proves");
+        wprism_check(in_array('apply', $operations, true), "$name claims the isolated apply path its target profile proves");
     } else {
-        duo_check(!in_array('apply', $operations, true), "$name does not claim hook-free apply while its postcondition is open");
+        wprism_check(!in_array('apply', $operations, true), "$name does not claim hook-free apply while its postcondition is open");
     }
 }
 
@@ -408,7 +408,7 @@ $blockerNames = array_values(array_unique(array_column($policy->certification_re
 sort($blockerNames, SORT_STRING);
 $sortedNames = array_values(array_diff($names, $certified));
 sort($sortedNames, SORT_STRING);
-duo_check_same($sortedNames, $blockerNames, 'the independently certified adapters add no promotion blocker to the capability registry');
+wprism_check_same($sortedNames, $blockerNames, 'the independently certified adapters add no promotion blocker to the capability registry');
 
 $limitations = (string) file_get_contents($root . '/docs/guides/adapter-authoring-limitations.md');
 foreach ([
@@ -420,14 +420,14 @@ foreach ([
     'string-id attribute codec',
     'verified post-apply type-registration/process boundary',
 ] as $requiredBoundary) {
-    duo_check(str_contains($limitations, $requiredBoundary), "the limitation ledger records: $requiredBoundary");
+    wprism_check(str_contains($limitations, $requiredBoundary), "the limitation ledger records: $requiredBoundary");
 }
 $guide = (string) file_get_contents($root . '/docs/guides/adapter-authoring.md');
-duo_check(str_contains($guide, 'Adversarial preflight'), 'the primary authoring loop now requires adversarial preflight');
-duo_check(str_contains($guide, 'custom-table ids deliberately differ'), 'the authoring preflight requires divergent source/target identity probes');
-duo_check(str_contains($guide, 'PHP-serialized'), 'the authoring preflight requires serialized-container inspection');
+wprism_check(str_contains($guide, 'Adversarial preflight'), 'the primary authoring loop now requires adversarial preflight');
+wprism_check(str_contains($guide, 'custom-table ids deliberately differ'), 'the authoring preflight requires divergent source/target identity probes');
+wprism_check(str_contains($guide, 'PHP-serialized'), 'the authoring preflight requires serialized-container inspection');
 $walk = (string) file_get_contents($root . '/docs/grind/adapter-walk.md');
-duo_check(str_contains($walk, 'does not prove cross-environment form fidelity'), 'the historical WPForms walk no longer reads as a product capability claim');
+wprism_check(str_contains($walk, 'does not prove cross-environment form fidelity'), 'the historical WPForms walk no longer reads as a product capability claim');
 
 /**
  * Exercise Policy::load() against one isolated manifest set. No dispositions
@@ -437,7 +437,7 @@ duo_check(str_contains($walk, 'does not prove cross-environment form fidelity'),
  * @param array<string,array<string,mixed>> $files
  */
 $loadMutation = static function (array $files): Policy {
-    $dir = sys_get_temp_dir() . '/duo_ecosystem_adapter_batch_' . bin2hex(random_bytes(8));
+    $dir = sys_get_temp_dir() . '/wprism_ecosystem_adapter_batch_' . bin2hex(random_bytes(8));
     if (!mkdir($dir, 0700, true) && !is_dir($dir)) {
         throw new RuntimeException("could not create adapter mutation directory $dir");
     }
@@ -457,13 +457,13 @@ $loadMutation = static function (array $files): Policy {
     return Policy::load(
         null,
         array_keys($files),
-        adapterLibrary: \DuoTest\FrozenPolicy::adapterLibrary($dir)
+        adapterLibrary: \WPrismTest\FrozenPolicy::adapterLibrary($dir)
     );
 };
 
 $badRefs = $manifests['code-snippets'];
 $badRefs['tables']['snippets']['refs'] = 'none';
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadMutation(['code-snippets' => $badRefs]),
     RuntimeException::class,
     'the real loader refuses a table whose empty ref inventory is weakened to an untyped scalar',
@@ -472,7 +472,7 @@ duo_check_throws(
 
 $badKind = $manifests['code-snippets'];
 $badKind['shortcode_attrs']['code_snippet'][0]['kind'] = 'code_snipet';
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadMutation(['code-snippets' => $badKind]),
     RuntimeException::class,
     'the real loader refuses a shortcode reference typo instead of dropping the local id later',
@@ -481,7 +481,7 @@ duo_check_throws(
 
 $badType = $manifests['code-snippets'];
 $badType['shortcode_attrs']['code_snippet'][0]['type'] = 'string';
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadMutation(['code-snippets' => $badType]),
     RuntimeException::class,
     'the real loader refuses a type-changing string-id claim unsupported by the current codec',
@@ -489,14 +489,14 @@ duo_check_throws(
 );
 
 $conflict = [
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'name' => 'conflicting-owner',
     'option_autoload' => 'preserve',
     'plugin' => 'conflicting-owner/conflicting-owner.php',
     'version_range' => ['min' => '1.0.0', 'max' => '1.0.1'],
     'options' => ['code_snippets_settings' => ['class' => 'authored']],
 ];
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadMutation([
         'code-snippets' => $manifests['code-snippets'],
         'conflicting-owner' => $conflict,
@@ -506,4 +506,4 @@ duo_check_throws(
     'declare contradictory rules for options.code_snippets_settings'
 );
 
-duo_check_summary('ecosystem adapter batch');
+wprism_check_summary('ecosystem adapter batch');

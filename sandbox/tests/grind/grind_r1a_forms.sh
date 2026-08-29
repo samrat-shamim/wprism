@@ -13,7 +13,7 @@
 #
 # Re-run safety: r1a1/r1a2 are never torn down (docker compose down/clean is
 # off-limits — other agents share this stack), so every run resets content,
-# duo ledger tables, and site-repo git state. WP core/theme/plugin install is
+# wprism ledger tables, and site-repo git state. WP core/theme/plugin install is
 # skipped on repeat runs (guarded by `core is-installed` / `plugin
 # is-installed`).
 set -euo pipefail
@@ -64,17 +64,17 @@ install_env() { # install_env <r1a1|r1a2> <port> <title>
 }
 
 # Envs persist across runs, so make re-running this script safe: wipe WP
-# content + the duo ledger tables every time (the core-loop spike's
+# content + the wprism ledger tables every time (the core-loop spike's
 # reset_env_state idiom). CF7/Ninja Forms are NOT deactivated/reinstalled per run
 # (install_env already guards that) — only their data is wiped, via each
 # plugin's own uninstall-equivalent tables/options where feasible.
 reset_env_state() { # reset_env_state <r1a1|r1a2>
   local env="$1"
   wp_env "$env" site empty --yes >/dev/null
-  wp_env "$env" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
-  wp_env "$env" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
-  wp_env "$env" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
-  wp_env "$env" duo journal-reset >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_wprism_map" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_wprism_state" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_wprism_kv" >/dev/null 2>&1 || true
+  wp_env "$env" wprism journal-reset >/dev/null 2>&1 || true
   # Ninja Forms ships its own custom tables (nf3_*) that `site empty` never
   # touches (they aren't wp_posts/wp_postmeta) — truncate them directly so a
   # second run starts from zero forms/submissions. Names + shape confirmed
@@ -101,12 +101,12 @@ reset_env_state() { # reset_env_state <r1a1|r1a2>
   # 4-field "Contact Me" until this table was cleared and the cache rebuilt
   # via WPN_Helper::build_nf_cache()). This is a real, general hazard, not a
   # one-off: any environment where nf3_forms rows get deleted and recreated
-  # (nothing to do with Duo specifically) can hit the same silent staleness,
+  # (nothing to do with WPrism specifically) can hit the same silent staleness,
   # and it directly informs the typed-snapshot acceptance criteria below —
   # a future capture/apply capability for nf3_* MUST rebuild this cache per
   # form id, the same "manifest declares actions" pattern already used
   # for Yoast/Elementor (a `rebuilders` command string when this was written;
-  # a provider capability since DUO-3338 — the declaration channel changed,
+  # a provider capability since issue #3338 — the declaration channel changed,
   # the obligation it records did not).
   for t in nf3_forms nf3_form_meta nf3_fields nf3_field_meta nf3_actions nf3_action_meta nf3_objects nf3_object_meta nf3_relationships nf3_chunks nf3_upgrades; do
     wp_env "$env" db query "TRUNCATE TABLE wp_${t}" >/dev/null 2>&1 || true
@@ -148,7 +148,7 @@ import_nf_template() {
   nf_import_step_php "siterepo/$env/.tmp-nf-import-step.php"
   for step in 1 2 3 4 5 6; do
     out=$($COMPOSE run --rm -T -e "NF_TEMPLATE_PATH=/var/www/html/wp-content/plugins/ninja-forms/includes/Templates/$template" "cli-$env" wp eval-file "$tmp" 2>&1) || true
-    # Herestrings, not pipes -- DUO-3267's own SIGPIPE-race finding (see the
+    # Herestrings, not pipes -- issue #3267's own SIGPIPE-race finding (see the
     # render-check section below) applies to any `echo "$VAR" | grep` shape
     # under this script's `set -o pipefail`, not just the two checks that
     # happened to surface it; swept the whole file rather than leaving the
@@ -167,14 +167,14 @@ import_nf_template() {
 say "boot env pair r1a1 (:8814) / r1a2 (:8815)"
 mkdir -p siterepo/r1a1 siterepo/r1a2
 $COMPOSE up -d db-r1a1 wp-r1a1 db-r1a2 wp-r1a2
-install_env r1a1 8814 "Duo R1A1 (Forms)"
-install_env r1a2 8815 "Duo R1A2 (Forms)"
-pass "both envs installed, CF7 + Ninja Forms active, journal on (DUO_JOURNAL)"
+install_env r1a1 8814 "WPrism R1A1 (Forms)"
+install_env r1a2 8815 "WPrism R1A2 (Forms)"
+pass "both envs installed, CF7 + Ninja Forms active, journal on (WPRISM_JOURNAL)"
 
 say "reset r1a1/r1a2 content + ledger for a clean run"
 reset_env_state r1a1
 reset_env_state r1a2
-pass "WP content, duo_map/duo_state/duo_kv, nf3_* tables, and the journal are all clean on both envs"
+pass "WP content, wprism_map/wprism_state/wprism_kv, nf3_* tables, and the journal are all clean on both envs"
 
 say "fresh site repo (own origin, own clones — never touches siterepo/a|b|c|conf*|e*|fx*|g*|r1b*|r1c*)"
 rm -rf siterepo/origin-r1a.git
@@ -186,7 +186,7 @@ rm -rf siterepo/r1a1 && mkdir -p siterepo/r1a1
 # wpcf7_contact_form IS in scope: it is CF7's own form-definition CPT, a
 # site-builder-authored entity like any other post type in this engine.
 #
-# DUO-3267: manifests now includes "ninja-forms", not just "core". This was
+# issue #3267: manifests now includes "ninja-forms", not just "core". This was
 # the deliberate omission the script's own header comment used to justify
 # ("Ninja Forms is the known typed-snapshot engine frontier ... this script
 # characterizes that gap empirically rather than working around it") — true
@@ -197,24 +197,24 @@ rm -rf siterepo/r1a1 && mkdir -p siterepo/r1a1
 # `wp:ninja-forms/form {"formID":N}` embed (kind nf3_form, resolved through
 # the same generalized Tokens::id_to_token()/token_to_id() every other ref
 # kind uses). This fixture just never got wired to that manifest once it
-# existed. See DUO-3267's own Linear scope note for the full trace.
+# existed. See issue #3267's own Linear scope note for the full trace.
 #
 # "contact-form-7" added the same way, found by team-lead's live run of the
-# round-trip leg above: this script's very first `wp duo capture` (never
+# round-trip leg above: this script's very first `wp wprism capture` (never
 # exercised before -- the ORIGINAL script had none) hit the discovery gate
-# ("duo: incomplete state discovery on manifest-owned or in-scope surfaces")
+# ("wprism: incomplete state discovery on manifest-owned or in-scope surfaces")
 # naming CF7's own seven postmeta keys (_form/_mail/_mail_2/_messages/
 # _additional_settings/_hash/_locale) as unclassified. manifests/contact-
 # form-7.json already declares all seven as authored -- built during the
 # ORIGINAL R1-A grind round and empirically
 # verified then -- and its own note already says "wpcf7_contact_form must
-# be added to site.duo.json's policy.post_types for any of this to take
+# be added to site.wprism.json's policy.post_types for any of this to take
 # effect": post_types already had it (below), but the manifest declaring
 # what those keys ARE was never pinned. This script predates the discovery-
 # gate rework entirely (round-2 era, per team-lead) -- it had literally
 # never run a single capture before tonight, so this gap sat unexercised
 # rather than merely stale.
-cat > siterepo/r1a1/site.duo.json <<'EOF'
+cat > siterepo/r1a1/site.wprism.json <<'EOF'
 {
   "manifests": ["core", "contact-form-7", "ninja-forms"],
   "policy": {
@@ -227,8 +227,8 @@ cat > siterepo/r1a1/site.duo.json <<'EOF'
 }
 EOF
 cp site-repo.gitignore.template siterepo/r1a1/.gitignore
-GIT_1="git -C siterepo/r1a1 -c user.name=duo-r1a1 -c user.email=r1a1@example.test"
-GIT_2="git -C siterepo/r1a2 -c user.name=duo-r1a2 -c user.email=r1a2@example.test"
+GIT_1="git -C siterepo/r1a1 -c user.name=wprism-r1a1 -c user.email=r1a1@example.test"
+GIT_2="git -C siterepo/r1a2 -c user.name=wprism-r1a2 -c user.email=r1a2@example.test"
 $GIT_1 init -q -b main
 $GIT_1 remote add origin ../origin-r1a.git
 pass "site repo initialized (manifests: [core, ninja-forms] — nf3_* now in scope; post_types scope still excludes nf_sub deliberately)"
@@ -253,7 +253,7 @@ wp_set_current_user( get_user_by( 'login', 'admin' )->ID );
 $cf = WPCF7_ContactForm::get_template( array( 'title' => 'Contact Us' ) );
 $mail = $cf->prop( 'mail' );
 $mail['recipient'] = 'sales@example.test';
-$mail['subject'] = '[Duo Demo Co] New inquiry: [your-subject]';
+$mail['subject'] = '[WPrism Demo Co] New inquiry: [your-subject]';
 $mail['additional_headers'] = "Reply-To: [your-email]\nCc: records@example.test";
 $cf->set_properties( array( 'mail' => $mail ) );
 $id = $cf->save();
@@ -302,14 +302,14 @@ CAREERS_ID=$(wp_1 post create --post_type=page --post_title='Careers' --post_nam
 <!-- wp:paragraph --><p>We're hiring. Fill out an application below.</p><!-- /wp:paragraph -->
 <!-- wp:ninja-forms/form {\"formID\":$NF_JOB_ID,\"formTitle\":\"Job Application\"} /-->")
 ABOUT_ID=$(wp_1 post create --post_type=page --post_title='About' --post_name=about --post_status=publish --porcelain \
-  --post_content="<!-- wp:paragraph --><p>Duo Demo Co. is a fictional business built to exercise a forms-driven site.</p><!-- /wp:paragraph -->")
+  --post_content="<!-- wp:paragraph --><p>WPrism Demo Co. is a fictional business built to exercise a forms-driven site.</p><!-- /wp:paragraph -->")
 pass "pages created: About #$ABOUT_ID, Contact #$CONTACT_ID (CF7 shortcode), Careers #$CAREERS_ID (Ninja Forms block, formID=$NF_JOB_ID)"
 
 say "a Main menu (Home custom link + About/Contact/Careers), assigned to twentytwentyone's primary location"
 wp_1 menu create "Main" >/dev/null
 # A custom link to the env's own home URL — spec/repo-format.md's own menu
 # example uses exactly this shape (object:custom, ref: a tokenized URL) so
-# it's a genuine {{home}}-prefixed href for Duo's tokenizer to exercise.
+# it's a genuine {{home}}-prefixed href for WPrism's tokenizer to exercise.
 HOME_URL=$(wp_1 option get home)
 wp_1 menu item add-custom Main Home "$HOME_URL/" >/dev/null
 wp_1 menu item add-post Main "$ABOUT_ID" >/dev/null
@@ -321,7 +321,7 @@ pass "Main menu: Home (custom link) / About / Contact / Careers, assigned to loc
 say "a few ordinary blog posts (categorized)"
 wp_1 term create category Announcements --slug=announcements >/dev/null 2>&1 || true
 wp_1 term create category Careers --slug=careers-cat >/dev/null 2>&1 || true
-wp_1 post create --post_type=post --post_title='Welcome to Duo Demo Co' --post_name=welcome-to-duo-demo-co \
+wp_1 post create --post_type=post --post_title='Welcome to WPrism Demo Co' --post_name=welcome-to-wprism-demo-co \
   --post_status=publish --post_category="$(wp_1 term list category --slug=announcements --field=term_id)" \
   --post_content='<!-- wp:paragraph --><p>We just launched our new site. Say hello via the Contact page.</p><!-- /wp:paragraph -->' >/dev/null
 wp_1 post create --post_type=post --post_title="We're Hiring: Now Accepting Applications" --post_name=were-hiring \
@@ -332,20 +332,20 @@ wp_1 post create --post_type=post --post_title='New Ways to Reach Us' --post_nam
   --post_content='<!-- wp:paragraph --><p>Our new Contact form makes it easier than ever to reach the team.</p><!-- /wp:paragraph -->' >/dev/null
 pass "3 posts created across 2 categories (Announcements, Careers)"
 
-# --- DUO-3267: the round-trip leg task #54 originally called for --------
+# --- issue #3267: the round-trip leg task #54 originally called for --------
 # Everything above this point predates this issue and was already proven;
 # nothing above is touched. What follows is new.
 
 say "core loop: capture on r1a1 (ninja-forms manifest now pinned, so nf3_* mints identity alongside posts)"
-wp_1 duo capture --repo=/siterepo
+wp_1 wprism capture --repo=/siterepo
 pass "capture succeeded"
 
 say "hard lint gate"
-wp_1 duo lint --repo=/siterepo
+wp_1 wprism lint --repo=/siterepo
 pass "lint: 0 findings"
 
 say "capture-twice determinism"
-wp_1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2
+wp_1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2
 diff -r siterepo/r1a1/state siterepo/r1a1/.tmp-state2 || fail "capture is not deterministic"
 rm -rf siterepo/r1a1/.tmp-state2
 pass "capture-twice diff is empty"
@@ -357,14 +357,14 @@ $GIT_1 push -qu origin main
 say "round-trip: clone into r1a2, deploy, plan, apply"
 rm -rf siterepo/r1a2 && mkdir -p siterepo/r1a2
 git clone -q siterepo/origin-r1a.git siterepo/r1a2
-# DUO-3216/DUO-3250: deploy runs BEFORE plan/apply (docs/code-half.md
+# issue #3216/issue #3250: deploy runs BEFORE plan/apply (docs/code-half.md
 # §3.4), mirroring grind_r3b_events.sh's own PR #14-established ordering.
 # Proactive here too: CF7+Ninja Forms install identically active on both
 # r1a1/r1a2 (install_env runs on both sides), so Deploy::code_mismatch()
 # finds nothing to report regardless of call order today — the ordering
 # itself is what's being kept compliant, not a live failure being fixed.
-wp_2 duo deploy --repo=/siterepo
-PLAN_TXT=$(wp_2 duo plan --repo=/siterepo)
+wp_2 wprism deploy --repo=/siterepo
+PLAN_TXT=$(wp_2 wprism plan --repo=/siterepo)
 echo "$PLAN_TXT"
 # Not asserted either way (unlike grind_r3b_events.sh's own hard COLLISION
 # check): both scripts wipe both sides via the identical `site empty --yes`
@@ -378,25 +378,25 @@ grep -q 'COLLISION' <<<"$PLAN_TXT" \
   && echo "(informational: installer-created collisions present, as expected by analogy with grind_r3b_events.sh)" \
   || echo "(informational: no collisions this run -- not a failure, just noting the plan shape differed from the r3b precedent)"
 REV=$($GIT_2 rev-parse HEAD)
-APPLY_OUT=$(wp_2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV")
+APPLY_OUT=$(wp_2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV")
 echo "$APPLY_OUT"
 grep -qi 'canary clean' <<<"$APPLY_OUT" || fail "apply canary not clean"
 pass "deploy + apply succeeded on r1a2 (canary clean)"
 
-say "DUO-3267/DUO-3282/DUO-3338 action-fired probe -- immediately after apply, before any fetch. The cache rebuild itself is independently proven correct (team-lead ran the original one-liner verbatim via the ordinary wp-cli shell path: count 0->1, zero error output; DUO-3338 moved that exact payload into manifests/providers/ninja-forms-form-cache.php without changing what it calls) and the manifest declaration is independently proven to parse/aggregate correctly (offline Policy::actions() check, no WordPress needed). The ONLY layer left unverified is whether Apply::rebuild()'s own dispatch actually invokes it during a real apply -- exactly where DUO-3282's stdout/stderr-swallowing gap hid evidence. A non-zero count here closes that question for good; zero is now unambiguous evidence of a dispatch-layer failure, not a render-mystery artifact -- the render mystery is independently resolved by the byte-truncation-window fix below, and a cold render with zero nf3_upgrades rows has already been proven to work correctly, so this probe is about the manifest declaration's own integrity, not the render."
+say "issue #3267/issue #3282/issue #3338 action-fired probe -- immediately after apply, before any fetch. The cache rebuild itself is independently proven correct (team-lead ran the original one-liner verbatim via the ordinary wp-cli shell path: count 0->1, zero error output; issue #3338 moved that exact payload into manifests/providers/ninja-forms-form-cache.php without changing what it calls) and the manifest declaration is independently proven to parse/aggregate correctly (offline Policy::actions() check, no WordPress needed). The ONLY layer left unverified is whether Apply::rebuild()'s own dispatch actually invokes it during a real apply -- exactly where issue #3282's stdout/stderr-swallowing gap hid evidence. A non-zero count here closes that question for good; zero is now unambiguous evidence of a dispatch-layer failure, not a render-mystery artifact -- the render mystery is independently resolved by the byte-truncation-window fix below, and a cold render with zero nf3_upgrades rows has already been proven to work correctly, so this probe is about the manifest declaration's own integrity, not the render."
 NF_UPGRADES_COUNT=$(wp_2 db query "SELECT COUNT(*) FROM wp_nf3_upgrades" --skip-column-names)
 echo "nf3_upgrades row count immediately post-apply: $NF_UPGRADES_COUNT"
-[ "${NF_UPGRADES_COUNT:-0}" -gt 0 ] 2>/dev/null || fail "action-fired probe: nf3_upgrades has ZERO rows immediately post-apply (got: '$NF_UPGRADES_COUNT') -- the provider capability and the manifest declaration are both independently proven correct, so this is unambiguous evidence of a dispatch-layer failure inside Apply::rebuild() -- file as its own precisely-scoped engine bug (see DUO-3282), do not re-litigate the capability or the manifest"
+[ "${NF_UPGRADES_COUNT:-0}" -gt 0 ] 2>/dev/null || fail "action-fired probe: nf3_upgrades has ZERO rows immediately post-apply (got: '$NF_UPGRADES_COUNT') -- the provider capability and the manifest declaration are both independently proven correct, so this is unambiguous evidence of a dispatch-layer failure inside Apply::rebuild() -- file as its own precisely-scoped engine bug (see issue #3282), do not re-litigate the capability or the manifest"
 pass "action-fired probe: nf3_upgrades has $NF_UPGRADES_COUNT row(s) immediately post-apply -- Apply::rebuild()'s dispatch DID invoke the declared action"
 
 say "byte-identical recapture across environments"
-wp_2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+wp_2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
 DIFF_OUT=$(diff -rq siterepo/r1a1/state siterepo/r1a2/.tmp-final || true)
 rm -rf siterepo/r1a2/.tmp-final
 [ -z "$DIFF_OUT" ] || fail "byte-identity broken: $DIFF_OUT"
 pass "byte-identical: posts, terms, options, AND the new typed-snapshot table entities (nf3_forms/nf3_fields/nf3_actions)"
 
-say "DUO-3267's actual finding: the Careers page's Ninja Forms formID now round-trips correctly, using r1a2's OWN local nf3_form id — inverts this issue's original premise (raw/broken) now that manifests/ninja-forms.json is in scope"
+say "issue #3267's actual finding: the Careers page's Ninja Forms formID now round-trips correctly, using r1a2's OWN local nf3_form id — inverts this issue's original premise (raw/broken) now that manifests/ninja-forms.json is in scope"
 NF_JOB_ID_B2=$(wp_2 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names)
 [ -n "$NF_JOB_ID_B2" ] && [ "$NF_JOB_ID_B2" -gt 0 ] 2>/dev/null || fail "expected the Job Application form to exist on r1a2 with its own local id (nf3_* is now in scope) — got: '$NF_JOB_ID_B2'"
 CAREERS_CONTENT_B2=$(wp_2 post get "$(wp_2 post list --post_type=page --name=careers --field=ID)" --field=post_content)
@@ -423,7 +423,7 @@ say "render checks (buffered curl — never curl | grep under pipefail) + negati
 # in the failure output able to tell the two apart. Healthy sizes observed
 # live: Contact ~20KB+, Careers ~134KB.
 #
-# DUO-3267 round 4->5 (team-lead's own apache-log dissection): the ORIGINAL
+# issue #3267 round 4->5 (team-lead's own apache-log dissection): the ORIGINAL
 # 20000 floor was calibrated to Contact's own healthy size, then reused for
 # Careers -- but a healthy Careers page's FIRST nf-form/ninja-forms byte
 # offset is 29,436. A curl receive truncated anywhere in the 20000-29435
@@ -435,7 +435,7 @@ say "render checks (buffered curl — never curl | grep under pipefail) + negati
 # is invisible there too -- exactly why every prior theory (BSD grep, NF
 # lazy-warm caching, required-updates suppression) chased a symptom this
 # one number would have resolved directly.
-# DUO-3267 round 5->6 (team-lead's SIGPIPE-race diagnosis): round 5 proved
+# issue #3267 round 5->6 (team-lead's SIGPIPE-race diagnosis): round 5 proved
 # the fetch itself full-size and byte-identical to a healthy page (133555
 # bytes, floor 130000) with the content grep STILL failing -- truncation is
 # dead. `echo "$VAR" | grep -q PATTERN` under this script's own
@@ -491,4 +491,4 @@ say "runtime isolation: r1a1's own visitor-submitted nf_sub content never propag
 NFSUB_B1=$(wp_1 post list --post_type=nf_sub --format=count)
 NFSUB_B2=$(wp_2 post list --post_type=nf_sub --format=count)
 echo "nf_sub counts: r1a1=$NFSUB_B1 r1a2=$NFSUB_B2 (informational -- no submissions seeded this run; the assertion that matters is scope, not count)"
-pass "task #54's round-trip leg + DUO-3267's re-scoped finding: capture/deploy/plan/apply all succeed cleanly on r1a2, lint is clean, both forms render correctly (CF7 via shortcode -- already worked; Ninja Forms via block -- NOW correctly re-bound through manifests/ninja-forms.json's already-shipped nf3_form codec), and nf_sub stays correctly excluded from the branchable partition throughout"
+pass "task #54's round-trip leg + issue #3267's re-scoped finding: capture/deploy/plan/apply all succeed cleanly on r1a2, lint is clean, both forms render correctly (CF7 via shortcode -- already worked; Ninja Forms via block -- NOW correctly re-bound through manifests/ninja-forms.json's already-shipped nf3_form codec), and nf_sub stays correctly excluded from the branchable partition throughout"

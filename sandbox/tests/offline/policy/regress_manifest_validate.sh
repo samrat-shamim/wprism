@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3327: `duo manifest-validate`, the adapter author's offline
+# Regression — issue #3327: `wprism manifest-validate`, the adapter author's offline
 # grammar check, plus the machine-readable grammar document it emits.
 #
 # The whole point of the command is that a manifest is refusable with nothing
@@ -7,8 +7,8 @@
 # subprocess against REAL manifest fixture files under a scratch directory, and
 # reads the real exit codes and the real stdout/stderr. No docker, no sandbox
 # pair, no WordPress bootstrap, no $wpdb stub, nothing mocked. Same idiom as
-# sandbox/tests/offline/adapter/regress_adapter_contract.php (DUO-3222/DUO-3243) and
-# sandbox/tests/offline/policy/regress_vocabulary_ownership.php (DUO-3318), whose two-adapter
+# sandbox/tests/offline/adapter/regress_adapter_contract.php (issue #3222/issue #3243) and
+# sandbox/tests/offline/policy/regress_vocabulary_ownership.php (issue #3318), whose two-adapter
 # fixtures this suite imports rather than copies
 # (sandbox/tests/offline/policy/manifest_fixtures.php).
 #
@@ -43,7 +43,7 @@ command -v php >/dev/null || fail "php required on PATH"
 say "php -l syntax check (harness, fixtures, and every file it exercises)"
 php -l regress_manifest_validate.php >/dev/null || fail "regress_manifest_validate.php has a syntax error"
 php -l manifest_fixtures.php >/dev/null || fail "manifest_fixtures.php has a syntax error"
-php -l ../../../../cli/duo >/dev/null || fail "cli/duo has a syntax error"
+php -l ../../../../cli/wprism >/dev/null || fail "cli/wprism has a syntax error"
 php -l ../../../../cli/src/Adapter/ManifestValidate.php >/dev/null || fail "cli/src/Adapter/ManifestValidate.php has a syntax error"
 php -l ../../../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
 php -l ../../../../agent/src/Rebuild/NativeActions.php >/dev/null || fail "agent/src/Rebuild/NativeActions.php has a syntax error"
@@ -64,16 +64,16 @@ $repo = dirname(getcwd(), 4);
 $src = (string) file_get_contents($repo . '/cli/src/Adapter/ManifestValidate.php');
 $queue = [];
 // Since the module move (ROUND 3 TRAIN 1) boot() resolves every name through
-// agent/duo-classmap.php. Both halves are still read out of the handler —
+// agent/wprism-classmap.php. Both halves are still read out of the handler —
 // the classmap lookup that opens the loop body proves the shape, the foreach
 // list supplies the names. Anchoring on that lookup rather than on the first
 // foreach in the file matters: ManifestValidate.php has earlier list loops
 // ('options', 'post_meta', ...) that a looser pattern would match instead.
 $classFiles = [];
-foreach ((array) (require $repo . '/agent/duo-classmap.php') as $mappedPath) {
+foreach ((array) (require $repo . '/agent/wprism-classmap.php') as $mappedPath) {
     $classFiles[basename((string) $mappedPath, '.php')] = (string) $mappedPath;
 }
-if (preg_match('/foreach \(\[([^\]]*)\] as \$\w+\) \{\s*\$duoAgentFile = \$duoAgentFiles/', $src, $list) === 1) {
+if (preg_match('/foreach \(\[([^\]]*)\] as \$\w+\) \{\s*\$wprismAgentFile = \$wprismAgentFiles/', $src, $list) === 1) {
     foreach (explode(',', $list[1]) as $class) {
         $name = trim($class, " \t'\"");
         if (isset($classFiles[$name])) {
@@ -140,7 +140,7 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # the private helpers explicit here so a new WordPress reach cannot hide behind
 # the wider dependency graph.
 #
-# DUO-3350 slice 6 moved code_mismatch()/code_drift()/record_code_versions()/
+# issue #3350 slice 6 moved code_mismatch()/code_drift()/record_code_versions()/
 # check_theme_range() from Deploy.php into LifecyclePlanner.php (Deploy keeps
 # thin facades over the first three; check_theme_range had no other caller
 # and moved with no facade) -- this scanner keys its allowlist on exact
@@ -148,14 +148,14 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # current_active_plugins/plugin_runtime_state/run stay on Deploy.php
 # unchanged.
 #
-# DUO-3350 slice 8 moved the WP-mutation body of Deploy::run() (activate/
+# issue #3350 slice 8 moved the WP-mutation body of Deploy::run() (activate/
 # deactivate/order-correct/switch_theme) into LifecycleExecutor::execute();
 # its is_wp_error()/get_option() calls move with it. Deploy.php:run keeps its
 # own entry unchanged -- it still calls get_option('stylesheet'/'template')
 # directly, earlier in the method, to compute $stylesheetMismatch/
 # $templateMismatch before the moved call.
 #
-# DUO-3507 added LifecyclePlanner.php:observe_code_versions -- capture's
+# issue #3507 added LifecyclePlanner.php:observe_code_versions -- capture's
 # baseline write, which scopes code_drift() to this environment's own live
 # state and therefore reads get_option('template'/'stylesheet') directly, the
 # same unguarded reach its two neighbours code_drift/record_code_versions
@@ -238,7 +238,7 @@ scan_wp "$wp_allow" $engine_files \
   || fail "an unguarded WordPress reach in boot()'s load set is neither guarded nor allowlisted (see above)"
 pass "every WordPress reach in the handler and its whole load set is guarded or explicitly allowlisted"
 
-schema_doc=$(php ../../../../cli/duo manifest-validate --emit-schema) \
+schema_doc=$(php ../../../../cli/wprism manifest-validate --emit-schema) \
   || fail "could not emit the grammar document to cross-check the allowlist"
 for via in $wp_allow_via; do
   grep -qF "$via" <<<"$schema_doc" \

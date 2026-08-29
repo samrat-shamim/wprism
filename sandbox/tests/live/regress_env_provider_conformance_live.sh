@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Live regression for `duo env provider-check` against the reference provider.
+# Live regression for `wprism env provider-check` against the reference provider.
 #
 # WHY THIS SUITE EXISTS
 # ---------------------
-# docs/branch-environment-provider.md and the `duo env provider-check` harness
+# docs/branch-environment-provider.md and the `wprism env provider-check` harness
 # are both projections of cli/src/Environment/EnvironmentProviderProtocol.php,
 # and the offline suite
 # (sandbox/tests/offline/environment/regress_env_provider_conformance.php)
@@ -35,18 +35,18 @@ PORT2=9201
 SOURCE_ENV="${PAIR}1"
 TARGET_ENV="${PAIR}2"
 SANDBOX="$ROOT/sandbox"
-DUO="$ROOT/cli/duo"
+WPRISM="$ROOT/cli/wprism"
 PROVIDER="$ROOT/tools/reference-env-provider.php"
 PHP_BIN="$(command -v php)"
 SITE1="$SANDBOX/siterepo/${PAIR}1"
 SITE2="$SANDBOX/siterepo/${PAIR}2"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-env-provider-check-live.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-env-provider-check-live.XXXXXX")"
 ENVS="$TMP/envs.json"
 PROVIDER_CONFIG="$TMP/provider.json"
 PROVIDER_STATE="$TMP/provider-state"
 ORIGIN="$TMP/origin.git"
 CONTROLLER="$TMP/controller"
-BRANCH=duo/provider-check-live
+BRANCH=wprism/provider-check-live
 PAIR_OWNED=0
 
 say() { printf '\n== %s ==\n' "$*"; }
@@ -54,7 +54,7 @@ pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 # `pair.sh list` reports bare pair names (`  - foo`), never Docker project
-# names. Keep the parser strict so `duo-envprovcheck` or `envprovcheck0`
+# names. Keep the parser strict so `wprism-envprovcheck` or `envprovcheck0`
 # cannot be mistaken for this pair -- the same boundary
 # regress_environment_materializer_live.sh:47-58 defends.
 pair_list_has_exact() {
@@ -85,11 +85,11 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-run_check() { # run_check <out-file> <duo env provider-check args...>
+run_check() { # run_check <out-file> <wprism env provider-check args...>
   local out=$1
   shift
   local status=0
-  (cd "$CONTROLLER" && "$DUO" --envs-file="$ENVS" env provider-check "$@") >"$out" 2>&1 || status=$?
+  (cd "$CONTROLLER" && "$WPRISM" --envs-file="$ENVS" env provider-check "$@") >"$out" 2>&1 || status=$?
   printf '%s' "$status"
 }
 
@@ -113,22 +113,22 @@ write_provider_config() { # write_provider_config <withheld,ids>
   "$PHP_BIN" -r '
     $withheld = $argv[10] === "" ? [] : explode(",", $argv[10]);
     $config = [
-      "format" => "duo-reference-env-provider-config/v1",
+      "format" => "wprism-reference-env-provider-config/v1",
       "pair" => $argv[2], "pair_script" => $argv[3] . "/bin/pair.sh",
       "compose_dir" => $argv[3],
       "compose_files" => [$argv[3] . "/pair.yml", $argv[3] . "/pair.http.yml"],
-      "controller_repo" => $argv[4], "db_container" => "duo-shared-db",
+      "controller_repo" => $argv[4], "db_container" => "wprism-shared-db",
       "state_root" => $argv[5], "source_environment" => $argv[6],
       "destroy_scope" => "side", "withheld_capabilities" => array_values($withheld),
       "environments" => [
         $argv[6] => [
           "role" => "source", "side" => 1, "port" => (int) $argv[8],
-          "container" => "duo-" . $argv[2] . "-wp1-1", "service" => "cli1",
+          "container" => "wprism-" . $argv[2] . "-wp1-1", "service" => "cli1",
           "database" => "wp_" . $argv[2] . "1", "repo" => $argv[3] . "/siterepo/" . $argv[6],
         ],
         $argv[7] => [
           "role" => "target", "side" => 2, "port" => (int) $argv[9],
-          "container" => "duo-" . $argv[2] . "-wp2-1", "service" => "cli2",
+          "container" => "wprism-" . $argv[2] . "-wp2-1", "service" => "cli2",
           "database" => "wp_" . $argv[2] . "2", "repo" => $argv[3] . "/siterepo/" . $argv[7],
         ],
       ],
@@ -140,7 +140,7 @@ write_provider_config() { # write_provider_config <withheld,ids>
 
 say "preflight — the harness script parses and the pair budget allows one pair"
 bash -n "$SELF" || fail "this suite does not parse"
-[ -x "$DUO" ] || fail "cli/duo is not executable"
+[ -x "$WPRISM" ] || fail "cli/wprism is not executable"
 [ -f "$PROVIDER" ] || fail "tools/reference-env-provider.php is missing"
 command -v docker >/dev/null || fail "docker is required for this live suite"
 if bash "$SANDBOX/bin/pair.sh" list 2>&1 | pair_list_has_exact "$PAIR"; then
@@ -278,12 +278,12 @@ say "cycle — nothing retained: no live session, no immutable set, pair still u
 PAIR_LIST_AFTER_CYCLE="$(bash "$SANDBOX/bin/pair.sh" list 2>&1)"
 printf '%s\n' "$PAIR_LIST_AFTER_CYCLE" | pair_list_has_exact "$PAIR" \
   || { printf '%s\n' "$PAIR_LIST_AFTER_CYCLE" >&2; fail "the cycle destroyed the pair it only attached to"; }
-docker inspect "duo-${PAIR}-wp2-1" >/dev/null 2>&1 \
+docker inspect "wprism-${PAIR}-wp2-1" >/dev/null 2>&1 \
   || fail "the cycle removed the target container an attach/detach must leave alone"
 pass "snapshot aborted, no set retained, and the attached pair side survives its own detach"
 
 say "cycle — the safety gate is not optional"
-if (cd "$CONTROLLER" && "$DUO" --envs-file="$ENVS" env provider-check "$TARGET_ENV" \
+if (cd "$CONTROLLER" && "$WPRISM" --envs-file="$ENVS" env provider-check "$TARGET_ENV" \
     --cycle --from "$SOURCE_ENV" --format=json) >"$TMP/unconfirmed.out" 2>&1; then
   fail "--cycle ran without --confirm-disposable"
 fi
@@ -292,4 +292,4 @@ grep -q 'requires --from <disposable-source-env> and --confirm-disposable' "$TMP
 pass "--cycle refuses without --confirm-disposable, because snapshot-prepare freezes the named source"
 
 say "DONE"
-pass "duo env provider-check conforms against tools/reference-env-provider.php on a real pair"
+pass "wprism env provider-check conforms against tools/reference-env-provider.php on a real pair"

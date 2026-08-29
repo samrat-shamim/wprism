@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /** POSIX session boundary shared by bounded controller-side subprocesses. */
 final class ProcessGroup {
     private const TERM_GRACE_NANOSECONDS = 250000000;
     private const KILL_GRACE_NANOSECONDS = 2000000000;
     private const READ_BYTES = 65536;
-    private const SESSION_WRAPPER = 'if(!function_exists("passthru")||!function_exists("posix_setsid")){fwrite(STDERR,"duo-process-group-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"duo-process-group-session-unavailable\\n");exit(125);}$status=126;$result=passthru("exec /bin/sh -c ".escapeshellarg((string)($argv[1]??"")),$status);if($result===false){fwrite(STDERR,"duo-process-group-exec-unavailable\\n");exit(126);}exit(is_int($status)&&$status>=0&&$status<=255?$status:126);';
+    private const SESSION_WRAPPER = 'if(!function_exists("passthru")||!function_exists("posix_setsid")){fwrite(STDERR,"wprism-process-group-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"wprism-process-group-session-unavailable\\n");exit(125);}$status=126;$result=passthru("exec /bin/sh -c ".escapeshellarg((string)($argv[1]??"")),$status);if($result===false){fwrite(STDERR,"wprism-process-group-exec-unavailable\\n");exit(126);}exit(is_int($status)&&$status>=0&&$status<=255?$status:126);';
 
     /**
      * @param array<int,mixed> $descriptors

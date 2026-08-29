@@ -7,7 +7,7 @@ set -euo pipefail
 # Redirection deliberately separates plugin activation from its onboarding
 # database install. A fresh WP-CLI activation leaves all four tables absent;
 # use the plugin's public command and prove its postcondition before any native
-# writer is exercised (the first live clean-room run failed here, before Duo).
+# writer is exercised (the first live clean-room run failed here, before WPrism).
 INSTALL_OUT=$(wp_conf1 redirection database install 2>&1)
 require_observed_nonempty "Redirection source database install" "$INSTALL_OUT"
 SOURCE_DATABASE=$(wp_conf1 eval '
@@ -36,7 +36,7 @@ $page = wp_insert_post([
     'post_status' => 'publish',
     'post_title' => 'Summer Marketplace 東京 🚀',
     'post_name' => 'summer-marketplace',
-    'post_content' => '<h1 class="duo-summer-marketplace">Summer offers from local providers</h1>',
+    'post_content' => '<h1 class="wprism-summer-marketplace">Summer offers from local providers</h1>',
 ], true);
 if (is_wp_error($page) || !$page) {
     throw new RuntimeException('could not create the marketplace destination page');

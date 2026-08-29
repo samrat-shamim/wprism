@@ -1,21 +1,21 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\AdapterContractGrammar;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\AdapterSources;
-use Duo\Deletion;
-use Duo\NativeActions;
-use Duo\Policy;
-use Duo\Secrets;
+use WPrism\AdapterContractGrammar;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\AdapterSources;
+use WPrism\Deletion;
+use WPrism\NativeActions;
+use WPrism\Policy;
+use WPrism\Secrets;
 
 /**
- * `duo adapter-draft` — the safe adapter DRAFT generator (DUO-3325, offline slice).
+ * `wprism adapter-draft` — the safe adapter DRAFT generator (issue #3325, offline slice).
  *
- * `duo policy-to-manifest` promotes a site's ALREADY-classified policy rules into
+ * `wprism policy-to-manifest` promotes a site's ALREADY-classified policy rules into
  * a manifest and emits ONLY facts; it is human-only by a reviewed decision and has
  * no proposers. This verb is its generator sibling: it starts from that exact facts
  * core (`Policy::export_manifest()`), then conservatively merges a prior draft so
@@ -24,15 +24,15 @@ use Duo\Secrets;
  * observe a site repo's captured `state/**` and emit grammar-shaped CANDIDATES the
  * author can ratify by hand. It writes nothing live and promotes nothing automatically.
  *
- * Like `duo manifest-validate` this is a HOST verb, not a `wp duo` subcommand: it
+ * Like `wprism manifest-validate` this is a HOST verb, not a `wp wprism` subcommand: it
  * boots the pure engine (Canon/OptionState/ManifestDispositions/Policy, plus
  * Secrets for the value screen) WordPress-free, with no DB and no
  * docker, which is exactly why the whole thing is offline-buildable. Every fact that
  * genuinely needs a live target (a column's SQL type, its real PRIMARY KEY, whether
  * an integer resolves to a live entity, natural-key uniqueness across the keyspace)
  * stays a `proposal` carrying a `question` that names the deferral. `--evidence=<file>`
- * is the single seam a live answer attaches through: a `duo-adapter-probe/v1` document
- * from `wp duo adapter-probe`, the only half that runs on a target. Its facts land as
+ * is the single seam a live answer attaches through: a `wprism-adapter-probe/v1` document
+ * from `wp wprism adapter-probe`, the only half that runs on a target. Its facts land as
  * `evidence[]` rows at confidence 1.0, each naming the question it closes (see
  * PROBE_QUESTIONS); nothing else changes. A probe converts "pk='id' is a structural
  * guess" into "the live PRIMARY KEY is (id)" — it makes the human ratification better
@@ -77,13 +77,13 @@ use Duo\Secrets;
  */
 final class AdapterDraft {
     /** Envelope of the draft artifact (nested under the neutral `_draft` key). */
-    public const FORMAT = 'duo-adapter-draft/v1';
+    public const FORMAT = 'wprism-adapter-draft/v1';
 
     /** Envelope of the `--check-proposals` report. */
-    public const CHECK_FORMAT = 'duo-adapter-draft-check/v1';
+    public const CHECK_FORMAT = 'wprism-adapter-draft-check/v1';
 
     /** Envelope of the `--gap-report` emission: draft engine-gap ledger rows, primitive unnamed. */
-    public const GAP_REPORT_FORMAT = 'duo-adapter-draft-gap-report/v1';
+    public const GAP_REPORT_FORMAT = 'wprism-adapter-draft-gap-report/v1';
 
     /**
      * Constraint B: the four blind-walk trigger keys and their inert draft spellings.
@@ -104,7 +104,7 @@ final class AdapterDraft {
      */
     private const BUCKETS = [
         'tables', 'references', 'deletions', 'block_paths', 'shortcode_paths', 'actions', 'providers',
-        // DUO T6 §3.5's --seed families. They are separate buckets rather than
+        // The adapter-authoring contract's --seed families are separate buckets rather than
         // folded into `references` because a seeded candidate answers a
         // different question: `references` proposes how an already-captured
         // value points at an entity, while these three propose that a surface
@@ -132,8 +132,8 @@ final class AdapterDraft {
     /** The classification sections Policy::export_manifest() owns as facts. */
     private const FACT_SECTIONS = ['options', 'post_meta', 'term_meta', 'user_meta'];
 
-    /** Envelope of the live document `--evidence=<file>` accepts (`Duo\AdapterProbe::FORMAT`). */
-    public const PROBE_FORMAT = 'duo-adapter-probe/v1';
+    /** Envelope of the live document `--evidence=<file>` accepts (`WPrism\AdapterProbe::FORMAT`). */
+    public const PROBE_FORMAT = 'wprism-adapter-probe/v1';
 
     /**
      * The CLOSED vocabulary of live questions a probe can answer.
@@ -175,11 +175,11 @@ final class AdapterDraft {
         'foreign_keys', 'eav_twin', 'natural_key',
     ];
 
-    /** `duo coverage <env> --format=json` — the seed document's primary shape. */
-    public const SEED_COVERAGE_FORMAT = 'duo-coverage-report/v1';
+    /** `wprism coverage <env> --format=json` — the seed document's primary shape. */
+    public const SEED_COVERAGE_FORMAT = 'wprism-coverage-report/v1';
 
     /**
-     * `wp duo assess-inventory --format=json` is also accepted, and is the
+     * `wp wprism assess-inventory --format=json` is also accepted, and is the
      * RICHER seed: it embeds the whole coverage report AND the `pending`
      * queue, which is where the scope-gate's unclassified post types live.
      * Coverage alone cannot seed a `post_types` proposal because it does not
@@ -187,7 +187,7 @@ final class AdapterDraft {
      * two of the three families and is told which one is missing, rather than
      * silently getting a shorter draft.
      */
-    public const SEED_INVENTORY_FORMAT = 'duo-assess-inventory/v1';
+    public const SEED_INVENTORY_FORMAT = 'wprism-assess-inventory/v1';
 
     /**
      * @param list<string> $args everything after the verb
@@ -233,7 +233,7 @@ final class AdapterDraft {
             } elseif (str_starts_with($arg, '--seed=')) {
                 $seed = trim(substr($arg, strlen('--seed=')));
                 if ($seed === '') {
-                    return self::fail('--seed needs the path of a `duo coverage --format=json` document');
+                    return self::fail('--seed needs the path of a `wprism coverage --format=json` document');
                 }
             } elseif (str_starts_with($arg, '--name=')) {
                 $name = trim(substr($arg, strlen('--name=')));
@@ -257,7 +257,7 @@ final class AdapterDraft {
         }
 
         if ($repoArg === null) {
-            return self::fail('a <site-repo> argument is required (the directory holding site.duo.json)');
+            return self::fail('a <site-repo> argument is required (the directory holding site.wprism.json)');
         }
         // Two report modes over the same lift, answering different questions —
         // "which proposals can I promote" and "which observed shapes the grammar
@@ -281,8 +281,8 @@ final class AdapterDraft {
         if ($resolved === false) {
             return self::fail("'$repoArg' is not a directory");
         }
-        if (!is_file($resolved . '/site.duo.json')) {
-            return self::fail("'$resolved' has no site.duo.json — <site-repo> is the duo SITE REPO (the directory holding site.duo.json)");
+        if (!is_file($resolved . '/site.wprism.json')) {
+            return self::fail("'$resolved' has no site.wprism.json — <site-repo> is the wprism SITE REPO (the directory holding site.wprism.json)");
         }
 
         // --force is a modifier on --out and means nothing without it. Refusing
@@ -317,9 +317,9 @@ final class AdapterDraft {
             }
         }
 
-        // The seed is a document another duo command already produced. It is
+        // The seed is a document another wprism command already produced. It is
         // read for NAMES ONLY — prefixes, table names, post-type names — never
-        // for values, exactly as `duo coverage` publishes it.
+        // for values, exactly as `wprism coverage` publishes it.
         $seedDocument = null;
         if ($seed !== null) {
             if (!is_file($seed) || !is_readable($seed)) {
@@ -333,15 +333,15 @@ final class AdapterDraft {
             if (!in_array($seedFormat, [self::SEED_COVERAGE_FORMAT, self::SEED_INVENTORY_FORMAT], true)) {
                 return self::fail(
                     "--seed '$seed' is not a " . self::SEED_COVERAGE_FORMAT . ' document ('
-                    . '`duo coverage <env> --format=json`) or a ' . self::SEED_INVENTORY_FORMAT
-                    . ' document (`wp duo assess-inventory --format=json`)'
+                    . '`wprism coverage <env> --format=json`) or a ' . self::SEED_INVENTORY_FORMAT
+                    . ' document (`wp wprism assess-inventory --format=json`)'
                 );
             }
             $seedDocument = $decoded;
         }
 
-        // The single seam for LIVE-only inputs: a `duo-adapter-probe/v1`
-        // document from `wp duo adapter-probe`, the only half that runs on a
+        // The single seam for LIVE-only inputs: a `wprism-adapter-probe/v1`
+        // document from `wp wprism adapter-probe`, the only half that runs on a
         // target. It is validated against a CLOSED key set here (read_probe())
         // rather than trusted, because the failure mode this flag can have is
         // a live document being read as an unreviewed authority.
@@ -382,7 +382,7 @@ final class AdapterDraft {
                 $resolved, $name, $probe, $priorDraft, $factConflicts, $seedDocument, $match
             );
             // WP-4.12 — THE FLIP. `Policy::export_manifest()` stamps
-            // DUO_SPEC_VERSION, which was right while every accepted version
+            // WPRISM_SPEC_VERSION, which was right while every accepted version
             // admitted this sidecar. It no longer is: § v3.3 closes the
             // top-level key set at spec_version 3 and refuses `_draft` there BY
             // NAME, so on a v3 engine the draft this command emits is a
@@ -404,7 +404,7 @@ final class AdapterDraft {
 
         if ($outPath !== null) {
             // Canonical bytes, exactly what --format=json prints: the file an
-            // author edits is the file `duo manifest-validate` and
+            // author edits is the file `wprism manifest-validate` and
             // `Policy::load()` will read, so it is written in the form both
             // demand rather than a pretty one they refuse.
             $encoded = Canon::encode($manifest);
@@ -425,10 +425,10 @@ final class AdapterDraft {
                 // library while the --site half also scans it, and the engine
                 // correctly refuses the site adapter shadowing the selected
                 // library — a refusal about the invocation, not the draft.
-                echo "  duo adapter inspect $name --repo=$resolved\n";
-                echo "  duo adapter certify $resolved --name=$name --secret-key-file=<key> --pin\n";
+                echo "  wprism adapter inspect $name --repo=$resolved\n";
+                echo "  wprism adapter certify $resolved --name=$name --secret-key-file=<key> --pin\n";
             } else {
-                echo '  duo manifest-validate ' . dirname($outPath) . " --site=$resolved --manifest=$name\n";
+                echo '  wprism manifest-validate ' . dirname($outPath) . " --site=$resolved --manifest=$name\n";
             }
             return 0;
         }
@@ -445,7 +445,7 @@ final class AdapterDraft {
      * holding a half-file that `manifest-validate` then blames them for.
      */
     private static function write_atomic(string $path, string $contents): bool {
-        $temporary = tempnam(dirname($path), '.duo-adapter-draft-');
+        $temporary = tempnam(dirname($path), '.wprism-adapter-draft-');
         if ($temporary === false) {
             return false;
         }
@@ -461,7 +461,7 @@ final class AdapterDraft {
     /**
      * Load the engine's pure surface into this WordPress-free process. A clone of
      * ManifestValidate::boot() — resolve the two version constants out of
-     * agent/duo.php's own source (never a literal, so they cannot drift from what
+     * agent/wprism.php's own source (never a literal, so they cannot drift from what
      * Policy::load() requires), then require the same engine files, plus Secrets
      * for the per-candidate value screen. is_multisite() is deliberately NOT
      * defined: Policy::assert_single_site() is function_exists()-guarded so the
@@ -469,37 +469,37 @@ final class AdapterDraft {
      */
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
         if (!is_file($agent)) {
             throw new \RuntimeException("adapter-draft: agent source not found at $agent");
         }
         $source = (string) file_get_contents($agent);
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter-draft: could not resolve DUO_AGENT_VERSION');
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter-draft: could not resolve WPRISM_AGENT_VERSION');
             }
-            define('DUO_AGENT_VERSION', $m[1]);
+            define('WPRISM_AGENT_VERSION', $m[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter-draft: could not resolve DUO_SPEC_VERSION');
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter-draft: could not resolve WPRISM_SPEC_VERSION');
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
-        $duoAgentClassmap = require $repo . '/agent/duo-classmap.php';
-        if (!is_array($duoAgentClassmap)) {
-            throw new \RuntimeException('adapter-draft: agent/duo-classmap.php did not return a map');
+        $wprismAgentClassmap = require $repo . '/agent/wprism-classmap.php';
+        if (!is_array($wprismAgentClassmap)) {
+            throw new \RuntimeException('adapter-draft: agent/wprism-classmap.php did not return a map');
         }
-        $duoAgentFiles = [];
-        foreach ($duoAgentClassmap as $duoAgentPath) {
-            $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+        $wprismAgentFiles = [];
+        foreach ($wprismAgentClassmap as $wprismAgentPath) {
+            $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
         }
         foreach (['Canon', 'OptionState', 'ManifestDispositions', 'Policy', 'Deletion', 'Secrets'] as $class) {
-            $duoAgentFile = $duoAgentFiles[$class] ?? null;
-            if (!is_string($duoAgentFile)) {
-                throw new \RuntimeException('adapter-draft: agent source ' . $class . '.php is absent from agent/duo-classmap.php');
+            $wprismAgentFile = $wprismAgentFiles[$class] ?? null;
+            if (!is_string($wprismAgentFile)) {
+                throw new \RuntimeException('adapter-draft: agent source ' . $class . '.php is absent from agent/wprism-classmap.php');
             }
-            require_once $repo . '/agent/' . $duoAgentFile;
+            require_once $repo . '/agent/' . $wprismAgentFile;
         }
     }
 
@@ -561,11 +561,11 @@ final class AdapterDraft {
      * preservation-safe.
      */
     private static function validate_prior_manifest(string $repo, string $name): void {
-        $site = self::read_json($repo . '/site.duo.json');
+        $site = self::read_json($repo . '/site.wprism.json');
         $pins = $site['manifests'] ?? ['core'];
         if (!is_array($pins) || !array_is_list($pins)) {
             throw new \RuntimeException(
-                'adapter-draft: site.duo.json manifests must be a JSON list before a prior adapter can be validated'
+                'adapter-draft: site.wprism.json manifests must be a JSON list before a prior adapter can be validated'
             );
         }
 
@@ -697,7 +697,7 @@ final class AdapterDraft {
      * its version gate here; arbitrary unknown keys remain closed at v2.
      */
     private static function draft_spec_version(): int {
-        $supported = DUO_SPEC_VERSION;
+        $supported = WPRISM_SPEC_VERSION;
         foreach ([$supported, $supported - 1] as $candidate) {
             try {
                 AdapterContractGrammar::validate_adapter_contract([
@@ -810,11 +810,11 @@ final class AdapterDraft {
             self::propose_references($stateDir),
             self::propose_deletions($stateDir),
             self::propose_generated_surfaces($stateDir),
-            // The one proposer whose input is another duo command's OUTPUT
+            // The one proposer whose input is another wprism command's OUTPUT
             // rather than the repository's captured state. It is last so a
             // seeded candidate loses a target collision to an observation of
-            // real captured bytes — a table Duo already captured is better
-            // evidence than a table Duo merely knows exists.
+            // real captured bytes — a table WPrism already captured is better
+            // evidence than a table WPrism merely knows exists.
             self::propose_from_seed($seed, $match),
         ] as $group) {
             foreach ($group as $candidate) {
@@ -939,7 +939,7 @@ final class AdapterDraft {
     }
 
     /**
-     * Read and STRUCTURALLY VALIDATE a `duo-adapter-probe/v1` document.
+     * Read and STRUCTURALLY VALIDATE a `wprism-adapter-probe/v1` document.
      *
      * Every refusal here is the same refusal: a live-evidence file must not be
      * able to say anything an author would mistake for a decision. So the
@@ -961,7 +961,7 @@ final class AdapterDraft {
         if (($decoded['format'] ?? null) !== self::PROBE_FORMAT) {
             throw new \RuntimeException(
                 "adapter-draft: --evidence '$path' is not a " . self::PROBE_FORMAT
-                . ' document (`wp duo adapter-probe --format=json`)'
+                . ' document (`wp wprism adapter-probe --format=json`)'
             );
         }
         if (($decoded['authority'] ?? null) !== false) {
@@ -978,7 +978,7 @@ final class AdapterDraft {
         unset($basis['probe_hash']);
         if (!hash_equals($hash, 'sha256:' . hash('sha256', Canon::encode($basis)))) {
             throw new \RuntimeException(
-                'adapter-draft: --evidence probe_hash does not describe the document; re-run `wp duo adapter-probe` '
+                'adapter-draft: --evidence probe_hash does not describe the document; re-run `wp wprism adapter-probe` '
                 . 'rather than editing an evidence file by hand'
             );
         }
@@ -1452,7 +1452,7 @@ final class AdapterDraft {
                 'locator' => 'columns',
                 'observation' => 'observed columns [' . implode(', ', $colNames) . '] across ' . $rows . ' row file(s)',
             ]];
-            // Every deferral a `duo-adapter-probe/v1` document can close is
+            // Every deferral a `wprism-adapter-probe/v1` document can close is
             // written `[<name>] …` (see PROBE_QUESTIONS): the name is what an
             // incoming evidence row answers, so the two halves of the seam
             // cannot drift into two different vocabularies for one question.
@@ -1481,7 +1481,7 @@ final class AdapterDraft {
                 // authoring exercise rather than false schema evidence.
                 'storage framing is not a schema fact: exercise every native writer variant for text/blob '
                 . 'columns and classify plain text, JSON, PHP serialization, NULL, and mixed framing before '
-                . 'ratifying column codecs; `wp duo adapter-probe` intentionally reads no row values',
+                . 'ratifying column codecs; `wp wprism adapter-probe` intentionally reads no row values',
                 // lock_index() resolves the covering index by FIRST column and
                 // compares a meta_key length against Sub_part
                 // (agent/src/Delete/DeleteGuardEvaluator.php:445-456). Neither
@@ -1547,14 +1547,14 @@ final class AdapterDraft {
     // ------------------------------------------------------------ seed proposer
 
     /**
-     * Candidates seeded from another duo command's report (T6 §3.5).
+     * Candidates seeded from another wprism command's report (T6 §3.5).
      *
      * This is the one proposer whose evidence is not the repository's own
-     * captured bytes. The reason it exists is the gap `duo coverage` names
+     * captured bytes. The reason it exists is the gap `wprism coverage` names
      * and nothing closes: an option prefix invisible to every installed
      * adapter, and a live table no manifest declares, are exactly the
      * surfaces an operator is authoring an adapter FOR — and they are the
-     * surfaces the offline observers cannot see, because Duo never captured
+     * surfaces the offline observers cannot see, because WPrism never captured
      * them. Coverage saw them on the live site; this turns each into a
      * candidate the author ratifies by hand, with the observation quoted.
      *
@@ -1586,7 +1586,7 @@ final class AdapterDraft {
         // author drafting the wpforms adapter wants wpforms' family, not the
         // WordPress default-option prefixes coverage also cannot attribute to
         // any active plugin (the T6 walk read a draft proposing `admin`,
-        // `blog`, `avatar`… beside `wpforms`). DUO-3505 shrank that set but
+        // `blog`, `avatar`… beside `wpforms`). issue #3505 shrank that set but
         // not to zero: `admin` and `blog` came from names the platform core
         // package declares and coverage no longer reports them invisible at
         // all, while `avatar_default`, `upload_path` and their siblings sit
@@ -1632,7 +1632,7 @@ final class AdapterDraft {
                 'questions' => [
                     "claiming the '$prefix' namespace makes every option under it VISIBLE to this adapter, "
                     . 'which is not the same as classifying it: each name still needs a rule, an '
-                    . 'option_patterns entry, or an interpreter, or it lands in the `duo pending` queue',
+                    . 'option_patterns entry, or an interpreter, or it lands in the `wprism pending` queue',
                     "confirm the regex '$regex' does not also match another plugin's options on this site",
                 ],
                 '_seeded' => true,
@@ -1677,7 +1677,7 @@ final class AdapterDraft {
             $out[] = [
                 'target' => 'tables.' . $logical,
                 // `runtime` because nothing here is evidence of authorship.
-                // An undeclared table is invisible to every adapter, so Duo
+                // An undeclared table is invisible to every adapter, so WPrism
                 // has never read a row of it; declaring it `authored` on that
                 // basis would put live operational rows into the repository.
                 'candidate' => ['class' => 'runtime'],
@@ -1719,7 +1719,7 @@ final class AdapterDraft {
                 ]],
                 'questions' => [
                     "class 'runtime' records a deliberate EXCLUSION from capture — the same decision "
-                    . "`duo classify <env> --set='scope:post_type:$postType=runtime'` writes site-locally, "
+                    . "`wprism classify <env> --set='scope:post_type:$postType=runtime'` writes site-locally, "
                     . 'but declared by this adapter so every site running it inherits it. Ratify '
                     . "'authored' instead only if these entities are content an operator edits and expects "
                     . 'to branch',
@@ -1735,9 +1735,9 @@ final class AdapterDraft {
      * Post types the scope gate refused to capture, from a seed rich enough to
      * carry them.
      *
-     * `duo coverage` reports options and tables and nothing else, so a
+     * `wprism coverage` reports options and tables and nothing else, so a
      * coverage-only seed yields no post types at all — the fact is in the
-     * `pending` queue, which only `duo-assess-inventory/v1` embeds. Returning
+     * `pending` queue, which only `wprism-assess-inventory/v1` embeds. Returning
      * an empty map for a coverage seed is therefore correct rather than
      * lossy, and `render()` states which families a seed supplied.
      *
@@ -2834,7 +2834,7 @@ final class AdapterDraft {
         }
         $report = [
             'format' => self::CHECK_FORMAT,
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
             'results' => $results,
             'summary' => ['checked' => count($results), 'liftable' => $liftable, 'refused' => count($results) - $liftable],
         ];
@@ -2930,7 +2930,7 @@ final class AdapterDraft {
         }
         $report = [
             'format' => self::GAP_REPORT_FORMAT,
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
             'adapter' => $name,
             'rows' => $rows,
             'summary' => ['checked' => count($results), 'gaps' => count($rows)],
@@ -3003,7 +3003,7 @@ final class AdapterDraft {
 
     /**
      * Load a throwaway one-candidate package through the REAL Policy::load(). The
-     * name equals the package slug (DUO-3371), core is present, and the explicit
+     * name equals the package slug (issue #3371), core is present, and the explicit
      * AdapterLibrary object closes the temp inventory for this load only — nothing
      * live or process-global is touched.
      *
@@ -3011,15 +3011,15 @@ final class AdapterDraft {
      * @return array{0:bool,1:?string}
      */
     private static function validate_lifted(string $library, array $section): array {
-        $checkName = 'duo-adapter-draft-check';
+        $checkName = 'wprism-adapter-draft-check';
         // WP-4.12: the throwaway is stamped at the version the DRAFT declares,
-        // not at DUO_SPEC_VERSION. Those were the same number before the flip.
+        // not at WPRISM_SPEC_VERSION. Those were the same number before the flip.
         // They are not now, and judging the candidate at the engine's version
         // judges it under rules the author's own document is not held to — at
         // spec_version 3 the namespace grammar (§ v3.9) binds every
         // `providers[].id` to the adapter's vendor half, so a perfectly liftable
         // plugin-owned provider was reported `refused` because THIS harness had
-        // named its scratch manifest `duo-adapter-draft-check`. The candidate
+        // named its scratch manifest `wprism-adapter-draft-check`. The candidate
         // must be measured against the contract its eventual home carries.
         $manifest = array_merge(['name' => $checkName, 'spec_version' => self::draft_spec_version()], $section);
         // The eventual artifact lives under a site's adapters/ directory, not
@@ -3047,11 +3047,11 @@ final class AdapterDraft {
             $policy = Policy::load(null, [$checkName], true, null, $adapterLibrary);
             foreach ((array) ($section['deletions'] ?? []) as $selector => $_) {
                 if (!is_string($selector) || !str_contains($selector, ':')) {
-                    throw new \RuntimeException('duo: deletion proposal has an invalid selector');
+                    throw new \RuntimeException('wprism: deletion proposal has an invalid selector');
                 }
                 [$kind, $type] = explode(':', $selector, 2);
                 if ($type === '') {
-                    throw new \RuntimeException('duo: deletion proposal has an invalid selector');
+                    throw new \RuntimeException('wprism: deletion proposal has an invalid selector');
                 }
                 if ($kind === 'table') {
                     return [
@@ -3115,7 +3115,7 @@ final class AdapterDraft {
     private static function make_tmp_library(): string {
         $dir = null;
         for ($attempt = 0; $attempt < 32; $attempt++) {
-            $candidate = sys_get_temp_dir() . '/duo_adapter_draft_check_' . bin2hex(random_bytes(16));
+            $candidate = sys_get_temp_dir() . '/wprism_adapter_draft_check_' . bin2hex(random_bytes(16));
             if (@mkdir($candidate, 0700, false)) {
                 $dir = $candidate;
                 break;
@@ -3207,8 +3207,8 @@ final class AdapterDraft {
         echo 'seed:          ' . ($draft['seed'] ?? '') . "\n";
         echo "\nsummary: $facts fact(s) validated; $pCount proposal(s) + " . count($unsupported)
             . ' unsupported + ' . count($conflicts)
-            . " conflict record(s) are INERT and unvalidated here — run 'duo adapter-draft --check-proposals' or "
-            . "install the draft and 'duo manifest-validate <dir>'. --format=json prints the draft artifact.\n";
+            . " conflict record(s) are INERT and unvalidated here — run 'wprism adapter-draft --check-proposals' or "
+            . "install the draft and 'wprism manifest-validate <dir>'. --format=json prints the draft artifact.\n";
     }
 
     /** @param array<string,mixed> $manifest */
@@ -3329,7 +3329,7 @@ final class AdapterDraft {
 
     /** Fail closed on this command's own paths: usage, a bad dir, an unreadable file. */
     private static function fail(string $message): int {
-        fwrite(STDERR, "duo: adapter-draft: $message\n");
+        fwrite(STDERR, "wprism: adapter-draft: $message\n");
         return 2;
     }
 }

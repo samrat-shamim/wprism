@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -34,7 +34,7 @@ final class SidebarState {
         \Closure $assertOptionRow
     ): void {
         if (self::$lockOptionRow !== null || self::$queueOption !== null || self::$assertOptionRow !== null) {
-            throw new \RuntimeException('duo: sidebar state authored transaction was already active');
+            throw new \RuntimeException('wprism: sidebar state authored transaction was already active');
         }
         self::$lockOptionRow = $lockOptionRow;
         self::$queueOption = $queueOption;
@@ -79,7 +79,7 @@ final class SidebarState {
      * :213) and gates (an undeclared type with real instances refuses
      * capture at :262-269).
      *
-     * DUO-3508: `Pending::mechanism_owner()` asks this so a journal-observed
+     * issue #3508: `Pending::mechanism_owner()` asks this so a journal-observed
      * write to one of these names is not queued for a classification that
      * does not exist — there is no class to give.
      * platform/adapter-library/core/manifest.json:86 records the alternative
@@ -93,7 +93,7 @@ final class SidebarState {
     public static function assert_width_budget(): void {
         if (strlen(self::LONGEST_CORE_ID_KIND) > Ledger::ID_KIND_WIDTH) {
             throw new \RuntimeException(
-                'duo: widget id_kind width budget is smaller than ' . self::LONGEST_CORE_ID_KIND
+                'wprism: widget id_kind width budget is smaller than ' . self::LONGEST_CORE_ID_KIND
             );
         }
     }
@@ -110,7 +110,7 @@ final class SidebarState {
             $kind = self::kind((string) $type);
             if (isset($tableKinds[$kind])) {
                 throw new \RuntimeException(
-                    "duo: identity kind '$kind' is declared by widget '$type' and table '{$tableKinds[$kind]}'"
+                    "wprism: identity kind '$kind' is declared by widget '$type' and table '{$tableKinds[$kind]}'"
                 );
             }
         }
@@ -149,7 +149,7 @@ final class SidebarState {
                     || !is_int($reference['local_id'] ?? null)
                     || $reference['local_id'] <= 0) {
                     throw new \RuntimeException(
-                        "duo: portable block widget reference at position $position is malformed"
+                        "wprism: portable block widget reference at position $position is malformed"
                     );
                 }
                 $instanceKey = $reference['type'] . '-' . $reference['local_id'];
@@ -180,23 +180,23 @@ final class SidebarState {
         foreach ($sidebars as $sidebar => $instanceKeys) {
             if (!is_string($sidebar) || $sidebar === '' || str_contains($sidebar, '/')
                 || !is_array($instanceKeys) || !array_is_list($instanceKeys)) {
-                throw new \RuntimeException("duo: sidebars_widgets has an invalid sidebar '$sidebar' shape");
+                throw new \RuntimeException("wprism: sidebars_widgets has an invalid sidebar '$sidebar' shape");
             }
             $widgets = [];
             foreach ($instanceKeys as $position => $instanceKey) {
                 $parsed = is_string($instanceKey) ? self::parse_widget_instance_key($instanceKey) : null;
                 if ($parsed === null) {
-                    throw new \RuntimeException("duo: sidebar '$sidebar' has malformed widget instance id at position $position");
+                    throw new \RuntimeException("wprism: sidebar '$sidebar' has malformed widget instance id at position $position");
                 }
                 [$type, $local] = $parsed;
                 if (!isset($declared[$type])) {
                     throw new \RuntimeException(
-                        "duo: sidebar '$sidebar' contains undeclared widget type '$type' ($instanceKey); "
+                        "wprism: sidebar '$sidebar' contains undeclared widget type '$type' ($instanceKey); "
                         . 'classify it in a pinned manifest before capture'
                     );
                 }
                 if (isset($seen[$instanceKey])) {
-                    throw new \RuntimeException("duo: widget instance '$instanceKey' is assigned to more than one sidebar");
+                    throw new \RuntimeException("wprism: widget instance '$instanceKey' is assigned to more than one sidebar");
                 }
                 $seen[$instanceKey] = true;
                 $settings = $options[$type][$local] ?? null;
@@ -210,17 +210,17 @@ final class SidebarState {
                     // equal and leave native residue behind. Capture and
                     // unowned sidebars still refuse.
                     if (self::canonical_owns_sidebar($canonicalTree, $sidebar)) {
-                        $uuid = Uuid::v5(Uuid::NAMESPACE_DUO, "unmanaged-widget:$type:$local");
+                        $uuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, "unmanaged-widget:$type:$local");
                         $widgets[] = [
                             'uuid' => $uuid,
                             'type' => $type,
-                            'settings' => (object) ['_duo_unmanaged' => true],
+                            'settings' => (object) ['_wprism_unmanaged' => true],
                         ];
                         $warnings[] = "sidebar '$sidebar' has contentless declared widget residue '$instanceKey'; "
                             . 'retained as deterministic target-only deletion evidence because the compiled repository owns the complete sidebar';
                         continue;
                     }
-                    throw new \RuntimeException("duo: $instanceKey is absent from option widget_$type or is not a settings object");
+                    throw new \RuntimeException("wprism: $instanceKey is absent from option widget_$type or is not a settings object");
                 }
                 $kind = self::kind($type);
                 $uuid = Ledger::uuid_for($local, $kind);
@@ -238,7 +238,7 @@ final class SidebarState {
                 }
                 if ($strictReadOnly && $uuid === null) {
                     throw new \RuntimeException(
-                        "duo: refresh export refused — widget '$instanceKey' has no durable ledger identity; "
+                        "wprism: refresh export refused — widget '$instanceKey' has no durable ledger identity; "
                         . 'run the existing capture/identity recovery gate before exporting production'
                     );
                 }
@@ -252,8 +252,8 @@ final class SidebarState {
                 if ($uuid === null) {
                     // Snapshot-only marker: makes fresh target defaults visible
                     // in plan without claiming durable identity for them.
-                    $uuid = Uuid::v5(Uuid::NAMESPACE_DUO, "unmanaged-widget:$type:$local");
-                    $portable = ['_duo_unmanaged' => true] + $portable;
+                    $uuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, "unmanaged-widget:$type:$local");
+                    $portable = ['_wprism_unmanaged' => true] + $portable;
                 }
                 $widgets[] = ['uuid' => $uuid, 'type' => $type, 'settings' => (object) $portable];
             }
@@ -266,7 +266,7 @@ final class SidebarState {
         foreach (array_keys($requested) as $instanceKey) {
             if (!isset($seen[$instanceKey])) {
                 throw new \RuntimeException(
-                    'duo: portable block widget reference is stale or absent from sidebars_widgets ('
+                    'wprism: portable block widget reference is stale or absent from sidebars_widgets ('
                     . self::identity_fingerprint($instanceKey) . ')'
                 );
             }
@@ -342,10 +342,10 @@ final class SidebarState {
         if (!is_array($preflight)
             || !array_is_list($preflight)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: bounded widget option size preflight failed');
+            throw new \RuntimeException('wprism: bounded widget option size preflight failed');
         }
         if (count($preflight) > self::MAX_WIDGET_FAMILIES) {
-            throw new \RuntimeException('duo: widget option family exceeds the bounded row limit');
+            throw new \RuntimeException('wprism: widget option family exceeds the bounded row limit');
         }
         $expected = [];
         $aggregateBytes = 0;
@@ -354,21 +354,21 @@ final class SidebarState {
                 || array_keys($row) !== ['option_name', 'option_value_bytes', 'option_value_sha256']
                 || !is_string($row['option_name'] ?? null)) {
                 throw new \RuntimeException(
-                    "duo: widget option size preflight returned a malformed row at bounded position $position"
+                    "wprism: widget option size preflight returned a malformed row at bounded position $position"
                 );
             }
             self::assert_option_name($row['option_name'], 'widget option family');
             if (!str_starts_with($row['option_name'], 'widget_')) {
-                throw new \RuntimeException('duo: widget option family contains a collation alias');
+                throw new \RuntimeException('wprism: widget option family contains a collation alias');
             }
             $valueBytes = self::canonical_size($row['option_value_bytes'] ?? null);
             $valueHash = self::canonical_sha256($row['option_value_sha256'] ?? null);
             if ($valueBytes === null || $valueHash === null || $valueBytes > self::MAX_OPTION_VALUE_BYTES) {
-                throw new \RuntimeException('duo: widget option family exceeds the bounded value frontier');
+                throw new \RuntimeException('wprism: widget option family exceeds the bounded value frontier');
             }
             $folded = strtolower($row['option_name']);
             if (isset($expected[$folded])) {
-                throw new \RuntimeException('duo: widget option family contains duplicate/collation-alias rows');
+                throw new \RuntimeException('wprism: widget option family contains duplicate/collation-alias rows');
             }
             $expected[$folded] = [
                 'name' => $row['option_name'],
@@ -377,7 +377,7 @@ final class SidebarState {
             ];
             $aggregateBytes += strlen($row['option_name']) + $valueBytes;
             if ($aggregateBytes > self::MAX_WIDGET_FAMILY_BYTES) {
-                throw new \RuntimeException('duo: widget option family exceeds the bounded aggregate frontier');
+                throw new \RuntimeException('wprism: widget option family exceeds the bounded aggregate frontier');
             }
         }
         $wpdb->last_error = '';
@@ -390,7 +390,7 @@ final class SidebarState {
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== ''
             || count($rows) !== count($preflight)) {
-            throw new \RuntimeException('duo: bounded widget option read failed or changed after size preflight');
+            throw new \RuntimeException('wprism: bounded widget option read failed or changed after size preflight');
         }
         $out = [];
         foreach ($rows as $position => $row) {
@@ -399,7 +399,7 @@ final class SidebarState {
                 || !is_string($row['option_name'] ?? null)
                 || !is_string($row['option_value'] ?? null)) {
                 throw new \RuntimeException(
-                    "duo: bounded widget option read returned a malformed row at position $position"
+                    "wprism: bounded widget option read returned a malformed row at position $position"
                 );
             }
             $name = $row['option_name'];
@@ -408,12 +408,12 @@ final class SidebarState {
                 || !hash_equals($descriptor['name'], $name)
                 || $descriptor['bytes'] !== strlen($row['option_value'])
                 || !hash_equals($descriptor['sha256'], hash('sha256', $row['option_value']))) {
-                throw new \RuntimeException('duo: widget option row identity/length changed after size preflight');
+                throw new \RuntimeException('wprism: widget option row identity/length changed after size preflight');
             }
             $type = substr($name, 7);
             $instances = self::decode_widget_family($name, $row['option_value']);
             if ($instances && !isset($declared[$type]) && $scanUndeclared) {
-                // DUO-3264: the deliberate-exclusion escape hatch every
+                // issue #3264: the deliberate-exclusion escape hatch every
                 // other loud gate in this engine already has (options.
                 // <name>=runtime/env is the standing pattern this codebase
                 // uses to record "acknowledged, not portable" — see
@@ -438,11 +438,11 @@ final class SidebarState {
                     continue;
                 }
                 throw new \RuntimeException(
-                    "duo: widget option '$name' contains instances but type '$type' is undeclared -- either add "
+                    "wprism: widget option '$name' contains instances but type '$type' is undeclared -- either add "
                     . "\"$type\" to a pinned manifest's widgets{} grammar (see "
                     . "platform/adapter-library/core/manifest.json's "
                     . 'widgets.block/nav_menu/text for the shape) if its settings should be portable, or declare it '
-                    . "a deliberate exclusion (wp duo classify --set='options:$name=runtime') if not"
+                    . "a deliberate exclusion (wp wprism classify --set='options:$name=runtime') if not"
                 );
             }
             if (isset($declared[$type])) {
@@ -466,14 +466,14 @@ final class SidebarState {
     private static function decode_sidebars_option(string $raw): array {
         $value = PlainData::decode($raw, 'option sidebars_widgets');
         if (!is_array($value)) {
-            throw new \RuntimeException('duo: option sidebars_widgets is not an array');
+            throw new \RuntimeException('wprism: option sidebars_widgets is not an array');
         }
         if (count($value) > self::MAX_SIDEBARS + 2) {
-            throw new \RuntimeException('duo: option sidebars_widgets exceeds the bounded sidebar limit');
+            throw new \RuntimeException('wprism: option sidebars_widgets exceeds the bounded sidebar limit');
         }
         if (array_key_exists('array_version', $value)
             && (!is_int($value['array_version']) || $value['array_version'] !== 3)) {
-            throw new \RuntimeException('duo: option sidebars_widgets has an invalid array_version; expected integer 3');
+            throw new \RuntimeException('wprism: option sidebars_widgets has an invalid array_version; expected integer 3');
         }
         $assignments = 0;
         $seen = [];
@@ -482,27 +482,27 @@ final class SidebarState {
                 continue;
             }
             if (!is_string($sidebar)) {
-                throw new \RuntimeException('duo: option sidebars_widgets contains a non-string sidebar identity');
+                throw new \RuntimeException('wprism: option sidebars_widgets contains a non-string sidebar identity');
             }
             self::assert_sidebar_name($sidebar);
             if (!is_array($keys) || !array_is_list($keys)) {
-                throw new \RuntimeException('duo: option sidebars_widgets contains a malformed assignment list');
+                throw new \RuntimeException('wprism: option sidebars_widgets contains a malformed assignment list');
             }
             $assignments += count($keys);
             if ($assignments > self::MAX_SIDEBAR_ASSIGNMENTS) {
-                throw new \RuntimeException('duo: option sidebars_widgets exceeds the bounded assignment limit');
+                throw new \RuntimeException('wprism: option sidebars_widgets exceeds the bounded assignment limit');
             }
             foreach ($keys as $position => $instanceKey) {
                 if (!is_string($instanceKey) || self::parse_widget_instance_key($instanceKey) === null) {
                     throw new \RuntimeException(
-                        'duo: option sidebars_widgets sidebar identity fingerprint '
+                        'wprism: option sidebars_widgets sidebar identity fingerprint '
                         . self::identity_fingerprint($sidebar)
                         . " has a malformed widget assignment at position $position"
                     );
                 }
                 if (isset($seen[$instanceKey])) {
                     throw new \RuntimeException(
-                        'duo: option sidebars_widgets assigns one widget instance more than once ('
+                        'wprism: option sidebars_widgets assigns one widget instance more than once ('
                         . self::identity_fingerprint($instanceKey) . ')'
                     );
                 }
@@ -527,10 +527,10 @@ final class SidebarState {
     private static function decode_widget_family_state(string $name, string $raw): array {
         $value = PlainData::decode($raw, "option '$name'");
         if (!is_array($value)) {
-            throw new \RuntimeException("duo: widget option '$name' is not a multi-instance array");
+            throw new \RuntimeException("wprism: widget option '$name' is not a multi-instance array");
         }
         if (count($value) > self::MAX_WIDGET_INSTANCES_PER_FAMILY + 1) {
-            throw new \RuntimeException("duo: widget option '$name' exceeds the bounded instance limit");
+            throw new \RuntimeException("wprism: widget option '$name' exceeds the bounded instance limit");
         }
         $instances = [];
         $marker = null;
@@ -538,7 +538,7 @@ final class SidebarState {
         foreach ($value as $key => $settings) {
             if ((string) $key === '_multiwidget') {
                 if (!in_array($settings, [1, '1'], true)) {
-                    throw new \RuntimeException("duo: widget option '$name' has an invalid _multiwidget marker");
+                    throw new \RuntimeException("wprism: widget option '$name' has an invalid _multiwidget marker");
                 }
                 $marker = $settings;
                 $order[] = '_multiwidget';
@@ -546,13 +546,13 @@ final class SidebarState {
             }
             $local = self::canonical_positive_decimal($key);
             if ($local === null || !is_array($settings)) {
-                throw new \RuntimeException("duo: widget option '$name' is not a valid _multiwidget family shape");
+                throw new \RuntimeException("wprism: widget option '$name' is not a valid _multiwidget family shape");
             }
             if (count($settings) > self::MAX_WIDGET_SETTINGS_PER_INSTANCE) {
-                throw new \RuntimeException("duo: widget option '$name' exceeds the bounded settings limit");
+                throw new \RuntimeException("wprism: widget option '$name' exceeds the bounded settings limit");
             }
             if (array_key_exists($local, $instances)) {
-                throw new \RuntimeException("duo: widget option '$name' contains duplicate canonical instance identities");
+                throw new \RuntimeException("wprism: widget option '$name' contains duplicate canonical instance identities");
             }
             $instances[$local] = $settings;
             $order[] = $local;
@@ -612,7 +612,7 @@ final class SidebarState {
     }
 
     /**
-     * DUO-3318 review (S4): the DECLARATION grammar is Policy's, for every
+     * issue #3318 review (S4): the DECLARATION grammar is Policy's, for every
      * reader — one implementation, exactly as Snapshot's schema assertions
      * delegate their pure half to Policy::assert_table_grammar(). This file
      * had its own hand-copy of the same five rules, reachable only once a
@@ -622,7 +622,7 @@ final class SidebarState {
      * `codec`/`ref` all passed here and were refused by the load-time copy.
      *
      * What stays is the one check that is genuinely this file's: the derived
-     * `widget_<type>` ledger kind has to FIT duo_map.id_kind, which is
+     * `widget_<type>` ledger kind has to FIT wprism_map.id_kind, which is
      * Ledger's schema rather than the manifest's grammar (and the reason
      * Policy's copy cannot make it — naming Ledger there would drag a second
      * engine class into a file whose whole point is that it loads alone).
@@ -632,8 +632,8 @@ final class SidebarState {
             Policy::assert_widget_grammar((string) $type, $rule);
             if (strlen(self::kind((string) $type)) > Ledger::ID_KIND_WIDTH) {
                 throw new \RuntimeException(
-                    "duo: over-budget manifest widget type '$type' — its derived identity kind '"
-                    . self::kind((string) $type) . "' exceeds duo_map.id_kind (VARCHAR("
+                    "wprism: over-budget manifest widget type '$type' — its derived identity kind '"
+                    . self::kind((string) $type) . "' exceeds wprism_map.id_kind (VARCHAR("
                     . Ledger::ID_KIND_WIDTH . '))'
                 );
             }
@@ -654,7 +654,7 @@ final class SidebarState {
         if ($unknown) {
             sort($unknown, SORT_STRING);
             throw new \RuntimeException(
-                "duo: widget_$type in sidebar '$sidebar' has undeclared setting(s): " . implode(', ', $unknown)
+                "wprism: widget_$type in sidebar '$sidebar' has undeclared setting(s): " . implode(', ', $unknown)
             );
         }
         $out = [];
@@ -663,13 +663,13 @@ final class SidebarState {
             $secret = empty($rule['allow_secret']) ? Secrets::hard_match_deep($value) : null;
             if ($secret !== null) {
                 throw new \RuntimeException(
-                    "duo: widget_$type setting '$key' in sidebar '$sidebar' contains a hard secret ($secret); "
+                    "wprism: widget_$type setting '$key' in sidebar '$sidebar' contains a hard secret ($secret); "
                     . 'refusing capture without allow_secret=true'
                 );
             }
             if (($rule['codec'] ?? '') === 'blocks') {
                 if (!is_string($value)) {
-                    throw new \RuntimeException("duo: widget_$type setting '$key' must be block-content text");
+                    throw new \RuntimeException("wprism: widget_$type setting '$key' must be block-content text");
                 }
                 $out[$key] = Blocks::capture_rewrite(
                     $value, $policy, $tokens, $forceUnresolvedRefs, "sidebar '$sidebar'"
@@ -679,7 +679,7 @@ final class SidebarState {
                 $id = self::captured_reference_id($value, $type, (string) $key, $sidebar, $kind);
                 $out[$key] = $id === null ? null : ($tokens->id_to_token($id, $kind)
                     ?? throw new \RuntimeException(
-                        "duo: widget_$type setting '$key' references an unmanaged $kind row"
+                        "wprism: widget_$type setting '$key' references an unmanaged $kind row"
                     ));
             } else {
                 $out[$key] = self::rewrite_strings($value, fn(string $s): string => $tokens->tokenize_text($s));
@@ -689,7 +689,7 @@ final class SidebarState {
     }
 
     private static function apply_settings(string $type, array $settings, array $decl, Policy $policy, Tokens $tokens): array {
-        unset($settings['_duo_unmanaged']);
+        unset($settings['_wprism_unmanaged']);
         $out = [];
         foreach ($settings as $key => $value) {
             $rule = (array) (($decl['settings'] ?? [])[$key] ?? []);
@@ -704,7 +704,7 @@ final class SidebarState {
                 if (!is_string($value)
                     || preg_match('/^\{\{' . preg_quote($kind, '/') . ':[0-9a-f-]{36}\}\}$/D', $value) !== 1) {
                     throw new \RuntimeException(
-                        "duo: widget_$type setting '$key' must be null or one canonical {{"
+                        "wprism: widget_$type setting '$key' must be null or one canonical {{"
                         . $kind . ':uuid}} token'
                     );
                 }
@@ -743,7 +743,7 @@ final class SidebarState {
             return (int) $value;
         }
         throw new \RuntimeException(
-            "duo: widget_$type setting '$key' in sidebar '$sidebar' must be an exact positive $kind id "
+            "wprism: widget_$type setting '$key' in sidebar '$sidebar' must be an exact positive $kind id "
             . 'or the native unset value'
         );
     }
@@ -860,7 +860,7 @@ final class SidebarState {
             $type = (string) $widget['type'];
             $uuid = (string) $widget['uuid'];
             $local = Ledger::id_for($uuid, self::kind($type));
-            if ($local === null) throw new \RuntimeException("duo: widget $uuid has no allocated $type identity");
+            if ($local === null) throw new \RuntimeException("wprism: widget $uuid has no allocated $type identity");
             $options[$type][$local] = self::apply_settings(
                 $type, (array) $widget['settings'], $declared[$type], $policy, $tokens
             );
@@ -1034,7 +1034,7 @@ final class SidebarState {
             if ($type !== null && isset($policy->widget_types()[$type])
                 && !isset($options[$type][$row['local_id']])) {
                 Db::query($wpdb->prepare(
-                    "DELETE FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
+                    "DELETE FROM {$wpdb->prefix}wprism_map WHERE uuid = %s AND id_kind = %s",
                     $row['uuid'], $row['id_kind']
                 ), 'ledger prune dead widget identity');
             }
@@ -1050,7 +1050,7 @@ final class SidebarState {
                 $kind = self::kind((string) ($widget['type'] ?? ''));
                 if (!isset($observedDeleted[$uuid]) && Ledger::id_for($uuid, $kind) === null) {
                     throw new \RuntimeException(
-                        "duo: mapped widget identity $uuid ($kind) from " . basename($file)
+                        "wprism: mapped widget identity $uuid ($kind) from " . basename($file)
                         . ' is missing from the ledger; restore identity-export before capture'
                     );
                 }
@@ -1074,7 +1074,7 @@ final class SidebarState {
                 [$type, $local] = $parsed;
                 if (isset($declared[$type]) && Ledger::uuid_for($local, self::kind($type)) === null) {
                     throw new \RuntimeException(
-                        "duo: cannot export identity sidecar: owned widget '$instanceKey' in sidebar '$sidebar' "
+                        "wprism: cannot export identity sidecar: owned widget '$instanceKey' in sidebar '$sidebar' "
                         . 'has no ledger identity; capture it first or restore the missing sidecar'
                     );
                 }
@@ -1087,7 +1087,7 @@ final class SidebarState {
         $row = self::read_exact_option($name, 'widget identity witness');
         $value = $row === null ? null : PlainData::decode($row['option_value'], "option widget_$type");
         if (!is_array($value) || !isset($value[$local]) || !is_array($value[$local])) {
-            throw new \RuntimeException("duo: widget identity row widget_$type:$local is missing");
+            throw new \RuntimeException("wprism: widget identity row widget_$type:$local is missing");
         }
         return hash('sha256', Canon::encode(['kind' => self::kind($type), 'local_id' => $local, 'settings' => $value[$local]]));
     }
@@ -1106,10 +1106,10 @@ final class SidebarState {
         if (!is_array($preflight)
             || !array_is_list($preflight)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $where size preflight failed");
+            throw new \RuntimeException("wprism: $where size preflight failed");
         }
         if (count($preflight) > 1) {
-            throw new \RuntimeException("duo: $where found duplicate/collation-alias option rows");
+            throw new \RuntimeException("wprism: $where found duplicate/collation-alias option rows");
         }
         if ($preflight === []) {
             return null;
@@ -1123,7 +1123,7 @@ final class SidebarState {
             || $bytes === null
             || self::canonical_sha256($size['option_value_sha256'] ?? null) === null
             || $bytes > self::MAX_OPTION_VALUE_BYTES) {
-            throw new \RuntimeException("duo: $where size/identity preflight is malformed or over the bounded frontier");
+            throw new \RuntimeException("wprism: $where size/identity preflight is malformed or over the bounded frontier");
         }
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -1135,7 +1135,7 @@ final class SidebarState {
             || !array_is_list($rows)
             || count($rows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $where exact bounded read failed or changed after preflight");
+            throw new \RuntimeException("wprism: $where exact bounded read failed or changed after preflight");
         }
         $row = $rows[0];
         $expectedHash = self::canonical_sha256($size['option_value_sha256'] ?? null);
@@ -1146,7 +1146,7 @@ final class SidebarState {
             || !hash_equals($name, $row['option_name'])
             || strlen($row['option_value']) !== $bytes
             || !hash_equals((string) $expectedHash, hash('sha256', $row['option_value']))) {
-            throw new \RuntimeException("duo: $where exact bounded row changed after preflight");
+            throw new \RuntimeException("wprism: $where exact bounded row changed after preflight");
         }
         return ['option_value' => $row['option_value']];
     }
@@ -1158,7 +1158,7 @@ final class SidebarState {
             || !is_int($characters)
             || $characters > self::MAX_OPTION_NAME_CHARACTERS
             || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
-            throw new \RuntimeException("duo: $where option identity is invalid or over the schema frontier");
+            throw new \RuntimeException("wprism: $where option identity is invalid or over the schema frontier");
         }
     }
 
@@ -1210,7 +1210,7 @@ final class SidebarState {
             || $characters > self::MAX_SIDEBAR_NAME_CHARACTERS
             || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
             throw new \RuntimeException(
-                'duo: option sidebars_widgets contains an invalid sidebar identity ('
+                'wprism: option sidebars_widgets contains an invalid sidebar identity ('
                 . self::identity_fingerprint($name) . ')'
             );
         }
@@ -1223,7 +1223,7 @@ final class SidebarState {
     /** @return ?array{option_name:string,option_value:string,autoload:string} */
     private static function lock_authored_option_row(string $name, string $purpose): ?array {
         if (self::$lockOptionRow === null) {
-            throw new \RuntimeException("duo: $purpose requires the authored sidebar transaction");
+            throw new \RuntimeException("wprism: $purpose requires the authored sidebar transaction");
         }
         $row = (self::$lockOptionRow)($name, $purpose);
         if ($row !== null && (!is_array($row)
@@ -1231,14 +1231,14 @@ final class SidebarState {
             || !is_string($row['option_name'])
             || !is_string($row['option_value'])
             || !is_string($row['autoload']))) {
-            throw new \RuntimeException("duo: $purpose returned a malformed locked option row");
+            throw new \RuntimeException("wprism: $purpose returned a malformed locked option row");
         }
         return $row;
     }
 
     private static function queue_authored_option(string $name, string $purpose): void {
         if (self::$queueOption === null) {
-            throw new \RuntimeException("duo: $purpose requires the authored sidebar transaction");
+            throw new \RuntimeException("wprism: $purpose requires the authored sidebar transaction");
         }
         (self::$queueOption)($name, $purpose);
     }
@@ -1250,7 +1250,7 @@ final class SidebarState {
         string $purpose
     ): void {
         if (self::$assertOptionRow === null) {
-            throw new \RuntimeException("duo: $purpose requires the authored sidebar transaction");
+            throw new \RuntimeException("wprism: $purpose requires the authored sidebar transaction");
         }
         (self::$assertOptionRow)($name, $value, $autoload, $purpose);
     }

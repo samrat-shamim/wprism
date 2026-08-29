@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Direct production loads need the real resolved policy, while the CLI
 // refusal harness deliberately preloads a Policy stub. Preserve that closed

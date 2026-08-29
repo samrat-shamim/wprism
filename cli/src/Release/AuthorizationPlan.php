@@ -1,23 +1,23 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 require_once dirname(__DIR__) . '/Plan/PlanContract.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * The frozen authorization plan — `duo-authorization-plan/v1` (round-3 MUP
+ * The frozen authorization plan — `wprism-authorization-plan/v1` (round-3 MUP
  * §2.3, §2.3.1; product spec *Release and verify*).
  *
  * The spec's requirement is a sequencing one before it is a document one:
  * *"Before any production-visible code, data, filesystem, lifecycle, or
- * external-effect mutation, Duo must durably bind and present an
+ * external-effect mutation, WPrism must durably bind and present an
  * authorization plan"*. Four mechanics implement that, and each exists
  * because the obvious cheaper version is wrong:
  *
@@ -59,12 +59,12 @@ use Duo\CommandRefusalException;
  *    the mutation gate" could not move the comparison at all. It digests the
  *    per-MANIFEST condition vector (`conditionVector()`), because that is the
  *    only projection of a condition the gate can recompute: the gate re-reads
- *    one `wp duo capabilities` document and has no surface join.
+ *    one `wp wprism capabilities` document and has no surface join.
  *    `validate()` deliberately does NOT require the key, so a plan frozen by
- *    an older build still reads back for `duo verify --plan=<digest>`; a
+ *    an older build still reads back for `wprism verify --plan=<digest>`; a
  *    missing key compares `''` at the gate and refuses loudly as
  *    `plan_changed` rather than being defaulted away.
- *  - **`recovery_profile.claim`** — the `duo-recovery-claim/v1` array,
+ *  - **`recovery_profile.claim`** — the `wprism-recovery-claim/v1` array,
  *    embedded verbatim instead of flattened into `restores` /
  *    `does_not_restore` / `writer_exclusion` / `maximum_loss_boundary`.
  *    §2.5 requires the claim printed at recovery to be the claim printed at
@@ -81,7 +81,7 @@ use Duo\CommandRefusalException;
  *    `--plan-only` runs a second apart would name one decision twice.
  *    `digest()` therefore excludes this key exactly as it excludes
  *    `frozen_at`, and both printings put it next to the claim instead of in
- *    it (`AuthorizationPlanRenderer::recoverySection()`, `duo recover`).
+ *    it (`AuthorizationPlanRenderer::recoverySection()`, `wprism recover`).
  *
  * ## Why Release never references a Recovery class
  *
@@ -92,10 +92,10 @@ use Duo\CommandRefusalException;
  * `RecoveryProfileSelection` and hands its result down as data.
  */
 final class AuthorizationPlan {
-    public const FORMAT = 'duo-authorization-plan/v1';
+    public const FORMAT = 'wprism-authorization-plan/v1';
 
     /** MUP §3.1: frozen plans live in the site repository, committed. */
-    public const DIRECTORY = '.duo/releases';
+    public const DIRECTORY = '.wprism/releases';
 
     /**
      * The closed code lifecycle vocabulary a release may name.
@@ -103,7 +103,7 @@ final class AuthorizationPlan {
      * `retire` and `activate` are the engine's own phases
      * (agent/src/Promotion/LifecycleJournal.php, which accepts exactly
      * `retire` then `activate`); `deploy`, `finalize` and `verify` are the
-     * host-side code-release steps `duo deploy` / `duo release` drive
+     * host-side code-release steps `wprism deploy` / `wprism release` drive
      * (`code-preflight`, `code-stage`, `code-finalize`, `verify-canonical`).
      * §2.3.1's own example lists `["retire", "activate", "verify"]`.
      *
@@ -169,10 +169,10 @@ final class AuthorizationPlan {
      * @param array<string,mixed> $inputs closed keys:
      *   - `environment` (string) the target environment name;
      *   - `frozen_at` (string) canonical UTC seconds, supplied by the caller;
-     *   - `plan` (array) the complete `wp duo plan --format=json` envelope —
+     *   - `plan` (array) the complete `wp wprism plan --format=json` envelope —
      *     validated through `PlanContract::requireComplete()`, because every
      *     count below is only trustworthy if the bucket exists;
-     *   - `contract` (?array) a validated `duo-application-contract/v2`, or
+     *   - `contract` (?array) a validated `wprism-application-contract/v2`, or
      *     null when the site has none;
      *   - `projection` (list<array>) the `projection.json` surface rows for
      *     the surfaces in scope, each `{id, label?, operations: {release: …}}`;
@@ -248,9 +248,9 @@ final class AuthorizationPlan {
      *
      * The two excluded clock values are excluded for one reason: the digest
      * identifies the AUTHORIZATION, not the moment it was printed. Re-running
-     * `duo release --plan-only` twice against an unchanged target must
-     * produce the same identity, or the `.duo/releases/` directory fills with
-     * duplicates of one decision and `duo verify --plan=<digest>` has no
+     * `wprism release --plan-only` twice against an unchanged target must
+     * produce the same identity, or the `.wprism/releases/` directory fills with
+     * duplicates of one decision and `wprism verify --plan=<digest>` has no
      * stable name to cite. Excluding `frozen_at` alone was not enough while
      * the embedded recovery claim interpolated the checkpoint instant into
      * its own loss-boundary sentence and digested it: the plan then changed
@@ -277,7 +277,7 @@ final class AuthorizationPlan {
         return 'sha256:' . hash('sha256', Canon::encode($document));
     }
 
-    /** Canonical bytes, exactly as they land in `.duo/releases/<digest>.json`. */
+    /** Canonical bytes, exactly as they land in `.wprism/releases/<digest>.json`. */
     public static function encode(array $document): string {
         return Canon::encode($document);
     }
@@ -341,7 +341,7 @@ final class AuthorizationPlan {
             // BECAUSE it is outside the digest. A hand-edited plan cannot be
             // caught here by the digest mismatch every other field enjoys, so
             // the shape gate is the only thing between a garbage value and
-            // the line `duo recover` prints beside the claim.
+            // the line `wprism recover` prints beside the claim.
             throw self::refuse(
                 'authorization_plan_shape_invalid',
                 "the authorization plan's recovery checkpoint_at is neither a timestamp nor absent"
@@ -356,7 +356,7 @@ final class AuthorizationPlan {
      * FILE is named `<hex>.json`: a colon is legal on POSIX yet breaks on
      * Windows checkouts and in enough tooling to be a poor identifier for a
      * committed artifact. Both spellings are accepted here so a caller may
-     * pass whatever `duo verify --plan=` was given.
+     * pass whatever `wprism verify --plan=` was given.
      */
     public static function path(string $siteRepo, string $planDigest): string {
         $hex = str_starts_with($planDigest, 'sha256:') ? substr($planDigest, 7) : $planDigest;
@@ -405,11 +405,11 @@ final class AuthorizationPlan {
         if (!is_dir($directory) && !@mkdir($directory, 0777, true) && !is_dir($directory)) {
             throw self::refuse(
                 'release_directory_unwritable',
-                'the .duo/releases directory could not be created',
+                'the .wprism/releases directory could not be created',
                 'check write permission on the site repository working tree'
             );
         }
-        $temporary = @tempnam($directory, '.duo-release-');
+        $temporary = @tempnam($directory, '.wprism-release-');
         if (!is_string($temporary) || $temporary === '') {
             throw self::refuse(
                 'release_plan_write_failed',
@@ -430,7 +430,7 @@ final class AuthorizationPlan {
                 throw self::refuse(
                     'release_plan_write_failed',
                     'the authorization plan could not be published atomically',
-                    'check write permission on the .duo/releases directory'
+                    'check write permission on the .wprism/releases directory'
                 );
             }
             $temporary = null;
@@ -458,7 +458,7 @@ final class AuthorizationPlan {
             throw self::refuse(
                 'release_plan_unreadable',
                 'a frozen authorization plan could not be read',
-                'check the file permissions on the .duo/releases directory'
+                'check the file permissions on the .wprism/releases directory'
             );
         }
         $decoded = json_decode($raw, true);
@@ -466,7 +466,7 @@ final class AuthorizationPlan {
             throw self::refuse(
                 'release_plan_unreadable',
                 'a frozen authorization plan is not a JSON object',
-                'restore .duo/releases from git, or re-run duo release --plan-only to produce a fresh plan'
+                'restore .wprism/releases from git, or re-run wprism release --plan-only to produce a fresh plan'
             );
         }
         self::validate($decoded);
@@ -534,7 +534,7 @@ final class AuthorizationPlan {
             throw new CommandRefusalException(
                 'plan_changed',
                 'the target changed after the authorization plan was frozen, so that authorization no longer applies',
-                're-run duo release to freeze a fresh authorization plan against the current target, review it, '
+                're-run wprism release to freeze a fresh authorization plan against the current target, review it, '
                     . 'and confirm again',
                 [['changed_fields' => $changed]]
             );
@@ -546,7 +546,7 @@ final class AuthorizationPlan {
      *
      * Per manifest, not per surface, and that is forced rather than chosen:
      * the mutation gate re-observes conditions by re-reading ONE
-     * `wp duo capabilities` document (`AssessCommand::capabilityReport()`),
+     * `wp wprism capabilities` document (`AssessCommand::capabilityReport()`),
      * which knows manifests and knows nothing about which surface a claim was
      * joined to — `SurfaceCatalog::catalog()` needs the inventory and the
      * contract to make that join, and running it again at the gate would be a
@@ -812,7 +812,7 @@ final class AuthorizationPlan {
         return new CommandRefusalException(
             $code,
             $message,
-            'nothing was written. Re-run duo assess to re-observe the target, then duo release to freeze a '
+            'nothing was written. Re-run wprism assess to re-observe the target, then wprism release to freeze a '
                 . 'fresh authorization plan against the conditions that hold now. Do not retry this release: it '
                 . 'was authorized against a condition the target no longer reports.',
             $diagnostics
@@ -847,7 +847,7 @@ final class AuthorizationPlan {
             }
             $readiness = (string) ($operation['readiness'] ?? '');
             if (self::isPreservedLocal($operation)) {
-                // Not in this release's scope: Duo neither copies nor writes
+                // Not in this release's scope: WPrism neither copies nor writes
                 // a preserve-local surface, so its `Unsupported` (spec's
                 // orders row) is the boundary the release respects, not a
                 // gap the release must refuse over.
@@ -858,7 +858,7 @@ final class AuthorizationPlan {
                     'release_surface_not_releasable',
                     "a surface in scope is $readiness for release",
                     (string) ($operation['remediation'] ?? '')
-                        ?: 'resolve the surface gap this assessment names, then re-run duo assess and duo release',
+                        ?: 'resolve the surface gap this assessment names, then re-run wprism assess and wprism release',
                     self::gapActionFor($row, $operation),
                     [['surface' => $id, 'readiness' => $readiness]]
                 );
@@ -899,7 +899,7 @@ final class AuthorizationPlan {
                     . 'contract declares no reviewed live external effect for that window',
                 'add an external_effects[] entry to the contract naming the ' . self::LIFECYCLE_WINDOW_SURFACE
                     . ' surfaces with containment "live", an explicit effect_recovery_semantics value and a '
-                    . 'reviewed reason, then accept the proposal and re-run duo release',
+                    . 'reviewed reason, then accept the proposal and re-run wprism release',
                 'declare in contract',
                 [['lifecycle_phases' => array_values(array_intersect($lifecycle, self::CODE_LIFECYCLE_PHASES))]]
             );
@@ -910,7 +910,7 @@ final class AuthorizationPlan {
             $refusals[] = self::refusalSpec(
                 'release_deletes_not_authorized',
                 'this release plan deletes owned entities and --with-deletes was not given',
-                're-run duo release --with-deletes once the deletions in the plan are the deletions you intend',
+                're-run wprism release --with-deletes once the deletions in the plan are the deletions you intend',
                 // Deliberately no gap action: this is an authorization flag,
                 // not an assessment gap, and §2.1's set is not a place to
                 // put "type another flag".
@@ -950,7 +950,7 @@ final class AuthorizationPlan {
                 throw new \InvalidArgumentException("authorization plan inputs need a non-empty $key");
             }
         }
-        $plan = PlanContract::requireComplete($inputs['plan'] ?? null, 'duo release authorization plan');
+        $plan = PlanContract::requireComplete($inputs['plan'] ?? null, 'wprism release authorization plan');
         $contract = $inputs['contract'] ?? null;
         if ($contract !== null && !is_array($contract)) {
             throw new \InvalidArgumentException('authorization plan contract must be an array or null');
@@ -1023,7 +1023,7 @@ final class AuthorizationPlan {
      * `ContractProjection::generate()` already stores
      * `ProjectionVocabulary::gapAction()`'s answer on every operation block,
      * so the projection's own word is used verbatim — a release refusal must
-     * name the action `duo assess` printed for that row, or an operator
+     * name the action `wprism assess` printed for that row, or an operator
      * would be told two different smallest-safe-next-actions for one fact.
      * The recomputation below covers a row assembled by something other than
      * `ContractProjection` (state class lives at row level, so it is folded
@@ -1223,7 +1223,7 @@ final class AuthorizationPlan {
      * `authored_state` and `external` come from documents the operator
      * reviewed (the scope surfaces and the contract's declarations);
      * `code` and `runtime_adjacent` come from the plan's OWN value-free
-     * `category_summary` projection (`\Duo\PlanCategorySummary`, validated
+     * `category_summary` projection (`\WPrism\PlanCategorySummary`, validated
      * here through `PlanContract::validCategorySummary()`), so this class
      * reads counts and closed identifiers and never a path, a UUID or a row
      * value. When a caller has real code paths it may pass them as
@@ -1443,7 +1443,7 @@ final class AuthorizationPlan {
     private static function refuse(
         string $code,
         string $message,
-        string $remediation = 'run duo release --plan-only to produce a fresh authorization plan and review it'
+        string $remediation = 'run wprism release --plan-only to produce a fresh authorization plan and review it'
     ): CommandRefusalException {
         return new CommandRefusalException($code, $message, $remediation);
     }

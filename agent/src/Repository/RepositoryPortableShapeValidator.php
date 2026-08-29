@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // This is a pure canonical-tree portability pass. Normal direct loads close
 // every named collaborator; focused fixtures may preload narrow doubles, so
@@ -98,7 +98,7 @@ final class RepositoryPortableShapeValidator {
                     $this->validate_meta_value($value, $rule, $path, 'meta.' . $key);
                 }
             } elseif ($entity['type'] === 'options') {
-                // DUO-3263: an interpreter-classified option's ref kind (ACF's
+                // issue #3263: an interpreter-classified option's ref kind (ACF's
                 // options-page fields) needs the same document-sourced
                 // sibling map meta_rule_for_post() above already gets from
                 // $meta — options have no single owning entity, so this is

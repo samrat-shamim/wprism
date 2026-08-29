@@ -3,7 +3,7 @@
 # lifecycle is the WordPress host plus the managed theme transition exercised
 # by conformance/run.sh. This closes the host half against two exact core image
 # digests: in-place upgrade, current-version reinstall, exact rollback and
-# restore, stale core-file pruning, wp-content/config preservation, Duo ledger
+# restore, stale core-file pruning, wp-content/config preservation, WPrism ledger
 # survival, apply/recapture after every transition, and public HTTP behavior.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> sandbox/
@@ -29,14 +29,14 @@ OLDER_IMAGE='wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff
 CURRENT_IMAGE='wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf'
 
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CORE_LIFECYCLE_PAIR '$PAIR'"
-[ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
-  || fail 'DUO_EXPECTED_SOURCE_SHA is required: lifecycle evidence must bind the exact clean candidate'
+[ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ] \
+  || fail 'WPRISM_EXPECTED_SOURCE_SHA is required: lifecycle evidence must bind the exact clean candidate'
 command -v jq >/dev/null || fail 'jq is required'
 command -v curl >/dev/null || fail 'curl is required'
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_WP_IMAGE="$OLDER_IMAGE" DUO_ARTIFACT_OFFLINE=1
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.http.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_WP_IMAGE="$OLDER_IMAGE" WPRISM_ARTIFACT_OFFLINE=1
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.http.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml)
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
@@ -61,7 +61,7 @@ wait_for_core() { # <side> <expected-version>
 
 replace_core() { # <side> <exact-image-ref> <expected-version> <transition-label>
   local side="$1" image="$2" expected="$3" label="$4"
-  local web="wp$side" cli="cli$side" container="duo-${PAIR}-wp${side}-1"
+  local web="wp$side" cli="cli$side" container="wprism-${PAIR}-wp${side}-1"
 
   "${COMPOSE[@]}" stop "$web" "$cli" >/dev/null
   docker run --rm --volumes-from "$container" --entrypoint sh "$image" -c '
@@ -94,7 +94,7 @@ sync_state() {
 recapture_matches() {
   local output
   clear_tree "$R2/state-check"
-  output=$(wp2 duo capture --repo=/siterepo --out=/siterepo/state-check 2>&1) \
+  output=$(wp2 wprism capture --repo=/siterepo --out=/siterepo/state-check 2>&1) \
     || fail "$1: target recapture failed: $output"
   ! grep -Fq 'Warning:' <<<"$output" \
     || fail "$1: target recapture returned success with a warning: $output"
@@ -105,7 +105,7 @@ recapture_matches() {
 
 source_capture() {
   local label="$1" output
-  output=$(wp1 duo capture --repo=/siterepo 2>&1) \
+  output=$(wp1 wprism capture --repo=/siterepo 2>&1) \
     || fail "$label: source capture failed: $output"
   ! grep -Fq 'Warning:' <<<"$output" \
     || fail "$label: source capture returned success with a warning: $output"
@@ -113,7 +113,7 @@ source_capture() {
 
 changed_apply() {
   local label="$1" raw output
-  raw=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
+  raw=$(wp2 wprism apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
     || fail "$label: target apply failed: $raw"
   ! grep -Fq 'Warning:' <<<"$raw" \
     || fail "$label: target apply returned success with a warning: $raw"
@@ -124,7 +124,7 @@ changed_apply() {
 
 zero_apply() {
   local label="$1" raw output
-  raw=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
+  raw=$(wp2 wprism apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
     || fail "$label: repeated apply failed: $raw"
   ! grep -Fq 'Warning:' <<<"$raw" \
     || fail "$label: repeated apply returned success with a warning: $raw"
@@ -151,10 +151,10 @@ target_fingerprint() {
       "custom_css_id" => $css_id,
       "custom_css" => $css ? $css->post_content : null,
       "target_runtime" => get_option("_wp_session_core_lifecycle_target"),
-      "ledger_canary" => \Duo\Ledger::kv_get("core_lifecycle_canary"),
-      "applied_revision" => \Duo\Ledger::kv_get("applied_revision"),
-      "map_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}duo_map"),
-      "state_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}duo_state"),
+      "ledger_canary" => \WPrism\Ledger::kv_get("core_lifecycle_canary"),
+      "applied_revision" => \WPrism\Ledger::kv_get("applied_revision"),
+      "map_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}wprism_map"),
+      "state_rows" => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}wprism_state"),
     ]);
   '
 }
@@ -194,7 +194,7 @@ bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --http --artifacts --wordpress-off
 
 for repo_dir in "$R1" "$R2"; do
   cp site-repo.gitignore.template "$repo_dir/.gitignore"
-  cp tests/fixtures/core_lifecycle_site.duo.json "$repo_dir/site.duo.json"
+  cp tests/fixtures/core_lifecycle_site.wprism.json "$repo_dir/site.wprism.json"
 done
 wp1 site empty --yes >/dev/null
 wp2 site empty --yes >/dev/null
@@ -216,13 +216,13 @@ wp2 option update _wp_session_core_lifecycle_target 'target-runtime-survives' >/
 wp2 option update blogname 'Hostile target title' >/dev/null
 source_capture 'pre-upgrade source capture'
 sync_state
-INITIAL_APPLY=$(wp2 duo apply --repo=/siterepo --default-author=admin --adopt-by-slug=posts,terms 2>&1) \
+INITIAL_APPLY=$(wp2 wprism apply --repo=/siterepo --default-author=admin --adopt-by-slug=posts,terms 2>&1) \
   || fail "initial target apply failed: $INITIAL_APPLY"
 [ "$(grep -c '^Warning:' <<<"$INITIAL_APPLY")" = 2 ] \
   && grep -Fq 'Warning: adopted env term ' <<<"$INITIAL_APPLY" \
   && grep -Fq 'Warning: native action fired: rewrite.flush (verified)' <<<"$INITIAL_APPLY" \
   || fail "initial target apply did not return exactly its two expected, asserted warnings: $INITIAL_APPLY"
-wp2 eval '\Duo\Ledger::kv_set("core_lifecycle_canary", "ledger-survives-core-replacement");' >/dev/null
+wp2 eval '\WPrism\Ledger::kv_set("core_lifecycle_canary", "ledger-survives-core-replacement");' >/dev/null
 recapture_matches 'pre-upgrade control'
 [ "$(wp2 option get _wp_session_core_lifecycle_target)" = 'target-runtime-survives' ] \
   || fail 'initial apply overwrote target-owned runtime state'
@@ -243,28 +243,28 @@ zero_apply 'post-upgrade idempotence'
 assert_public_post 'post-upgrade target'
 
 say 'same-version reinstall and residue boundary'
-WP_CONFIG_BEFORE=$(docker exec "duo-${PAIR}-wp2-1" sha256sum /var/www/html/wp-config.php | awk '{print $1}')
-HTACCESS_BEFORE=$(docker exec "duo-${PAIR}-wp2-1" sha256sum /var/www/html/.htaccess | awk '{print $1}')
-docker exec "duo-${PAIR}-wp2-1" sh -c '
-  touch /var/www/html/wp-admin/duo-stale-core-residue.php
-  printf "%s\n" operator-owned > /var/www/html/wp-content/duo-core-lifecycle-content-canary
+WP_CONFIG_BEFORE=$(docker exec "wprism-${PAIR}-wp2-1" sha256sum /var/www/html/wp-config.php | awk '{print $1}')
+HTACCESS_BEFORE=$(docker exec "wprism-${PAIR}-wp2-1" sha256sum /var/www/html/.htaccess | awk '{print $1}')
+docker exec "wprism-${PAIR}-wp2-1" sh -c '
+  touch /var/www/html/wp-admin/wprism-stale-core-residue.php
+  printf "%s\n" operator-owned > /var/www/html/wp-content/wprism-core-lifecycle-content-canary
 '
 FINGERPRINT_BEFORE=$(target_fingerprint)
 replace_core 2 "$CURRENT_IMAGE" "$CURRENT_VERSION" 'same-version reinstall'
-[ "$(docker exec "duo-${PAIR}-wp2-1" sh -c 'test ! -e /var/www/html/wp-admin/duo-stale-core-residue.php && echo absent')" = absent ] \
+[ "$(docker exec "wprism-${PAIR}-wp2-1" sh -c 'test ! -e /var/www/html/wp-admin/wprism-stale-core-residue.php && echo absent')" = absent ] \
   || fail 'same-version reinstall retained a stale file inside the core tree'
-[ "$(docker exec "duo-${PAIR}-wp2-1" cat /var/www/html/wp-content/duo-core-lifecycle-content-canary)" = operator-owned ] \
+[ "$(docker exec "wprism-${PAIR}-wp2-1" cat /var/www/html/wp-content/wprism-core-lifecycle-content-canary)" = operator-owned ] \
   || fail 'same-version reinstall removed operator-owned wp-content'
-[ "$(docker exec "duo-${PAIR}-wp2-1" sha256sum /var/www/html/wp-config.php | awk '{print $1}')" = "$WP_CONFIG_BEFORE" ] \
+[ "$(docker exec "wprism-${PAIR}-wp2-1" sha256sum /var/www/html/wp-config.php | awk '{print $1}')" = "$WP_CONFIG_BEFORE" ] \
   || fail 'same-version reinstall changed wp-config.php'
-[ "$(docker exec "duo-${PAIR}-wp2-1" sha256sum /var/www/html/.htaccess | awk '{print $1}')" = "$HTACCESS_BEFORE" ] \
+[ "$(docker exec "wprism-${PAIR}-wp2-1" sha256sum /var/www/html/.htaccess | awk '{print $1}')" = "$HTACCESS_BEFORE" ] \
   || fail 'same-version reinstall changed .htaccess'
 [ "$(target_fingerprint)" = "$FINGERPRINT_BEFORE" ] \
-  || fail 'same-version reinstall changed canonical, runtime, or Duo ledger state'
+  || fail 'same-version reinstall changed canonical, runtime, or WPrism ledger state'
 zero_apply 'post-reinstall idempotence'
 recapture_matches 'post-reinstall product path'
 assert_public_post 'post-reinstall target'
-pass 'reinstall prunes core-tree residue while preserving wp-content, config, authored state, runtime state, and Duo ledger authority'
+pass 'reinstall prunes core-tree residue while preserving wp-content, config, authored state, runtime state, and WPrism ledger authority'
 
 say "exact rollback to $OLDER_VERSION and restore to $CURRENT_VERSION"
 replace_core 2 "$OLDER_IMAGE" "$OLDER_VERSION" 'target rollback'
@@ -272,13 +272,13 @@ zero_apply 'rollback product path'
 recapture_matches 'rollback product path'
 assert_public_post 'rolled-back target'
 [ "$(target_fingerprint)" = "$FINGERPRINT_BEFORE" ] \
-  || fail 'exact rollback changed canonical, runtime, or Duo ledger state'
+  || fail 'exact rollback changed canonical, runtime, or WPrism ledger state'
 replace_core 2 "$CURRENT_IMAGE" "$CURRENT_VERSION" 'target restore'
 zero_apply 'restored-current product path'
 recapture_matches 'restored-current product path'
 assert_public_post 'restored-current target'
 [ "$(target_fingerprint)" = "$FINGERPRINT_BEFORE" ] \
-  || fail 'restoring the current core changed canonical, runtime, or Duo ledger state'
+  || fail 'restoring the current core changed canonical, runtime, or WPrism ledger state'
 pass 'rollback is handled explicitly and the current exact core can be restored without state loss or duplicate publication'
 
 say 'cleanup: destroy own disposable pair'

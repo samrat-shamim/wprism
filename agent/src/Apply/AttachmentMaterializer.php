@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
@@ -19,10 +19,10 @@ if (!class_exists(Ledger::class, false)) {
 }
 // Deliberately NOT require_once('CompiledArtifact.php') here (the file that
 // declares CompiledRepository): sandbox/tests/offline/code-half/regress_code_revision_enforcement.php
-// stubs a fake Duo\CompiledRepository and reaches this file transitively
+// stubs a fake WPrism\CompiledRepository and reaches this file transitively
 // through Apply.php (a direct require_once, verified) without ever loading
 // the real CompiledArtifact.php; requiring it here fatals that suite with
-// "Cannot redeclare class Duo\CompiledRepository" (caught by
+// "Cannot redeclare class WPrism\CompiledRepository" (caught by
 // regress-offline-all while verifying this file). Checked individually,
 // not assumed: no other sandbox/tests/*.php suite fakes CompiledRepository
 // (grep -rlE '^\s*(final\s+)?class\s+CompiledRepository\s*(\{|extends|implements)'
@@ -90,7 +90,7 @@ final class AttachmentMaterializer {
     /** @internal consumed only by AttachmentNativeMetadataAuthority::from_materializer(). */
     public function assert_native_authority_secret(object $secret): void {
         if ($secret !== $this->nativeAuthoritySecret) {
-            throw new \RuntimeException('duo: native attachment metadata authority secret does not belong to this materializer');
+            throw new \RuntimeException('wprism: native attachment metadata authority secret does not belong to this materializer');
         }
     }
 
@@ -139,7 +139,7 @@ final class AttachmentMaterializer {
 
     /**
      * Bind the private control journal to the complete raw database marker
-     * inventory before target capture. `duo_kv` values are not option-cache
+     * inventory before target capture. `wprism_kv` values are not option-cache
      * state, and a marker whose journal was lost or moved is unresolved
      * post-COMMIT authority rather than permission to start a new apply.
      */
@@ -149,14 +149,14 @@ final class AttachmentMaterializer {
         if ($journal === null) {
             if ($markers !== []) {
                 throw new \RuntimeException(
-                    'duo: attachment database marker has no matching private control journal; recovery_required'
+                    'wprism: attachment database marker has no matching private control journal; recovery_required'
                 );
             }
             return;
         }
         if ($markers !== [] && !array_key_exists($journal['key'], $markers)) {
             throw new \RuntimeException(
-                'duo: attachment database marker and private control journal identities disagree; recovery_required'
+                'wprism: attachment database marker and private control journal identities disagree; recovery_required'
             );
         }
     }
@@ -164,7 +164,7 @@ final class AttachmentMaterializer {
     /** @return array<string,string> exact marker key => bounded marker bytes */
     private function filesystem_marker_inventory(): array {
         global $wpdb;
-        $table = (string) $wpdb->prefix . 'duo_kv';
+        $table = (string) $wpdb->prefix . 'wprism_kv';
         DeleteGuardEvaluator::assert_table_identifiers(
             [$table],
             'attachment durable marker inventory'
@@ -184,11 +184,11 @@ final class AttachmentMaterializer {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: attachment durable marker inventory read failed');
+            throw new \RuntimeException('wprism: attachment durable marker inventory read failed');
         }
         if (count($rows) > self::MAX_FILESYSTEM_MARKERS) {
             throw new \RuntimeException(
-                'duo: attachment durable marker inventory contains multiple pending authorities; recovery_required'
+                'wprism: attachment durable marker inventory contains multiple pending authorities; recovery_required'
             );
         }
         $out = [];
@@ -207,14 +207,14 @@ final class AttachmentMaterializer {
                 || !is_string($value)
                 || strlen($value) !== $bytes
                 || preg_match(
-                    '#^duo-attachment-filesystem-transaction/v1:([0-9a-f]{32}):'
+                    '#^wprism-attachment-filesystem-transaction/v1:([0-9a-f]{32}):'
                         . '(?:[0-9a-f]{64}|metadata:[0-9a-f]{64}:[0-9a-f]{64})$#D',
                     $value,
                     $valueMatch
                 ) !== 1
                 || !hash_equals($keyMatch[1], $valueMatch[1])) {
                 throw new \RuntimeException(
-                    "duo: attachment durable marker inventory returned a malformed row at bounded position $position"
+                    "wprism: attachment durable marker inventory returned a malformed row at bounded position $position"
                 );
             }
             $out[$key] = $value;
@@ -329,7 +329,7 @@ final class AttachmentMaterializer {
         $provided = array_values(array_unique(array_filter($attachmentIds, static fn(mixed $id): bool => is_int($id) && $id > 0)));
         sort($provided, SORT_NUMERIC);
         if ($provided !== $pending) {
-            throw new \RuntimeException('duo: attachment native rebuild roster disagrees with the durable UUID-to-post-ID authority');
+            throw new \RuntimeException('wprism: attachment native rebuild roster disagrees with the durable UUID-to-post-ID authority');
         }
         CacheInvalidationTransaction::assert_local_cache('native attachment metadata finalization');
         try {
@@ -356,7 +356,7 @@ final class AttachmentMaterializer {
             }
             $metadataIdentity = $this->filesystem->metadata_marker_identity();
             if ($metadataIdentity === null) {
-                throw new \RuntimeException('duo: attachment metadata finalization lacks a generated marker identity');
+                throw new \RuntimeException('wprism: attachment metadata finalization lacks a generated marker identity');
             }
             $marker = Ledger::kv_get($metadataIdentity['key']);
             if (in_array($this->filesystem->phase(), ['metadata_committed', 'removing_stale'], true)) {
@@ -381,7 +381,7 @@ final class AttachmentMaterializer {
             || !is_string($front['file'] ?? null)
             || !is_string($front['media'] ?? null)
             || !is_string($front['uuid'] ?? null)) {
-            throw new \RuntimeException('duo: attachment materialization received a malformed compiled attachment');
+            throw new \RuntimeException('wprism: attachment materialization received a malformed compiled attachment');
         }
         $lock = $this->fieldMaterializer->meta_owner_range_lock(
             $wpdb->postmeta,
@@ -412,7 +412,7 @@ final class AttachmentMaterializer {
             foreach ($rows as $position => $row) {
                 $metaId = MetaRows::positive_id($row['meta_id'] ?? null);
                 if ($metaId === null) {
-                    throw new \RuntimeException("duo: attachment metadata '$key' has a malformed locked row identity");
+                    throw new \RuntimeException("wprism: attachment metadata '$key' has a malformed locked row identity");
                 }
                 if ($position === 0) {
                     $firstId = $metaId;
@@ -438,13 +438,13 @@ final class AttachmentMaterializer {
             if (count($after) !== 1
                 || !is_string($after[0]['meta_value'] ?? null)
                 || !hash_equals($value, $after[0]['meta_value'])) {
-                throw new \RuntimeException("duo: attachment metadata '$key' lacks exact locked readback");
+                throw new \RuntimeException("wprism: attachment metadata '$key' lacks exact locked readback");
             }
         }
         foreach ($priorBackupRows as $row) {
             $metaId = MetaRows::positive_id($row['meta_id'] ?? null);
             if ($metaId === null) {
-                throw new \RuntimeException('duo: attachment backup metadata has a malformed locked row identity');
+                throw new \RuntimeException('wprism: attachment backup metadata has a malformed locked row identity');
             }
             Db::delete(
                 $wpdb->postmeta,
@@ -454,7 +454,7 @@ final class AttachmentMaterializer {
             );
         }
         if ($lock->exact_key_rows($id, '_wp_attachment_backup_sizes') !== []) {
-            throw new \RuntimeException('duo: attachment backup metadata deletion lacks exact locked readback');
+            throw new \RuntimeException('wprism: attachment backup metadata deletion lacks exact locked readback');
         }
         $this->assert_global_attached_file_authority($id, $front['file']);
         CacheInvalidationTransaction::queue($id, 'post_meta', 'attachment managed metadata reconciliation');
@@ -487,7 +487,7 @@ final class AttachmentMaterializer {
                     Db::rollback_after_failure($failure, $purpose . ' read-lock recovery');
                 } catch (\Throwable $rollbackFailure) {
                     throw new \RuntimeException(
-                        'duo: attachment filesystem transition could not settle its identity-lock transaction; recovery_required; '
+                        'wprism: attachment filesystem transition could not settle its identity-lock transaction; recovery_required; '
                         . 'original=' . self::failure_fingerprint($failure)
                         . '; rollback=' . self::failure_fingerprint($rollbackFailure),
                         0,
@@ -510,7 +510,7 @@ final class AttachmentMaterializer {
             static fn(array $binding): bool => $binding['attachment_id'] === $attachmentId
         ));
         if (count($matches) !== 1) {
-            throw new \RuntimeException('duo: native attachment metadata target is absent or duplicate in durable authority');
+            throw new \RuntimeException('wprism: native attachment metadata target is absent or duplicate in durable authority');
         }
         return $this->assert_locked_binding(
             $matches[0],
@@ -520,7 +520,7 @@ final class AttachmentMaterializer {
     }
 
     /**
-     * Prove duo_map, primary row, exact UUID sidecar, and attached-file bytes
+     * Prove wprism_map, primary row, exact UUID sidecar, and attached-file bytes
      * under one active repeatable-read transaction before any filesystem step.
      *
      * @param array{attachment_id:int,attachment_uuid:string,original_path:string} $binding
@@ -530,7 +530,7 @@ final class AttachmentMaterializer {
         $id = $binding['attachment_id'];
         $uuid = $binding['attachment_uuid'];
         $file = $binding['original_path'];
-        $mapTable = $wpdb->prefix . 'duo_map';
+        $mapTable = $wpdb->prefix . 'wprism_map';
         DeleteGuardEvaluator::assert_table_identifiers([$wpdb->posts, $mapTable], $purpose);
         DeleteGuardEvaluator::assert_innodb_tables([$wpdb->posts, $mapTable], $purpose);
         DeleteGuardEvaluator::assert_transaction_isolation($purpose);
@@ -546,7 +546,7 @@ final class AttachmentMaterializer {
             || !array_is_list($postRows)
             || count($postRows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose could not lock one exact attachment post row");
+            throw new \RuntimeException("wprism: $purpose could not lock one exact attachment post row");
         }
         $post = $postRows[0];
         $postId = is_array($post) ? MetaRows::positive_id($post['ID'] ?? null) : null;
@@ -558,7 +558,7 @@ final class AttachmentMaterializer {
             || !is_string($mime)
             || $mime === ''
             || strlen($mime) > 191) {
-            throw new \RuntimeException("duo: $purpose locked a malformed, recycled, or non-attachment post row");
+            throw new \RuntimeException("wprism: $purpose locked a malformed, recycled, or non-attachment post row");
         }
 
         $mapIndex = DeleteGuardEvaluator::full_width_lock_index($mapTable, 'uuid', $purpose);
@@ -572,7 +572,7 @@ final class AttachmentMaterializer {
             || !array_is_list($mapRows)
             || count($mapRows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose could not lock one exact attachment ledger mapping");
+            throw new \RuntimeException("wprism: $purpose could not lock one exact attachment ledger mapping");
         }
         $map = $mapRows[0];
         if (!is_array($map)
@@ -585,7 +585,7 @@ final class AttachmentMaterializer {
             || ($map['entity_type'] ?? null) !== 'post'
             || ($map['id_kind'] ?? null) !== Ledger::KIND_POST
             || MetaRows::positive_id($map['local_id'] ?? null) !== $id) {
-            throw new \RuntimeException("duo: $purpose found an aliased, stale, or recycled attachment ledger mapping");
+            throw new \RuntimeException("wprism: $purpose found an aliased, stale, or recycled attachment ledger mapping");
         }
 
         $meta = MetaOwnerRangeLock::prepare(
@@ -593,7 +593,7 @@ final class AttachmentMaterializer {
             'post_id',
             $purpose . ' metadata owner range'
         );
-        $uuidRows = $meta->exact_key_rows($id, '_duo_uuid');
+        $uuidRows = $meta->exact_key_rows($id, '_wprism_uuid');
         $attachedRows = $meta->exact_key_rows($id, '_wp_attached_file');
         if (count($uuidRows) !== 1
             || !is_string($uuidRows[0]['meta_value'] ?? null)
@@ -601,13 +601,13 @@ final class AttachmentMaterializer {
             || count($attachedRows) !== 1
             || !is_string($attachedRows[0]['meta_value'] ?? null)
             || !hash_equals($file, $attachedRows[0]['meta_value'])) {
-            throw new \RuntimeException("duo: $purpose attachment sidecar/file identity is missing, duplicate, or changed");
+            throw new \RuntimeException("wprism: $purpose attachment sidecar/file identity is missing, duplicate, or changed");
         }
 
         if ($refreshRuntime) {
             foreach ([[$id, 'posts'], [$id, 'post_meta']] as [$cacheKey, $cacheGroup]) {
                 if (!function_exists('wp_cache_delete') || !function_exists('wp_cache_get')) {
-                    throw new \RuntimeException("duo: $purpose lacks the required local WordPress cache primitives");
+                    throw new \RuntimeException("wprism: $purpose lacks the required local WordPress cache primitives");
                 }
                 if (CacheInvalidationTransaction::is_active()) {
                     CacheInvalidationTransaction::queue($cacheKey, $cacheGroup, $purpose);
@@ -617,7 +617,7 @@ final class AttachmentMaterializer {
                 $found = null;
                 wp_cache_get($cacheKey, $cacheGroup, false, $found);
                 if ($found !== false) {
-                    throw new \RuntimeException("duo: $purpose could not prove the target runtime cache key absent");
+                    throw new \RuntimeException("wprism: $purpose could not prove the target runtime cache key absent");
                 }
             }
             $runtime = get_post($id);
@@ -625,7 +625,7 @@ final class AttachmentMaterializer {
                 || (int) ($runtime->ID ?? 0) !== $id
                 || ($runtime->post_type ?? null) !== 'attachment'
                 || ($runtime->post_mime_type ?? null) !== $mime) {
-                throw new \RuntimeException("duo: $purpose runtime attachment projection disagrees with locked storage");
+                throw new \RuntimeException("wprism: $purpose runtime attachment projection disagrees with locked storage");
             }
         }
         return $mime;
@@ -655,7 +655,7 @@ final class AttachmentMaterializer {
                 foreach ($rows as $position => $row) {
                     $metaId = MetaRows::positive_id($row['meta_id'] ?? null);
                     if ($metaId === null) {
-                        throw new \RuntimeException('duo: attachment generated metadata has a malformed locked row identity');
+                        throw new \RuntimeException('wprism: attachment generated metadata has a malformed locked row identity');
                     }
                     if ($position === 0 && $desired['metadata'] !== null) {
                         $firstId = $metaId;
@@ -686,7 +686,7 @@ final class AttachmentMaterializer {
                         && is_string($after[0]['meta_value'] ?? null)
                         && hash_equals($desired['metadata'], $after[0]['meta_value']));
                 if (!$exact) {
-                    throw new \RuntimeException('duo: attachment generated metadata lacks exact locked readback');
+                    throw new \RuntimeException('wprism: attachment generated metadata lacks exact locked readback');
                 }
                 CacheInvalidationTransaction::queue(
                     (int) $desired['attachment_id'],
@@ -701,7 +701,7 @@ final class AttachmentMaterializer {
             $marker = $this->filesystem->seal_metadata_transaction();
             Ledger::kv_set($marker['key'], $marker['value']);
             if (!hash_equals($marker['value'], (string) Ledger::kv_get($marker['key']))) {
-                throw new \RuntimeException('duo: attachment metadata marker lacks exact transactional readback');
+                throw new \RuntimeException('wprism: attachment metadata marker lacks exact transactional readback');
             }
             $this->filesystem->assert_metadata_commit_files();
             DeleteGuardEvaluator::assert_transaction_isolation('attachment metadata final commit boundary');
@@ -716,7 +716,7 @@ final class AttachmentMaterializer {
                     $started = false;
                 } catch (\Throwable $rollbackFailure) {
                     throw new \RuntimeException(
-                        'duo: attachment metadata transaction outcome is unresolved; recovery_required; '
+                        'wprism: attachment metadata transaction outcome is unresolved; recovery_required; '
                         . 'original=' . self::failure_fingerprint($failure)
                         . '; rollback=' . self::failure_fingerprint($rollbackFailure),
                         0,
@@ -737,7 +737,7 @@ final class AttachmentMaterializer {
             CacheInvalidationTransaction::end();
             if ($finishFailure !== null) {
                 throw new \RuntimeException(
-                    'duo: attachment metadata cache outcome failed; recovery_required; '
+                    'wprism: attachment metadata cache outcome failed; recovery_required; '
                     . 'cache=' . self::failure_fingerprint($finishFailure)
                     . ($primary === null ? '' : '; original=' . self::failure_fingerprint($primary)),
                     0,
@@ -747,11 +747,11 @@ final class AttachmentMaterializer {
         }
         if ($primary !== null) throw $primary;
         if (!$committed) {
-            throw new \RuntimeException('duo: attachment metadata transaction did not reach a classified commit outcome');
+            throw new \RuntimeException('wprism: attachment metadata transaction did not reach a classified commit outcome');
         }
         $identity = $this->filesystem->metadata_marker_identity();
         if ($identity === null) {
-            throw new \RuntimeException('duo: committed attachment metadata lacks its durable marker identity');
+            throw new \RuntimeException('wprism: committed attachment metadata lacks its durable marker identity');
         }
         $this->filesystem->metadata_transaction_committed(Ledger::kv_get($identity['key']));
     }
@@ -761,7 +761,7 @@ final class AttachmentMaterializer {
         $current = Ledger::kv_get($key);
         if ($current === null) return;
         if (!hash_equals($expected, $current)) {
-            throw new \RuntimeException('duo: terminal attachment marker changed before cleanup; recovery_required');
+            throw new \RuntimeException('wprism: terminal attachment marker changed before cleanup; recovery_required');
         }
         $started = false;
         try {
@@ -769,11 +769,11 @@ final class AttachmentMaterializer {
             $started = true;
             $inside = Ledger::kv_get($key);
             if (!is_string($inside) || !hash_equals($expected, $inside)) {
-                throw new \RuntimeException('duo: terminal attachment marker changed inside its cleanup transaction');
+                throw new \RuntimeException('wprism: terminal attachment marker changed inside its cleanup transaction');
             }
             Ledger::kv_delete($key);
             if (Ledger::kv_get($key) !== null) {
-                throw new \RuntimeException('duo: terminal attachment marker remained after delete');
+                throw new \RuntimeException('wprism: terminal attachment marker remained after delete');
             }
             Db::commit('attachment terminal marker transaction commit');
             $started = false;
@@ -783,7 +783,7 @@ final class AttachmentMaterializer {
                     Db::rollback_after_failure($failure, 'attachment terminal marker transaction rollback');
                 } catch (\Throwable $rollbackFailure) {
                     throw new \RuntimeException(
-                        'duo: terminal attachment marker outcome is unresolved; recovery_required; '
+                        'wprism: terminal attachment marker outcome is unresolved; recovery_required; '
                         . 'original=' . self::failure_fingerprint($failure)
                         . '; rollback=' . self::failure_fingerprint($rollbackFailure),
                         0,
@@ -818,13 +818,13 @@ final class AttachmentMaterializer {
         $wanted = [];
         foreach ($desiredPaths as $desiredPath) {
             if (!is_string($desiredPath)) {
-                throw new \RuntimeException('duo: attachment desired attached-file roster is malformed');
+                throw new \RuntimeException('wprism: attachment desired attached-file roster is malformed');
             }
             $this->assert_relative_upload_path($desiredPath, 'desired attached file');
             $identity = AttachmentFilesystemTransaction::portable_path_identity($desiredPath);
             if (isset($wanted[$identity]) && !hash_equals($wanted[$identity], $desiredPath)) {
                 throw new \RuntimeException(
-                    'duo: attachment desired attached-file roster contains a case/Unicode-normalization alias'
+                    'wprism: attachment desired attached-file roster contains a case/Unicode-normalization alias'
                 );
             }
             $wanted[$identity] = $desiredPath;
@@ -855,7 +855,7 @@ final class AttachmentMaterializer {
             if (!is_array($rows)
                 || !array_is_list($rows)
                 || trim((string) ($wpdb->last_error ?? '')) !== '') {
-                throw new \RuntimeException('duo: attachment global attached-file lock read failed');
+                throw new \RuntimeException('wprism: attachment global attached-file lock read failed');
             }
             if ($rows === []) break;
             foreach ($rows as $position => $row) {
@@ -878,18 +878,18 @@ final class AttachmentMaterializer {
                         && (!is_string($bounded) || strlen($bounded) !== $valueBytes))
                     || ($valueBytes > self::MAX_UPLOAD_PATH_BYTES && $bounded !== null)) {
                     throw new \RuntimeException(
-                        "duo: attachment global attached-file lock returned a malformed or aliased row at bounded position $position"
+                        "wprism: attachment global attached-file lock returned a malformed or aliased row at bounded position $position"
                     );
                 }
                 if ($valueBytes > self::MAX_UPLOAD_PATH_BYTES) {
                     throw new \RuntimeException(
-                        'duo: attachment global attached-file authority contains an oversized path'
+                        'wprism: attachment global attached-file authority contains an oversized path'
                     );
                 }
                 $lastMetaId = $metaId;
                 if (++$seenRows > self::MAX_ATTACHED_FILE_ROWS) {
                     throw new \RuntimeException(
-                        'duo: attachment global attached-file authority exceeds its bounded row frontier'
+                        'wprism: attachment global attached-file authority exceeds its bounded row frontier'
                     );
                 }
                 if (!is_string($bounded) || !$this->is_relative_upload_path($bounded)) continue;
@@ -897,7 +897,7 @@ final class AttachmentMaterializer {
                 if (!isset($wanted[$identity])) continue;
                 if (!hash_equals($wanted[$identity], $bounded)) {
                     throw new \RuntimeException(
-                        'duo: attachment desired file has a global case/Unicode-normalization metadata alias'
+                        'wprism: attachment desired file has a global case/Unicode-normalization metadata alias'
                     );
                 }
                 $owners[$wanted[$identity]][] = $ownerId;
@@ -908,7 +908,7 @@ final class AttachmentMaterializer {
             $pathOwners = $owners[$desiredPath] ?? [];
             if ($pathOwners !== [] && $pathOwners !== [$attachmentId]) {
                 throw new \RuntimeException(
-                    'duo: attachment desired file is already owned by another or duplicate _wp_attached_file row'
+                    'wprism: attachment desired file is already owned by another or duplicate _wp_attached_file row'
                 );
             }
         }
@@ -928,7 +928,7 @@ final class AttachmentMaterializer {
         foreach ($this->policy->version_ranges() as $row) {
             $manifest = $row['manifest'] ?? null;
             if (!is_string($manifest) || $manifest === '') {
-                throw new \RuntimeException('duo: attachment media-hook policy authority is malformed');
+                throw new \RuntimeException('wprism: attachment media-hook policy authority is malformed');
             }
             $manifests[$manifest] = true;
         }
@@ -950,13 +950,13 @@ final class AttachmentMaterializer {
         array $backupRows = []
     ): array {
         if (count($metadataRows) > 1 || count($attachedRows) > 1 || count($backupRows) > 1) {
-            throw new \RuntimeException('duo: attachment prior native metadata has duplicate exact rows');
+            throw new \RuntimeException('wprism: attachment prior native metadata has duplicate exact rows');
         }
         if ($metadataRows === [] && $attachedRows === [] && $backupRows === []) return [];
         if ($attachedRows === []
             || !is_string($attachedRows[0]['meta_value'] ?? null)
             || $attachedRows[0]['meta_value'] === '') {
-            throw new \RuntimeException('duo: attachment prior native metadata lacks its attached-file identity');
+            throw new \RuntimeException('wprism: attachment prior native metadata lacks its attached-file identity');
         }
         $attached = $attachedRows[0]['meta_value'];
         $this->assert_relative_upload_path($attached, 'prior attached file');
@@ -965,32 +965,32 @@ final class AttachmentMaterializer {
         if ($metadataRows !== []) {
             $raw = $metadataRows[0]['meta_value'] ?? null;
             if (!is_string($raw) || strlen($raw) > 16777216) {
-                throw new \RuntimeException('duo: attachment prior native metadata is null or oversized');
+                throw new \RuntimeException('wprism: attachment prior native metadata is null or oversized');
             }
             $metadata = PlainData::decode_serialized($raw, 'attachment prior native metadata');
             if (!is_array($metadata)) {
-                throw new \RuntimeException('duo: attachment prior native metadata is not an array');
+                throw new \RuntimeException('wprism: attachment prior native metadata is not an array');
             }
             $metadataFile = $metadata['file'] ?? $attached;
             if (!is_string($metadataFile) || !hash_equals($metadataFile, $attached)) {
-                throw new \RuntimeException('duo: attachment prior metadata file identity disagrees with _wp_attached_file');
+                throw new \RuntimeException('wprism: attachment prior metadata file identity disagrees with _wp_attached_file');
             }
             $sizes = $metadata['sizes'] ?? [];
             if (!is_array($sizes)
                 || ($sizes !== [] && array_is_list($sizes))
                 || count($sizes) > 512) {
-                throw new \RuntimeException('duo: attachment prior metadata sizes roster is malformed or oversized');
+                throw new \RuntimeException('wprism: attachment prior metadata sizes roster is malformed or oversized');
             }
             foreach ($sizes as $name => $size) {
                 if (!is_string($name)
                     || strlen($name) > 191
                     || !is_array($size)
                     || !is_string($size['file'] ?? null)) {
-                    throw new \RuntimeException('duo: attachment prior metadata contains a malformed size row');
+                    throw new \RuntimeException('wprism: attachment prior metadata contains a malformed size row');
                 }
                 $file = $size['file'];
                 if (!hash_equals($file, basename($file))) {
-                    throw new \RuntimeException('duo: attachment prior metadata size escapes its attached-file directory');
+                    throw new \RuntimeException('wprism: attachment prior metadata size escapes its attached-file directory');
                 }
                 $path = ($directory === '' ? '' : $directory . '/') . $file;
                 $this->assert_relative_upload_path($path, 'prior attachment derivative');
@@ -999,7 +999,7 @@ final class AttachmentMaterializer {
             if (array_key_exists('original_image', $metadata)) {
                 $original = $metadata['original_image'];
                 if (!is_string($original) || !hash_equals($original, basename($original))) {
-                    throw new \RuntimeException('duo: attachment prior metadata original_image is malformed');
+                    throw new \RuntimeException('wprism: attachment prior metadata original_image is malformed');
                 }
                 $path = ($directory === '' ? '' : $directory . '/') . $original;
                 $this->assert_relative_upload_path($path, 'prior attachment original image');
@@ -1009,11 +1009,11 @@ final class AttachmentMaterializer {
         if ($backupRows !== []) {
             $raw = $backupRows[0]['meta_value'] ?? null;
             if (!is_string($raw) || strlen($raw) > 16777216) {
-                throw new \RuntimeException('duo: attachment prior backup metadata is null or oversized');
+                throw new \RuntimeException('wprism: attachment prior backup metadata is null or oversized');
             }
             $backups = PlainData::decode_serialized($raw, 'attachment prior backup metadata');
             if (!is_array($backups) || array_is_list($backups) || count($backups) > 512) {
-                throw new \RuntimeException('duo: attachment prior backup metadata roster is malformed or oversized');
+                throw new \RuntimeException('wprism: attachment prior backup metadata roster is malformed or oversized');
             }
             foreach ($backups as $name => $backup) {
                 if (!is_string($name)
@@ -1022,7 +1022,7 @@ final class AttachmentMaterializer {
                     || preg_match('/[\x00-\x1F\x7F]/', $name) === 1
                     || !is_array($backup)
                     || array_is_list($backup)) {
-                    throw new \RuntimeException('duo: attachment prior backup metadata contains a malformed row');
+                    throw new \RuntimeException('wprism: attachment prior backup metadata contains a malformed row');
                 }
                 $keys = array_keys($backup);
                 sort($keys, SORT_STRING);
@@ -1038,7 +1038,7 @@ final class AttachmentMaterializer {
                         && (!is_string($backup['mime-type'])
                             || $backup['mime-type'] === ''
                             || strlen($backup['mime-type']) > 191))) {
-                    throw new \RuntimeException('duo: attachment prior backup metadata contains a malformed row');
+                    throw new \RuntimeException('wprism: attachment prior backup metadata contains a malformed row');
                 }
                 $path = ($directory === '' ? '' : $directory . '/') . $backup['file'];
                 $this->assert_relative_upload_path($path, 'prior attachment edited backup');
@@ -1054,7 +1054,7 @@ final class AttachmentMaterializer {
 
     private function assert_relative_upload_path(string $path, string $purpose): void {
         if (!$this->is_relative_upload_path($path)) {
-            throw new \RuntimeException("duo: attachment $purpose is not a bounded normalized relative path");
+            throw new \RuntimeException("wprism: attachment $purpose is not a bounded normalized relative path");
         }
     }
 

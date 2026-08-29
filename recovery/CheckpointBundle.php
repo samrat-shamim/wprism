@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Recovery;
+namespace WPrism\Recovery;
 
 /**
  * Encrypted database before-image authority.
@@ -12,11 +12,11 @@ namespace Duo\Recovery;
  * only through the external receipt generation and operation journal.
  */
 final class CheckpointBundle {
-    private const REQUEST_FORMAT = 'duo-checkpoint-request/v1';
-    private const PROVIDER_REQUEST_FORMAT = 'duo-checkpoint-provider-request/v1';
-    private const PROVIDER_RESPONSE_FORMAT = 'duo-checkpoint-provider-response/v1';
-    private const METADATA_FORMAT = 'duo-checkpoint-metadata/v1';
-    private const TOMBSTONE_FORMAT = 'duo-checkpoint-tombstone/v1';
+    private const REQUEST_FORMAT = 'wprism-checkpoint-request/v1';
+    private const PROVIDER_REQUEST_FORMAT = 'wprism-checkpoint-provider-request/v1';
+    private const PROVIDER_RESPONSE_FORMAT = 'wprism-checkpoint-provider-response/v1';
+    private const METADATA_FORMAT = 'wprism-checkpoint-metadata/v1';
+    private const TOMBSTONE_FORMAT = 'wprism-checkpoint-tombstone/v1';
 
     public static function configured(string $root): bool {
         return array_key_exists('checkpoint_provider', RecoveryExecutor::configuration($root));
@@ -26,7 +26,7 @@ final class CheckpointBundle {
     public static function probe(string $root): array {
         $config = RecoveryExecutor::configuration($root);
         if (!array_key_exists('checkpoint_provider', $config)) {
-            throw new \RuntimeException('duo checkpoint: no checkpoint provider is configured');
+            throw new \RuntimeException('wprism checkpoint: no checkpoint provider is configured');
         }
         $status = RollbackControl::status($root);
         $response = self::call($config, [
@@ -57,7 +57,7 @@ final class CheckpointBundle {
             || ($response['plaintext_durable'] ?? null) !== false
             || ($response['streaming_authenticated_encryption'] ?? null) !== true
             || ($response['temporary_plaintext_cleaned'] ?? null) !== true) {
-            throw new \RuntimeException('duo checkpoint: provider did not attest safe streaming checkpoint behavior');
+            throw new \RuntimeException('wprism checkpoint: provider did not attest safe streaming checkpoint behavior');
         }
         self::assertActor((string) ($response['provider_id'] ?? ''), 'provider id');
         self::assertActor((string) ($response['provider_version'] ?? ''), 'provider version');
@@ -74,27 +74,27 @@ final class CheckpointBundle {
             $status = RollbackControl::status($root);
             if ((string) $payload['action'] === 'prepare') {
                 if (!empty($status['active']) && empty($status['terminal'])) {
-                    throw new \RuntimeException('duo checkpoint: prepare refused during a nonterminal generation');
+                    throw new \RuntimeException('wprism checkpoint: prepare refused during a nonterminal generation');
                 }
                 if ((int) $payload['generation'] !== (int) $status['generation'] + 1
                     || (int) $payload['claim_epoch'] !== 1
                     || !hash_equals((string) $payload['target_id'], (string) $status['target_id'])) {
-                    throw new \RuntimeException('duo checkpoint: prepare is not for the exact next target generation');
+                    throw new \RuntimeException('wprism checkpoint: prepare is not for the exact next target generation');
                 }
                 $recovery = RecoveryExecutor::decorateStatus($root, $status);
                 $reservation = $recovery['exclusion_reservation'] ?? null;
                 if (($recovery['exclusion_state'] ?? '') !== 'held' || !is_array($reservation)) {
-                    throw new \RuntimeException('duo checkpoint: prepare requires a verified held exclusion reservation');
+                    throw new \RuntimeException('wprism checkpoint: prepare requires a verified held exclusion reservation');
                 }
                 foreach (['artifact_hash', 'claim_epoch', 'claimant', 'generation', 'owner', 'receipt_id'] as $key) {
                     if ((string) ($payload[$key] ?? '') !== (string) ($reservation[$key] ?? '')) {
-                        throw new \RuntimeException("duo checkpoint: exclusion reservation $key does not match prepare");
+                        throw new \RuntimeException("wprism checkpoint: exclusion reservation $key does not match prepare");
                     }
                 }
                 return self::prepare($root, $payload);
             }
             if (empty($status['active']) || empty($status['terminal'])) {
-                throw new \RuntimeException('duo checkpoint: deletion requires signed terminal authority');
+                throw new \RuntimeException('wprism checkpoint: deletion requires signed terminal authority');
             }
             self::assertIdentity($payload, $status, true);
             return self::delete($root, $payload, $status);
@@ -114,7 +114,7 @@ final class CheckpointBundle {
             || !hash_equals((string) $metadata['encryption_key_id'], (string) $receipt['encryption_key_id'])
             || (string) $metadata['created_at'] !== (string) $receipt['created_at']
             || (string) $metadata['retention_until'] !== (string) $receipt['retention_until']) {
-            throw new \RuntimeException('duo checkpoint: prepared checkpoint is not bound to the exact claim receipt');
+            throw new \RuntimeException('wprism checkpoint: prepared checkpoint is not bound to the exact claim receipt');
         }
         self::verifyArtifacts($root, $metadata);
     }
@@ -132,12 +132,12 @@ final class CheckpointBundle {
         array $status
     ): array {
         if (!in_array($adapter, ['database_restore', 'prior_verify'], true)) {
-            throw new \RuntimeException('duo checkpoint: unsupported checkpoint operation');
+            throw new \RuntimeException('wprism checkpoint: unsupported checkpoint operation');
         }
         $metadata = self::metadata($root, (string) $status['receipt_id']);
         self::assertIdentity($metadata, $status, false);
         if (!hash_equals(self::metadataHash($metadata), (string) $status['checkpoint_sha256'])) {
-            throw new \RuntimeException('duo checkpoint: receipt checkpoint hash does not match immutable metadata');
+            throw new \RuntimeException('wprism checkpoint: receipt checkpoint hash does not match immutable metadata');
         }
         self::verifyArtifacts($root, $metadata);
         $config = RecoveryExecutor::configuration($root);
@@ -169,7 +169,7 @@ final class CheckpointBundle {
             self::assertIdentity($payload, $metadata, true);
             if ((string) $payload['encryption_key_id'] !== (string) $metadata['encryption_key_id']
                 || (string) $payload['retention_until'] !== (string) $metadata['retention_until']) {
-                throw new \RuntimeException('duo checkpoint: prepare retry changed key or retention inputs');
+                throw new \RuntimeException('wprism checkpoint: prepare retry changed key or retention inputs');
             }
             self::verifyArtifacts($root, $metadata);
             return self::publicMetadata($metadata);
@@ -179,10 +179,10 @@ final class CheckpointBundle {
         $verifierPath = $dir . '/artifacts/prior-verifier-inputs.json';
         foreach ([$cipherPath, $verifierPath] as $path) {
             if (is_link($path) || (file_exists($path) && !is_file($path))) {
-                throw new \RuntimeException('duo checkpoint: prepare output path is unsafe');
+                throw new \RuntimeException('wprism checkpoint: prepare output path is unsafe');
             }
             if (is_file($path) && !@unlink($path)) {
-                throw new \RuntimeException('duo checkpoint: could not clear interrupted prepare output');
+                throw new \RuntimeException('wprism checkpoint: could not clear interrupted prepare output');
             }
         }
         self::syncDirectory($dir . '/artifacts');
@@ -217,7 +217,7 @@ final class CheckpointBundle {
             || !hash_equals((string) $verifierInputs['runtime_fingerprints_sha256'], (string) $response['runtime_fingerprints_sha256'])
             || !hash_equals((string) $verifierInputs['ledger_session_sha256'], (string) $response['ledger_session_sha256'])
             || $size !== (int) $response['ciphertext_size']) {
-            throw new \RuntimeException('duo checkpoint: provider evidence does not match prepared artifacts');
+            throw new \RuntimeException('wprism checkpoint: provider evidence does not match prepared artifacts');
         }
         @chmod($cipherPath, 0600);
         @chmod($verifierPath, 0600);
@@ -269,7 +269,7 @@ final class CheckpointBundle {
                 || !hash_equals((string) $payload['encryption_key_id'], (string) $tombstone['encryption_key_id'])
                 || !hash_equals((string) $payload['retention_until'], (string) $tombstone['retention_until'])
                 || is_file($dir . '/artifacts/checkpoint.enc')) {
-                throw new \RuntimeException('duo checkpoint: deletion tombstone does not match request or ciphertext remains');
+                throw new \RuntimeException('wprism checkpoint: deletion tombstone does not match request or ciphertext remains');
             }
             self::removeExpiredMetadata($dir);
             return $tombstone + ['ok' => true];
@@ -278,15 +278,15 @@ final class CheckpointBundle {
         self::assertIdentity($metadata, $status, true);
         if ((string) $payload['encryption_key_id'] !== (string) $metadata['encryption_key_id']
             || (string) $payload['retention_until'] !== (string) $metadata['retention_until']) {
-            throw new \RuntimeException('duo checkpoint: deletion request changed key or retention policy');
+            throw new \RuntimeException('wprism checkpoint: deletion request changed key or retention policy');
         }
         if (time() < self::timeValue((string) $metadata['retention_until'])) {
-            throw new \RuntimeException('duo checkpoint: retention window has not elapsed');
+            throw new \RuntimeException('wprism checkpoint: retention window has not elapsed');
         }
         $intentPath = $dir . '/checkpoint-deletion-intent.json';
         $intent = [
             'checkpoint_metadata_sha256' => self::metadataHash($metadata),
-            'format' => 'duo-checkpoint-deletion-intent/v1',
+            'format' => 'wprism-checkpoint-deletion-intent/v1',
             'generation' => (int) $metadata['generation'],
             'receipt_id' => (string) $metadata['receipt_id'],
             'target_id' => (string) $metadata['target_id'],
@@ -295,7 +295,7 @@ final class CheckpointBundle {
         if ($cipherPresent) {
             self::verifyArtifacts($root, $metadata);
         } elseif (!is_file($intentPath)) {
-            throw new \RuntimeException('duo checkpoint: ciphertext disappeared before authorized deletion');
+            throw new \RuntimeException('wprism checkpoint: ciphertext disappeared before authorized deletion');
         }
         self::publishExact($intentPath, CanonicalJson::encode($intent) . "\n", 0600, 'checkpoint deletion intent');
         $config = RecoveryExecutor::configuration($root);
@@ -318,7 +318,7 @@ final class CheckpointBundle {
             || ($response['ciphertext_absent'] ?? null) !== true
             || ($response['temporary_plaintext_cleaned'] ?? null) !== true
             || is_file($dir . '/' . $metadata['ciphertext_path'])) {
-            throw new \RuntimeException('duo checkpoint: provider did not prove ciphertext deletion');
+            throw new \RuntimeException('wprism checkpoint: provider did not prove ciphertext deletion');
         }
         self::assertProvider($metadata, $response);
         $tombstone = [
@@ -365,7 +365,7 @@ final class CheckpointBundle {
         self::writeAttemptReport($root, $metadata, 'restore', $response);
         if (!$validBoundary || ($response['import_succeeded'] ?? null) !== true
             || ($response['state'] ?? '') !== 'restored') {
-            throw new \RuntimeException('duo checkpoint: restore failed or did not prove final abort/authority survival');
+            throw new \RuntimeException('wprism checkpoint: restore failed or did not prove final abort/authority survival');
         }
         self::assertHash((string) $response['result_sha256'], 'restore result hash');
         return ['adapter_version' => (string) $response['provider_version'], 'result_sha256' => (string) $response['result_sha256']];
@@ -421,7 +421,7 @@ final class CheckpointBundle {
             || !hash_equals((string) $metadata['prior_verifier_inputs_sha256'], (string) $response['verifier_inputs_sha256'])
             || !hash_equals((string) $metadata['runtime_fingerprints_sha256'], (string) $response['runtime_fingerprints_sha256'])
             || !hash_equals((string) $metadata['ledger_session_sha256'], (string) $response['ledger_session_sha256'])) {
-            throw new \RuntimeException('duo checkpoint: prior verification evidence is incomplete or mismatched');
+            throw new \RuntimeException('wprism checkpoint: prior verification evidence is incomplete or mismatched');
         }
         return ['adapter_version' => (string) $response['provider_version'], 'result_sha256' => (string) $response['result_sha256']];
     }
@@ -455,7 +455,7 @@ final class CheckpointBundle {
             || ($response['prior_verifier_inputs_path'] ?? '') !== $verifierPath
             || ($response['key_id'] ?? '') !== $keyId
             || !is_int($response['ciphertext_size'] ?? null) || (int) $response['ciphertext_size'] < 1) {
-            throw new \RuntimeException('duo checkpoint: prepare evidence does not prove encrypted/importable checkpoint');
+            throw new \RuntimeException('wprism checkpoint: prepare evidence does not prove encrypted/importable checkpoint');
         }
         foreach (['algorithm', 'physical_erasure', 'provider_id', 'provider_version'] as $key) {
             self::assertActor((string) ($response[$key] ?? ''), "prepare $key");
@@ -470,7 +470,7 @@ final class CheckpointBundle {
         ], 'request payload');
         if (($payload['format'] ?? '') !== self::REQUEST_FORMAT
             || !in_array((string) ($payload['action'] ?? ''), ['delete', 'prepare'], true)) {
-            throw new \RuntimeException('duo checkpoint: unsupported request format/action');
+            throw new \RuntimeException('wprism checkpoint: unsupported request format/action');
         }
         self::assertHash((string) $payload['artifact_hash'], 'request artifact hash');
         self::assertIdentifier((string) $payload['receipt_id'], 'request receipt id', 32, 64);
@@ -480,13 +480,13 @@ final class CheckpointBundle {
         }
         if (!is_int($payload['generation']) || $payload['generation'] < 1
             || !is_int($payload['claim_epoch']) || $payload['claim_epoch'] < 1) {
-            throw new \RuntimeException('duo checkpoint: request generation/claim_epoch must be positive integers');
+            throw new \RuntimeException('wprism checkpoint: request generation/claim_epoch must be positive integers');
         }
         self::timeValue((string) $payload['timestamp']);
         self::timeValue((string) $payload['retention_until']);
         if ((string) $payload['action'] === 'prepare'
             && self::timeValue((string) $payload['retention_until']) <= self::timeValue((string) $payload['timestamp'])) {
-            throw new \RuntimeException('duo checkpoint: retention must end after preparation');
+            throw new \RuntimeException('wprism checkpoint: retention must end after preparation');
         }
     }
 
@@ -509,7 +509,7 @@ final class CheckpointBundle {
             || ($metadata['plaintext_durable'] ?? null) !== false
             || ($metadata['streaming_authenticated_encryption'] ?? null) !== true
             || ($metadata['temporary_plaintext_cleaned'] ?? null) !== true) {
-            throw new \RuntimeException('duo checkpoint: checkpoint metadata contract is invalid');
+            throw new \RuntimeException('wprism checkpoint: checkpoint metadata contract is invalid');
         }
         foreach ([
             'artifact_hash', 'ciphertext_sha256', 'database_identity_sha256',
@@ -527,7 +527,7 @@ final class CheckpointBundle {
         if (!is_int($metadata['generation']) || $metadata['generation'] < 1
             || !is_int($metadata['claim_epoch']) || $metadata['claim_epoch'] < 1
             || !is_int($metadata['ciphertext_size']) || $metadata['ciphertext_size'] < 1) {
-            throw new \RuntimeException('duo checkpoint: metadata counters/size are invalid');
+            throw new \RuntimeException('wprism checkpoint: metadata counters/size are invalid');
         }
         self::timeValue((string) $metadata['created_at']);
         self::timeValue((string) $metadata['retention_until']);
@@ -541,8 +541,8 @@ final class CheckpointBundle {
             'map_state_sha256', 'policy_sha256',
             'runtime_fingerprints_sha256', 'state_revision_sha256',
         ], 'prior verifier inputs');
-        if (($inputs['format'] ?? '') !== 'duo-prior-verifier-inputs/v1') {
-            throw new \RuntimeException('duo checkpoint: unsupported prior verifier input format');
+        if (($inputs['format'] ?? '') !== 'wprism-prior-verifier-inputs/v1') {
+            throw new \RuntimeException('wprism checkpoint: unsupported prior verifier input format');
         }
         foreach ($inputs as $key => $value) {
             if ($key !== 'format') {
@@ -559,7 +559,7 @@ final class CheckpointBundle {
         ], 'checkpoint tombstone');
         if (($tombstone['format'] ?? '') !== self::TOMBSTONE_FORMAT
             || !is_int($tombstone['generation'] ?? null) || (int) $tombstone['generation'] < 1) {
-            throw new \RuntimeException('duo checkpoint: checkpoint tombstone contract is invalid');
+            throw new \RuntimeException('wprism checkpoint: checkpoint tombstone contract is invalid');
         }
         foreach (['checkpoint_metadata_sha256', 'ciphertext_sha256'] as $key) {
             self::assertHash((string) ($tombstone[$key] ?? ''), "tombstone $key");
@@ -587,7 +587,7 @@ final class CheckpointBundle {
             || !hash_equals((string) $metadata['ciphertext_sha256'], $cipherHash)
             || !hash_equals((string) $metadata['prior_verifier_inputs_sha256'], $verifierHash)
             || filesize($cipher) !== (int) $metadata['ciphertext_size']) {
-            throw new \RuntimeException('duo checkpoint: encrypted checkpoint or verifier inputs are corrupt/truncated');
+            throw new \RuntimeException('wprism checkpoint: encrypted checkpoint or verifier inputs are corrupt/truncated');
         }
     }
 
@@ -659,7 +659,7 @@ final class CheckpointBundle {
         }
         foreach ($keys as $key) {
             if ((string) ($left[$key] ?? '') !== (string) ($right[$key] ?? '')) {
-                throw new \RuntimeException("duo checkpoint: $key identity mismatch");
+                throw new \RuntimeException("wprism checkpoint: $key identity mismatch");
             }
         }
     }
@@ -668,7 +668,7 @@ final class CheckpointBundle {
         foreach (['provider_id', 'provider_version'] as $key) {
             self::assertActor((string) ($response[$key] ?? ''), "response $key");
             if (!hash_equals((string) $metadata[$key], (string) $response[$key])) {
-                throw new \RuntimeException("duo checkpoint: $key changed after checkpoint preparation");
+                throw new \RuntimeException("wprism checkpoint: $key changed after checkpoint preparation");
             }
         }
     }
@@ -681,9 +681,9 @@ final class CheckpointBundle {
         return ProtocolLock::withExclusive(
             $path,
             $callback,
-            'duo checkpoint: unsafe checkpoint lock',
-            'duo checkpoint: could not open checkpoint lock',
-            'duo checkpoint: could not acquire checkpoint lock',
+            'wprism checkpoint: unsafe checkpoint lock',
+            'wprism checkpoint: could not open checkpoint lock',
+            'wprism checkpoint: could not acquire checkpoint lock',
             0600
         );
     }
@@ -703,7 +703,7 @@ final class CheckpointBundle {
         ] as $expired) {
             if (is_link($expired) || (file_exists($expired) && !is_file($expired))
                 || (is_file($expired) && !@unlink($expired))) {
-                throw new \RuntimeException('duo checkpoint: could not delete expired checkpoint metadata');
+                throw new \RuntimeException('wprism checkpoint: could not delete expired checkpoint metadata');
             }
         }
         self::syncDirectory($dir);
@@ -713,43 +713,43 @@ final class CheckpointBundle {
     private static function call(array $config, array $request): array {
         $command = $config['checkpoint_provider'] ?? null;
         if (!is_array($command)) {
-            throw new \RuntimeException('duo checkpoint: checkpoint provider is unavailable');
+            throw new \RuntimeException('wprism checkpoint: checkpoint provider is unavailable');
         }
         return ProviderClient::request(
             $command,
             $request,
             (int) $config['timeout_seconds'],
-            'duo checkpoint',
-            'duo checkpoint: could not start checkpoint provider',
-            'duo checkpoint: provider timed out; exclusion remains held',
-            'duo checkpoint: provider output exceeded the redacted evidence limit',
-            'duo checkpoint: provider failed; provider output is redacted',
+            'wprism checkpoint',
+            'wprism checkpoint: could not start checkpoint provider',
+            'wprism checkpoint: provider timed out; exclusion remains held',
+            'wprism checkpoint: provider output exceeded the redacted evidence limit',
+            'wprism checkpoint: provider failed; provider output is redacted',
             false,
-            'duo checkpoint: provider returned malformed JSON',
-            'duo checkpoint: provider returned noncanonical evidence',
-            'duo checkpoint: could not send provider request'
+            'wprism checkpoint: provider returned malformed JSON',
+            'wprism checkpoint: provider returned noncanonical evidence',
+            'wprism checkpoint: could not send provider request'
         );
     }
 
     /** @return array<string,mixed> */
     private static function readCanonical(string $path, string $label): array {
-        return AtomicStore::readCanonical($path, $label, 'duo checkpoint');
+        return AtomicStore::readCanonical($path, $label, 'wprism checkpoint');
     }
 
     private static function publishExact(string $path, string $bytes, int $mode, string $label): void {
-        AtomicStore::publishExact($path, $bytes, $mode, $label, 'duo checkpoint', true);
+        AtomicStore::publishExact($path, $bytes, $mode, $label, 'wprism checkpoint', true);
     }
 
     private static function ensureDirectory(string $path, int $mode): void {
-        AtomicStore::ensureDirectory($path, $mode, 'duo checkpoint');
+        AtomicStore::ensureDirectory($path, $mode, 'wprism checkpoint');
     }
 
     private static function syncDirectory(string $path): void {
-        AtomicStore::syncDirectory($path, 'checkpoint directory', 'duo checkpoint');
+        AtomicStore::syncDirectory($path, 'checkpoint directory', 'wprism checkpoint');
     }
 
     private static function assertAbsoluteRegularFile(string $path, string $label): void {
-        AtomicStore::assertAbsoluteRegularFile($path, $label, 'duo checkpoint');
+        AtomicStore::assertAbsoluteRegularFile($path, $label, 'wprism checkpoint');
     }
 
     /** @param list<string> $expected */
@@ -758,33 +758,33 @@ final class CheckpointBundle {
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
-            throw new \RuntimeException("duo checkpoint: $label has missing or unknown fields");
+            throw new \RuntimeException("wprism checkpoint: $label has missing or unknown fields");
         }
     }
 
     private static function assertHash(string $value, string $label): void {
         if (preg_match('/^[0-9a-f]{64}$/', $value) !== 1) {
-            throw new \RuntimeException("duo checkpoint: $label must be a sha256 hex digest");
+            throw new \RuntimeException("wprism checkpoint: $label must be a sha256 hex digest");
         }
     }
 
     private static function assertIdentifier(string $value, string $label, int $min, int $max): void {
         $length = strlen($value);
         if ($length < $min || $length > $max || preg_match('/^[A-Za-z0-9._:-]+$/', $value) !== 1) {
-            throw new \RuntimeException("duo checkpoint: $label is malformed");
+            throw new \RuntimeException("wprism checkpoint: $label is malformed");
         }
     }
 
     private static function assertActor(string $value, string $label): void {
         if ($value === '' || strlen($value) > 128 || preg_match('/^[A-Za-z0-9._:@+\/-]+$/', $value) !== 1) {
-            throw new \RuntimeException("duo checkpoint: $label is malformed");
+            throw new \RuntimeException("wprism checkpoint: $label is malformed");
         }
     }
 
     private static function timeValue(string $value): int {
         $time = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $value, new \DateTimeZone('UTC'));
         if (!$time || $time->format('Y-m-d\TH:i:s\Z') !== $value) {
-            throw new \RuntimeException('duo checkpoint: timestamp must be canonical UTC seconds');
+            throw new \RuntimeException('wprism checkpoint: timestamp must be canonical UTC seconds');
         }
         return $time->getTimestamp();
     }

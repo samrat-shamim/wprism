@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/TransientDbException.php';
@@ -45,7 +45,7 @@ final class CaptureTransaction {
             $wpdb->posts, $wpdb->postmeta, $wpdb->terms, $wpdb->term_taxonomy,
             $wpdb->term_relationships, $wpdb->termmeta, $wpdb->options, $wpdb->users,
             $wpdb->usermeta,
-            $prefix . 'duo_map', $prefix . 'duo_state', $prefix . 'duo_kv',
+            $prefix . 'wprism_map', $prefix . 'wprism_state', $prefix . 'wprism_kv',
         ];
         foreach (array_keys($policy->declared_tables()) as $name) {
             $tables[] = $prefix . preg_replace('/[^A-Za-z0-9_]/', '', $name);
@@ -62,7 +62,7 @@ final class CaptureTransaction {
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
             throw self::schema_refusal(
                 new \RuntimeException(
-                    'duo: capture storage-engine inventory could not be read; refusing to assume snapshot support'
+                    'wprism: capture storage-engine inventory could not be read; refusing to assume snapshot support'
                 )
             );
         }
@@ -76,7 +76,7 @@ final class CaptureTransaction {
         }
         if ($bad !== []) {
             sort($bad);
-            $operatorMessage = 'duo: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
+            $operatorMessage = 'wprism: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
                 . 'capture reads from use a different storage engine (no MVCC/undo log, so a consistent-snapshot '
                 . "transaction gives no real point-in-time guarantee for them):\n  - " . implode("\n  - ", $bad)
                 . "\nConvert the table(s) to InnoDB (e.g. ALTER TABLE <table> ENGINE=InnoDB) and re-run capture.";
@@ -109,7 +109,7 @@ final class CaptureTransaction {
         $tables = [
             $wpdb->postmeta, $wpdb->termmeta, $wpdb->posts, $wpdb->terms,
             $wpdb->term_taxonomy, $wpdb->options,
-            $prefix . 'duo_map', $prefix . 'duo_state', $prefix . 'duo_kv',
+            $prefix . 'wprism_map', $prefix . 'wprism_state', $prefix . 'wprism_kv',
         ];
         $refKinds = array_fill_keys(array_map(
             static fn(array $rule): string => (string) ($rule['id_kind'] ?? ''),
@@ -135,7 +135,7 @@ final class CaptureTransaction {
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
             throw self::schema_refusal(
                 new \RuntimeException(
-                    'duo: lifecycle options storage-engine inventory could not be read; refusing to assume snapshot support'
+                    'wprism: lifecycle options storage-engine inventory could not be read; refusing to assume snapshot support'
                 )
             );
         }
@@ -157,7 +157,7 @@ final class CaptureTransaction {
 
         sort($bad);
         throw new \RuntimeException(
-            'duo: lifecycle options snapshot refused — consistent-snapshot isolation requires InnoDB, but '
+            'wprism: lifecycle options snapshot refused — consistent-snapshot isolation requires InnoDB, but '
             . "the following lifecycle-read table(s) use a different storage engine:\n  - "
             . implode("\n  - ", $bad)
             . "\nConvert the table(s) to InnoDB and re-run deploy."
@@ -248,7 +248,7 @@ final class CaptureTransaction {
                     Db::commit('capture transaction commit');
                 } catch (DatabaseTransactionOutcomeException $outcome) {
                     throw self::commit_outcome_uncertain(
-                        'duo: capture commit outcome uncertain — the exact transaction or connection '
+                        'wprism: capture commit outcome uncertain — the exact transaction or connection '
                             . 'could not be proven after COMMIT; refusing to retry because candidate DML '
                             . 'may already be durable',
                         $outcome
@@ -276,7 +276,7 @@ final class CaptureTransaction {
                     // outcomes. Never retry or issue a compensating
                     // rollback after crossing that boundary.
                     throw self::commit_outcome_uncertain(
-                        'duo: capture commit outcome uncertain — COMMIT did not return a definitive success; '
+                        'wprism: capture commit outcome uncertain — COMMIT did not return a definitive success; '
                         . 'refusing to retry because candidate DML may already be durable',
                         $e
                     );
@@ -294,7 +294,7 @@ final class CaptureTransaction {
                             'message' => 'filesystem publication crossed its replay-safe boundary',
                             'remediation' => 'preserve the intent and backup and reconcile the recorded publication before another capture',
                         ]],
-                        'duo: capture failed after filesystem publication began — refusing to retry the candidate; '
+                        'wprism: capture failed after filesystem publication began — refusing to retry the candidate; '
                             . 'the next run must reconcile its durable intent/backup artifacts',
                         $e
                     );
@@ -310,7 +310,7 @@ final class CaptureTransaction {
                             'message' => 'transient database contention persisted through the bounded retry window',
                             'remediation' => 'wait for the competing writer to finish before another capture',
                         ]],
-                        "duo: capture failed after $attempt attempt(s) — repeated transient database contention "
+                        "wprism: capture failed after $attempt attempt(s) — repeated transient database contention "
                             . "(a concurrent WordPress write kept colliding with capture's own identity-minting "
                             . 'writes): ' . $e->getMessage(),
                         $e
@@ -324,7 +324,7 @@ final class CaptureTransaction {
                         throw $t;
                     }
                     throw self::commit_outcome_uncertain(
-                        'duo: capture commit outcome uncertain — COMMIT returned no definitive success; '
+                        'wprism: capture commit outcome uncertain — COMMIT returned no definitive success; '
                         . 'refusing to retry because candidate DML may already be durable',
                         $t
                     );
@@ -370,8 +370,8 @@ final class CaptureTransaction {
             return;
         }
         if (stripos($err, 'Deadlock found') !== false || stripos($err, 'Lock wait timeout') !== false) {
-            throw new TransientDbException("duo: transient DB contention at $where");
+            throw new TransientDbException("wprism: transient DB contention at $where");
         }
-        throw new \RuntimeException("duo: unexpected SQL error at $where");
+        throw new \RuntimeException("wprism: unexpected SQL error at $where");
     }
 }

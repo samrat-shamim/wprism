@@ -6,7 +6,7 @@
  * from retirement's exact post-hook canonical hash.
  */
 
-namespace Duo;
+namespace WPrism;
 
 function wp_json_encode(mixed $value): string|false {
     return json_encode($value, JSON_UNESCAPED_SLASHES);
@@ -26,8 +26,8 @@ final class Ledger {
 }
 
 final class FakePromotionWpdb {
-    public string $prefix = 'wp_duo_';
-    public string $dbname = 'duo_unit';
+    public string $prefix = 'wp_wprism_';
+    public string $dbname = 'wprism_unit';
     /** @var list<mixed> */
     public array $preparedArgs = [];
     public bool $fenceHeld = false;
@@ -245,7 +245,7 @@ $wpdb->connectionId = 17;
 Ledger::$rows = [];
 $directReleaseOwner = 'direct-fence-release-owner';
 PromotionLock::acquire($directReleaseOwner, $artifact, 'checkpoint', 1);
-\Duo\ProcessFence::release();
+\WPrism\ProcessFence::release();
 PromotionLock::heartbeat($directReleaseOwner, $artifact, 'post-direct-release', 1);
 $directReleaseLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR);
 $directReleaseLease['expires_at'] = time() - 1;

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Every declared outbound reference edge in one compiled canonical tree,
@@ -12,7 +12,7 @@ namespace Duo;
  * adapter declares a reference shape the second walker has never heard of,
  * neither walker fails loudly — the validator quietly stops guarding an
  * edge, or a resolved scope quietly ships without one of its dependencies.
- * That is precisely the failure DUO-3344 exists to make impossible, so the
+ * That is precisely the failure issue #3344 exists to make impossible, so the
  * enumeration lives here, once, and both callers consume it.
  *
  * Nothing here reads WordPress or the ledger. Canonical state is uuid-keyed
@@ -39,7 +39,7 @@ final class ReferenceGraph {
     public const REL_PARENT = 'parent';
     /** A post's assignment to a term. */
     public const REL_TERM = 'term';
-    /** A term's declared relationship to another term (DUO-3316 object keyspaces). */
+    /** A term's declared relationship to another term (issue #3316 object keyspaces). */
     public const REL_RELATIONSHIP = 'relationship';
 
     /**

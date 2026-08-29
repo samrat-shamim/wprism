@@ -1,15 +1,15 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
+use WPrism\ManifestProviderRuntime;
 
 /**
  * WooCommerce 11.x blanket cache-invalidation provider.
  *
- * Duo writes Woo's shipping, tax, and attribute rows with SQL, deliberately
+ * WPrism writes Woo's shipping, tax, and attribute rows with SQL, deliberately
  * bypassing the save hooks Woo normally uses to invalidate the caches those
  * rows feed. This provider is the manifest-owned boundary for that repair.
- * It is the DUO-3338 port of the `wp eval` payload manifests/woocommerce.json
+ * It is the issue #3338 port of the `wp eval` payload manifests/woocommerce.json
  * previously carried in the retired `rebuilders` channel: the same public
  * WooCommerce API calls, the same guards, and the same three-condition
  * shipping-version persistence proof, now behind an identity/receipt contract
@@ -40,7 +40,7 @@ final class WoocommerceCache extends ManifestProviderRuntime {
     private function scoped_postcondition(array $groups): array {
         if ($groups === []) {
             throw new \RuntimeException(
-                'duo: WooCommerce cache reconciliation was asked for an empty group list; recovery_required'
+                'wprism: WooCommerce cache reconciliation was asked for an empty group list; recovery_required'
             );
         }
         return [
@@ -68,11 +68,11 @@ final class WoocommerceCache extends ManifestProviderRuntime {
         if (!class_exists('WC_Cache_Helper')
             || !is_callable(['WC_Cache_Helper', 'invalidate_cache_group'])
             || !is_callable(['WC_Cache_Helper', 'get_transient_version'])) {
-            throw new \RuntimeException('duo: WooCommerce 11.x cache invalidation API is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce 11.x cache invalidation API is unavailable');
         }
         if ($groups === []) {
             throw new \RuntimeException(
-                'duo: WooCommerce cache invalidation was asked for an empty group list; '
+                'wprism: WooCommerce cache invalidation was asked for an empty group list; '
                 . "declare the exact groups in the manifest action's args.groups"
             );
         }
@@ -83,7 +83,7 @@ final class WoocommerceCache extends ManifestProviderRuntime {
         ];
         foreach ($groups as $group) {
             if (!\WC_Cache_Helper::invalidate_cache_group($group)) {
-                throw new \RuntimeException("duo: WooCommerce cache invalidation failed for $group");
+                throw new \RuntimeException("wprism: WooCommerce cache invalidation failed for $group");
             }
         }
 
@@ -92,7 +92,7 @@ final class WoocommerceCache extends ManifestProviderRuntime {
         if (!is_string($shippingVersion) || $shippingVersion === ''
             || $freshShippingVersion !== $shippingVersion) {
             throw new \RuntimeException(
-                'duo: WooCommerce shipping transient version did not persist across a fresh read'
+                'wprism: WooCommerce shipping transient version did not persist across a fresh read'
             );
         }
 
@@ -119,7 +119,7 @@ final class WoocommerceCache extends ManifestProviderRuntime {
     private function observe_shipping_version(): ?string {
         if (!function_exists('get_transient')) {
             throw new \RuntimeException(
-                'duo: WooCommerce cache invalidation requires the WordPress transient API'
+                'wprism: WooCommerce cache invalidation requires the WordPress transient API'
             );
         }
         $version = get_transient('shipping-transient-version');

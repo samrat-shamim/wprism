@@ -12,17 +12,17 @@ require_once __DIR__ . '/../../../../cli/src/Command/HostProcess.php';
 require_once __DIR__ . '/../../../../cli/src/Command/OnboardCommand.php';
 require_once __DIR__ . '/../../../../cli/src/Command/DemoCommand.php';
 
-use Duo\Orchestrator\Adopt;
-use Duo\Orchestrator\ConnectCommand;
-use Duo\Orchestrator\DemoCommand;
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\DockerTransport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\HostProcess;
-use Duo\Orchestrator\LocalTransport;
-use Duo\Orchestrator\OnboardCommand;
-use Duo\Orchestrator\Transport;
+use WPrism\Orchestrator\Adopt;
+use WPrism\Orchestrator\ConnectCommand;
+use WPrism\Orchestrator\DemoCommand;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\DockerTransport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\HostProcess;
+use WPrism\Orchestrator\LocalTransport;
+use WPrism\Orchestrator\OnboardCommand;
+use WPrism\Orchestrator\Transport;
 
 final class IdealOnboardingTransport extends Transport {
     /** @var list<string> */
@@ -36,7 +36,7 @@ final class IdealOnboardingTransport extends Transport {
 
     public function __construct(
         private bool $singleSite = true,
-        string $repoPath = '/srv/duo',
+        string $repoPath = '/srv/wprism',
         private bool $executeRaw = false,
         private ?Closure $afterRaw = null,
         private ?string $hostBoundary = null
@@ -58,7 +58,7 @@ final class IdealOnboardingTransport extends Transport {
             }
             return $result;
         }
-        return ['exit' => 0, 'stdout' => "duo-connect-ready\n", 'stderr' => ''];
+        return ['exit' => 0, 'stdout' => "wprism-connect-ready\n", 'stderr' => ''];
     }
 
     public function captureWp(array $wpArgs): array {
@@ -144,7 +144,7 @@ final class UnboundedOnboardingDriver implements EnvironmentDriver {
 function ideal_demo_session(string $root, string $name, int $sourcePort, int $targetPort): array {
     $sandbox = $root . '/sandbox';
     return [
-        'format' => 'duo-demo-session/v1',
+        'format' => 'wprism-demo-session/v1',
         'name' => $name,
         'source_port' => $sourcePort,
         'target_port' => $targetPort,
@@ -196,7 +196,7 @@ function ideal_handoff_fixture(string $tmp, string $label, ?Closure $afterRaw = 
     foreach ([$target, $target . '/code', $target . '/state', $target . '/media'] as $directory) {
         mkdir($directory, 0700);
     }
-    file_put_contents($target . '/site.duo.json', Adopt::repositorySeedBytes());
+    file_put_contents($target . '/site.wprism.json', Adopt::repositorySeedBytes());
     file_put_contents($target . '/.gitignore', Adopt::repositoryGitignoreBytes());
     file_put_contents($target . '/code/plugin.php', "<?php\n");
     file_put_contents($target . '/state/baseline.json', "{}\n");
@@ -252,7 +252,7 @@ function write_ideal_demo_session(array $session): void {
     file_put_contents((string) $session['state_file'], $bytes . "\n");
 }
 
-$tmp = sys_get_temp_dir() . '/duo-ideal-onboarding-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-ideal-onboarding-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0700, true);
 register_shutdown_function(static function () use ($tmp): void {
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -261,11 +261,11 @@ register_shutdown_function(static function () use ($tmp): void {
 $workspace = $tmp . '/workspace';
 $resolvedWorkspace = (realpath($tmp) ?: $tmp) . '/workspace';
 $gitRunner = static function (array $argv, ?string $cwd) use ($tmp): array {
-    duo_check_same(['git', 'init', '--initial-branch=main'], array_slice($argv, 0, 3), 'connect initializes an explicit main-branch Git root');
-    duo_check_same(null, $cwd, 'connect passes the complete workspace path to Git rather than relying on cwd');
+    wprism_check_same(['git', 'init', '--initial-branch=main'], array_slice($argv, 0, 3), 'connect initializes an explicit main-branch Git root');
+    wprism_check_same(null, $cwd, 'connect passes the complete workspace path to Git rather than relying on cwd');
     $stage = $argv[3] ?? '';
-    duo_check_same(realpath($tmp), realpath(dirname($stage)), 'connect stages beside the requested destination');
-    duo_check(str_starts_with(basename($stage), '.duo-connect-'), 'connect uses a private unpredictable staging name');
+    wprism_check_same(realpath($tmp), realpath(dirname($stage)), 'connect stages beside the requested destination');
+    wprism_check(str_starts_with(basename($stage), '.wprism-connect-'), 'connect uses a private unpredictable staging name');
     return IdealOnboardingTransport::process($argv, $cwd);
 };
 $probeTransport = new IdealOnboardingTransport();
@@ -274,26 +274,26 @@ $factory = static fn(string $name, array $config): EnvironmentDriver => $probeTr
 ob_start();
 $connectExit = ConnectCommand::run([
     'production', '--workspace=' . $workspace, '--transport=local',
-    '--wp-path=/var/www/html', '--repo-path=/srv/duo',
+    '--wp-path=/var/www/html', '--repo-path=/srv/wprism',
 ], dirname(__DIR__, 4), $factory, $gitRunner);
 $connectOutput = (string) ob_get_clean();
-duo_check_same(0, $connectExit, 'connect succeeds after three native inspection probes');
-duo_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($workspace . '/site.duo.json'), 'connect and target adoption share one seed byte source');
-duo_check_same(Adopt::repositoryGitignoreBytes(), (string) file_get_contents($workspace . '/.gitignore'), 'connect publishes the target-compatible local-artifact ignore boundary');
-duo_check((fileperms($workspace . '/.duo-envs.json') & 0777) === 0600, 'the privileged machine-local registry is owner-only');
-duo_check(str_contains($connectOutput, 'no explicit mutation') && str_contains($connectOutput, 'site startup code may have run') && str_contains($connectOutput, 'onboard'), 'connect reports the honest WordPress-bootstrap boundary and one next command');
-duo_check_same(['echo duo-connect-ready'], $probeTransport->rawCalls, 'connect makes only its declared transport reachability probe');
-duo_check_same(
+wprism_check_same(0, $connectExit, 'connect succeeds after three native inspection probes');
+wprism_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($workspace . '/site.wprism.json'), 'connect and target adoption share one seed byte source');
+wprism_check_same(Adopt::repositoryGitignoreBytes(), (string) file_get_contents($workspace . '/.gitignore'), 'connect publishes the target-compatible local-artifact ignore boundary');
+wprism_check((fileperms($workspace . '/.wprism-envs.json') & 0777) === 0600, 'the privileged machine-local registry is owner-only');
+wprism_check(str_contains($connectOutput, 'no explicit mutation') && str_contains($connectOutput, 'site startup code may have run') && str_contains($connectOutput, 'onboard'), 'connect reports the honest WordPress-bootstrap boundary and one next command');
+wprism_check_same(['echo wprism-connect-ready'], $probeTransport->rawCalls, 'connect makes only its declared transport reachability probe');
+wprism_check_same(
     [['core', 'is-installed'], ['eval', 'echo is_multisite() ? "multisite" : "single-site";']],
     $probeTransport->wpCalls,
     'connect makes only the declared WordPress and topology probes'
 );
-duo_check_same(
+wprism_check_same(
     [['timeout' => 120000, 'stdout' => 1048576, 'stderr' => 1048576]],
     $probeTransport->boundedRawCalls,
     'connect bounds its target reachability probe'
 );
-duo_check_same(
+wprism_check_same(
     [
         ['timeout' => 120000, 'stdout' => 1048576, 'stderr' => 1048576],
         ['timeout' => 120000, 'stdout' => 1048576, 'stderr' => 1048576],
@@ -302,14 +302,14 @@ duo_check_same(
     'connect bounds both WordPress bootstrap probes'
 );
 
-$overlay = json_decode((string) file_get_contents($workspace . '/.duo-envs.json'), true);
-duo_check_same('local', $overlay['envs']['production']['transport'] ?? null, 'connect records the selected transport locally');
-duo_check_same(
-    ['format' => 'duo-local-control-plane/v1'],
+$overlay = json_decode((string) file_get_contents($workspace . '/.wprism-envs.json'), true);
+wprism_check_same('local', $overlay['envs']['production']['transport'] ?? null, 'connect records the selected transport locally');
+wprism_check_same(
+    ['format' => 'wprism-local-control-plane/v1'],
     $overlay['envs']['production']['bootstrap'] ?? null,
     'choosing a local target explicitly authorizes the machine-local adoption bootstrap'
 );
-duo_check(!isset($overlay['envs']['production']['_dir']), 'loader provenance never leaks into the serialized registry');
+wprism_check(!isset($overlay['envs']['production']['_dir']), 'loader provenance never leaks into the serialized registry');
 
 $sentinelRepo = $tmp . '/existing-repository';
 mkdir($sentinelRepo . '/.git', 0700, true);
@@ -317,11 +317,11 @@ file_put_contents($sentinelRepo . '/sentinel', "owned\n");
 ob_start();
 $traversalExit = ConnectCommand::run([
     'production', '--workspace=' . $sentinelRepo . '/missing/..', '--transport=local',
-    '--wp-path=/var/www/html', '--repo-path=/srv/duo',
+    '--wp-path=/var/www/html', '--repo-path=/srv/wprism',
 ], dirname(__DIR__, 4), $factory);
 ob_end_clean();
-duo_check_same(1, $traversalExit, 'connect refuses a missing-parent traversal before staging');
-duo_check(is_dir($sentinelRepo . '/.git') && is_file($sentinelRepo . '/sentinel'), 'a refused workspace cannot clean up an existing parent repository');
+wprism_check_same(1, $traversalExit, 'connect refuses a missing-parent traversal before staging');
+wprism_check(is_dir($sentinelRepo . '/.git') && is_file($sentinelRepo . '/sentinel'), 'a refused workspace cannot clean up an existing parent repository');
 
 $localParent = $tmp . '/local-target-parent';
 mkdir($localParent, 0700);
@@ -337,8 +337,8 @@ foreach ($overlaps as [$overlapWorkspace, $overlapRepo, $label]) {
         '--wp-path=/var/www/html', '--repo-path=' . $overlapRepo,
     ], dirname(__DIR__, 4), $factory, $gitRunner);
     ob_end_clean();
-    duo_check_same(1, $overlapExit, "connect refuses $label local workspace/repo boundaries");
-    duo_check(!file_exists($overlapWorkspace), "connect publishes no workspace for $label boundaries");
+    wprism_check_same(1, $overlapExit, "connect refuses $label local workspace/repo boundaries");
+    wprism_check(!file_exists($overlapWorkspace), "connect publishes no workspace for $label boundaries");
 }
 
 $caseParent = $tmp . '/case-boundaries';
@@ -350,8 +350,8 @@ $caseExit = ConnectCommand::run([
     '--wp-path=/var/www/html', '--repo-path=' . $caseParent . '/siterepo',
 ], dirname(__DIR__, 4), $factory);
 ob_end_clean();
-duo_check_same(1, $caseExit, 'connect conservatively refuses case-only prospective host boundaries');
-duo_check(!file_exists($caseWorkspace), 'case-only overlap refusal publishes no workspace');
+wprism_check_same(1, $caseExit, 'connect conservatively refuses case-only prospective host boundaries');
+wprism_check(!file_exists($caseWorkspace), 'case-only overlap refusal publishes no workspace');
 
 $unicodeWorkspace = $caseParent . "/Site-\u{00E9}";
 ob_start();
@@ -360,12 +360,12 @@ $unicodeExit = ConnectCommand::run([
     '--wp-path=/var/www/html', '--repo-path=' . $caseParent . "/Site-e\u{0301}",
 ], dirname(__DIR__, 4), $factory);
 ob_end_clean();
-duo_check_same(1, $unicodeExit, 'connect conservatively refuses normalization-only prospective host boundaries');
-duo_check(!file_exists($unicodeWorkspace), 'normalization-only overlap refusal publishes no workspace');
+wprism_check_same(1, $unicodeExit, 'connect conservatively refuses normalization-only prospective host boundaries');
+wprism_check(!file_exists($unicodeWorkspace), 'normalization-only overlap refusal publishes no workspace');
 $foldBoundary = new ReflectionMethod(ConnectCommand::class, 'foldComparableBoundary');
 $unicodeUpper = $foldBoundary->invoke(null, "/tmp/Site-\u{00C9}", true, false);
 $unicodeLower = $foldBoundary->invoke(null, "/tmp/site-\u{00E9}", true, false);
-duo_check_same(
+wprism_check_same(
     $unicodeUpper,
     $unicodeLower,
     'Normalizer without mbstring still collapses every non-ASCII prospective segment conservatively'
@@ -389,7 +389,7 @@ foreach (['publish', 'cleanup'] as $stageRace) {
         rename($stage, $ownedStage);
         mkdir($stage, 0700);
         mkdir($stage . '/.git', 0700);
-        file_put_contents($stage . '/.duo-envs.json', "foreign-$stageRace\n");
+        file_put_contents($stage . '/.wprism-envs.json', "foreign-$stageRace\n");
         $replacementStage = $stage;
         return $stageRace === 'publish'
             ? ['exit' => 0, 'stdout' => '', 'stderr' => '']
@@ -398,43 +398,43 @@ foreach (['publish', 'cleanup'] as $stageRace) {
     ob_start();
     $stageExit = ConnectCommand::run([
         'production', '--workspace=' . $stageWorkspace, '--transport=local',
-        '--wp-path=/var/www/html', '--repo-path=/srv/duo',
+        '--wp-path=/var/www/html', '--repo-path=/srv/wprism',
     ], dirname(__DIR__, 4), $factory, $stageRunner);
     ob_end_clean();
-    duo_check_same(1, $stageExit, "connect refuses a staging-root replacement before $stageRace");
-    duo_check(!file_exists($stageWorkspace), "staging replacement before $stageRace is never published");
-    duo_check(
+    wprism_check_same(1, $stageExit, "connect refuses a staging-root replacement before $stageRace");
+    wprism_check(!file_exists($stageWorkspace), "staging replacement before $stageRace is never published");
+    wprism_check(
         is_string($replacementStage)
-            && file_get_contents($replacementStage . '/.duo-envs.json') === "foreign-$stageRace\n",
+            && file_get_contents($replacementStage . '/.wprism-envs.json') === "foreign-$stageRace\n",
         "staging replacement before $stageRace is retained byte-identically"
     );
-    duo_check(is_string($ownedStage) && is_dir($ownedStage), "the displaced owned stage survives the $stageRace fixture");
+    wprism_check(is_string($ownedStage) && is_dir($ownedStage), "the displaced owned stage survives the $stageRace fixture");
 }
 
 $blockedWorkspace = $tmp . '/multisite';
 ob_start();
 $blockedExit = ConnectCommand::run([
     'production', '--workspace=' . $blockedWorkspace, '--transport=local',
-    '--wp-path=/var/www/html', '--repo-path=/srv/duo',
+    '--wp-path=/var/www/html', '--repo-path=/srv/wprism',
 ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => new IdealOnboardingTransport(false), $gitRunner);
 ob_end_clean();
-duo_check_same(1, $blockedExit, 'connect refuses unsupported topology');
-duo_check(!file_exists($blockedWorkspace), 'a failed inspection probe creates no workspace');
+wprism_check_same(1, $blockedExit, 'connect refuses unsupported topology');
+wprism_check(!file_exists($blockedWorkspace), 'a failed inspection probe creates no workspace');
 
 $unboundedDriver = new UnboundedOnboardingDriver();
 $unboundedWorkspace = $tmp . '/unbounded-workspace';
 ob_start();
 $unboundedConnectExit = ConnectCommand::run([
     'unbounded', '--workspace=' . $unboundedWorkspace, '--transport=local',
-    '--wp-path=/var/www/html', '--repo-path=/srv/duo',
+    '--wp-path=/var/www/html', '--repo-path=/srv/wprism',
 ], dirname(__DIR__, 4), static fn(): EnvironmentDriver => $unboundedDriver, $gitRunner);
 ob_end_clean();
-duo_check_same(1, $unboundedConnectExit, 'connect refuses a driver without the explicit bounded-control protocol');
-duo_check_same(0, $unboundedDriver->rawCalls + $unboundedDriver->wpCalls, 'an unbounded driver is refused before target contact');
-duo_check(!file_exists($unboundedWorkspace), 'an unbounded driver cannot publish a connected workspace');
+wprism_check_same(1, $unboundedConnectExit, 'connect refuses a driver without the explicit bounded-control protocol');
+wprism_check_same(0, $unboundedDriver->rawCalls + $unboundedDriver->wpCalls, 'an unbounded driver is refused before target contact');
+wprism_check(!file_exists($unboundedWorkspace), 'an unbounded driver cannot publish a connected workspace');
 $unboundedReport = $unboundedDriver->capabilityReport('onboard');
-duo_check(!$unboundedReport->ready(), 'onboard capability negotiation refuses a driver without bounded control');
-duo_check_same(
+wprism_check(!$unboundedReport->ready(), 'onboard capability negotiation refuses a driver without bounded control');
+wprism_check_same(
     DriverCapability::BOUNDED_CONTROL,
     $unboundedReport->blockers()[0]['capability'] ?? null,
     'bounded target control is a declared capability requirement rather than a concrete-class assumption'
@@ -445,7 +445,7 @@ chdir($workspace);
 $steps = [];
 $stepSeams = [
     'handoff_preflight' => static function (EnvironmentDriver $driver, string $repo, string $url) use (&$steps, $resolvedWorkspace): void {
-        duo_check_same($resolvedWorkspace, $repo, 'onboard preflights the workspace connect created');
+        wprism_check_same($resolvedWorkspace, $repo, 'onboard preflights the workspace connect created');
         $steps[] = 'preflight:' . $url;
     },
     'adopt' => static function (EnvironmentDriver $driver, array $args, string $root) use (&$steps): int {
@@ -461,7 +461,7 @@ $stepSeams = [
         return 0;
     },
     'handoff' => static function (EnvironmentDriver $driver, string $repo, string $url) use (&$steps, $resolvedWorkspace): string {
-        duo_check_same($resolvedWorkspace, $repo, 'onboard resolves the local repository connect created before target work');
+        wprism_check_same($resolvedWorkspace, $repo, 'onboard resolves the local repository connect created before target work');
         $steps[] = 'handoff:' . $url;
         return 'develop';
     },
@@ -477,13 +477,13 @@ $onboardOutput = (string) ob_get_clean();
 if (is_string($originalCwd)) {
     chdir($originalCwd);
 }
-duo_check_same(0, $onboardExit, 'guided onboarding completes when every existing gate completes');
-duo_check_same(
+wprism_check_same(0, $onboardExit, 'guided onboarding completes when every existing gate completes');
+wprism_check_same(
     ['preflight:ssh://git.example.test/shop.git', 'adopt', 'assess', 'init:--yes,--offline', 'handoff:ssh://git.example.test/shop.git'],
     $steps,
     'guided onboarding verifies handoff authority before target mutation and keeps --git-url out of init'
 );
-duo_check(str_contains($onboardOutput, 'Onboarding 1/3') && str_contains($onboardOutput, 'Onboarding 3/3'), 'guided onboarding makes its three phases visible');
+wprism_check(str_contains($onboardOutput, 'Onboarding 1/3') && str_contains($onboardOutput, 'Onboarding 3/3'), 'guided onboarding makes its three phases visible');
 
 $noUrlCwd = getcwd();
 chdir($workspace);
@@ -502,8 +502,8 @@ $noUrlOutput = (string) ob_get_clean();
 if (is_string($noUrlCwd)) {
     chdir($noUrlCwd);
 }
-duo_check_same(0, $noUrlExit, 'onboard may stop cleanly after initialization without a remote');
-duo_check(str_contains($noUrlOutput, '--handoff-only --git-url=<empty-remote-url>'), 'the no-URL handoff prints an exact resumable command');
+wprism_check_same(0, $noUrlExit, 'onboard may stop cleanly after initialization without a remote');
+wprism_check(str_contains($noUrlOutput, '--handoff-only --git-url=<empty-remote-url>'), 'the no-URL handoff prints an exact resumable command');
 
 $handoffFailureSteps = [];
 $handoffFailureCwd = getcwd();
@@ -529,8 +529,8 @@ ob_end_clean();
 if (is_string($handoffFailureCwd)) {
     chdir($handoffFailureCwd);
 }
-duo_check_same(1, $handoffFailureExit, 'ordinary onboarding reports a bounded target handoff failure after init');
-duo_check_same(
+wprism_check_same(1, $handoffFailureExit, 'ordinary onboarding reports a bounded target handoff failure after init');
+wprism_check_same(
     ['preflight', 'adopt', 'assess', 'init', 'handoff', 'resume'],
     $handoffFailureSteps,
     'a post-init handoff failure renders the resume-only continuation'
@@ -541,8 +541,8 @@ $resumeMessage = (string) $resumeMessageMethod->invoke(
     dirname(__DIR__, 4),
     new IdealOnboardingTransport()
 );
-duo_check(str_contains($resumeMessage, 'onboard \'production\' --handoff-only --git-url=<same-remote-url>'), 'handoff recovery prints one exact resume-only command');
-duo_check(!str_contains($resumeMessage, 'operator:secret'), 'handoff recovery never echoes URL credentials');
+wprism_check(str_contains($resumeMessage, 'onboard \'production\' --handoff-only --git-url=<same-remote-url>'), 'handoff recovery prints one exact resume-only command');
+wprism_check(!str_contains($resumeMessage, 'operator:secret'), 'handoff recovery never echoes URL credentials');
 
 $preflightMutations = [];
 $preflightCwd = getcwd();
@@ -562,8 +562,8 @@ ob_end_clean();
 if (is_string($preflightCwd)) {
     chdir($preflightCwd);
 }
-duo_check_same(1, $preflightExit, 'onboard refuses an unreachable controller remote during preflight');
-duo_check_same([], $preflightMutations, 'handoff preflight failure occurs before adopt, assess, or init');
+wprism_check_same(1, $preflightExit, 'onboard refuses an unreachable controller remote during preflight');
+wprism_check_same([], $preflightMutations, 'handoff preflight failure occurs before adopt, assess, or init');
 
 $targetRepo = $tmp . '/target-repository';
 $bareRemote = $tmp . '/published.git';
@@ -571,7 +571,7 @@ $handoffWorkspace = $tmp . '/handoff-workspace';
 foreach ([$targetRepo, $targetRepo . '/code', $targetRepo . '/state', $targetRepo . '/media'] as $directory) {
     mkdir($directory, 0700);
 }
-file_put_contents($targetRepo . '/site.duo.json', Adopt::repositorySeedBytes());
+file_put_contents($targetRepo . '/site.wprism.json', Adopt::repositorySeedBytes());
 file_put_contents($targetRepo . '/.gitignore', Adopt::repositoryGitignoreBytes());
 file_put_contents($targetRepo . '/code/plugin.php', "<?php\n");
 file_put_contents($targetRepo . '/state/baseline.json', "{}\n");
@@ -593,9 +593,9 @@ $handoffConnectExit = ConnectCommand::run([
     '--wp-path=/var/www/html', '--repo-path=' . $targetRepo,
 ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => $handoffDriver);
 ob_end_clean();
-duo_check_same(0, $handoffConnectExit, 'the real Git handoff fixture starts through connect');
-mkdir($handoffWorkspace . '/.duo/contract/production', 0700, true);
-file_put_contents($handoffWorkspace . '/.duo/contract/production/proposed.json', "{\"format\":\"assessment-artifact-fixture\"}\n");
+wprism_check_same(0, $handoffConnectExit, 'the real Git handoff fixture starts through connect');
+mkdir($handoffWorkspace . '/.wprism/contract/production', 0700, true);
+file_put_contents($handoffWorkspace . '/.wprism/contract/production/proposed.json', "{\"format\":\"assessment-artifact-fixture\"}\n");
 
 $beforeHandoffCwd = getcwd();
 chdir($handoffWorkspace);
@@ -617,19 +617,19 @@ if (is_string($beforeHandoffCwd)) {
 $targetHead = IdealOnboardingTransport::process(['git', '-C', $targetRepo, 'rev-parse', 'HEAD']);
 $workspaceHead = IdealOnboardingTransport::process(['git', '-C', $handoffWorkspace, 'rev-parse', 'HEAD']);
 $workspaceBranch = IdealOnboardingTransport::process(['git', '-C', $handoffWorkspace, 'branch', '--show-current']);
-duo_check_same(0, $handoffExit, 'onboard publishes and checks out the initialized target repository without manual Git commands');
-duo_check_same(trim($targetHead['stdout']), trim($workspaceHead['stdout']), 'developer and target worktrees resolve the same initialized revision');
-duo_check_same('develop', trim($workspaceBranch['stdout']), 'the connected workspace preserves and tracks the target branch');
-duo_check(is_file($handoffWorkspace . '/code/plugin.php'), 'checkout materializes the initialized target payload locally');
-duo_check(is_file($handoffWorkspace . '/.duo-envs.json'), 'checkout preserves the ignored machine-local environment registry');
-duo_check_same(
+wprism_check_same(0, $handoffExit, 'onboard publishes and checks out the initialized target repository without manual Git commands');
+wprism_check_same(trim($targetHead['stdout']), trim($workspaceHead['stdout']), 'developer and target worktrees resolve the same initialized revision');
+wprism_check_same('develop', trim($workspaceBranch['stdout']), 'the connected workspace preserves and tracks the target branch');
+wprism_check(is_file($handoffWorkspace . '/code/plugin.php'), 'checkout materializes the initialized target payload locally');
+wprism_check(is_file($handoffWorkspace . '/.wprism-envs.json'), 'checkout preserves the ignored machine-local environment registry');
+wprism_check_same(
     "{\"format\":\"assessment-artifact-fixture\"}\n",
-    (string) file_get_contents($handoffWorkspace . '/.duo/contract/production/proposed.json'),
+    (string) file_get_contents($handoffWorkspace . '/.wprism/contract/production/proposed.json'),
     'handoff preserves the assessment artifact written by the preceding composed step'
 );
-duo_check(str_contains($handoffOutput, 'Published the initialized target baseline'), 'onboard reports the completed automated handoff');
-duo_check(str_contains($handoffOutput, ' assess ') && str_contains($handoffOutput, 'Capture always writes to the target repo_path'), 'onboard recommends a command whose target-worktree effect is explicit');
-duo_check(
+wprism_check(str_contains($handoffOutput, 'Published the initialized target baseline'), 'onboard reports the completed automated handoff');
+wprism_check(str_contains($handoffOutput, ' assess ') && str_contains($handoffOutput, 'Capture always writes to the target repo_path'), 'onboard recommends a command whose target-worktree effect is explicit');
+wprism_check(
     in_array(['timeout' => 900000, 'stdout' => 8388608, 'stderr' => 8388608], $handoffDriver->boundedRawCalls, true),
     'target publication uses the explicit fifteen-minute bounded transfer envelope'
 );
@@ -658,20 +658,20 @@ $defaultAssessWorkspace = $defaultAssessRoot . '/workspace';
 $defaultCalls = $defaultAssessRoot . '/calls.txt';
 file_put_contents($defaultCalls, '');
 $savedPath = getenv('PATH');
-$savedFixtures = getenv('DUO_FIXTURES');
-$savedSiteRepo = getenv('DUO_SITE_REPO');
-$savedCalls = getenv('DUO_CALLS');
+$savedFixtures = getenv('WPRISM_FIXTURES');
+$savedSiteRepo = getenv('WPRISM_SITE_REPO');
+$savedCalls = getenv('WPRISM_CALLS');
 putenv('PATH=' . $defaultAssessRoot . '/bin:' . (is_string($savedPath) ? $savedPath : ''));
-putenv('DUO_FIXTURES=' . $defaultAssessRoot . '/fixtures');
-putenv('DUO_SITE_REPO=' . $defaultAssessTarget);
-putenv('DUO_CALLS=' . $defaultCalls);
+putenv('WPRISM_FIXTURES=' . $defaultAssessRoot . '/fixtures');
+putenv('WPRISM_SITE_REPO=' . $defaultAssessTarget);
+putenv('WPRISM_CALLS=' . $defaultCalls);
 ob_start();
 $defaultAssessConnect = ConnectCommand::run([
     'fixture', '--workspace=' . $defaultAssessWorkspace, '--transport=local',
     '--wp-path=' . $defaultAssessRoot . '/wordpress', '--repo-path=' . $defaultAssessTarget,
 ], dirname(__DIR__, 4));
 ob_end_clean();
-duo_check_same(0, $defaultAssessConnect, 'the default-assess integration starts through a real local connect');
+wprism_check_same(0, $defaultAssessConnect, 'the default-assess integration starts through a real local connect');
 $defaultAssessDriver = new LocalTransport('fixture', [
     'transport' => 'local',
     'wp_path' => $defaultAssessRoot . '/wordpress',
@@ -692,7 +692,7 @@ $defaultAssessExit = OnboardCommand::run(
         'adopt' => static fn(EnvironmentDriver $driver, array $args, string $root): int => 0,
         'init' => static function () use ($defaultAssessWorkspace, &$proposalBeforeHandoff): int {
             $proposalBeforeHandoff = file_get_contents(
-                $defaultAssessWorkspace . '/.duo/contract/fixture/proposed.json'
+                $defaultAssessWorkspace . '/.wprism/contract/fixture/proposed.json'
             );
             return is_string($proposalBeforeHandoff) ? 0 : 1;
         },
@@ -704,21 +704,21 @@ if (is_string($defaultAssessCwd)) {
 }
 foreach ([
     'PATH' => $savedPath,
-    'DUO_FIXTURES' => $savedFixtures,
-    'DUO_SITE_REPO' => $savedSiteRepo,
-    'DUO_CALLS' => $savedCalls,
+    'WPRISM_FIXTURES' => $savedFixtures,
+    'WPRISM_SITE_REPO' => $savedSiteRepo,
+    'WPRISM_CALLS' => $savedCalls,
 ] as $name => $value) {
     is_string($value) ? putenv($name . '=' . $value) : putenv($name);
 }
-duo_check_same(0, $defaultAssessExit, 'onboard completes with the real default assessment step and Git handoff');
-duo_check(is_string($proposalBeforeHandoff) && $proposalBeforeHandoff !== '', 'the default assessment writes its proposal before init and handoff');
-duo_check_same(
+wprism_check_same(0, $defaultAssessExit, 'onboard completes with the real default assessment step and Git handoff');
+wprism_check(is_string($proposalBeforeHandoff) && $proposalBeforeHandoff !== '', 'the default assessment writes its proposal before init and handoff');
+wprism_check_same(
     $proposalBeforeHandoff,
-    file_get_contents($defaultAssessWorkspace . '/.duo/contract/fixture/proposed.json'),
+    file_get_contents($defaultAssessWorkspace . '/.wprism/contract/fixture/proposed.json'),
     'the real handoff preserves the default assessment proposal byte-identically'
 );
-duo_check(is_file($defaultAssessWorkspace . '/.duo-envs.json'), 'the default-assess handoff preserves its machine-local registry');
-duo_check_same(
+wprism_check(is_file($defaultAssessWorkspace . '/.wprism-envs.json'), 'the default-assess handoff preserves its machine-local registry');
+wprism_check_same(
     trim(IdealOnboardingTransport::process(['git', '-C', $defaultAssessTarget, 'rev-parse', 'HEAD'])['stdout']),
     trim(IdealOnboardingTransport::process(['git', '-C', $defaultAssessWorkspace, 'rev-parse', 'HEAD'])['stdout']),
     'the default-assess target and controller finish on the same published revision'
@@ -757,8 +757,8 @@ ob_end_clean();
 if (is_string($tagCwd)) {
     chdir($tagCwd);
 }
-duo_check_same(1, $tagExit, 'onboard refuses a tag-only remote as nonempty');
-duo_check_same([], $tagMutations, 'a tag-only remote refuses before adopt, assess, or init');
+wprism_check_same(1, $tagExit, 'onboard refuses a tag-only remote as nonempty');
+wprism_check_same([], $tagMutations, 'a tag-only remote refuses before adopt, assess, or init');
 
 foreach ([
     'handoff-tag' => 'refs/tags/v2',
@@ -785,9 +785,9 @@ foreach ([
     $publishedReadback = IdealOnboardingTransport::process([
         'git', '--git-dir=' . $remoteRefFixture['remote'], 'rev-parse', '--verify', 'refs/heads/develop',
     ]);
-    duo_check_same(1, $remoteRefExit, "handoff-only refuses a remote carrying $foreignRef");
-    duo_check_same($foreignRevision, trim($foreignReadback['stdout']), "handoff-only preserves $foreignRef");
-    duo_check($publishedReadback['exit'] !== 0, "handoff-only discloses no target baseline beside $foreignRef");
+    wprism_check_same(1, $remoteRefExit, "handoff-only refuses a remote carrying $foreignRef");
+    wprism_check_same($foreignRevision, trim($foreignReadback['stdout']), "handoff-only preserves $foreignRef");
+    wprism_check($publishedReadback['exit'] !== 0, "handoff-only discloses no target baseline beside $foreignRef");
 }
 
 $postPreflightFixture = ideal_handoff_fixture($tmp, 'post-preflight-ref');
@@ -816,8 +816,8 @@ ob_end_clean();
 if (is_string($postPreflightCwd)) {
     chdir($postPreflightCwd);
 }
-duo_check_same(1, $postPreflightExit, 'onboard rechecks every remote ref after adopt/assess/init');
-duo_check(
+wprism_check_same(1, $postPreflightExit, 'onboard rechecks every remote ref after adopt/assess/init');
+wprism_check(
     IdealOnboardingTransport::process([
         'git', '--git-dir=' . $postPreflightFixture['remote'], 'rev-parse', '--verify', 'refs/heads/develop',
     ])['exit'] !== 0,
@@ -844,13 +844,13 @@ ob_end_clean();
 if (is_string($unrelatedCwd)) {
     chdir($unrelatedCwd);
 }
-duo_check_same(1, $unrelatedExit, 'normal onboarding refuses unrelated local bytes during preflight');
-duo_check_same([], $unrelatedMutations, 'unrelated local bytes refuse before adopt, assess, or init');
-duo_check(is_file($unrelatedFixture['workspace'] . '/notes.txt'), 'preflight preserves the unrelated controller file');
-duo_check(IdealOnboardingTransport::process(['git', '-C', $unrelatedFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0, 'preflight local-work refusal occurs before a target commit');
+wprism_check_same(1, $unrelatedExit, 'normal onboarding refuses unrelated local bytes during preflight');
+wprism_check_same([], $unrelatedMutations, 'unrelated local bytes refuse before adopt, assess, or init');
+wprism_check(is_file($unrelatedFixture['workspace'] . '/notes.txt'), 'preflight preserves the unrelated controller file');
+wprism_check(IdealOnboardingTransport::process(['git', '-C', $unrelatedFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0, 'preflight local-work refusal occurs before a target commit');
 
 $registryRaceFixture = ideal_handoff_fixture($tmp, 'registry-race');
-$registryRaceOriginal = $registryRaceFixture['workspace'] . '/.duo-envs.original';
+$registryRaceOriginal = $registryRaceFixture['workspace'] . '/.wprism-envs.original';
 $registryRaceCwd = getcwd();
 chdir($registryRaceFixture['workspace']);
 ob_start();
@@ -861,8 +861,8 @@ $registryRaceExit = OnboardCommand::run(
     [
         'adopt' => static fn(): int => 0,
         'assess' => static function () use ($registryRaceFixture, $registryRaceOriginal): int {
-            rename($registryRaceFixture['workspace'] . '/.duo-envs.json', $registryRaceOriginal);
-            file_put_contents($registryRaceFixture['workspace'] . '/.duo-envs.json', "foreign registry\n");
+            rename($registryRaceFixture['workspace'] . '/.wprism-envs.json', $registryRaceOriginal);
+            file_put_contents($registryRaceFixture['workspace'] . '/.wprism-envs.json', "foreign registry\n");
             return 0;
         },
         'init' => static fn(): int => 0,
@@ -872,20 +872,20 @@ ob_end_clean();
 if (is_string($registryRaceCwd)) {
     chdir($registryRaceCwd);
 }
-duo_check_same(1, $registryRaceExit, 'onboard refuses a machine-local registry replacement during assessment');
-duo_check_same(
+wprism_check_same(1, $registryRaceExit, 'onboard refuses a machine-local registry replacement during assessment');
+wprism_check_same(
     "foreign registry\n",
-    file_get_contents($registryRaceFixture['workspace'] . '/.duo-envs.json'),
+    file_get_contents($registryRaceFixture['workspace'] . '/.wprism-envs.json'),
     'assessment-roundtrip refusal preserves the replacement registry'
 );
-duo_check(
+wprism_check(
     IdealOnboardingTransport::process(['git', '-C', $registryRaceFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0,
     'registry authority loss refuses before a target publication commit'
 );
 
 $commitFixture = ideal_handoff_fixture($tmp, 'local-commit');
 foreach ([
-    ['git', '-C', $commitFixture['workspace'], 'add', 'site.duo.json', '.gitignore'],
+    ['git', '-C', $commitFixture['workspace'], 'add', 'site.wprism.json', '.gitignore'],
     ['git', '-C', $commitFixture['workspace'], '-c', 'user.name=test', '-c', 'user.email=test@example.test', 'commit', '-m', 'local work'],
 ] as $command) {
     $result = IdealOnboardingTransport::process($command);
@@ -906,14 +906,14 @@ ob_end_clean();
 if (is_string($commitCwd)) {
     chdir($commitCwd);
 }
-duo_check_same(1, $commitExit, 'handoff refuses a controller workspace with local Git work');
-duo_check_same($localCommit, trim(IdealOnboardingTransport::process(['git', '-C', $commitFixture['workspace'], 'rev-parse', 'HEAD'])['stdout']), 'handoff refusal preserves the controller commit and visible branch');
-duo_check(IdealOnboardingTransport::process(['git', '-C', $commitFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0, 'controller-work refusal occurs before a target commit');
+wprism_check_same(1, $commitExit, 'handoff refuses a controller workspace with local Git work');
+wprism_check_same($localCommit, trim(IdealOnboardingTransport::process(['git', '-C', $commitFixture['workspace'], 'rev-parse', 'HEAD'])['stdout']), 'handoff refusal preserves the controller commit and visible branch');
+wprism_check(IdealOnboardingTransport::process(['git', '-C', $commitFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0, 'controller-work refusal occurs before a target commit');
 
 $stagedTargetFixture = ideal_handoff_fixture($tmp, 'staged-target');
-file_put_contents($stagedTargetFixture['target'] . '/.duo-envs.json', "target secret\n");
+file_put_contents($stagedTargetFixture['target'] . '/.wprism-envs.json', "target secret\n");
 $forceStage = IdealOnboardingTransport::process([
-    'git', '-C', $stagedTargetFixture['target'], 'add', '-f', '.duo-envs.json',
+    'git', '-C', $stagedTargetFixture['target'], 'add', '-f', '.wprism-envs.json',
 ]);
 if ($forceStage['exit'] !== 0) {
     throw new RuntimeException('could not stage target disclosure fixture: ' . trim($forceStage['stderr']));
@@ -930,8 +930,8 @@ ob_end_clean();
 if (is_string($stagedTargetCwd)) {
     chdir($stagedTargetCwd);
 }
-duo_check_same(1, $stagedTargetExit, 'handoff refuses a nonempty target index before managed staging');
-duo_check(
+wprism_check_same(1, $stagedTargetExit, 'handoff refuses a nonempty target index before managed staging');
+wprism_check(
     IdealOnboardingTransport::process([
         'git', '--git-dir=' . $stagedTargetFixture['remote'], 'for-each-ref', '--format=%(refname)',
     ])['stdout'] === '',
@@ -940,7 +940,7 @@ duo_check(
 
 $historyFixture = ideal_handoff_fixture($tmp, 'existing-history');
 foreach ([
-    ['git', '-C', $historyFixture['target'], 'add', '.gitignore', 'site.duo.json', 'code', 'state', 'media'],
+    ['git', '-C', $historyFixture['target'], 'add', '.gitignore', 'site.wprism.json', 'code', 'state', 'media'],
     ['git', '-C', $historyFixture['target'], '-c', 'user.name=existing', '-c', 'user.email=existing@example.test', 'commit', '-m', 'existing history'],
 ] as $command) {
     $result = IdealOnboardingTransport::process($command);
@@ -961,13 +961,13 @@ ob_end_clean();
 if (is_string($historyCwd)) {
     chdir($historyCwd);
 }
-duo_check_same(1, $historyExit, 'guided initial publication refuses pre-existing target history without a Duo receipt');
-duo_check_same(
+wprism_check_same(1, $historyExit, 'guided initial publication refuses pre-existing target history without a WPrism receipt');
+wprism_check_same(
     $historyHead,
     trim(IdealOnboardingTransport::process(['git', '-C', $historyFixture['target'], 'rev-parse', 'HEAD'])['stdout']),
     'existing target history is retained unchanged'
 );
-duo_check(
+wprism_check(
     IdealOnboardingTransport::process([
         'git', '--git-dir=' . $historyFixture['remote'], 'for-each-ref', '--format=%(refname)',
     ])['stdout'] === '',
@@ -998,11 +998,11 @@ ob_end_clean();
 if (is_string($correctedCwd)) {
     chdir($correctedCwd);
 }
-duo_check_same(1, $badUrlExit, 'handoff-only reports an unreachable first URL');
-duo_check_same('', trim($targetRemotesAfterBadUrl['stdout']), 'an unreachable URL is not persisted as target origin');
-duo_check_same('', trim($targetRefsAfterBadUrl['stdout']), 'controller-only authentication failure leaves target publication refs untouched');
-duo_check_same(0, $correctedExit, 'handoff-only accepts a corrected reachable URL without repeating initialization');
-duo_check_same('main', trim(IdealOnboardingTransport::process(['git', '-C', $corrected['workspace'], 'branch', '--show-current'])['stdout']), 'handoff supports the connect-default branch without force-resetting an existing ref');
+wprism_check_same(1, $badUrlExit, 'handoff-only reports an unreachable first URL');
+wprism_check_same('', trim($targetRemotesAfterBadUrl['stdout']), 'an unreachable URL is not persisted as target origin');
+wprism_check_same('', trim($targetRefsAfterBadUrl['stdout']), 'controller-only authentication failure leaves target publication refs untouched');
+wprism_check_same(0, $correctedExit, 'handoff-only accepts a corrected reachable URL without repeating initialization');
+wprism_check_same('main', trim(IdealOnboardingTransport::process(['git', '-C', $corrected['workspace'], 'branch', '--show-current'])['stdout']), 'handoff supports the connect-default branch without force-resetting an existing ref');
 
 $exactRetryWorkspace = $tmp . '/exact-retry-workspace';
 $exactRetryInjected = false;
@@ -1010,14 +1010,14 @@ $exactRetryHook = static function (string $script, array $result) use (
     $exactRetryWorkspace,
     &$exactRetryInjected
 ): void {
-    if ($exactRetryInjected || !str_contains($result['stdout'], 'DUO_HANDOFF ')) {
+    if ($exactRetryInjected || !str_contains($result['stdout'], 'WPRISM_HANDOFF ')) {
         return;
     }
     $exactRetryInjected = true;
-    file_put_contents($exactRetryWorkspace . '/.duo-envs.json', "temporary controller race\n");
+    file_put_contents($exactRetryWorkspace . '/.wprism-envs.json', "temporary controller race\n");
 };
 $exactRetry = ideal_handoff_fixture($tmp, 'exact-retry', $exactRetryHook);
-$exactRegistry = (string) file_get_contents($exactRetry['workspace'] . '/.duo-envs.json');
+$exactRegistry = (string) file_get_contents($exactRetry['workspace'] . '/.wprism-envs.json');
 $exactRetryCwd = getcwd();
 chdir($exactRetry['workspace']);
 ob_start();
@@ -1027,7 +1027,7 @@ $exactFirstExit = OnboardCommand::run(
     dirname(__DIR__, 4)
 );
 ob_end_clean();
-file_put_contents($exactRetry['workspace'] . '/.duo-envs.json', $exactRegistry);
+file_put_contents($exactRetry['workspace'] . '/.wprism-envs.json', $exactRegistry);
 ob_start();
 $exactSecondExit = OnboardCommand::run(
     $exactRetry['driver'],
@@ -1038,8 +1038,8 @@ ob_end_clean();
 if (is_string($exactRetryCwd)) {
     chdir($exactRetryCwd);
 }
-duo_check_same(1, $exactFirstExit, 'handoff pauses when the controller changes after exact target publication');
-duo_check_same(0, $exactSecondExit, 'handoff-only accepts the one exact prior Duo branch/revision on retry');
+wprism_check_same(1, $exactFirstExit, 'handoff pauses when the controller changes after exact target publication');
+wprism_check_same(0, $exactSecondExit, 'handoff-only accepts the one exact prior WPrism branch/revision on retry');
 
 $pushUrlFixture = ideal_handoff_fixture($tmp, 'push-url');
 $wrongPushRemote = $tmp . '/wrong-push.git';
@@ -1065,9 +1065,9 @@ ob_end_clean();
 if (is_string($pushUrlCwd)) {
     chdir($pushUrlCwd);
 }
-duo_check_same(1, $pushUrlExit, 'handoff refuses a target origin with a divergent push URL');
-duo_check_same('', trim(IdealOnboardingTransport::process(['git', '--git-dir=' . $pushUrlFixture['remote'], 'for-each-ref', '--format=%(refname)'])['stdout']), 'divergent push URL refusal leaves the reviewed remote empty');
-duo_check_same('', trim(IdealOnboardingTransport::process(['git', '--git-dir=' . $wrongPushRemote, 'for-each-ref', '--format=%(refname)'])['stdout']), 'divergent push URL refusal discloses nothing to the alternate remote');
+wprism_check_same(1, $pushUrlExit, 'handoff refuses a target origin with a divergent push URL');
+wprism_check_same('', trim(IdealOnboardingTransport::process(['git', '--git-dir=' . $pushUrlFixture['remote'], 'for-each-ref', '--format=%(refname)'])['stdout']), 'divergent push URL refusal leaves the reviewed remote empty');
+wprism_check_same('', trim(IdealOnboardingTransport::process(['git', '--git-dir=' . $wrongPushRemote, 'for-each-ref', '--format=%(refname)'])['stdout']), 'divergent push URL refusal discloses nothing to the alternate remote');
 
 $localPushUrlFixture = ideal_handoff_fixture($tmp, 'local-push-url');
 $localWrongPush = $tmp . '/local-wrong-push.git';
@@ -1093,12 +1093,12 @@ ob_end_clean();
 if (is_string($localPushCwd)) {
     chdir($localPushCwd);
 }
-duo_check_same(1, $localPushExit, 'handoff refuses a local origin with a divergent push URL');
-duo_check(
+wprism_check_same(1, $localPushExit, 'handoff refuses a local origin with a divergent push URL');
+wprism_check(
     IdealOnboardingTransport::process(['git', '-C', $localPushUrlFixture['target'], 'rev-parse', '--verify', 'HEAD'])['exit'] !== 0,
     'local push-URL refusal occurs before a target commit'
 );
-duo_check_same(
+wprism_check_same(
     '',
     trim(IdealOnboardingTransport::process(['git', '--git-dir=' . $localWrongPush, 'for-each-ref', '--format=%(refname)'])['stdout']),
     'local push-URL refusal discloses nothing to the alternate remote'
@@ -1108,7 +1108,7 @@ $raceTarget = $tmp . '/receipt-race-target';
 $raceRemote = $tmp . '/receipt-race-remote.git';
 $raceInjected = false;
 $raceHook = static function (string $script, array $result) use ($raceTarget, $raceRemote, &$raceInjected): void {
-    if ($raceInjected || !str_contains($result['stdout'], 'DUO_HANDOFF ')) {
+    if ($raceInjected || !str_contains($result['stdout'], 'WPRISM_HANDOFF ')) {
         return;
     }
     $raceInjected = true;
@@ -1134,7 +1134,7 @@ $raceExit = OnboardCommand::run(
     dirname(__DIR__, 4)
 );
 ob_end_clean();
-$raceSeed = file_get_contents($raceFixture['workspace'] . '/site.duo.json');
+$raceSeed = file_get_contents($raceFixture['workspace'] . '/site.wprism.json');
 $raceBranch = IdealOnboardingTransport::process(['git', '-C', $raceFixture['workspace'], 'symbolic-ref', '--short', 'HEAD']);
 ob_start();
 $raceRetry = OnboardCommand::run(
@@ -1146,19 +1146,19 @@ ob_end_clean();
 if (is_string($raceCwd)) {
     chdir($raceCwd);
 }
-duo_check_same(1, $raceExit, 'handoff refuses a branch that moved after the target receipt');
-duo_check_same(Adopt::repositorySeedBytes(), $raceSeed, 'receipt race refuses before moving the local generated boundary');
-duo_check_same('main', trim($raceBranch['stdout']), 'receipt race leaves the controller on its original unborn branch');
-duo_check_same(1, $raceRetry, 'handoff retry refuses target history that moved outside its durable Duo receipt');
+wprism_check_same(1, $raceExit, 'handoff refuses a branch that moved after the target receipt');
+wprism_check_same(Adopt::repositorySeedBytes(), $raceSeed, 'receipt race refuses before moving the local generated boundary');
+wprism_check_same('main', trim($raceBranch['stdout']), 'receipt race leaves the controller on its original unborn branch');
+wprism_check_same(1, $raceRetry, 'handoff retry refuses target history that moved outside its durable WPrism receipt');
 
 $localRaceWorkspace = $tmp . '/local-roundtrip-race-workspace';
 $localRaceCommit = '';
 $localRaceHook = static function (string $script, array $result) use ($localRaceWorkspace, &$localRaceCommit): void {
-    if ($localRaceCommit !== '' || !str_contains($result['stdout'], 'DUO_HANDOFF ')) {
+    if ($localRaceCommit !== '' || !str_contains($result['stdout'], 'WPRISM_HANDOFF ')) {
         return;
     }
     foreach ([
-        ['git', '-C', $localRaceWorkspace, 'add', 'site.duo.json', '.gitignore'],
+        ['git', '-C', $localRaceWorkspace, 'add', 'site.wprism.json', '.gitignore'],
         ['git', '-C', $localRaceWorkspace, '-c', 'user.name=local-race', '-c', 'user.email=local@example.test', 'commit', '-m', 'local concurrent work'],
     ] as $command) {
         $changed = IdealOnboardingTransport::process($command);
@@ -1181,19 +1181,19 @@ ob_end_clean();
 if (is_string($localRaceCwd)) {
     chdir($localRaceCwd);
 }
-duo_check_same(1, $localRaceExit, 'handoff refuses local Git work created during the target publication round trip');
-duo_check($localRaceCommit !== '', 'the local race fixture created a real controller commit after target publication');
-duo_check_same($localRaceCommit, trim(IdealOnboardingTransport::process(['git', '-C', $localRaceWorkspace, 'rev-parse', 'HEAD'])['stdout']), 'round-trip race refusal preserves the concurrent controller commit and ref');
-duo_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($localRaceWorkspace . '/site.duo.json'), 'round-trip race refusal preserves the controller seed bytes');
+wprism_check_same(1, $localRaceExit, 'handoff refuses local Git work created during the target publication round trip');
+wprism_check($localRaceCommit !== '', 'the local race fixture created a real controller commit after target publication');
+wprism_check_same($localRaceCommit, trim(IdealOnboardingTransport::process(['git', '-C', $localRaceWorkspace, 'rev-parse', 'HEAD'])['stdout']), 'round-trip race refusal preserves the concurrent controller commit and ref');
+wprism_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($localRaceWorkspace . '/site.wprism.json'), 'round-trip race refusal preserves the controller seed bytes');
 
 [$initArgs, $gitUrl, $handoffOnly] = OnboardCommand::options(['--yes', '--git-url=https://example.test/repo.git']);
-duo_check_same(['--yes'], $initArgs, 'onboard forwards init flags unchanged');
-duo_check_same('https://example.test/repo.git', $gitUrl, 'onboard extracts one handoff URL');
-duo_check_same(false, $handoffOnly, 'ordinary onboarding does not select the resume-only path');
+wprism_check_same(['--yes'], $initArgs, 'onboard forwards init flags unchanged');
+wprism_check_same('https://example.test/repo.git', $gitUrl, 'onboard extracts one handoff URL');
+wprism_check_same(false, $handoffOnly, 'ordinary onboarding does not select the resume-only path');
 [$resumeArgs, $resumeUrl, $resumeOnly] = OnboardCommand::options(['--handoff-only', '--git-url=https://example.test/resume.git']);
-duo_check_same([], $resumeArgs, 'handoff-only forwards no init arguments');
-duo_check_same('https://example.test/resume.git', $resumeUrl, 'handoff-only retains the requested remote');
-duo_check_same(true, $resumeOnly, 'handoff-only selects the resumable publication path');
+wprism_check_same([], $resumeArgs, 'handoff-only forwards no init arguments');
+wprism_check_same('https://example.test/resume.git', $resumeUrl, 'handoff-only retains the requested remote');
+wprism_check_same(true, $resumeOnly, 'handoff-only selects the resumable publication path');
 
 $resumeSteps = [];
 $resumeCwd = getcwd();
@@ -1216,11 +1216,11 @@ ob_end_clean();
 if (is_string($resumeCwd)) {
     chdir($resumeCwd);
 }
-duo_check_same(0, $resumeExit, 'handoff-only resumes publication after a completed init');
-duo_check_same(['handoff'], $resumeSteps, 'handoff-only never repeats adoption, assessment, initialization, or empty-remote preflight');
+wprism_check_same(0, $resumeExit, 'handoff-only resumes publication after a completed init');
+wprism_check_same(['handoff'], $resumeSteps, 'handoff-only never repeats adoption, assessment, initialization, or empty-remote preflight');
 
 $envFile = $tmp . '/compose.env';
-file_put_contents($envFile, "DUO_PAIR=fixture\n");
+file_put_contents($envFile, "WPRISM_PAIR=fixture\n");
 $composeFile = $tmp . '/pair.yml';
 file_put_contents($composeFile, "services: {}\n");
 $dockerConfig = [];
@@ -1239,10 +1239,10 @@ $dockerConnectOutput = (string) ob_get_clean();
 if (is_string($dockerCwd)) {
     chdir($dockerCwd);
 }
-duo_check_same(0, $dockerConnectExit, 'connect accepts readable relative Docker control-plane files');
-duo_check_same(realpath($composeFile), $dockerConfig['compose_file'] ?? null, 'connect anchors a relative Compose file before the workspace changes cwd');
-duo_check_same(realpath($envFile), $dockerConfig['compose_env_file'] ?? null, 'connect anchors a relative Compose environment before persistence');
-duo_check(str_contains($dockerConnectOutput, 'assess') && !str_contains($dockerConnectOutput, ' onboard '), 'Docker connect does not recommend an adoption path it cannot execute');
+wprism_check_same(0, $dockerConnectExit, 'connect accepts readable relative Docker control-plane files');
+wprism_check_same(realpath($composeFile), $dockerConfig['compose_file'] ?? null, 'connect anchors a relative Compose file before the workspace changes cwd');
+wprism_check_same(realpath($envFile), $dockerConfig['compose_env_file'] ?? null, 'connect anchors a relative Compose environment before persistence');
+wprism_check(str_contains($dockerConnectOutput, 'assess') && !str_contains($dockerConnectOutput, ' onboard '), 'Docker connect does not recommend an adoption path it cannot execute');
 
 $dockerHostRepo = $tmp . '/docker-host-repository';
 mkdir($dockerHostRepo, 0700);
@@ -1256,16 +1256,16 @@ $dockerOverlapExit = ConnectCommand::run([
     '--service=cli2', '--repo-path=/siterepo',
 ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => $dockerOverlapTransport, $gitRunner);
 ob_end_clean();
-duo_check_same(1, $dockerOverlapExit, 'connect refuses a workspace inside a Docker writable host repository');
-duo_check_same([], $dockerOverlapTransport->rawCalls, 'Docker host overlap refuses before any target probe');
-duo_check(is_file($dockerHostRepo . '/sentinel') && !file_exists($dockerOverlapWorkspace), 'Docker overlap preserves target bytes and publishes no workspace');
+wprism_check_same(1, $dockerOverlapExit, 'connect refuses a workspace inside a Docker writable host repository');
+wprism_check_same([], $dockerOverlapTransport->rawCalls, 'Docker host overlap refuses before any target probe');
+wprism_check(is_file($dockerHostRepo . '/sentinel') && !file_exists($dockerOverlapWorkspace), 'Docker overlap preserves target bytes and publishes no workspace');
 
 $fakeDockerBin = $tmp . '/fake-docker-bin';
 mkdir($fakeDockerBin, 0700);
 $fakeDockerLog = $tmp . '/fake-docker.log';
 file_put_contents($fakeDockerBin . '/docker', <<<'SH'
 #!/bin/sh
-printf '%s\n' "$*" >> "$DUO_FAKE_DOCKER_LOG"
+printf '%s\n' "$*" >> "$WPRISM_FAKE_DOCKER_LOG"
 for last do :; done
 case " $* " in
   *" bash -c "*) exec /bin/bash -c "$last" ;;
@@ -1278,7 +1278,7 @@ SH
 chmod($fakeDockerBin . '/docker', 0700);
 $priorPath = getenv('PATH');
 putenv('PATH=' . $fakeDockerBin . ':' . (is_string($priorPath) ? $priorPath : ''));
-putenv('DUO_FAKE_DOCKER_LOG=' . $fakeDockerLog);
+putenv('WPRISM_FAKE_DOCKER_LOG=' . $fakeDockerLog);
 $boundedControl = new BoundedOnboardingTransport();
 $sleepingConfig = $boundedControl->captureRawBounded('sleep 1', 50, 4096, 4096);
 $noisyConfig = $boundedControl->captureRawBounded('printf %05000d 0', 1000, 4096, 4096);
@@ -1318,11 +1318,11 @@ foreach ($configFailures as $label => $controlResult) {
     ], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver =>
         new DockerTransport($name, $config, null, $controlCapture), $gitRunner);
     ob_end_clean();
-    duo_check_same(1, $configExit, "connect fails closed on $label Docker config inspection");
-    duo_check(!file_exists($failedWorkspace), "$label Docker config inspection publishes no workspace");
-    duo_check_same(1, count($controlCalls), "$label Docker config inspection uses one bounded control-plane capture");
-    duo_check_same(30000, $controlCalls[0]['timeout'] ?? null, "$label Docker config inspection has a finite deadline");
-    duo_check(!file_exists($fakeDockerLog), "$label Docker config refusal occurs before otherwise-successful target probes");
+    wprism_check_same(1, $configExit, "connect fails closed on $label Docker config inspection");
+    wprism_check(!file_exists($failedWorkspace), "$label Docker config inspection publishes no workspace");
+    wprism_check_same(1, count($controlCalls), "$label Docker config inspection uses one bounded control-plane capture");
+    wprism_check_same(30000, $controlCalls[0]['timeout'] ?? null, "$label Docker config inspection has a finite deadline");
+    wprism_check(!file_exists($fakeDockerLog), "$label Docker config refusal occurs before otherwise-successful target probes");
 }
 
 $mountConfig = static fn(array $volumes): string => json_encode([
@@ -1343,9 +1343,9 @@ $writableDocker = new DockerTransport('writable', [
 ], null, static fn(): array => ['exit' => 0, 'stdout' => $mountConfig([
     ['type' => 'bind', 'source' => '/tmp/writable-repo', 'target' => '/siterepo', 'read_only' => false],
 ]), 'stderr' => '']);
-duo_check_same(null, $namedDocker->hostRepoBoundaryPath(), 'a proven named volume has no writable host repository boundary');
-duo_check_same(null, $readOnlyDocker->hostRepoBoundaryPath(), 'a proven read-only bind has no writable host repository boundary');
-duo_check_same('/tmp/writable-repo', $writableDocker->hostRepoBoundaryPath(), 'a proven writable bind returns its exact host boundary');
+wprism_check_same(null, $namedDocker->hostRepoBoundaryPath(), 'a proven named volume has no writable host repository boundary');
+wprism_check_same(null, $readOnlyDocker->hostRepoBoundaryPath(), 'a proven read-only bind has no writable host repository boundary');
+wprism_check_same('/tmp/writable-repo', $writableDocker->hostRepoBoundaryPath(), 'a proven writable bind returns its exact host boundary');
 
 $execControlCalls = [];
 $execDocker = new DockerTransport('exec-bounded', [
@@ -1356,15 +1356,15 @@ $execDocker = new DockerTransport('exec-bounded', [
     return $boundedControl->captureRawBounded('sleep 1', 50, 4096, 4096);
 });
 $execProbe = $execDocker->captureRawBounded('echo should-not-run', 1000, 4096, 4096);
-duo_check_same(1, $execProbe['exit'], 'exec mode converts a bounded service-probe timeout into its reviewed precondition refusal');
-duo_check(count($execControlCalls) === 1 && str_contains($execControlCalls[0], "'ps' '--status=running' '--services'"), 'exec mode bounds the Docker ps probe before command construction');
+wprism_check_same(1, $execProbe['exit'], 'exec mode converts a bounded service-probe timeout into its reviewed precondition refusal');
+wprism_check(count($execControlCalls) === 1 && str_contains($execControlCalls[0], "'ps' '--status=running' '--services'"), 'exec mode bounds the Docker ps probe before command construction');
 $fakeProbeDocker = new DockerTransport('fake-probe', [
     'transport' => 'docker', 'compose_file' => $composeFile, 'service' => 'cli2', 'repo_path' => '/siterepo',
 ]);
 // The first process-group launch can absorb host scheduler pressure from the
 // preceding corpus; five seconds still proves a finite bound without making
 // this reachability-control fixture a one-second performance assertion.
-$fakeReachable = $fakeProbeDocker->captureRawBounded('echo duo-connect-ready', 5000, 4096, 4096);
+$fakeReachable = $fakeProbeDocker->captureRawBounded('echo wprism-connect-ready', 5000, 4096, 4096);
 $fakeInstalled = $fakeProbeDocker->captureWpBounded(['core', 'is-installed'], 5000, 4096, 4096);
 $fakeTopology = $fakeProbeDocker->captureWpBounded(
     ['eval', 'echo is_multisite() ? "multisite" : "single-site";'],
@@ -1372,10 +1372,10 @@ $fakeTopology = $fakeProbeDocker->captureWpBounded(
     4096,
     4096
 );
-duo_check_same('duo-connect-ready', trim($fakeReachable['stdout']), 'the Docker config fail-closed fixtures would otherwise pass raw reachability');
-duo_check_same(0, $fakeInstalled['exit'], 'the Docker config fail-closed fixtures would otherwise pass WordPress reachability');
-duo_check_same('single-site', trim($fakeTopology['stdout']), 'the Docker config fail-closed fixtures would otherwise pass topology inspection');
-putenv('DUO_FAKE_DOCKER_LOG');
+wprism_check_same('wprism-connect-ready', trim($fakeReachable['stdout']), 'the Docker config fail-closed fixtures would otherwise pass raw reachability');
+wprism_check_same(0, $fakeInstalled['exit'], 'the Docker config fail-closed fixtures would otherwise pass WordPress reachability');
+wprism_check_same('single-site', trim($fakeTopology['stdout']), 'the Docker config fail-closed fixtures would otherwise pass topology inspection');
+putenv('WPRISM_FAKE_DOCKER_LOG');
 is_string($priorPath) ? putenv('PATH=' . $priorPath) : putenv('PATH');
 
 $docker = new DockerTransport('demo-source', [
@@ -1386,29 +1386,29 @@ $docker = new DockerTransport('demo-source', [
     'repo_path' => '/siterepo',
 ]);
 $wpCommand = new ReflectionMethod(DockerTransport::class, 'wpCommand');
-$wire = (string) $wpCommand->invoke($docker, ['duo', 'capture']);
-duo_check(str_contains($wire, "'compose' '--env-file' '" . $envFile . "' '-f' '/tmp/pair.yml'"), 'demo registry pins Compose interpolation through an explicit machine-local env file');
-duo_check(!$docker->capabilityReport('onboard')->ready(), 'Docker still refuses the adoption composition it cannot deliver');
-duo_check($docker->capabilityReport('onboard-handoff')->ready(), 'Docker permits a post-init Git-only handoff over raw control');
+$wire = (string) $wpCommand->invoke($docker, ['wprism', 'capture']);
+wprism_check(str_contains($wire, "'compose' '--env-file' '" . $envFile . "' '-f' '/tmp/pair.yml'"), 'demo registry pins Compose interpolation through an explicit machine-local env file');
+wprism_check(!$docker->capabilityReport('onboard')->ready(), 'Docker still refuses the adoption composition it cannot deliver');
+wprism_check($docker->capabilityReport('onboard-handoff')->ready(), 'Docker permits a post-init Git-only handoff over raw control');
 $dockerHandoffCli = HostProcess::run([
-    dirname(__DIR__, 4) . '/cli/duo',
+    dirname(__DIR__, 4) . '/cli/wprism',
     'onboard',
     'demo-source',
     '--handoff-only',
     '--git-url=' . $tmp . '/docker-handoff.git',
 ], $tmp . '/docker-workspace');
-duo_check_same(1, $dockerHandoffCli['exit'], 'Docker handoff-only reaches its target Git operation and reports the fixture failure');
-duo_check(!str_contains($dockerHandoffCli['stderr'], 'driver does not support'), 'Docker handoff-only is not rejected by adoption-only capabilities');
+wprism_check_same(1, $dockerHandoffCli['exit'], 'Docker handoff-only reaches its target Git operation and reports the fixture failure');
+wprism_check(!str_contains($dockerHandoffCli['stderr'], 'driver does not support'), 'Docker handoff-only is not rejected by adoption-only capabilities');
 
 $demo = DemoCommand::options('start', ['--scenario=woocommerce', '--name=shopdemo', '--source-port=9100', '--target-port=9101']);
-duo_check_same('shopdemo', $demo['name'], 'demo accepts an isolated pair name');
-duo_check_same(9100, $demo['source_port'], 'demo accepts an explicit source port');
-duo_check_same(9101, $demo['target_port'], 'demo accepts an explicit target port');
+wprism_check_same('shopdemo', $demo['name'], 'demo accepts an isolated pair name');
+wprism_check_same(9100, $demo['source_port'], 'demo accepts an explicit source port');
+wprism_check_same(9101, $demo['target_port'], 'demo accepts an explicit target port');
 try {
     DemoCommand::options('start', ['--scenario=unknown']);
-    duo_check(false, 'demo refuses an unknown scenario');
+    wprism_check(false, 'demo refuses an unknown scenario');
 } catch (RuntimeException $error) {
-    duo_check(str_contains($error->getMessage(), "first demo scenario is 'woocommerce'"), 'demo refusal names the one executable scenario');
+    wprism_check(str_contains($error->getMessage(), "first demo scenario is 'woocommerce'"), 'demo refusal names the one executable scenario');
 }
 
 $largeProcess = HostProcess::run([
@@ -1416,9 +1416,9 @@ $largeProcess = HostProcess::run([
     '-r',
     'fwrite(STDERR, str_repeat("e", 200000)); fwrite(STDOUT, "ok");',
 ]);
-duo_check_same(0, $largeProcess['exit'], 'the shared host process runner completes with a full stderr pipe');
-duo_check_same('ok', $largeProcess['stdout'], 'the shared runner preserves stdout while draining stderr concurrently');
-duo_check_same(200000, strlen($largeProcess['stderr']), 'the shared runner drains the entire adversarial stderr payload');
+wprism_check_same(0, $largeProcess['exit'], 'the shared host process runner completes with a full stderr pipe');
+wprism_check_same('ok', $largeProcess['stdout'], 'the shared runner preserves stdout while draining stderr concurrently');
+wprism_check_same(200000, strlen($largeProcess['stderr']), 'the shared runner drains the entire adversarial stderr payload');
 $oversizedProcess = HostProcess::run(
     [PHP_BINARY, '-r', 'fwrite(STDOUT, str_repeat("x", 200000));'],
     null,
@@ -1427,11 +1427,11 @@ $oversizedProcess = HostProcess::run(
     5000,
     65536
 );
-duo_check_same(125, $oversizedProcess['exit'], 'the shared runner terminates output beyond its explicit capture budget');
-duo_check_same('', $oversizedProcess['stdout'], 'oversized child output is not returned to the command boundary');
+wprism_check_same(125, $oversizedProcess['exit'], 'the shared runner terminates output beyond its explicit capture budget');
+wprism_check_same('', $oversizedProcess['stdout'], 'oversized child output is not returned to the command boundary');
 $timedProcess = HostProcess::run([PHP_BINARY, '-r', 'sleep(5);'], null, [], false, 100, 65536);
-duo_check_same(124, $timedProcess['exit'], 'the shared runner terminates a child that exceeds its deadline');
-duo_check(str_contains($timedProcess['stderr'], 'timed out'), 'the shared runner reports its own bounded timeout diagnostic');
+wprism_check_same(124, $timedProcess['exit'], 'the shared runner terminates a child that exceeds its deadline');
+wprism_check(str_contains($timedProcess['stderr'], 'timed out'), 'the shared runner reports its own bounded timeout diagnostic');
 $closedPipeProcess = HostProcess::run(
     ['sh', '-c', 'exec >/dev/null 2>&1; sleep 2'],
     null,
@@ -1440,14 +1440,14 @@ $closedPipeProcess = HostProcess::run(
     100,
     65536
 );
-duo_check_same(124, $closedPipeProcess['exit'], 'the shared runner enforces its deadline after a child closes both capture pipes');
+wprism_check_same(124, $closedPipeProcess['exit'], 'the shared runner enforces its deadline after a child closes both capture pipes');
 $hostTimeoutMarker = $tmp . '/host-timeout-descendant';
 $hostDescendant = HostProcess::run([
     'sh', '-c', '(sleep 0.3; printf mutation > ' . escapeshellarg($hostTimeoutMarker) . ') & wait',
 ], null, [], false, 50, 4096);
 usleep(500000);
-duo_check_same(124, $hostDescendant['exit'], 'the shared runner times out the owned process group');
-duo_check(!file_exists($hostTimeoutMarker), 'a host descendant cannot mutate after the timeout returns');
+wprism_check_same(124, $hostDescendant['exit'], 'the shared runner times out the owned process group');
+wprism_check(!file_exists($hostTimeoutMarker), 'a host descendant cannot mutate after the timeout returns');
 $passthroughTimedProcess = HostProcess::run(
     [PHP_BINARY, '-r', 'usleep(500000);'],
     null,
@@ -1456,7 +1456,7 @@ $passthroughTimedProcess = HostProcess::run(
     100,
     65536
 );
-duo_check_same(124, $passthroughTimedProcess['exit'], 'the shared runner enforces an explicit passthrough deadline');
+wprism_check_same(124, $passthroughTimedProcess['exit'], 'the shared runner enforces an explicit passthrough deadline');
 $transferBudgetProcess = HostProcess::run(
     [PHP_BINARY, '-r', 'usleep(50000); fwrite(STDOUT, str_repeat("t", 2000000));'],
     null,
@@ -1465,8 +1465,8 @@ $transferBudgetProcess = HostProcess::run(
     1000,
     4000000
 );
-duo_check_same(0, $transferBudgetProcess['exit'], 'an explicit transfer budget admits a slower multi-megabyte operation');
-duo_check_same(2000000, strlen($transferBudgetProcess['stdout']), 'the explicit transfer budget preserves the complete bounded payload');
+wprism_check_same(0, $transferBudgetProcess['exit'], 'an explicit transfer budget admits a slower multi-megabyte operation');
+wprism_check_same(2000000, strlen($transferBudgetProcess['stdout']), 'the explicit transfer budget preserves the complete bounded payload');
 
 $boundedTransport = new BoundedOnboardingTransport();
 $closedPipeTarget = $boundedTransport->captureRawBounded(
@@ -1475,16 +1475,16 @@ $closedPipeTarget = $boundedTransport->captureRawBounded(
     4096,
     4096
 );
-duo_check_same(124, $closedPipeTarget['exit'], 'bounded target capture terminates a child after both output pipes close');
-duo_check_same('transport command timed out', $closedPipeTarget['stderr'], 'bounded target timeout has one stable diagnostic');
+wprism_check_same(124, $closedPipeTarget['exit'], 'bounded target capture terminates a child after both output pipes close');
+wprism_check_same('transport command timed out', $closedPipeTarget['stderr'], 'bounded target timeout has one stable diagnostic');
 $noisyTarget = $boundedTransport->captureRawBounded(
     escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg('fwrite(STDOUT, str_repeat("x", 20000));'),
     1000,
     4096,
     4096
 );
-duo_check_same(125, $noisyTarget['exit'], 'bounded target capture terminates stdout beyond its reviewed budget');
-duo_check_same('', $noisyTarget['stdout'], 'over-limit target output is not returned to the onboarding boundary');
+wprism_check_same(125, $noisyTarget['exit'], 'bounded target capture terminates stdout beyond its reviewed budget');
+wprism_check_same('', $noisyTarget['stdout'], 'over-limit target output is not returned to the onboarding boundary');
 $targetTimeoutMarker = $tmp . '/target-timeout-descendant';
 $targetDescendant = $boundedTransport->captureRawBounded(
     '(sleep 0.3; printf mutation > ' . escapeshellarg($targetTimeoutMarker) . ') & wait',
@@ -1493,8 +1493,8 @@ $targetDescendant = $boundedTransport->captureRawBounded(
     4096
 );
 usleep(500000);
-duo_check_same(124, $targetDescendant['exit'], 'bounded target capture times out the owned process group');
-duo_check(!file_exists($targetTimeoutMarker), 'a target descendant cannot mutate after the timeout returns');
+wprism_check_same(124, $targetDescendant['exit'], 'bounded target capture times out the owned process group');
+wprism_check(!file_exists($targetTimeoutMarker), 'a target descendant cannot mutate after the timeout returns');
 $targetOutputMarker = $tmp . '/target-output-descendant';
 $targetOutputDescendant = $boundedTransport->captureRawBounded(
     '(sleep 1; printf mutation > ' . escapeshellarg($targetOutputMarker) . ') & '
@@ -1505,8 +1505,8 @@ $targetOutputDescendant = $boundedTransport->captureRawBounded(
     4096
 );
 usleep(500000);
-duo_check_same(125, $targetOutputDescendant['exit'], 'bounded target capture cancels the owned process group on output refusal');
-duo_check(!file_exists($targetOutputMarker), 'a target descendant cannot mutate after output refusal returns');
+wprism_check_same(125, $targetOutputDescendant['exit'], 'bounded target capture cancels the owned process group on output refusal');
+wprism_check(!file_exists($targetOutputMarker), 'a target descendant cannot mutate after output refusal returns');
 
 $faultRoot = $tmp . '/fault-demo-root';
 foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp'] as $directory) {
@@ -1514,7 +1514,7 @@ foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $fau
 }
 $faultPairScript = "#!/usr/bin/env bash\nset -eu\nif [ \"\$1\" = up ]; then"
     . "\ncase \" \$* \" in *\" --git-cli \"*) ;; *) exit 11 ;; esac\n"
-    . "[ \"\${DUO_CLI_IMAGE:-}\" = \"duo-demo-cli-git:php8.3\" ] || exit 12\nmkdir -p "
+    . "[ \"\${WPRISM_CLI_IMAGE:-}\" = \"wprism-demo-cli-git:php8.3\" ] || exit 12\nmkdir -p "
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"1 "
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2; "
     . "if [ \"\$2\" = partialdemo ]; then touch "
@@ -1538,9 +1538,9 @@ $faultHook = static function (string $phase) use (&$faultHookCalls, $faultRoot):
     if ($phase !== 'compose_env_published') {
         return;
     }
-    duo_check_same('compose_env_published', $phase, 'demo exposes the post-pair recoverability boundary');
+    wprism_check_same('compose_env_published', $phase, 'demo exposes the post-pair recoverability boundary');
     $composeEnv = file_get_contents($faultRoot . '/sandbox/tmp/demo-faultdemo.env');
-    duo_check(is_string($composeEnv) && str_contains($composeEnv, "DUO_CLI_IMAGE=duo-demo-cli-git:php8.3\n"),
+    wprism_check(is_string($composeEnv) && str_contains($composeEnv, "WPRISM_CLI_IMAGE=wprism-demo-cli-git:php8.3\n"),
         'demo persists the Git-enabled CLI image for every later compose invocation');
     ++$faultHookCalls;
     throw new RuntimeException('injected demo setup failure');
@@ -1551,14 +1551,14 @@ for ($attempt = 1; $attempt <= 2; ++$attempt) {
         'start', '--name=faultdemo', '--source-port=9200', '--target-port=9201',
     ], $faultRoot, $faultHook);
     ob_end_clean();
-    duo_check_same(1, $faultExit, "demo setup fault attempt $attempt is reported");
+    wprism_check_same(1, $faultExit, "demo setup fault attempt $attempt is reported");
     $faultSession = ideal_demo_session($faultRoot, 'faultdemo', 9200, 9201);
     foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
-        duo_check(!file_exists((string) $faultSession[$field]) && !is_link((string) $faultSession[$field]), "demo setup fault removes owned $field on attempt $attempt");
+        wprism_check(!file_exists((string) $faultSession[$field]) && !is_link((string) $faultSession[$field]), "demo setup fault removes owned $field on attempt $attempt");
     }
 }
-duo_check_same(2, $faultHookCalls, 'a failed demo start can be retried under the same name');
-duo_check(is_dir($faultRoot . '/sandbox/siterepo'), 'a fresh checkout gets its ignored demo repository parent on demand');
+wprism_check_same(2, $faultHookCalls, 'a failed demo start can be retried under the same name');
+wprism_check(is_dir($faultRoot . '/sandbox/siterepo'), 'a fresh checkout gets its ignored demo repository parent on demand');
 
 $sessionRace = ideal_demo_session($faultRoot, 'sessionrace', 9234, 9235);
 $sessionRaceOwned = $sessionRace['state_file'] . '.owned';
@@ -1574,21 +1574,21 @@ $sessionRaceExit = DemoCommand::run([
     'start', '--name=sessionrace', '--source-port=9234', '--target-port=9235',
 ], $faultRoot, $sessionRaceHook);
 ob_end_clean();
-duo_check_same(1, $sessionRaceExit, 'demo refuses a session-file replacement before its first update');
-duo_check_same("foreign session\n", file_get_contents((string) $sessionRace['state_file']), 'session update refusal preserves the foreign replacement');
-duo_check(is_file($sessionRaceOwned), 'session update refusal retains the exact owned journal inode');
+wprism_check_same(1, $sessionRaceExit, 'demo refuses a session-file replacement before its first update');
+wprism_check_same("foreign session\n", file_get_contents((string) $sessionRace['state_file']), 'session update refusal preserves the foreign replacement');
+wprism_check(is_file($sessionRaceOwned), 'session update refusal retains the exact owned journal inode');
 unlink((string) $sessionRace['state_file']);
 rename($sessionRaceOwned, (string) $sessionRace['state_file']);
 ob_start();
 $sessionRaceRetry = DemoCommand::run(['stop', '--name=sessionrace'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $sessionRaceRetry, 'restoring the owned session inode makes setup cleanup resumable');
+wprism_check_same(0, $sessionRaceRetry, 'restoring the owned session inode makes setup cleanup resumable');
 
 $readRace = ideal_demo_session($faultRoot, 'readrace', 9240, 9241);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $readRace[$field], 0700, true);
 }
-file_put_contents((string) $readRace['compose_env_file'], "DUO_PAIR=readrace\n");
+file_put_contents((string) $readRace['compose_env_file'], "WPRISM_PAIR=readrace\n");
 $readRace = own_ideal_demo_paths($readRace, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($readRace);
 $readRaceRecorded = $readRace['state_file'] . '.recorded';
@@ -1603,14 +1603,14 @@ $readRaceHook = static function (string $phase) use ($readRace, $readRaceRecorde
 ob_start();
 $readRaceExit = DemoCommand::run(['stop', '--name=readrace'], $faultRoot, $readRaceHook);
 ob_end_clean();
-duo_check_same(1, $readRaceExit, 'demo refuses a valid-looking session replacement after reading the owned handle');
-duo_check(is_file((string) $readRace['state_file']) && is_file($readRaceRecorded), 'session read refusal retains both named and opened journal inodes');
+wprism_check_same(1, $readRaceExit, 'demo refuses a valid-looking session replacement after reading the owned handle');
+wprism_check(is_file((string) $readRace['state_file']) && is_file($readRaceRecorded), 'session read refusal retains both named and opened journal inodes');
 unlink((string) $readRace['state_file']);
 rename($readRaceRecorded, (string) $readRace['state_file']);
 ob_start();
 $readRaceRetry = DemoCommand::run(['stop', '--name=readrace'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $readRaceRetry, 'restoring the opened journal inode makes cleanup resumable');
+wprism_check_same(0, $readRaceRetry, 'restoring the opened journal inode makes cleanup resumable');
 
 $stageSwap = ideal_demo_session($faultRoot, 'stageswap', 9242, 9243);
 $stageSwapPath = null;
@@ -1628,9 +1628,9 @@ $stageSwapHook = static function (string $phase) use (
     $published = json_decode((string) file_get_contents((string) $stageSwap['state_file']), true);
     $token = (string) ($published['ownership_token'] ?? '');
     $stageSwapPath = dirname((string) $stageSwap['source_repo'])
-        . '/.duo-demo-acquire-' . $token . '-source_repo';
+        . '/.wprism-demo-acquire-' . $token . '-source_repo';
     $stageSwapRecorded = $stageSwapPath . '.recorded';
-    $stageSwapMarker = $stageSwapPath . '/.duo-demo-owner-' . $token . '-source_repo';
+    $stageSwapMarker = $stageSwapPath . '/.wprism-demo-owner-' . $token . '-source_repo';
     rename($stageSwapPath, $stageSwapRecorded);
     mkdir($stageSwapPath, 0700);
     file_put_contents($stageSwapMarker, $token . ":source_repo\n");
@@ -1640,15 +1640,15 @@ $stageSwapExit = DemoCommand::run([
     'start', '--name=stageswap', '--source-port=9242', '--target-port=9243',
 ], $faultRoot, $stageSwapHook);
 ob_end_clean();
-duo_check_same(1, $stageSwapExit, 'demo refuses an acquisition-stage replacement carrying a copied marker');
-duo_check(is_string($stageSwapMarker) && is_file($stageSwapMarker) && is_string($stageSwapRecorded) && is_dir($stageSwapRecorded), 'acquisition-stage refusal retains both foreign and receipt-bound directories');
+wprism_check_same(1, $stageSwapExit, 'demo refuses an acquisition-stage replacement carrying a copied marker');
+wprism_check(is_string($stageSwapMarker) && is_file($stageSwapMarker) && is_string($stageSwapRecorded) && is_dir($stageSwapRecorded), 'acquisition-stage refusal retains both foreign and receipt-bound directories');
 unlink((string) $stageSwapMarker);
 rmdir((string) $stageSwapPath);
 rename((string) $stageSwapRecorded, (string) $stageSwapPath);
 ob_start();
 $stageSwapRetry = DemoCommand::run(['stop', '--name=stageswap'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $stageSwapRetry, 'restoring the receipt-bound acquisition directory makes cleanup resumable');
+wprism_check_same(0, $stageSwapRetry, 'restoring the receipt-bound acquisition directory makes cleanup resumable');
 
 $environmentSwap = ideal_demo_session($faultRoot, 'envswap', 9244, 9245);
 $environmentSwapRecorded = $environmentSwap['compose_env_file'] . '.recorded';
@@ -1667,14 +1667,14 @@ $environmentSwapExit = DemoCommand::run([
     'start', '--name=envswap', '--source-port=9244', '--target-port=9245',
 ], $faultRoot, $environmentSwapHook);
 ob_end_clean();
-duo_check_same(1, $environmentSwapExit, 'demo refuses a byte-identical compose-environment replacement before ownership publication');
-duo_check(is_file((string) $environmentSwap['compose_env_file']) && is_file($environmentSwapRecorded), 'environment acquisition refusal retains both foreign and receipt-bound files');
+wprism_check_same(1, $environmentSwapExit, 'demo refuses a byte-identical compose-environment replacement before ownership publication');
+wprism_check(is_file((string) $environmentSwap['compose_env_file']) && is_file($environmentSwapRecorded), 'environment acquisition refusal retains both foreign and receipt-bound files');
 unlink((string) $environmentSwap['compose_env_file']);
 rename($environmentSwapRecorded, (string) $environmentSwap['compose_env_file']);
 ob_start();
 $environmentSwapRetry = DemoCommand::run(['stop', '--name=envswap'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $environmentSwapRetry, 'restoring the receipt-bound environment file makes cleanup resumable');
+wprism_check_same(0, $environmentSwapRetry, 'restoring the receipt-bound environment file makes cleanup resumable');
 
 $acquireFaultHook = static function (string $phase): void {
     if ($phase === 'origin_created') {
@@ -1687,9 +1687,9 @@ $acquireFaultExit = DemoCommand::run([
 ], $faultRoot, $acquireFaultHook);
 ob_end_clean();
 $acquireFault = ideal_demo_session($faultRoot, 'acquirefail', 9202, 9203);
-duo_check_same(1, $acquireFaultExit, 'demo reports a failure after origin creation but before its owned receipt');
+wprism_check_same(1, $acquireFaultExit, 'demo reports a failure after origin creation but before its owned receipt');
 foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
-    duo_check(!file_exists((string) $acquireFault[$field]), "planned ownership recovery removes $field");
+    wprism_check(!file_exists((string) $acquireFault[$field]), "planned ownership recovery removes $field");
 }
 
 $foreignAcquire = ideal_demo_session($faultRoot, 'foreignacquire', 9208, 9209);
@@ -1703,14 +1703,14 @@ $foreignAcquireExit = DemoCommand::run([
     'start', '--name=foreignacquire', '--source-port=9208', '--target-port=9209',
 ], $faultRoot, $foreignAcquireHook);
 ob_end_clean();
-duo_check_same(1, $foreignAcquireExit, 'demo start refuses a foreign empty canonical directory before acquisition');
-duo_check(is_dir((string) $foreignAcquire['target_repo']), 'failed start retains the foreign markerless directory');
-duo_check(is_file((string) $foreignAcquire['state_file']), 'failed acquisition retains cleanup authority');
+wprism_check_same(1, $foreignAcquireExit, 'demo start refuses a foreign empty canonical directory before acquisition');
+wprism_check(is_dir((string) $foreignAcquire['target_repo']), 'failed start retains the foreign markerless directory');
+wprism_check(is_file((string) $foreignAcquire['state_file']), 'failed acquisition retains cleanup authority');
 rmdir((string) $foreignAcquire['target_repo']);
 ob_start();
 $foreignAcquireRetry = DemoCommand::run(['stop', '--name=foreignacquire'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $foreignAcquireRetry, 'removing the foreign directory makes owned acquisition cleanup resumable');
+wprism_check_same(0, $foreignAcquireRetry, 'removing the foreign directory makes owned acquisition cleanup resumable');
 
 for ($partialAttempt = 1; $partialAttempt <= 2; ++$partialAttempt) {
     ob_start();
@@ -1719,9 +1719,9 @@ for ($partialAttempt = 1; $partialAttempt <= 2; ++$partialAttempt) {
     ], $faultRoot);
     ob_end_clean();
     $partial = ideal_demo_session($faultRoot, 'partialdemo', 9204, 9205);
-    duo_check_same(1, $partialExit, "partial pair startup failure $partialAttempt is reported");
+    wprism_check_same(1, $partialExit, "partial pair startup failure $partialAttempt is reported");
     foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
-        duo_check(!file_exists((string) $partial[$field]), "partial pair startup cleanup removes $field on attempt $partialAttempt");
+        wprism_check(!file_exists((string) $partial[$field]), "partial pair startup cleanup removes $field on attempt $partialAttempt");
     }
 }
 
@@ -1736,9 +1736,9 @@ $originFaultExit = DemoCommand::run([
 ], $faultRoot, $originFaultHook);
 ob_end_clean();
 $originFault = ideal_demo_session($faultRoot, 'originfail', 9206, 9207);
-duo_check_same(1, $originFaultExit, 'demo reports repository preparation failure after bare-origin initialization');
+wprism_check_same(1, $originFaultExit, 'demo reports repository preparation failure after bare-origin initialization');
 foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
-    duo_check(!file_exists((string) $originFault[$field]), "post-init origin cleanup removes $field");
+    wprism_check(!file_exists((string) $originFault[$field]), "post-init origin cleanup removes $field");
 }
 
 $sentinel = $tmp . '/demo-cleanup-sentinel';
@@ -1750,30 +1750,30 @@ write_ideal_demo_session($tampered);
 ob_start();
 $tamperExit = DemoCommand::run(['stop', '--name=tamperdemo'], $faultRoot);
 ob_end_clean();
-duo_check_same(1, $tamperExit, 'demo stop refuses a persisted cleanup path outside its derived ownership set');
-duo_check(is_file($sentinel . '/keep'), 'tampered demo state cannot redirect recursive cleanup');
+wprism_check_same(1, $tamperExit, 'demo stop refuses a persisted cleanup path outside its derived ownership set');
+wprism_check(is_file($sentinel . '/keep'), 'tampered demo state cannot redirect recursive cleanup');
 unlink((string) $tampered['state_file']);
 
 $starting = ideal_demo_session($faultRoot, 'startingdemo', 9220, 9221);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $starting[$field], 0700, true);
 }
-file_put_contents((string) $starting['compose_env_file'], "DUO_PAIR=startingdemo\n");
+file_put_contents((string) $starting['compose_env_file'], "WPRISM_PAIR=startingdemo\n");
 $starting = own_ideal_demo_paths($starting, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($starting);
 ob_start();
 $startingStop = DemoCommand::run(['stop', '--name=startingdemo'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $startingStop, 'demo stop resumes cleanup from a provisional starting session');
+wprism_check_same(0, $startingStop, 'demo stop resumes cleanup from a provisional starting session');
 foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
-    duo_check(!file_exists((string) $starting[$field]), "resumed demo stop removes owned $field");
+    wprism_check(!file_exists((string) $starting[$field]), "resumed demo stop removes owned $field");
 }
 
 $deleteCrash = ideal_demo_session($faultRoot, 'deletecrash', 9226, 9227);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $deleteCrash[$field], 0700, true);
 }
-file_put_contents((string) $deleteCrash['compose_env_file'], "DUO_PAIR=deletecrash\n");
+file_put_contents((string) $deleteCrash['compose_env_file'], "WPRISM_PAIR=deletecrash\n");
 $deleteCrash = own_ideal_demo_paths($deleteCrash, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($deleteCrash);
 $deleteCrashHook = static function (string $phase): void {
@@ -1785,19 +1785,19 @@ ob_start();
 $deleteCrashExit = DemoCommand::run(['stop', '--name=deletecrash'], $faultRoot, $deleteCrashHook);
 ob_end_clean();
 $deleteCrashState = json_decode((string) file_get_contents((string) $deleteCrash['state_file']), true);
-duo_check_same(1, $deleteCrashExit, 'demo stop reports an interruption after a claimed root was fully removed');
-duo_check_same('deleting', $deleteCrashState['owned_paths']['source_repo']['state'] ?? null, 'deletion intent remains durable across the post-remove interruption');
-duo_check(!file_exists((string) $deleteCrash['source_repo']), 'post-remove interruption leaves the canonical root absent');
+wprism_check_same(1, $deleteCrashExit, 'demo stop reports an interruption after a claimed root was fully removed');
+wprism_check_same('deleting', $deleteCrashState['owned_paths']['source_repo']['state'] ?? null, 'deletion intent remains durable across the post-remove interruption');
+wprism_check(!file_exists((string) $deleteCrash['source_repo']), 'post-remove interruption leaves the canonical root absent');
 ob_start();
 $deleteCrashRetry = DemoCommand::run(['stop', '--name=deletecrash'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $deleteCrashRetry, 'demo stop resumes deleting-plus-absent progress and removes remaining resources');
+wprism_check_same(0, $deleteCrashRetry, 'demo stop resumes deleting-plus-absent progress and removes remaining resources');
 
 $claimedCrash = ideal_demo_session($faultRoot, 'claimedcrash', 9232, 9233);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $claimedCrash[$field], 0700, true);
 }
-file_put_contents((string) $claimedCrash['compose_env_file'], "DUO_PAIR=claimedcrash\n");
+file_put_contents((string) $claimedCrash['compose_env_file'], "WPRISM_PAIR=claimedcrash\n");
 $claimedCrash = own_ideal_demo_paths($claimedCrash, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($claimedCrash);
 $claimedCrashHook = static function (string $phase): void {
@@ -1810,20 +1810,20 @@ $claimedCrashExit = DemoCommand::run(['stop', '--name=claimedcrash'], $faultRoot
 ob_end_clean();
 $claimedState = json_decode((string) file_get_contents((string) $claimedCrash['state_file']), true);
 $claimedPath = dirname((string) $claimedCrash['source_repo'])
-    . '/.duo-demo-remove-' . $claimedCrash['ownership_token'] . '-source_repo';
-duo_check_same(1, $claimedCrashExit, 'demo stop reports an interruption after the canonical path is claimed');
-duo_check_same('deleting', $claimedState['owned_paths']['source_repo']['state'] ?? null, 'claimed-path interruption retains durable deletion intent');
-duo_check(!file_exists((string) $claimedCrash['source_repo']) && is_dir($claimedPath), 'claimed-path interruption retains the private owned claim');
+    . '/.wprism-demo-remove-' . $claimedCrash['ownership_token'] . '-source_repo';
+wprism_check_same(1, $claimedCrashExit, 'demo stop reports an interruption after the canonical path is claimed');
+wprism_check_same('deleting', $claimedState['owned_paths']['source_repo']['state'] ?? null, 'claimed-path interruption retains durable deletion intent');
+wprism_check(!file_exists((string) $claimedCrash['source_repo']) && is_dir($claimedPath), 'claimed-path interruption retains the private owned claim');
 ob_start();
 $claimedCrashRetry = DemoCommand::run(['stop', '--name=claimedcrash'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $claimedCrashRetry, 'demo stop resumes deleting-plus-claim-present progress');
+wprism_check_same(0, $claimedCrashRetry, 'demo stop resumes deleting-plus-claim-present progress');
 
 $stateUnlink = ideal_demo_session($faultRoot, 'stateunlink', 9236, 9237);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $stateUnlink[$field], 0700, true);
 }
-file_put_contents((string) $stateUnlink['compose_env_file'], "DUO_PAIR=stateunlink\n");
+file_put_contents((string) $stateUnlink['compose_env_file'], "WPRISM_PAIR=stateunlink\n");
 $stateUnlink = own_ideal_demo_paths($stateUnlink, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($stateUnlink);
 $ownedStateJournal = $stateUnlink['state_file'] . '.owned';
@@ -1837,21 +1837,21 @@ $stateUnlinkHook = static function (string $phase) use ($stateUnlink, $ownedStat
 ob_start();
 $stateUnlinkExit = DemoCommand::run(['stop', '--name=stateunlink'], $faultRoot, $stateUnlinkHook);
 ob_end_clean();
-duo_check_same(1, $stateUnlinkExit, 'demo refuses a session replacement before final unlink');
-duo_check_same("foreign final session\n", file_get_contents((string) $stateUnlink['state_file']), 'final-unlink refusal preserves the foreign session');
-duo_check(is_file($ownedStateJournal), 'final-unlink refusal retains the completed owned journal');
+wprism_check_same(1, $stateUnlinkExit, 'demo refuses a session replacement before final unlink');
+wprism_check_same("foreign final session\n", file_get_contents((string) $stateUnlink['state_file']), 'final-unlink refusal preserves the foreign session');
+wprism_check(is_file($ownedStateJournal), 'final-unlink refusal retains the completed owned journal');
 unlink((string) $stateUnlink['state_file']);
 rename($ownedStateJournal, (string) $stateUnlink['state_file']);
 ob_start();
 $stateUnlinkRetry = DemoCommand::run(['stop', '--name=stateunlink'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $stateUnlinkRetry, 'restoring the owned journal makes final cleanup resumable');
+wprism_check_same(0, $stateUnlinkRetry, 'restoring the owned journal makes final cleanup resumable');
 
 $stateClaim = ideal_demo_session($faultRoot, 'stateclaim', 9238, 9239);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $stateClaim[$field], 0700, true);
 }
-file_put_contents((string) $stateClaim['compose_env_file'], "DUO_PAIR=stateclaim\n");
+file_put_contents((string) $stateClaim['compose_env_file'], "WPRISM_PAIR=stateclaim\n");
 $stateClaim = own_ideal_demo_paths($stateClaim, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($stateClaim);
 $stateClaimHook = static function (string $phase): void {
@@ -1863,18 +1863,18 @@ ob_start();
 $stateClaimExit = DemoCommand::run(['stop', '--name=stateclaim'], $faultRoot, $stateClaimHook);
 ob_end_clean();
 $stateClaimPath = $stateClaim['state_file'] . '.remove-' . $stateClaim['ownership_token'];
-duo_check_same(1, $stateClaimExit, 'demo stop reports an interruption after claiming its completed session journal');
-duo_check(!file_exists((string) $stateClaim['state_file']) && is_file($stateClaimPath), 'completed cleanup retains the exact private session claim');
+wprism_check_same(1, $stateClaimExit, 'demo stop reports an interruption after claiming its completed session journal');
+wprism_check(!file_exists((string) $stateClaim['state_file']) && is_file($stateClaimPath), 'completed cleanup retains the exact private session claim');
 ob_start();
 $stateClaimRetry = DemoCommand::run(['stop', '--name=stateclaim'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $stateClaimRetry, 'demo stop restores and completes a claimed session journal');
+wprism_check_same(0, $stateClaimRetry, 'demo stop restores and completes a claimed session journal');
 
 $claimRace = ideal_demo_session($faultRoot, 'claimrace', 9228, 9229);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $claimRace[$field], 0700, true);
 }
-file_put_contents((string) $claimRace['compose_env_file'], "DUO_PAIR=claimrace\n");
+file_put_contents((string) $claimRace['compose_env_file'], "WPRISM_PAIR=claimrace\n");
 $claimRace = own_ideal_demo_paths($claimRace, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($claimRace);
 $claimRaceOwned = $claimRace['source_repo'] . '.recorded';
@@ -1889,21 +1889,21 @@ $claimRaceHook = static function (string $phase) use ($claimRace, $claimRaceOwne
 ob_start();
 $claimRaceExit = DemoCommand::run(['stop', '--name=claimrace'], $faultRoot, $claimRaceHook);
 ob_end_clean();
-duo_check_same(1, $claimRaceExit, 'demo cleanup refuses a replacement introduced after deletion intent');
-duo_check(is_file($claimRace['source_repo'] . '/foreign') && is_dir($claimRaceOwned), 'claim race preserves both the replacement and recorded tree');
+wprism_check_same(1, $claimRaceExit, 'demo cleanup refuses a replacement introduced after deletion intent');
+wprism_check(is_file($claimRace['source_repo'] . '/foreign') && is_dir($claimRaceOwned), 'claim race preserves both the replacement and recorded tree');
 unlink($claimRace['source_repo'] . '/foreign');
 rmdir((string) $claimRace['source_repo']);
 rename($claimRaceOwned, (string) $claimRace['source_repo']);
 ob_start();
 $claimRaceRetry = DemoCommand::run(['stop', '--name=claimrace'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $claimRaceRetry, 'restoring the recorded inode resumes intent-before-delete cleanup');
+wprism_check_same(0, $claimRaceRetry, 'restoring the recorded inode resumes intent-before-delete cleanup');
 
 $replaced = ideal_demo_session($faultRoot, 'replacedemo', 9222, 9223);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $replaced[$field], 0700, true);
 }
-file_put_contents((string) $replaced['compose_env_file'], "DUO_PAIR=replacedemo\n");
+file_put_contents((string) $replaced['compose_env_file'], "WPRISM_PAIR=replacedemo\n");
 $replaced = own_ideal_demo_paths($replaced, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($replaced);
 $ownedSource = $replaced['source_repo'] . '.owned';
@@ -1913,35 +1913,35 @@ file_put_contents($replaced['source_repo'] . '/foreign', "retain\n");
 ob_start();
 $replacementStop = DemoCommand::run(['stop', '--name=replacedemo'], $faultRoot);
 ob_end_clean();
-duo_check_same(1, $replacementStop, 'demo stop refuses a replacement tree before pair handback or deletion');
-duo_check(is_file($replaced['source_repo'] . '/foreign') && is_file((string) $replaced['state_file']), 'replacement-tree refusal retains both foreign bytes and cleanup authority');
+wprism_check_same(1, $replacementStop, 'demo stop refuses a replacement tree before pair handback or deletion');
+wprism_check(is_file($replaced['source_repo'] . '/foreign') && is_file((string) $replaced['state_file']), 'replacement-tree refusal retains both foreign bytes and cleanup authority');
 unlink($replaced['source_repo'] . '/foreign');
 rmdir((string) $replaced['source_repo']);
 rename($ownedSource, (string) $replaced['source_repo']);
 ob_start();
 $replacementRetry = DemoCommand::run(['stop', '--name=replacedemo'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $replacementRetry, 'restoring the recorded tree identity makes cleanup resumable');
+wprism_check_same(0, $replacementRetry, 'restoring the recorded tree identity makes cleanup resumable');
 
 $blockedDelete = ideal_demo_session($faultRoot, 'blockeddelete', 9224, 9225);
 foreach (['source_repo', 'target_repo', 'origin'] as $field) {
     mkdir((string) $blockedDelete[$field], 0700, true);
 }
 file_put_contents($blockedDelete['source_repo'] . '/locked', "retain\n");
-file_put_contents((string) $blockedDelete['compose_env_file'], "DUO_PAIR=blockeddelete\n");
+file_put_contents((string) $blockedDelete['compose_env_file'], "WPRISM_PAIR=blockeddelete\n");
 $blockedDelete = own_ideal_demo_paths($blockedDelete, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
 write_ideal_demo_session($blockedDelete);
 chmod((string) $blockedDelete['source_repo'], 0500);
 ob_start();
 $blockedStop = DemoCommand::run(['stop', '--name=blockeddelete'], $faultRoot);
 ob_end_clean();
-duo_check_same(1, $blockedStop, 'demo stop reports an owned-tree deletion failure');
-duo_check(is_file((string) $blockedDelete['state_file']), 'failed owned-tree deletion retains the resumable session');
+wprism_check_same(1, $blockedStop, 'demo stop reports an owned-tree deletion failure');
+wprism_check(is_file((string) $blockedDelete['state_file']), 'failed owned-tree deletion retains the resumable session');
 chmod((string) $blockedDelete['source_repo'], 0700);
 ob_start();
 $blockedRetry = DemoCommand::run(['stop', '--name=blockeddelete'], $faultRoot);
 ob_end_clean();
-duo_check_same(0, $blockedRetry, 'demo stop resumes after the owned-tree deletion condition is repaired');
+wprism_check_same(0, $blockedRetry, 'demo stop resumes after the owned-tree deletion condition is repaired');
 
 $retryRoot = $tmp . '/retry-demo-root';
 foreach ([
@@ -1956,11 +1956,11 @@ foreach ([
 }
 $retry = ideal_demo_session($retryRoot, 'retrydemo', 9230, 9231);
 file_put_contents((string) $retry['compose_file'], "services: {}\n");
-file_put_contents((string) $retry['compose_env_file'], "DUO_PAIR=retrydemo\n");
+file_put_contents((string) $retry['compose_env_file'], "WPRISM_PAIR=retrydemo\n");
 $deployMarker = $retryRoot . '/first-deploy-failed';
-$duoStub = "#!/usr/bin/env bash\nif [ \"\$1\" = deploy ] && [ ! -f " . escapeshellarg($deployMarker) . " ]; then touch " . escapeshellarg($deployMarker) . "; exit 9; fi\nexit 0\n";
-file_put_contents($retryRoot . '/cli/duo', $duoStub);
-chmod($retryRoot . '/cli/duo', 0755);
+$wprismStub = "#!/usr/bin/env bash\nif [ \"\$1\" = deploy ] && [ ! -f " . escapeshellarg($deployMarker) . " ]; then touch " . escapeshellarg($deployMarker) . "; exit 9; fi\nexit 0\n";
+file_put_contents($retryRoot . '/cli/wprism', $wprismStub);
+chmod($retryRoot . '/cli/wprism', 0755);
 file_put_contents($retryRoot . '/fake-bin/docker', "#!/usr/bin/env bash\nprintf '%s\\n' '{\"items\":1}'\n");
 chmod($retryRoot . '/fake-bin/docker', 0755);
 foreach ([
@@ -1998,9 +1998,9 @@ ob_start();
 $firstApply = DemoCommand::run(['apply', '--name=retrydemo'], $retryRoot);
 ob_end_clean();
 $afterFailure = json_decode((string) file_get_contents((string) $retry['state_file']), true);
-duo_check_same(1, $firstApply, 'demo apply reports a post-commit deploy failure');
-duo_check(is_string($afterFailure['pending_revision'] ?? null), 'demo apply durably records the committed revision before deployment');
-duo_check_same('', trim(IdealOnboardingTransport::process(['git', '-C', $retry['source_repo'], 'status', '--short'])['stdout']), 'the interrupted demo source is clean after its commit');
+wprism_check_same(1, $firstApply, 'demo apply reports a post-commit deploy failure');
+wprism_check(is_string($afterFailure['pending_revision'] ?? null), 'demo apply durably records the committed revision before deployment');
+wprism_check_same('', trim(IdealOnboardingTransport::process(['git', '-C', $retry['source_repo'], 'status', '--short'])['stdout']), 'the interrupted demo source is clean after its commit');
 ob_start();
 $secondApply = DemoCommand::run(['apply', '--name=retrydemo'], $retryRoot);
 ob_end_clean();
@@ -2008,22 +2008,22 @@ if (is_string($originalPath)) {
     putenv('PATH=' . $originalPath);
 }
 $afterRetry = json_decode((string) file_get_contents((string) $retry['state_file']), true);
-duo_check_same(0, $secondApply, 'demo apply resumes the pending clean revision without another edit');
-duo_check_same(null, $afterRetry['pending_revision'] ?? null, 'a successful retry clears the pending revision');
-duo_check_same($afterFailure['pending_revision'] ?? null, $afterRetry['last_applied_revision'] ?? null, 'a successful retry records the exact revision it completed');
+wprism_check_same(0, $secondApply, 'demo apply resumes the pending clean revision without another edit');
+wprism_check_same(null, $afterRetry['pending_revision'] ?? null, 'a successful retry clears the pending revision');
+wprism_check_same($afterFailure['pending_revision'] ?? null, $afterRetry['last_applied_revision'] ?? null, 'a successful retry records the exact revision it completed');
 
 $httpOverlay = (string) file_get_contents(dirname(__DIR__, 4) . '/sandbox/pair.http.yml');
-duo_check(
-    str_contains($httpOverlay, '127.0.0.1:${DUO_PORT1}:80')
-        && str_contains($httpOverlay, '127.0.0.1:${DUO_PORT2}:80'),
+wprism_check(
+    str_contains($httpOverlay, '127.0.0.1:${WPRISM_PORT1}:80')
+        && str_contains($httpOverlay, '127.0.0.1:${WPRISM_PORT2}:80'),
     'the demo HTTP overlay publishes both weak-credential sites on loopback only'
 );
 $demoSource = (string) file_get_contents(dirname(__DIR__, 4) . '/cli/src/Command/DemoCommand.php');
-duo_check(
+wprism_check(
     str_contains($demoSource, "'--http', '--artifacts', '--git-cli'"),
     'demo start selects the loopback-pinned HTTP overlay and its Git-capable CLI image'
 );
-duo_check(
+wprism_check(
     str_contains($demoSource, "'config', 'set', 'WOOCOMMERCE_BIS_ALPHA_ENABLED'")
         && str_contains($demoSource, 'change_feature_enable("fulfillments", true)')
         && str_contains($demoSource, "['action-scheduler', 'migrate']")
@@ -2033,27 +2033,27 @@ duo_check(
 );
 
 $releaseGuide = (string) file_get_contents(dirname(__DIR__, 4) . '/docs/guides/release.md');
-duo_check(
+wprism_check(
     str_contains($releaseGuide, 'provider-check production --role=source')
         && str_contains($releaseGuide, 'provider-check preview --role=target'),
     'preview setup checks each provider against its actual source/target role'
 );
-duo_check(
+wprism_check(
     str_contains($releaseGuide, 'BRANCH=$(git branch --show-current)')
         && str_contains($releaseGuide, '--branch "$BRANCH"'),
     'preview setup materializes the clean branch the onboarding handoff actually checked out'
 );
-duo_check(
-    strpos($releaseGuide, '"$DUO_CLI" capture preview') < strpos($releaseGuide, '"$DUO_CLI" preview remove preview'),
+wprism_check(
+    strpos($releaseGuide, '"$WPRISM_CLI" capture preview') < strpos($releaseGuide, '"$WPRISM_CLI" preview remove preview'),
     'preview cleanup is documented only after capture and Git preservation'
 );
-duo_check(
-    preg_match('/^duo (?:env provider-check|preview|capture|release|verify) /m', $releaseGuide) !== 1
-        && str_contains($releaseGuide, 'DUO_CLI="${DUO_CLI:-duo}"'),
+wprism_check(
+    preg_match('/^wprism (?:env provider-check|preview|capture|release|verify) /m', $releaseGuide) !== 1
+        && str_contains($releaseGuide, 'WPRISM_CLI="${WPRISM_CLI:-wprism}"'),
     'the release walkthrough remains executable from the quickstart source checkout'
 );
 
-$cli = dirname(__DIR__, 4) . '/cli/duo';
+$cli = dirname(__DIR__, 4) . '/cli/wprism';
 $preview = proc_open(
     [$cli, 'preview', 'create'],
     [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -2062,7 +2062,7 @@ $preview = proc_open(
     null,
     ['bypass_shell' => true]
 );
-duo_check(is_resource($preview), 'preview alias starts through the real CLI boundary');
+wprism_check(is_resource($preview), 'preview alias starts through the real CLI boundary');
 if (is_resource($preview)) {
     fclose($pipes[0]);
     $previewOut = (string) stream_get_contents($pipes[1]);
@@ -2070,15 +2070,15 @@ if (is_resource($preview)) {
     fclose($pipes[1]);
     fclose($pipes[2]);
     $previewExit = proc_close($preview);
-    duo_check_same(1, $previewExit, 'preview create without an environment is a normal argument refusal');
-    duo_check(str_contains($previewError . $previewOut, "'rehearse' requires an <env> argument"), 'preview create maps to the proven rehearsal command before preflight');
+    wprism_check_same(1, $previewExit, 'preview create without an environment is a normal argument refusal');
+    wprism_check(str_contains($previewError . $previewOut, "'rehearse' requires an <env> argument"), 'preview create maps to the proven rehearsal command before preflight');
 }
 $missingRegistry = $tmp . '/preview-missing-envs.json';
 $createReap = HostProcess::run([
     $cli, '--envs-file=' . $missingRegistry, 'preview', 'create', 'victim', '--reap',
 ], $tmp);
-duo_check_same(1, $createReap['exit'], 'preview create rejects the destructive reap flag');
-duo_check(
+wprism_check_same(1, $createReap['exit'], 'preview create rejects the destructive reap flag');
+wprism_check(
     str_contains($createReap['stderr'], 'preview create does not accept --reap')
         && !str_contains($createReap['stderr'], 'environment registry'),
     'preview create refuses reap before environment resolution or removal'
@@ -2087,12 +2087,12 @@ foreach (['--reap', '--from=production', '--create', '--ttl=60', '--branch=featu
     $invalidRemove = HostProcess::run([
         $cli, '--envs-file=' . $missingRegistry, 'preview', 'remove', 'victim', $removeFlag,
     ], $tmp);
-    duo_check_same(1, $invalidRemove['exit'], "preview remove rejects caller flag $removeFlag");
-    duo_check(
+    wprism_check_same(1, $invalidRemove['exit'], "preview remove rejects caller flag $removeFlag");
+    wprism_check(
         str_contains($invalidRemove['stderr'], 'preview remove accepts only <env> and optional --format=json')
             && !str_contains($invalidRemove['stderr'], 'environment registry'),
         "preview remove rejects $removeFlag before environment resolution"
     );
 }
 
-duo_check_summary('ideal source-checkout onboarding');
+wprism_check_summary('ideal source-checkout onboarding');

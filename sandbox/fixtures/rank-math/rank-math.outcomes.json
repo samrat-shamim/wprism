@@ -1,5 +1,5 @@
 {
-    "format": "duo-adapter-boundary-outcomes/v1",
+    "format": "wprism-adapter-boundary-outcomes/v1",
     "outcomes": [
         {
             "outcome": "green",

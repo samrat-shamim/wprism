@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * Host command output and refusal-contract primitives.
@@ -36,9 +36,9 @@ final class CommandOutput {
      * The host runs the agent in --format=json wherever it needs a
      * structured receipt (a rehearsal's promotion apply, deploy preflight,
      * assess), so an unclassified Throwable arrives as `details_redacted:
-     * true` and nothing else (DUO-3404) — the operator never ran a human-mode
+     * true` and nothing else (issue #3404) — the operator never ran a human-mode
      * command they could reread. The agent writes that sentence privately
-     * under the target repository's `.duo/refusals/` (agent/src/Command/
+     * under the target repository's `.wprism/refusals/` (agent/src/Command/
      * Cli.php record_private_refusal_evidence); this one stderr line, emitted
      * only when a stream is such an envelope, tells the operator so. The
      * envelope on stdout is untouched.
@@ -47,15 +47,15 @@ final class CommandOutput {
         foreach ([$result['stdout'] ?? '', $result['stderr'] ?? ''] as $stream) {
             $decoded = json_decode(trim((string) $stream), true);
             if (!is_array($decoded)
-                || ($decoded['format'] ?? null) !== 'duo-command-refusal/v1'
+                || ($decoded['format'] ?? null) !== 'wprism-command-refusal/v1'
                 || ($decoded['details_redacted'] ?? null) !== true) {
                 continue;
             }
             $command = is_string($decoded['command'] ?? null) && $decoded['command'] !== ''
                 ? $decoded['command']
                 : 'agent';
-            return "duo: the target's $command refusal was redacted for machine output;"
-                . " its private operator evidence is under the target site repository's .duo/refusals/"
+            return "wprism: the target's $command refusal was redacted for machine output;"
+                . " its private operator evidence is under the target site repository's .wprism/refusals/"
                 . ' (a JSON record per redacted refusal: reason code, throwable class, message, cause chain)';
         }
         return null;
@@ -84,14 +84,14 @@ final class CommandOutput {
      * one verb whose deliverable IS a machine contract (four exit codes a
      * customer's CI binds to, MergeCheckCommand.php:14-31), and every refusal
      * it can raise fires on this host before anything compiles. A pipeline
-     * that got a `duo-merge-check/v1` document for exit 3 and an unparseable
+     * that got a `wprism-merge-check/v1` document for exit 3 and an unparseable
      * stderr line for exit 1 could not tell "a human owes me a decision" from
      * "my checkout is broken", which is precisely the distinction the verb
      * exists to publish.
      *
      * `census` joins on merge-check's exact argument: it is env-free, every
      * refusal it can raise fires on this host before a single document is
-     * folded, and its success path is a canonical `duo-fleet-census/v1`
+     * folded, and its success path is a canonical `wprism-fleet-census/v1`
      * document. A collector scripting submissions from many operators reads
      * stdout and nothing else, so an unparseable stderr line for the one
      * submission that would not decode is the difference between "this
@@ -126,7 +126,7 @@ final class CommandOutput {
         array $diagnostics = []
     ): int {
         $payload = [
-            'format' => 'duo-command-refusal/v1',
+            'format' => 'wprism-command-refusal/v1',
             'ok' => false,
             'command' => $command,
             'error' => $reasonCode,
@@ -142,7 +142,7 @@ final class CommandOutput {
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         );
         if ($encoded === false) {
-            $encoded = '{"format":"duo-command-refusal/v1","ok":false,"command":"host",'
+            $encoded = '{"format":"wprism-command-refusal/v1","ok":false,"command":"host",'
                 . '"error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
                 . '"message":"structured refusal serialization failed",'
                 . '"remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
@@ -153,7 +153,7 @@ final class CommandOutput {
 
     /** @return never */
     public static function fail(string $message, int $code = 1): void {
-        fwrite(STDERR, "duo: $message\n");
+        fwrite(STDERR, "wprism: $message\n");
         exit($code);
     }
 }

@@ -1,9 +1,9 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Circular with Policy.php's own require_once of this file: safe for the
 // same reason ActionProviderGrammar.php's and CrossManifestGuards.php's
-// identical circular requires are (DUO-3348 slices 6-7) -- require_once
+// identical circular requires are (issue #3348 slices 6-7) -- require_once
 // marks Policy.php's path included the moment Policy.php's own require
 // statement for this file runs, before Policy.php's body finishes
 // executing, so this resolves to a no-op rather than a re-include.
@@ -12,7 +12,7 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
 
 /**
  * The "named sub-key of an otherwise-atomic manifest value" declaration
- * grammar (DUO-3348 slice 8), extracted from `agent/src/Policy/Policy.php`.
+ * grammar (issue #3348 slice 8), extracted from `agent/src/Policy/Policy.php`.
  * `validate_sub_keys()` (options.<name>.sub_keys) and
  * `validate_dynamic_options()` (the top-level dynamic_options key) are two
  * independent manifest surfaces sharing one inner shape once you are past
@@ -27,9 +27,9 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
  * Moved verbatim. Both public entry points had zero external callers beyond
  * Policy's own `load()`/`from_snapshot()` (grep-verified across the whole
  * repo) -- matching PinResolver/ActionProviderGrammar/CrossManifestGuards'
- * precedent (DUO-3348 slices 5-7), no compatibility facade exists; the 6
+ * precedent (issue #3348 slices 5-7), no compatibility facade exists; the 6
  * call sites (2 methods x, respectively, 4 and 2 loader call sites --
- * validate_sub_keys() runs once for site.duo.json and once per manifest, in
+ * validate_sub_keys() runs once for site.wprism.json and once per manifest, in
  * both load()/from_snapshot()) call this class directly.
  *
  * `Policy::CLASSES` (the classification-class closed vocabulary) is used by
@@ -74,37 +74,37 @@ final class SubKeyGrammar {
             if (array_key_exists('closed_sub_keys', $rule)
                 && !is_bool($rule['closed_sub_keys'])) {
                 throw new \RuntimeException(
-                    "duo: $label options.$optName.closed_sub_keys must be a boolean"
+                    "wprism: $label options.$optName.closed_sub_keys must be a boolean"
                 );
             }
             if ($subKeys === null) {
                 if (array_key_exists('closed_sub_keys', $rule)) {
                     throw new \RuntimeException(
-                        "duo: $label options.$optName declares closed_sub_keys without sub_keys"
+                        "wprism: $label options.$optName declares closed_sub_keys without sub_keys"
                     );
                 }
                 if (array_key_exists('absent_autoload', $rule)) {
                     throw new \RuntimeException(
-                        "duo: $label options.$optName declares absent_autoload without sub_keys"
+                        "wprism: $label options.$optName declares absent_autoload without sub_keys"
                     );
                 }
                 continue;
             }
             if (!is_array($subKeys) || !$subKeys) {
                 throw new \RuntimeException(
-                    "duo: $label declares options.$optName.sub_keys but it is not a non-empty object"
+                    "wprism: $label declares options.$optName.sub_keys but it is not a non-empty object"
                 );
             }
             if (($rule['class'] ?? '') === 'authored') {
                 throw new \RuntimeException(
-                    "duo: $label declares options.$optName with BOTH class=authored and sub_keys — "
+                    "wprism: $label declares options.$optName with BOTH class=authored and sub_keys — "
                     . 'these are mutually exclusive (class=authored already captures the WHOLE value; sub_keys '
                     . 'narrows independent capture to named keys of an otherwise-excluded blob). Pick one.'
                 );
             }
             if (!in_array($rule['class'] ?? null, self::MIXED_PARENT_CLASSES, true)) {
                 throw new \RuntimeException(
-                    "duo: $label declares options.$optName.sub_keys with an invalid parent class "
+                    "wprism: $label declares options.$optName.sub_keys with an invalid parent class "
                     . '(expected runtime|derived|env; managed has no mixed-option materializer)'
                 );
             }
@@ -117,7 +117,7 @@ final class SubKeyGrammar {
                 if (!is_array($subRule)
                     || !in_array($subRule['class'] ?? null, self::MIXED_SUB_KEY_CLASSES, true)) {
                     throw new \RuntimeException(
-                        "duo: $label declares options.$optName.sub_keys.$subKey with an invalid or "
+                        "wprism: $label declares options.$optName.sub_keys.$subKey with an invalid or "
                         . 'missing class (expected one of ' . implode('|', self::MIXED_SUB_KEY_CLASSES) . ')'
                     );
                 }
@@ -161,7 +161,7 @@ final class SubKeyGrammar {
         }
         sort($fingerprints, SORT_STRING);
         throw new \RuntimeException(
-            "duo: $where option '$name' contains $unknownCount undeclared sibling key(s) "
+            "wprism: $where option '$name' contains $unknownCount undeclared sibling key(s) "
             . '(bounded key fingerprints: ' . implode(', ', $fingerprints) . ')'
             . '; closed_sub_keys requires an explicit authored/runtime/derived/env classification for every key'
         );
@@ -186,7 +186,7 @@ final class SubKeyGrammar {
         ));
         if ($ambiguous) {
             throw new \RuntimeException(
-                "duo: $where declares sub_keys together with whole-value field(s) "
+                "wprism: $where declares sub_keys together with whole-value field(s) "
                 . implode(', ', $ambiguous) . '; put value/reference/secret/lint behavior on each named '
                 . 'sub-key rule instead'
             );
@@ -194,7 +194,7 @@ final class SubKeyGrammar {
     }
 
     /**
-     * v1-supported dynamic_options resolvers (DUO-3264, fork A) — a
+     * v1-supported dynamic_options resolvers (issue #3264, fork A) — a
      * manifest's `resolver` value must appear here, mirroring
      * Policy::MENU_DERIVABLE_FIELDS/DERIVABLE_FIELD_COLUMNS' own "start v1
      * scope tight" posture. Deliberately just 'active_stylesheet':
@@ -210,7 +210,7 @@ final class SubKeyGrammar {
     }
 
     /**
-     * Loud, load-time guard for dynamic_options' manifest input — DUO-3264's
+     * Loud, load-time guard for dynamic_options' manifest input — issue #3264's
      * own version of validate_sub_keys() immediately above, kept as its own
      * function rather than merged into it for the same "mirrored for its
      * own key shape rather than extended" reason validate_menu_field_classes()
@@ -221,7 +221,7 @@ final class SubKeyGrammar {
      * set) since that inner shape genuinely is identical once you are past
      * the top-level prefix/resolver fields.
      *
-     * DUO-3375: a top-level `class` on a dynamic_options declaration is a
+     * issue #3375: a top-level `class` on a dynamic_options declaration is a
      * DEAD field — resolve_dynamic_option()/dynamic_option_rule_for_name()
      * hardwire the resolved row's class to 'env' regardless of what the
      * manifest wrote, so an operator's ownership claim (e.g. class:authored)
@@ -236,17 +236,17 @@ final class SubKeyGrammar {
         $name = (string) ($manifest['name'] ?? '?');
         foreach ($manifest['dynamic_options'] ?? [] as $key => $decl) {
             if (!is_array($decl)) {
-                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key that is not an object");
+                throw new \RuntimeException("wprism: manifest '$name' declares dynamic_options.$key that is not an object");
             }
             if (array_key_exists('closed_sub_keys', $decl)
                 && !is_bool($decl['closed_sub_keys'])) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' dynamic_options.$key.closed_sub_keys must be a boolean"
+                    "wprism: manifest '$name' dynamic_options.$key.closed_sub_keys must be a boolean"
                 );
             }
             if (array_key_exists('class', $decl)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares dynamic_options.$key.class="
+                    "wprism: manifest '$name' declares dynamic_options.$key.class="
                     . var_export($decl['class'], true) . ' but a dynamic_options declaration carries no top-level '
                     . "class; the resolver owns the resolved row's class, which the engine forces to 'env' (only the "
                     . 'named sub_keys are authored). It is never consumed and would be silently discarded; remove it'
@@ -254,18 +254,18 @@ final class SubKeyGrammar {
             }
             $prefix = $decl['prefix'] ?? null;
             if (!is_string($prefix) || $prefix === '') {
-                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key with a missing or empty 'prefix'");
+                throw new \RuntimeException("wprism: manifest '$name' declares dynamic_options.$key with a missing or empty 'prefix'");
             }
             $resolver = $decl['resolver'] ?? null;
             if (!in_array($resolver, self::DYNAMIC_OPTION_RESOLVERS, true)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares dynamic_options.$key.resolver=" . var_export($resolver, true)
+                    "wprism: manifest '$name' declares dynamic_options.$key.resolver=" . var_export($resolver, true)
                     . ' but only ' . implode('|', self::DYNAMIC_OPTION_RESOLVERS) . ' is supported in v1'
                 );
             }
             $subKeys = $decl['sub_keys'] ?? null;
             if (!is_array($subKeys) || !$subKeys) {
-                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key.sub_keys that is missing, empty, or not an object");
+                throw new \RuntimeException("wprism: manifest '$name' declares dynamic_options.$key.sub_keys that is missing, empty, or not an object");
             }
             self::assert_sub_key_parent_has_no_value_fields(
                 $decl,
@@ -276,7 +276,7 @@ final class SubKeyGrammar {
                 if (!is_array($subRule)
                     || !in_array($subRule['class'] ?? null, self::MIXED_SUB_KEY_CLASSES, true)) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' declares dynamic_options.$key.sub_keys.$subKey with an invalid or "
+                        "wprism: manifest '$name' declares dynamic_options.$key.sub_keys.$subKey with an invalid or "
                         . 'missing class (expected one of ' . implode('|', self::MIXED_SUB_KEY_CLASSES) . ')'
                     );
                 }
@@ -296,7 +296,7 @@ final class SubKeyGrammar {
         if ($rule['native_default_completion'] !== true
             || !in_array($rule['class'] ?? null, ['runtime', 'derived', 'env'], true)) {
             throw new \RuntimeException(
-                "duo: $where.native_default_completion must be literal true on a runtime|derived|env sibling"
+                "wprism: $where.native_default_completion must be literal true on a runtime|derived|env sibling"
             );
         }
     }
@@ -308,7 +308,7 @@ final class SubKeyGrammar {
         }
         if (!in_array($rule['absent_autoload'], OptionState::AUTOLOAD_VALUES, true)) {
             throw new \RuntimeException(
-                "duo: $where.absent_autoload must be an exact supported wp_options autoload value"
+                "wprism: $where.absent_autoload must be an exact supported wp_options autoload value"
             );
         }
     }

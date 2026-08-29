@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
@@ -8,7 +8,7 @@ require_once __DIR__ . '/../Policy/ScopeDiscovery.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 
 /**
- * Collect-only classification walk used by `duo pending` and adapter
+ * Collect-only classification walk used by `wprism pending` and adapter
  * observation. It shares the same scope and ordered metadata readers as
  * candidate capture, but owns no ledger, identity, output, or mutation path.
  */

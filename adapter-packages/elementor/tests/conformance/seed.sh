@@ -28,7 +28,7 @@ if ($wpdb->last_error !== '') {
     throw new RuntimeException('Elementor seed could not establish the high-term-ID premise');
 }
 
-function duo_elementor_image(string $path, int $red, int $green, int $blue): void {
+function wprism_elementor_image(string $path, int $red, int $green, int $blue): void {
     $image = imagecreatetruecolor(96, 72);
     if (!$image) {
         throw new RuntimeException('Elementor seed could not allocate an image');
@@ -38,7 +38,7 @@ function duo_elementor_image(string $path, int $red, int $green, int $blue): voi
     imagedestroy($image);
 }
 
-function duo_elementor_import(string $path, string $title): int {
+function wprism_elementor_import(string $path, string $title): int {
     $id = media_handle_sideload(['name' => basename($path), 'tmp_name' => $path], 0, $title);
     if (is_wp_error($id)) {
         throw new RuntimeException('Elementor attachment import failed');
@@ -46,7 +46,7 @@ function duo_elementor_import(string $path, string $title): int {
     return (int) $id;
 }
 
-function duo_elementor_post(string $type, string $title, string $slug, string $content = ''): int {
+function wprism_elementor_post(string $type, string $title, string $slug, string $content = ''): int {
     $id = wp_insert_post([
         'post_type' => $type,
         'post_title' => $title,
@@ -60,7 +60,7 @@ function duo_elementor_post(string $type, string $title, string $slug, string $c
     return (int) $id;
 }
 
-function duo_elementor_save(int $id, string $templateType, array $elements): void {
+function wprism_elementor_save(int $id, string $templateType, array $elements): void {
     update_post_meta($id, '_elementor_edit_mode', 'builder');
     update_post_meta($id, '_elementor_template_type', $templateType);
     $document = \Elementor\Plugin::$instance->documents->get($id);
@@ -69,14 +69,14 @@ function duo_elementor_save(int $id, string $templateType, array $elements): voi
     }
 }
 
-duo_elementor_image('/tmp/duo-conf-elementor-hero.png', 140, 60, 160);
-duo_elementor_image('/tmp/duo-conf-elementor-gallery-a.png', 60, 140, 90);
-duo_elementor_image('/tmp/duo-conf-elementor-gallery-b.png', 60, 90, 140);
-duo_elementor_image('/tmp/duo-conf-elementor-bg.png', 160, 140, 60);
-$hero = duo_elementor_import('/tmp/duo-conf-elementor-hero.png', 'Duo Conformance Elementor Hero');
-$galleryA = duo_elementor_import('/tmp/duo-conf-elementor-gallery-a.png', 'Duo Conformance Elementor Gallery A');
-$galleryB = duo_elementor_import('/tmp/duo-conf-elementor-gallery-b.png', 'Duo Conformance Elementor Gallery B');
-$background = duo_elementor_import('/tmp/duo-conf-elementor-bg.png', 'Duo Conformance Elementor BG');
+wprism_elementor_image('/tmp/wprism-conf-elementor-hero.png', 140, 60, 160);
+wprism_elementor_image('/tmp/wprism-conf-elementor-gallery-a.png', 60, 140, 90);
+wprism_elementor_image('/tmp/wprism-conf-elementor-gallery-b.png', 60, 90, 140);
+wprism_elementor_image('/tmp/wprism-conf-elementor-bg.png', 160, 140, 60);
+$hero = wprism_elementor_import('/tmp/wprism-conf-elementor-hero.png', 'WPrism Conformance Elementor Hero');
+$galleryA = wprism_elementor_import('/tmp/wprism-conf-elementor-gallery-a.png', 'WPrism Conformance Elementor Gallery A');
+$galleryB = wprism_elementor_import('/tmp/wprism-conf-elementor-gallery-b.png', 'WPrism Conformance Elementor Gallery B');
+$background = wprism_elementor_import('/tmp/wprism-conf-elementor-bg.png', 'WPrism Conformance Elementor BG');
 $media = [];
 foreach (['hero' => $hero, 'gallery_a' => $galleryA, 'gallery_b' => $galleryB, 'background' => $background] as $key => $id) {
     $url = wp_get_attachment_url($id);
@@ -86,10 +86,10 @@ foreach (['hero' => $hero, 'gallery_a' => $galleryA, 'gallery_b' => $galleryB, '
     $media[$key] = ['id' => $id, 'url' => $url, 'size' => 'full'];
 }
 
-$target = duo_elementor_post(
+$target = wprism_elementor_post(
     'page',
-    'Duo Elementor Target',
-    'duo-elementor-target',
+    'WPrism Elementor Target',
+    'wprism-elementor-target',
     '<!-- wp:paragraph --><p>The portable link target 東京 🚀.</p><!-- /wp:paragraph -->'
 );
 $targetUrl = get_permalink($target);
@@ -111,7 +111,7 @@ for ($i = 0; $i < 128; $i++) {
     ];
 }
 
-$classic = duo_elementor_post('page', 'Duo Conformance Elementor Page', 'duo-conformance-elementor-page');
+$classic = wprism_elementor_post('page', 'WPrism Conformance Elementor Page', 'wprism-conformance-elementor-page');
 $classicElements = [[
     'id' => 'ceelsec1',
     'elType' => 'section',
@@ -158,10 +158,10 @@ $classicElements = [[
         ],
     ],
 ]];
-duo_elementor_save($classic, 'wp-page', $classicElements);
+wprism_elementor_save($classic, 'wp-page', $classicElements);
 
-$deletion = duo_elementor_post('page', 'Duo Elementor Deletion Page', 'duo-elementor-deletion-page');
-duo_elementor_save($deletion, 'wp-page', [[
+$deletion = wprism_elementor_post('page', 'WPrism Elementor Deletion Page', 'wprism-elementor-deletion-page');
+wprism_elementor_save($deletion, 'wp-page', [[
     'id' => 'delsect1',
     'elType' => 'section',
     'settings' => ['background_background' => 'classic', 'background_color' => '#2468ac'],
@@ -179,8 +179,8 @@ duo_elementor_save($deletion, 'wp-page', [[
     ]],
 ]]);
 
-$template = duo_elementor_post('elementor_library', 'Duo Portable Section', 'duo-portable-section');
-duo_elementor_save($template, 'section', [[
+$template = wprism_elementor_post('elementor_library', 'WPrism Portable Section', 'wprism-portable-section');
+wprism_elementor_save($template, 'section', [[
     'id' => 'tplsect1',
     'elType' => 'section',
     'settings' => [],
@@ -215,8 +215,8 @@ if ($atomicSupported) {
     $attachmentType = '\Elementor\Modules\AtomicWidgets\PropTypes\Image_Attachment_Id_Prop_Type';
     $imageSourceType = '\Elementor\Modules\AtomicWidgets\PropTypes\Image_Src_Prop_Type';
     $imageType = '\Elementor\Modules\AtomicWidgets\PropTypes\Image_Prop_Type';
-    $atomic = duo_elementor_post('page', 'Duo Atomic Elementor Page', 'duo-atomic-elementor-page');
-    duo_elementor_save($atomic, 'wp-page', [[
+    $atomic = wprism_elementor_post('page', 'WPrism Atomic Elementor Page', 'wprism-atomic-elementor-page');
+    wprism_elementor_save($atomic, 'wp-page', [[
         'id' => 'atcont01',
         'elType' => 'e-flexbox',
         'settings' => [],
@@ -256,18 +256,18 @@ if ($atomicSupported) {
     }
 }
 
-$kitId = (int) \Elementor\Plugin::$instance->kits_manager->create_new_kit('Duo Portable Kit', [], true);
+$kitId = (int) \Elementor\Plugin::$instance->kits_manager->create_new_kit('WPrism Portable Kit', [], true);
 $kit = \Elementor\Plugin::$instance->documents->get($kitId);
 if (!$kit instanceof \Elementor\Core\Kits\Documents\Kit) {
     throw new RuntimeException('Elementor custom kit creation failed');
 }
 $kit->update_settings([
     'system_colors' => [
-        ['_id' => 'primary', 'title' => 'Duo Primary', 'color' => '#123456'],
-        ['_id' => 'secondary', 'title' => 'Duo Secondary', 'color' => '#654321'],
+        ['_id' => 'primary', 'title' => 'WPrism Primary', 'color' => '#123456'],
+        ['_id' => 'secondary', 'title' => 'WPrism Secondary', 'color' => '#654321'],
     ],
     'custom_colors' => [
-        ['_id' => 'duocustom', 'title' => 'Duo Custom 東京 🚀', 'color' => '#abcdef'],
+        ['_id' => 'wprismcustom', 'title' => 'WPrism Custom 東京 🚀', 'color' => '#abcdef'],
     ],
     'default_generic_fonts' => 'Inter, Arial, sans-serif',
     'site_logo' => $media['hero'],
@@ -321,10 +321,10 @@ jq -e '
 ' <<<"$SOURCE_JSON" >/dev/null || fail "Elementor source fixture premise was incomplete: $SOURCE_JSON"
 printf '%s\n' "$SOURCE_JSON" > "$SOURCE_REPO/.tmp-elementor-source.json"
 
-curl -fs "http://localhost:${CONF1_PORT}/duo-conformance-elementor-page/" >/dev/null \
+curl -fs "http://localhost:${CONF1_PORT}/wprism-conformance-elementor-page/" >/dev/null \
   || fail 'conf1 classic Elementor page did not render before capture'
 if [ "$(jq -r '.atomic_supported' <<<"$SOURCE_JSON")" = true ]; then
-  curl -fs "http://localhost:${CONF1_PORT}/duo-atomic-elementor-page/" >/dev/null \
+  curl -fs "http://localhost:${CONF1_PORT}/wprism-atomic-elementor-page/" >/dev/null \
     || fail 'conf1 Atomic Elementor page did not render before capture'
 fi
 

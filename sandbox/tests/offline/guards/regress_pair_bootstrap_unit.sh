@@ -2,23 +2,23 @@
 # Offline regression for pair.sh's two-phase container bootstrap.
 #
 # The pair's named webroot volume must be initialized by wp1/wp2 before the
-# nested Duo MU directory/file mounts are visible to cli1/cli2. This harness
+# nested WPrism MU directory/file mounts are visible to cli1/cli2. This harness
 # runs the real pair.sh in a temporary copied sandbox with a fake `docker`
 # executable: it proves the compose service/flag ordering without contacting
 # Docker, MariaDB, or the repository's persistent siterepo directories.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-pair-bootstrap.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-pair-bootstrap.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
-# DUO-3438: resolve to the physical path once, up front, the same way
-# DUO-3420's pair_siterepo_host_one() resolves its own bind-mount source
+# issue #3438: resolve to the physical path once, up front, the same way
+# issue #3420's pair_siterepo_host_one() resolves its own bind-mount source
 # (`cd "$(dirname "$root")" && pwd -P`) -- two independent mismatches this
 # collapses into one no-op comparison: macOS's $TMPDIR sits under
 # /var/folders, and /var -> /private/var is an OS-provided symlink (the same
-# class DUO-3432 hit for /tmp); separately, macOS's $TMPDIR carries a
-# trailing slash, so plain `mktemp -d "$TMPDIR/duo-pair-bootstrap.XXXXXX"`
-# above yields a doubled slash (".../T//duo-pair-bootstrap...", visible in
+# class issue #3432 hit for /tmp); separately, macOS's $TMPDIR carries a
+# trailing slash, so plain `mktemp -d "$TMPDIR/wprism-pair-bootstrap.XXXXXX"`
+# above yields a doubled slash (".../T//wprism-pair-bootstrap...", visible in
 # the pre-fix failure text) that `pwd -P` also normalizes away. Every path
 # this suite builds from $TMP must already be canonical so a later `pwd -P`
 # inside pair.sh is a no-op against it, not a silent second resolution the
@@ -80,31 +80,31 @@ write_fake_docker() {
   cat > "$fake_bin/docker" <<'FAKE_DOCKER'
 #!/usr/bin/env bash
 set -euo pipefail
-log="${DUO_PAIR_TEST_LOG:?}"
+log="${WPRISM_PAIR_TEST_LOG:?}"
 {
   printf 'docker'
   for arg in "$@"; do printf ' <%s>' "$arg"; done
-  printf ' env[DUO_AGENT_SRC]=%s env[DUO_ADAPTER_PACKAGES_SRC]=%s env[DUO_PLATFORM_SRC]=%s\n' \
-    "${DUO_AGENT_SRC:-}" "${DUO_ADAPTER_PACKAGES_SRC:-}" "${DUO_PLATFORM_SRC:-}"
+  printf ' env[WPRISM_AGENT_SRC]=%s env[WPRISM_ADAPTER_PACKAGES_SRC]=%s env[WPRISM_PLATFORM_SRC]=%s\n' \
+    "${WPRISM_AGENT_SRC:-}" "${WPRISM_ADAPTER_PACKAGES_SRC:-}" "${WPRISM_PLATFORM_SRC:-}"
 } >> "$log"
 
 # The artifact-cache branch intentionally executes the real bounded shell
 # command emitted by fetch-artifact.sh, but redirects its container mount to
 # this regression's private directory. Every other compose command remains a
 # no-op recorder below.
-if [ -n "${DUO_PAIR_TEST_ARTIFACT_CACHE:-}" ]; then
+if [ -n "${WPRISM_PAIR_TEST_ARTIFACT_CACHE:-}" ]; then
   args=("$@")
   for index in "${!args[@]}"; do
     if [ "${args[$index]}" = sh ] && [[ "${args[$((index + 1))]:-}" == */artifact-cache-fetch.sh ]]; then
-      export DUO_ARTIFACT_TEST_MODE=1 DUO_ARTIFACT_TEST_CACHE_ROOT="$DUO_PAIR_TEST_ARTIFACT_CACHE"
-      args[$((index + 1))]="${DUO_PAIR_TEST_ARTIFACT_RUNNER:?}"
+      export WPRISM_ARTIFACT_TEST_MODE=1 WPRISM_ARTIFACT_TEST_CACHE_ROOT="$WPRISM_PAIR_TEST_ARTIFACT_CACHE"
+      args[$((index + 1))]="${WPRISM_PAIR_TEST_ARTIFACT_RUNNER:?}"
       "${args[@]:$index}"
       exit $?
     fi
   done
 fi
 
-if [ "${DUO_PAIR_TEST_FAIL_REPO_HANDOFF:-0}" = 1 ]; then
+if [ "${WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF:-0}" = 1 ]; then
   case " $* " in
     *" run --rm -u root --mount "*)
       printf 'fake exact-root ownership handback failure\n' >&2
@@ -117,9 +117,9 @@ fi
 # after pair.sh has issued its one exact-root-plus-probe handback command.
 # Touching this test-owned marker models that ordering without changing either
 # fixture repository tree.
-if [ -n "${DUO_PAIR_TEST_REPO_HANDOFF_MARKER:-}" ]; then
+if [ -n "${WPRISM_PAIR_TEST_REPO_HANDOFF_MARKER:-}" ]; then
   case " $* " in
-    *" run --rm -u root --mount "*) : > "$DUO_PAIR_TEST_REPO_HANDOFF_MARKER" ;;
+    *" run --rm -u root --mount "*) : > "$WPRISM_PAIR_TEST_REPO_HANDOFF_MARKER" ;;
   esac
 fi
 
@@ -127,28 +127,28 @@ fi
 # fault-injectable without Docker or WordPress.org. The fake records an
 # installed/active theme only after the configured number of exact install
 # failures; activation cannot fabricate an install that never completed.
-theme_state_dir="${DUO_PAIR_TEST_THEME_STATE_DIR:-}"
+theme_state_dir="${WPRISM_PAIR_TEST_THEME_STATE_DIR:-}"
 if [ -n "$theme_state_dir" ]; then
   mkdir -p "$theme_state_dir"
   case " $* " in
     *" cli1 wp core is-installed "*) [ -f "$theme_state_dir/core1" ]; exit $? ;;
     *" cli2 wp core is-installed "*) [ -f "$theme_state_dir/core2" ]; exit $? ;;
-    # DUO-3412: NOOP models the DUO-3381 shape at the bootstrap layer — wp-cli
+    # issue #3412: NOOP models the issue #3381 shape at the bootstrap layer — wp-cli
     # exits 0 while the database still has no WordPress in it, so every later
     # is-installed answer stays FALSE. Default 0 leaves every pre-existing
     # case's install semantics untouched.
     *" cli1 wp core install "*)
-      [ "${DUO_PAIR_TEST_CORE_INSTALL_NOOP:-0}" = 1 ] || : > "$theme_state_dir/core1"
+      [ "${WPRISM_PAIR_TEST_CORE_INSTALL_NOOP:-0}" = 1 ] || : > "$theme_state_dir/core1"
       exit 0 ;;
     *" cli2 wp core install "*)
-      [ "${DUO_PAIR_TEST_CORE_INSTALL_NOOP:-0}" = 1 ] || : > "$theme_state_dir/core2"
+      [ "${WPRISM_PAIR_TEST_CORE_INSTALL_NOOP:-0}" = 1 ] || : > "$theme_state_dir/core2"
       exit 0 ;;
     *" wp theme install twentytwentyone --activate "*)
       attempts=0
       [ ! -f "$theme_state_dir/attempts" ] || attempts="$(cat "$theme_state_dir/attempts")"
       attempts=$((attempts + 1))
       printf '%s\n' "$attempts" > "$theme_state_dir/attempts"
-      if [ "$attempts" -le "${DUO_PAIR_TEST_THEME_FAILURES:-0}" ]; then
+      if [ "$attempts" -le "${WPRISM_PAIR_TEST_THEME_FAILURES:-0}" ]; then
         printf 'fake transient WordPress.org theme lookup failure\n' >&2
         exit 37
       fi
@@ -161,7 +161,7 @@ if [ -n "$theme_state_dir" ]; then
       : > "$theme_state_dir/archive-installed"
       exit 0
       ;;
-    *" sh /duo-harness/artifact-archive-root.sh /var/www/html/wp-content/themes fixture-theme-source twentytwentyone "*)
+    *" sh /wprism-harness/artifact-archive-root.sh /var/www/html/wp-content/themes fixture-theme-source twentytwentyone "*)
       [ -f "$theme_state_dir/archive-installed" ] || {
         printf 'fake pinned archive root was not installed\n' >&2
         exit 39
@@ -190,12 +190,12 @@ if [ -n "$theme_state_dir" ]; then
 fi
 
 if [ "${1:-}" = inspect ]; then
-  if [ "${DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER:-}" = "${2:-}" ]; then
+  if [ "${WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER:-}" = "${2:-}" ]; then
     printf 'fake docker inspect failure\n' >&2
     exit 31
   fi
   if [ "${3:-}" = --format ]; then
-    printf '%s\n' "${DUO_PAIR_TEST_INSPECT_MOUNTS:-}"
+    printf '%s\n' "${WPRISM_PAIR_TEST_INSPECT_MOUNTS:-}"
   else
     case "${3:-}" in
       "{{.State.Health.Status}}") printf 'healthy\n' ;;
@@ -203,34 +203,34 @@ if [ "${1:-}" = inspect ]; then
     esac
   fi
 elif [ "${1:-}" = info ]; then
-  if [ "${DUO_PAIR_TEST_FAIL_INFO:-0}" = 1 ]; then
+  if [ "${WPRISM_PAIR_TEST_FAIL_INFO:-0}" = 1 ]; then
     printf 'fake docker info failure\n' >&2
     exit 17
   fi
   case "${3:-}" in
-    "{{.NCPU}}") printf '%s\n' "${DUO_PAIR_TEST_CPU:-8}" ;;
-    "{{.MemTotal}}") printf '%s\n' "${DUO_PAIR_TEST_MEM:-8589934592}" ;;
+    "{{.NCPU}}") printf '%s\n' "${WPRISM_PAIR_TEST_CPU:-8}" ;;
+    "{{.MemTotal}}") printf '%s\n' "${WPRISM_PAIR_TEST_MEM:-8589934592}" ;;
   esac
 elif [ "${1:-}" = ps ]; then
-  if [ "${DUO_PAIR_TEST_FAIL_PS:-0}" = 1 ]; then
+  if [ "${WPRISM_PAIR_TEST_FAIL_PS:-0}" = 1 ]; then
     printf 'fake docker ps failure\n' >&2
     exit 29
   fi
-  printf '%s\n' "${DUO_PAIR_TEST_CONTAINERS:-}"
+  printf '%s\n' "${WPRISM_PAIR_TEST_CONTAINERS:-}"
 elif [ "${1:-}" = compose ] && [ "${2:-}" = ls ]; then
-  if [ "${DUO_PAIR_TEST_FAIL_LIVE:-0}" = 1 ]; then
+  if [ "${WPRISM_PAIR_TEST_FAIL_LIVE:-0}" = 1 ]; then
     printf 'fake compose ls failure\n' >&2
     exit 23
   fi
-  race_gate="${DUO_PAIR_TEST_RACE_GATE:-}"
+  race_gate="${WPRISM_PAIR_TEST_RACE_GATE:-}"
   if [ -n "$race_gate" ] && mkdir "$race_gate/first" 2>/dev/null; then
     : > "$race_gate/first-ready"
     while [ ! -e "$race_gate/release" ]; do sleep 0.02; done
   fi
-  if [ -n "${DUO_PAIR_TEST_LIVE_FILE:-}" ] && [ -f "$DUO_PAIR_TEST_LIVE_FILE" ]; then
-    cat "$DUO_PAIR_TEST_LIVE_FILE"
+  if [ -n "${WPRISM_PAIR_TEST_LIVE_FILE:-}" ] && [ -f "$WPRISM_PAIR_TEST_LIVE_FILE" ]; then
+    cat "$WPRISM_PAIR_TEST_LIVE_FILE"
   else
-    printf '%s\n' "${DUO_PAIR_TEST_LIVE_PAIRS:-[]}"
+    printf '%s\n' "${WPRISM_PAIR_TEST_LIVE_PAIRS:-[]}"
   fi
 elif [ "${1:-}" = compose ]; then
   project="" has_wp1=0 has_wp2=0 has_up=0 has_start=0 previous=""
@@ -243,11 +243,11 @@ elif [ "${1:-}" = compose ]; then
     previous="$arg"
   done
   if [ "$has_up" = 1 ] && [ "$has_wp1" = 1 ] && [ "$has_wp2" = 1 ] && \
-     [ -n "${DUO_PAIR_TEST_LIVE_FILE:-}" ]; then
-    printf '[{"ConfigFiles":"/fake/pair.yml","Name":"%s"}]\n' "$project" > "$DUO_PAIR_TEST_LIVE_FILE"
+     [ -n "${WPRISM_PAIR_TEST_LIVE_FILE:-}" ]; then
+    printf '[{"ConfigFiles":"/fake/pair.yml","Name":"%s"}]\n' "$project" > "$WPRISM_PAIR_TEST_LIVE_FILE"
   fi
-  if [ "$has_start" = 1 ] && [ -n "${DUO_PAIR_TEST_LIVE_FILE:-}" ]; then
-    printf '[{"ConfigFiles":"/fake/pair.yml","Name":"%s"}]\n' "$project" > "$DUO_PAIR_TEST_LIVE_FILE"
+  if [ "$has_start" = 1 ] && [ -n "${WPRISM_PAIR_TEST_LIVE_FILE:-}" ]; then
+    printf '[{"ConfigFiles":"/fake/pair.yml","Name":"%s"}]\n' "$project" > "$WPRISM_PAIR_TEST_LIVE_FILE"
   fi
 fi
 FAKE_DOCKER
@@ -260,7 +260,7 @@ write_fake_git() {
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "${1:-}" = rev-parse ]; then
-  printf '%s/.git\n' "${DUO_PAIR_TEST_CANONICAL_ROOT:?}"
+  printf '%s/.git\n' "${WPRISM_PAIR_TEST_CANONICAL_ROOT:?}"
   exit 0
 fi
 exit 1
@@ -278,37 +278,37 @@ write_fake_owner_identity_tools() {
 #!/usr/bin/env bash
 set -euo pipefail
 case "${1:-}" in
-  -u) printf '%s\n' "${DUO_PAIR_TEST_HOST_UID:?}" ;;
-  -g) printf '%s\n' "${DUO_PAIR_TEST_HOST_GID:?}" ;;
+  -u) printf '%s\n' "${WPRISM_PAIR_TEST_HOST_UID:?}" ;;
+  -g) printf '%s\n' "${WPRISM_PAIR_TEST_HOST_GID:?}" ;;
   *) exit 64 ;;
 esac
 FAKE_ID
   cat > "$fake_bin/stat" <<'FAKE_STAT'
 #!/usr/bin/env bash
 set -euo pipefail
-flavor="${DUO_PAIR_TEST_STAT_FLAVOR:?}"
+flavor="${WPRISM_PAIR_TEST_STAT_FLAVOR:?}"
 format="${2:-}"
 path="${3:-}"
 is_root() {
-  [ "$1" = "${DUO_PAIR_TEST_STAT_ROOT:?}" ] || [ "$1" = "${DUO_PAIR_TEST_STAT_ROOT_LEXICAL:?}" ]
+  [ "$1" = "${WPRISM_PAIR_TEST_STAT_ROOT:?}" ] || [ "$1" = "${WPRISM_PAIR_TEST_STAT_ROOT_LEXICAL:?}" ]
 }
 owner_after() {
   is_root "$1" || exit 64
-  [ -e "${DUO_PAIR_TEST_REPO_HANDOFF_MARKER:?}" ] || exit 64
-  if [ -e "${DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}" ]; then
-    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_OWNER_NORMALIZED:?}"
+  [ -e "${WPRISM_PAIR_TEST_REPO_HANDOFF_MARKER:?}" ] || exit 64
+  if [ -e "${WPRISM_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}" ]; then
+    printf '%s\n' "${WPRISM_PAIR_TEST_STAT_ROOT_OWNER_NORMALIZED:?}"
   else
-    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER_DOCKER:?}"
+    printf '%s\n' "${WPRISM_PAIR_TEST_STAT_ROOT_OWNER_AFTER_DOCKER:?}"
   fi
 }
 inode_at_phase() {
   is_root "$1" || exit 64
-  if [ -e "${DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}" ]; then
-    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_NORMALIZED:?}"
-  elif [ -e "${DUO_PAIR_TEST_REPO_HANDOFF_MARKER:?}" ]; then
-    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_DOCKER:?}"
+  if [ -e "${WPRISM_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}" ]; then
+    printf '%s\n' "${WPRISM_PAIR_TEST_STAT_ROOT_INODE_AFTER_NORMALIZED:?}"
+  elif [ -e "${WPRISM_PAIR_TEST_REPO_HANDOFF_MARKER:?}" ]; then
+    printf '%s\n' "${WPRISM_PAIR_TEST_STAT_ROOT_INODE_AFTER_DOCKER:?}"
   else
-    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE_BEFORE:?}"
+    printf '%s\n' "${WPRISM_PAIR_TEST_STAT_ROOT_INODE_BEFORE:?}"
   fi
 }
 case "${1:-}" in
@@ -334,19 +334,19 @@ FAKE_STAT
   cat > "$fake_bin/chgrp" <<'FAKE_CHGRP'
 #!/usr/bin/env bash
 set -euo pipefail
-log="${DUO_PAIR_TEST_CHGRP_LOG:?}"
+log="${WPRISM_PAIR_TEST_CHGRP_LOG:?}"
 {
   printf 'chgrp'
   for arg in "$@"; do printf ' <%s>' "$arg"; done
   printf '\n'
 } >> "$log"
-[ "${DUO_PAIR_TEST_FAIL_ROOT_CHGRP:-0}" = 0 ] || exit 73
-[ "${1:-}" = -h ] && [ "${2:-}" = "${DUO_PAIR_TEST_HOST_GID:?}" ] \
-  && [ "${3:-}" = "${DUO_PAIR_TEST_STAT_ROOT:?}" ] && [ "$#" = 3 ] || exit 64
-: > "${DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}"
-if [ "${DUO_PAIR_TEST_REPLACE_ROOT_WITH_SYMLINK:-0}" = 1 ]; then
-  mv "${DUO_PAIR_TEST_STAT_ROOT:?}" "${DUO_PAIR_TEST_REPLACED_ROOT:?}"
-  ln -s "${DUO_PAIR_TEST_REPLACEMENT_TARGET:?}" "${DUO_PAIR_TEST_STAT_ROOT:?}"
+[ "${WPRISM_PAIR_TEST_FAIL_ROOT_CHGRP:-0}" = 0 ] || exit 73
+[ "${1:-}" = -h ] && [ "${2:-}" = "${WPRISM_PAIR_TEST_HOST_GID:?}" ] \
+  && [ "${3:-}" = "${WPRISM_PAIR_TEST_STAT_ROOT:?}" ] && [ "$#" = 3 ] || exit 64
+: > "${WPRISM_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}"
+if [ "${WPRISM_PAIR_TEST_REPLACE_ROOT_WITH_SYMLINK:-0}" = 1 ]; then
+  mv "${WPRISM_PAIR_TEST_STAT_ROOT:?}" "${WPRISM_PAIR_TEST_REPLACED_ROOT:?}"
+  ln -s "${WPRISM_PAIR_TEST_REPLACEMENT_TARGET:?}" "${WPRISM_PAIR_TEST_STAT_ROOT:?}"
 fi
 FAKE_CHGRP
   chmod +x "$fake_bin/id" "$fake_bin/stat" "$fake_bin/chgrp"
@@ -477,8 +477,8 @@ run_case() {
   canonical_root="$case_root/canonical"
   copy_pair_launcher "$case_root/sandbox/bin"
   copy_artifact_library_runtime "$case_root"
-  if [ -n "${DUO_PAIR_TEST_LOCK_OVERRIDE:-}" ]; then
-    cp "$DUO_PAIR_TEST_LOCK_OVERRIDE" "$case_root/platform/artifact-library/artifacts.lock.json"
+  if [ -n "${WPRISM_PAIR_TEST_LOCK_OVERRIDE:-}" ]; then
+    cp "$WPRISM_PAIR_TEST_LOCK_OVERRIDE" "$case_root/platform/artifact-library/artifacts.lock.json"
   fi
   chmod +x "$case_root/sandbox/bin/pair.sh"
 
@@ -486,11 +486,11 @@ run_case() {
   # responses let the real shell control flow reach the compose calls under
   # test; all compose/exec/run operations are otherwise no-ops.
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$canonical_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
     PATH="$fake_bin:$ORIGINAL_PATH"
   if [ "$git_mode" = canonical ]; then
     write_fake_git "$fake_bin"
@@ -499,7 +499,7 @@ run_case() {
   [ "$artifacts" = 0 ] || up_args+=(--artifacts)
   [ "$wordpress_offline" = 0 ] || up_args+=(--wordpress-offline)
   if [ "$git_cli" = 1 ]; then
-    export DUO_CLI_IMAGE="duo-pair-test-cli:$pair"
+    export WPRISM_CLI_IMAGE="wprism-pair-test-cli:$pair"
     up_args+=(--git-cli)
   fi
   if [ -n "$codebind" ]; then
@@ -513,7 +513,7 @@ run_case() {
       >"$output" 2>&1 || { cat "$output" >&2; fail "$label pair bootstrap failed"; }
   fi
 
-  compose_prefix="docker <compose> <-p> <duo-$pair> <-f> <pair.yml>"
+  compose_prefix="docker <compose> <-p> <wprism-$pair> <-f> <pair.yml>"
   [ "$artifacts" = 0 ] || compose_prefix="$compose_prefix <-f> <pair.artifacts.yml>"
   [ "$wordpress_offline" = 0 ] || compose_prefix="$compose_prefix <-f> <pair.wordpress-offline.yml>"
   if [ -n "$codebind" ]; then
@@ -532,20 +532,20 @@ run_case() {
   assert_file_contains "$log" "$cli" "$label did not start CLI services explicitly"
   assert_file_contains "$log" "$mount1" "$label did not probe wp1 nested MU mount"
   assert_file_contains "$log" "$mount2" "$label did not probe wp2 nested MU mount"
-  assert_file_contains "$log" "env[DUO_AGENT_SRC]=$canonical_root/agent" "$label did not use the canonical agent bind source"
-  assert_file_contains "$log" "env[DUO_ADAPTER_PACKAGES_SRC]=$canonical_root/adapter-packages" "$label did not use the canonical adapter-package bind source"
-  assert_file_contains "$log" "env[DUO_PLATFORM_SRC]=$canonical_root/platform" "$label did not use the canonical platform bind source"
-  local recipe_env="DUO_PAIR=$pair DUO_PORT1=9911 DUO_PORT2=9912 DUO_CLI_IMAGE=${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
-  [ -z "$codebind" ] || recipe_env="$recipe_env DUO_CODEBIND_PLUGIN=$codebind"
-  assert_file_contains "$output" "$recipe_env docker compose -p duo-$pair" \
+  assert_file_contains "$log" "env[WPRISM_AGENT_SRC]=$canonical_root/agent" "$label did not use the canonical agent bind source"
+  assert_file_contains "$log" "env[WPRISM_ADAPTER_PACKAGES_SRC]=$canonical_root/adapter-packages" "$label did not use the canonical adapter-package bind source"
+  assert_file_contains "$log" "env[WPRISM_PLATFORM_SRC]=$canonical_root/platform" "$label did not use the canonical platform bind source"
+  local recipe_env="WPRISM_PAIR=$pair WPRISM_PORT1=9911 WPRISM_PORT2=9912 WPRISM_CLI_IMAGE=${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}"
+  [ -z "$codebind" ] || recipe_env="$recipe_env WPRISM_CODEBIND_PLUGIN=$codebind"
+  assert_file_contains "$output" "$recipe_env docker compose -p wprism-$pair" \
     "$label printed a wp-cli recipe that loses pair.yml's required environment across the pair.sh process boundary"
   if [ "$git_cli" = 1 ]; then
-    assert_file_contains "$log" "docker <build> <-q> <-f> <init-cli.Dockerfile> <-t> <duo-pair-test-cli:$pair> <.>" \
+    assert_file_contains "$log" "docker <build> <-q> <-f> <init-cli.Dockerfile> <-t> <wprism-pair-test-cli:$pair> <.>" \
       "$label did not build the Git-enabled CLI image before pair bootstrap"
     assert_before "$log" \
-      "docker <build> <-q> <-f> <init-cli.Dockerfile> <-t> <duo-pair-test-cli:$pair> <.>" \
+      "docker <build> <-q> <-f> <init-cli.Dockerfile> <-t> <wprism-pair-test-cli:$pair> <.>" \
       "$web"
-    unset DUO_CLI_IMAGE
+    unset WPRISM_CLI_IMAGE
   fi
   assert_before "$log" "$web" "$mount1"
   assert_before "$log" "$mount2" "$cli"
@@ -568,9 +568,9 @@ run_case() {
 run_theme_retry_case() {
   local label=theme_retry state_dir="$TMP/theme_retry/theme-state"
   mkdir -p "$state_dir"
-  export DUO_PAIR_TEST_THEME_STATE_DIR="$state_dir" DUO_PAIR_TEST_THEME_FAILURES=1
+  export WPRISM_PAIR_TEST_THEME_STATE_DIR="$state_dir" WPRISM_PAIR_TEST_THEME_FAILURES=1
   run_case "$label" pairtheme "" canonical
-  unset DUO_PAIR_TEST_THEME_STATE_DIR DUO_PAIR_TEST_THEME_FAILURES
+  unset WPRISM_PAIR_TEST_THEME_STATE_DIR WPRISM_PAIR_TEST_THEME_FAILURES
 
   [ "$(cat "$state_dir/attempts")" = 3 ] \
     || fail "$label did not perform one bounded retry plus one install for the other side"
@@ -591,9 +591,9 @@ run_artifact_theme_case() {
   digest="$(sha256sum "$payload" | awk '{print $1}')"
   cache_file="$cache_dir/theme-twentytwentyone-2.8-$digest.zip"
   cp "$payload" "$cache_file"
-  export DUO_PAIR_TEST_THEME_STATE_DIR="$state_dir" DUO_PAIR_TEST_THEME_FAILURES=0
-  export DUO_PAIR_TEST_ARTIFACT_CACHE="$cache_dir"
-  export DUO_PAIR_TEST_ARTIFACT_RUNNER="$ROOT/sandbox/bin/artifact-cache-fetch.sh"
+  export WPRISM_PAIR_TEST_THEME_STATE_DIR="$state_dir" WPRISM_PAIR_TEST_THEME_FAILURES=0
+  export WPRISM_PAIR_TEST_ARTIFACT_CACHE="$cache_dir"
+  export WPRISM_PAIR_TEST_ARTIFACT_RUNNER="$ROOT/sandbox/bin/artifact-cache-fetch.sh"
 
   # run_case copies the platform fragment before launching; replace only this
   # private copy with a same-shaped deterministic fixture matching the warm
@@ -601,21 +601,21 @@ run_artifact_theme_case() {
   mkdir -p "$case_root/platform/artifact-library"
   printf '{"plugins":{},"themes":{"twentytwentyone":{"2.8":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture","archive_root":"fixture-theme-source"}}}}\n' \
     "$digest" > "$case_root/platform/artifact-library/artifacts.lock.json.override"
-  DUO_PAIR_TEST_LOCK_OVERRIDE="$case_root/platform/artifact-library/artifacts.lock.json.override"
-  export DUO_PAIR_TEST_LOCK_OVERRIDE
+  WPRISM_PAIR_TEST_LOCK_OVERRIDE="$case_root/platform/artifact-library/artifacts.lock.json.override"
+  export WPRISM_PAIR_TEST_LOCK_OVERRIDE
   run_case "$label" "$pair" "" canonical 1 1
-  unset DUO_PAIR_TEST_THEME_STATE_DIR DUO_PAIR_TEST_THEME_FAILURES \
-    DUO_PAIR_TEST_ARTIFACT_CACHE DUO_PAIR_TEST_LOCK_OVERRIDE
-  unset DUO_PAIR_TEST_ARTIFACT_RUNNER
+  unset WPRISM_PAIR_TEST_THEME_STATE_DIR WPRISM_PAIR_TEST_THEME_FAILURES \
+    WPRISM_PAIR_TEST_ARTIFACT_CACHE WPRISM_PAIR_TEST_LOCK_OVERRIDE
+  unset WPRISM_PAIR_TEST_ARTIFACT_RUNNER
 
   [ -f "$state_dir/active" ] || fail "$label did not activate the cached exact theme"
   [ -f "$state_dir/normalized" ] || fail "$label did not normalize the platform-declared theme archive root"
   assert_file_contains "$case_root/output.log" 'source=cache-hit' \
     "$label did not report the warm-cache source path"
-  [ "$(grep -cF '<sh> </duo-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' "$case_root/docker.log")" = 2 ] \
+  [ "$(grep -cF '<sh> </wprism-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' "$case_root/docker.log")" = 2 ] \
     || fail "$label did not normalize the exact platform theme archive root on both sides"
   assert_before "$case_root/docker.log" \
-    '<sh> </duo-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' \
+    '<sh> </wprism-harness/artifact-archive-root.sh> </var/www/html/wp-content/themes> <fixture-theme-source> <twentytwentyone>' \
     '<wp> <theme> <activate> <twentytwentyone>'
   assert_file_contains "$case_root/docker.log" '<-f> <pair.artifacts.yml> <-f> <pair.wordpress-offline.yml>' \
     "$label did not layer both artifact and WordPress.org-offline controls"
@@ -640,11 +640,11 @@ run_invalid_artifact_lock_preflight_case() {
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$canonical_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   if "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless --artifacts \
@@ -686,11 +686,11 @@ run_invalid_bootstrap_theme_preflight_case() {
     chmod +x "$case_root/sandbox/bin/pair.sh"
     write_fake_docker "$fake_bin"
     write_fake_git "$fake_bin"
-    export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-      DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-      DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
-      DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-      DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+    export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+      WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+      WPRISM_PAIR_TEST_CANONICAL_ROOT="$canonical_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+      WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+      WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
       PATH="$fake_bin:$ORIGINAL_PATH"
 
     if "$case_root/sandbox/bin/pair.sh" up "pair${variant}" 9911 9912 --headless --artifacts \
@@ -724,11 +724,11 @@ run_python_lock_fallback_case() {
   # through the private bash symlink, so this exercises Python fcntl rather
   # than the Linux fast path without contacting Docker.
   install_python_lock_path "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER=''
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$canonical_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER=''
 
   local index
   for index in a b c; do
@@ -749,9 +749,9 @@ run_non_git_failure_case() {
   copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$ROOT" PATH="$fake_bin:$ORIGINAL_PATH"
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$ROOT" PATH="$fake_bin:$ORIGINAL_PATH"
 
   if env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
       "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
@@ -761,10 +761,10 @@ run_non_git_failure_case() {
   fi
   grep -q "could not resolve this repo's canonical checkout" "$output" \
     || fail "$label did not fail closed with the canonical checkout diagnostic"
-  if [ -f "$log" ] && grep -F "<-p> <duo-$pair>" "$log" >/dev/null; then
+  if [ -f "$log" ] && grep -F "<-p> <wprism-$pair>" "$log" >/dev/null; then
     fail "$label reached pair Compose after canonical-root failure"
   fi
-  if [ -f "$log" ] && grep -F "<-p> <duo-db>" "$log" >/dev/null; then
+  if [ -f "$log" ] && grep -F "<-p> <wprism-db>" "$log" >/dev/null; then
     fail "$label touched shared DB Compose before canonical-root failure"
   fi
   pass "$label: canonical bind resolution fails closed outside Git"
@@ -779,11 +779,11 @@ run_budget_refusal_case() {
   copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" \
-    DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"duo-existing"}]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=2 DUO_PAIR_TEST_MEM=3221225472 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" \
+    WPRISM_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"wprism-existing"}]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=2 WPRISM_PAIR_TEST_MEM=3221225472 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
   write_fake_git "$fake_bin"
 
@@ -798,7 +798,7 @@ run_budget_refusal_case() {
     || fail "$label created side-1 site state before refusing"
   [ ! -e "$case_root/sandbox/siterepo/${pair}2" ] \
     || fail "$label created side-2 site state before refusing"
-  if grep -F "<-p> <duo-db>" "$log" >/dev/null; then
+  if grep -F "<-p> <wprism-db>" "$log" >/dev/null; then
     fail "$label touched shared DB Compose before refusing"
   fi
   pass "$label: over-budget refusal precedes DB and site-root mutations"
@@ -825,14 +825,14 @@ run_budget_formula_pin_case() { # <label> <cpu> <mem_bytes> <live_count> <expect
   live_json='['
   for i in $(seq 1 "$live_count"); do
     [ "$i" -gt 1 ] && live_json+=','
-    live_json+='{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"duo-existing'"$i"'"}'
+    live_json+='{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"wprism-existing'"$i"'"}'
   done
   live_json+=']'
-  export DUO_PAIR_TEST_LOG="$log" \
-    DUO_PAIR_TEST_LIVE_PAIRS="$live_json" \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU="$cpu" DUO_PAIR_TEST_MEM="$mem" \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" \
+    WPRISM_PAIR_TEST_LIVE_PAIRS="$live_json" \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU="$cpu" WPRISM_PAIR_TEST_MEM="$mem" \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   if "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
@@ -856,13 +856,13 @@ run_start_budget_refusal_case() {
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" \
-    DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"duo-existing"}]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=2 DUO_PAIR_TEST_MEM=3221225472 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" \
+    WPRISM_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"wprism-existing"}]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=2 WPRISM_PAIR_TEST_MEM=3221225472 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   if "$case_root/sandbox/bin/pair.sh" start "$pair" >"$output" 2>&1; then
@@ -875,8 +875,8 @@ run_start_budget_refusal_case() {
     || fail "$label created side-1 site state before the start budget refusal"
   [ ! -e "$case_root/sandbox/siterepo/${pair}2" ] \
     || fail "$label created side-2 site state before the start budget refusal"
-  if grep -F '<-p> <duo-db>' "$log" >/dev/null || \
-     grep -F "<-p> <duo-$pair>" "$log" >/dev/null; then
+  if grep -F '<-p> <wprism-db>' "$log" >/dev/null || \
+     grep -F "<-p> <wprism-$pair>" "$log" >/dev/null; then
     fail "$label touched Compose before the start budget refusal"
   fi
   pass "$label: start reserves before any DB, site, or pair Compose mutation"
@@ -892,21 +892,21 @@ run_start_safe_case() {
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE="$live_file" \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE="$live_file" \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   "$case_root/sandbox/bin/pair.sh" start "$pair" >"$output" 2>&1 \
     || { cat "$output" >&2; fail "$label rejected a start within the fake host budget"; }
   grep -q "running again — same ports/config as before the stop" "$output" \
     || fail "$label did not complete after Compose start became visible"
-  grep -F "<-p> <duo-$pair> <-f> <pair.yml> <start>" "$log" >/dev/null \
+  grep -F "<-p> <wprism-$pair> <-f> <pair.yml> <start>" "$log" >/dev/null \
     || fail "$label did not issue the expected Compose start operation"
-  assert_file_contains "$log" "docker <compose> <-p> <duo-db> <-f> <db.yml> <up> <-d>" \
+  assert_file_contains "$log" "docker <compose> <-p> <wprism-db> <-f> <db.yml> <up> <-d>" \
     "$label did not preserve the shared-DB prerequisite"
   pass "$label: in-budget start keeps DB readiness and Compose visibility behind reservation"
 }
@@ -921,19 +921,19 @@ run_start_budget_override_case() {
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"duo-existing"}]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=2 DUO_PAIR_TEST_MEM=3221225472 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE="$live_file" \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=1 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"wprism-existing"}]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=2 WPRISM_PAIR_TEST_MEM=3221225472 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE="$live_file" \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=1 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   "$case_root/sandbox/bin/pair.sh" start "$pair" >"$output" 2>&1 \
     || { cat "$output" >&2; fail "$label did not honor the explicit budget override"; }
-  grep -q "DUO_PAIR_BUDGET_OVERRIDE=1 set" "$output" \
+  grep -q "WPRISM_PAIR_BUDGET_OVERRIDE=1 set" "$output" \
     || fail "$label did not report the explicit budget override"
-  grep -F "<-p> <duo-$pair> <-f> <pair.yml> <start>" "$log" >/dev/null \
+  grep -F "<-p> <wprism-$pair> <-f> <pair.yml> <start>" "$log" >/dev/null \
     || fail "$label did not issue Compose start after the explicit override"
   pass "$label: explicit start budget override is honored only after reservation"
 }
@@ -947,11 +947,11 @@ run_live_reconverge_case() {
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" \
-    DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"duo-reconverge"}]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=2 DUO_PAIR_TEST_MEM=3221225472 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" \
+    WPRISM_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"wprism-reconverge"}]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=2 WPRISM_PAIR_TEST_MEM=3221225472 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
@@ -973,10 +973,10 @@ run_budget_query_failure_case() {
   copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=1 DUO_PAIR_TEST_FAIL_LIVE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=1 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
   write_fake_git "$fake_bin"
 
@@ -991,7 +991,7 @@ run_budget_query_failure_case() {
     || fail "$label created side-1 site state after capacity-query failure"
   [ ! -e "$case_root/sandbox/siterepo/${pair}2" ] \
     || fail "$label created side-2 site state after capacity-query failure"
-  if grep -F '<-p> <duo-db>' "$log" >/dev/null; then
+  if grep -F '<-p> <wprism-db>' "$log" >/dev/null; then
     fail "$label touched shared DB Compose after capacity-query failure"
   fi
   pass "$label: Docker capacity failure refuses closed before pair mutation"
@@ -1006,10 +1006,10 @@ run_live_query_failure_case() {
   copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=1 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=1 \
     PATH="$fake_bin:$ORIGINAL_PATH"
   write_fake_git "$fake_bin"
 
@@ -1024,7 +1024,7 @@ run_live_query_failure_case() {
     || fail "$label created side-1 site state after Compose enumeration failure"
   [ ! -e "$case_root/sandbox/siterepo/${pair}2" ] \
     || fail "$label created side-2 site state after Compose enumeration failure"
-  if grep -F '<-p> <duo-db>' "$log" >/dev/null; then
+  if grep -F '<-p> <wprism-db>' "$log" >/dev/null; then
     fail "$label touched shared DB Compose after Compose enumeration failure"
   fi
   pass "$label: Compose enumeration failure refuses closed before pair mutation"
@@ -1048,11 +1048,11 @@ run_concurrent_budget_race_case() {
   # created. The second process must remain outside Docker/site state while
   # the first process owns the cross-process reservation, then refuse against
   # the first pair's now-live listing.
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root/canonical" \
-    DUO_PAIR_TEST_LIVE_FILE="$live_file" DUO_PAIR_TEST_RACE_GATE="$gate" \
-    DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 PATH="$fake_bin:$ORIGINAL_PATH"
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=3 WPRISM_PAIR_TEST_MEM=4294967296 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root/canonical" \
+    WPRISM_PAIR_TEST_LIVE_FILE="$live_file" WPRISM_PAIR_TEST_RACE_GATE="$gate" \
+    WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 PATH="$fake_bin:$ORIGINAL_PATH"
 
   ("$case_root/sandbox/bin/pair.sh" up raceone 9911 9912 --headless >"$output1" 2>&1) &
   p1=$!
@@ -1071,7 +1071,7 @@ run_concurrent_budget_race_case() {
     || { : > "$gate/release"; wait "$p1" || true; wait "$p2" || true; fail "$label contender created side-1 site state while reservation was held"; }
   [ ! -e "$case_root/sandbox/siterepo/racetwo2" ] \
     || { : > "$gate/release"; wait "$p1" || true; wait "$p2" || true; fail "$label contender created side-2 site state while reservation was held"; }
-  if grep -F '<-p> <duo-racetwo>' "$log" >/dev/null; then
+  if grep -F '<-p> <wprism-racetwo>' "$log" >/dev/null; then
     : > "$gate/release"; wait "$p1" || true; wait "$p2" || true
     fail "$label contender reached Docker before the first reservation released"
   fi
@@ -1104,11 +1104,11 @@ run_python_lock_concurrent_case() {
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
   install_python_lock_path "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root/canonical" \
-    DUO_PAIR_TEST_LIVE_FILE="$live_file" DUO_PAIR_TEST_RACE_GATE="$gate" \
-    DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=3 WPRISM_PAIR_TEST_MEM=4294967296 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root/canonical" \
+    WPRISM_PAIR_TEST_LIVE_FILE="$live_file" WPRISM_PAIR_TEST_RACE_GATE="$gate" \
+    WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0
 
   (timeout 20 env PATH="$fake_bin" "$case_root/sandbox/bin/pair.sh" up pyfirst 9911 9912 --headless >"$output1" 2>&1) &
   p1=$!
@@ -1132,7 +1132,7 @@ run_python_lock_concurrent_case() {
   fi
   [ ! -e "$case_root/sandbox/siterepo/pysecond1" ] \
     || { : > "$gate/release"; wait "$p1" || true; wait "$p2" || true; fail "$label contender created side-1 state while Python lock was held"; }
-  if grep -F '<-p> <duo-pysecond>' "$log" >/dev/null; then
+  if grep -F '<-p> <wprism-pysecond>' "$log" >/dev/null; then
     : > "$gate/release"; wait "$p1" || true; wait "$p2" || true
     fail "$label contender reached Docker before the Python lock released"
   fi
@@ -1162,12 +1162,12 @@ run_python_lock_sigkill_case() {
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
   install_python_lock_path "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE="$gate" DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=3 WPRISM_PAIR_TEST_MEM=4294967296 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$canonical_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE="$gate" WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0
 
   # Kill the shell owner while its helper is blocked in the first live-pair
   # query. The helper must notice that its direct parent disappeared and
@@ -1211,12 +1211,12 @@ run_flock_lock_sigkill_case() {
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
   lock_path="$canonical_root/sandbox/siterepo/.pair-budget.lock"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE="$gate" DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$canonical_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE="$gate" WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0
 
   # The fake compose live query deliberately remains blocked after the shell
   # has acquired its reservation. The lock must be owned only by the helper:
@@ -1290,12 +1290,12 @@ run_pair_lock_cancellation_case() {
     path_value="$fake_bin"
   fi
   lock_path="$canonical_root/sandbox/siterepo/.pair-budget.lock"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE="$gate" DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$canonical_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE="$gate" WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0
 
   # The holder is stopped in its first live-pair query, after it owns the
   # reservation. This leaves the contender blocked for the entire cancellation
@@ -1319,7 +1319,7 @@ run_pair_lock_cancellation_case() {
   [ ! -e "$case_root/sandbox/siterepo/${contender}1" ] \
     || abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
       "$label contender created side-1 state while the holder owned the lock"
-  if grep -F "<-p> <duo-$contender>" "$log" >/dev/null; then
+  if grep -F "<-p> <wprism-$contender>" "$log" >/dev/null; then
     abort_lock_cancellation_case "$gate" "$first_pid" "$contender_pid" \
       "$label contender reached Compose while the holder owned the lock"
   fi
@@ -1402,13 +1402,13 @@ run_reset_codebind_refusal_case() {
   inode_before="$(inode_of "$nested")"
   mount_line="${nested}"$'\t/var/www/html/wp-content/plugins/demo-plugin'
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS="$mount_line" \
-    DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS="duo-${pair}-wp1-1" DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS="$mount_line" \
+    WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS="wprism-${pair}-wp1-1" WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   if "$case_root/sandbox/bin/pair.sh" reset "$pair" >"$output" 2>&1; then
@@ -1420,7 +1420,7 @@ run_reset_codebind_refusal_case() {
   inode_after="$(inode_of "$nested")"
   [ "$inode_before" = "$inode_after" ] || fail "$label changed the nested codebind inode"
   [ -f "$nested/marker.php" ] || fail "$label deleted content from the nested codebind source"
-  if grep -F "<-p> <duo-db>" "$log" >/dev/null; then
+  if grep -F "<-p> <wprism-db>" "$log" >/dev/null; then
     fail "$label touched the DB before refusing codebind reset"
   fi
   pass "$label: reset refuses before deleting a nested codebind source"
@@ -1441,18 +1441,18 @@ run_reset_container_query_failure_case() {
   write_fake_git "$fake_bin"
   if [ "$kind" = enumeration ]; then
     expected="could not enumerate pair containers before reset"
-    export DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=1 \
-      DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER=''
+    export WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=1 \
+      WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER=''
   else
-    expected="could not inspect existing pair container duo-${pair}-wp1-1"
-    export DUO_PAIR_TEST_CONTAINERS="duo-${pair}-wp1-1" DUO_PAIR_TEST_FAIL_PS=0 \
-      DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER="duo-${pair}-wp1-1"
+    expected="could not inspect existing pair container wprism-${pair}-wp1-1"
+    export WPRISM_PAIR_TEST_CONTAINERS="wprism-${pair}-wp1-1" WPRISM_PAIR_TEST_FAIL_PS=0 \
+      WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER="wprism-${pair}-wp1-1"
   fi
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_BUDGET_OVERRIDE=0 PATH="$fake_bin:$ORIGINAL_PATH"
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_BUDGET_OVERRIDE=0 PATH="$fake_bin:$ORIGINAL_PATH"
 
   if "$case_root/sandbox/bin/pair.sh" reset "$pair" >"$output" 2>&1; then
     cat "$output" >&2
@@ -1462,7 +1462,7 @@ run_reset_container_query_failure_case() {
     || fail "$label did not report the strict preflight failure"
   grep -q 'must survive failed reset preflight' "$root/marker.txt" \
     || fail "$label changed site state after the strict preflight failure"
-  if grep -F '<-p> <duo-db>' "$log" >/dev/null; then
+  if grep -F '<-p> <wprism-db>' "$log" >/dev/null; then
     fail "$label touched the shared DB before the strict preflight failure"
   fi
   pass "$label: reset fails closed on Docker container ${kind} failure"
@@ -1484,12 +1484,12 @@ run_reset_inode_preservation_case() {
   root2_abs="$(physical_path "$case_root/sandbox/siterepo/${pair}2")"
   inode_before="$(inode_of "$root")"
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   "$case_root/sandbox/bin/pair.sh" reset "$pair" >"$output" 2>&1 \
@@ -1503,7 +1503,7 @@ run_reset_inode_preservation_case() {
     "$label did not hand side 1 back through its exact resolved root mount"
   assert_file_contains "$log" "<run> <--rm> <-u> <root> <--mount> <type=bind,src=${root2_abs},dst=/siterepo>" \
     "$label did not hand side 2 back through its exact resolved root mount"
-  assert_before "$log" "<type=bind,src=${root1_abs},dst=/siterepo>" "<-p> <duo-db>"
+  assert_before "$log" "<type=bind,src=${root1_abs},dst=/siterepo>" "<-p> <wprism-db>"
   pass "$label: ordinary reset clears contents while preserving bind-root inode"
 }
 
@@ -1523,12 +1523,12 @@ run_repo_host_scope_case() {
   root2_abs="$(physical_path "$root2")"
   inode_before="$(inode_of "$root1")"
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1 \
@@ -1559,8 +1559,8 @@ run_repo_host_shape_refusal_case() {
   write_fake_docker "$fake_bin"
 
   ln -s "$outside" "$root"
-  if env DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 PATH="$fake_bin:$ORIGINAL_PATH" \
+  if env WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF=0 PATH="$fake_bin:$ORIGINAL_PATH" \
     "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
     fail "$label accepted a symlink instead of an exact ordinary root"
   fi
@@ -1569,8 +1569,8 @@ run_repo_host_shape_refusal_case() {
   rm "$root"
 
   printf 'not a directory\n' > "$root"
-  if env DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 PATH="$fake_bin:$ORIGINAL_PATH" \
+  if env WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF=0 PATH="$fake_bin:$ORIGINAL_PATH" \
     "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
     fail "$label accepted a non-directory instead of an exact ordinary root"
   fi
@@ -1594,12 +1594,12 @@ run_repo_host_refusal_case() {
   mkdir -p "$root/state/nested" "$case_root/sandbox/siterepo/${pair}2"
   printf 'must survive handback refusal\n' > "$root/state/nested/record.json"
   write_fake_docker "$fake_bin"
-  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_TEST_FAIL_REPO_HANDOFF=1 \
+  export WPRISM_PAIR_TEST_LOG="$log" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$case_root" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF=1 \
     PATH="$fake_bin:$ORIGINAL_PATH"
 
   if "$case_root/sandbox/bin/pair.sh" reset "$pair" >"$output" 2>&1; then
@@ -1609,10 +1609,10 @@ run_repo_host_refusal_case() {
     "$label did not report the exact-root handback refusal"
   [ -f "$root/state/nested/record.json" ] \
     || fail "$label changed repository content after handback refusal"
-  if grep -F '<-p> <duo-db>' "$log" >/dev/null; then
+  if grep -F '<-p> <wprism-db>' "$log" >/dev/null; then
     fail "$label touched the database after handback refusal"
   fi
-  export DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0
+  export WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF=0
   pass "$label: failed ownership handback refuses before database or repository mutation"
 }
 
@@ -1645,16 +1645,16 @@ run_repo_host_platform_ownership_proof_case() {
     : > "${chgrp_log}"
     rm -f "${marker}" "${normalized_marker}"
     env \
-      DUO_PAIR_TEST_LOG="${log}" DUO_PAIR_TEST_CHGRP_LOG="${chgrp_log}" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-      DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 \
-      DUO_PAIR_TEST_STAT_FLAVOR="${flavor}" DUO_PAIR_TEST_STAT_ROOT="${root_abs}" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-      DUO_PAIR_TEST_STAT_ROOT_INODE_BEFORE=424242 DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_DOCKER=424242 \
-      DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_NORMALIZED="${inode_normalized}" \
-      DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER_DOCKER="${owner_after}" DUO_PAIR_TEST_STAT_ROOT_OWNER_NORMALIZED="${owner_normalized}" \
-      DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER="${normalized_marker}" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="${marker}" \
-      DUO_PAIR_TEST_FAIL_ROOT_CHGRP="${fail_chgrp}" DUO_PAIR_TEST_REPLACE_ROOT_WITH_SYMLINK="${replace_root}" \
-      DUO_PAIR_TEST_REPLACED_ROOT="${replaced_root}" DUO_PAIR_TEST_REPLACEMENT_TARGET="${peer_abs}" \
-      DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
+      WPRISM_PAIR_TEST_LOG="${log}" WPRISM_PAIR_TEST_CHGRP_LOG="${chgrp_log}" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+      WPRISM_PAIR_TEST_HOST_UID=501 WPRISM_PAIR_TEST_HOST_GID=20 \
+      WPRISM_PAIR_TEST_STAT_FLAVOR="${flavor}" WPRISM_PAIR_TEST_STAT_ROOT="${root_abs}" WPRISM_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
+      WPRISM_PAIR_TEST_STAT_ROOT_INODE_BEFORE=424242 WPRISM_PAIR_TEST_STAT_ROOT_INODE_AFTER_DOCKER=424242 \
+      WPRISM_PAIR_TEST_STAT_ROOT_INODE_AFTER_NORMALIZED="${inode_normalized}" \
+      WPRISM_PAIR_TEST_STAT_ROOT_OWNER_AFTER_DOCKER="${owner_after}" WPRISM_PAIR_TEST_STAT_ROOT_OWNER_NORMALIZED="${owner_normalized}" \
+      WPRISM_PAIR_TEST_ROOT_NORMALIZED_MARKER="${normalized_marker}" WPRISM_PAIR_TEST_REPO_HANDOFF_MARKER="${marker}" \
+      WPRISM_PAIR_TEST_FAIL_ROOT_CHGRP="${fail_chgrp}" WPRISM_PAIR_TEST_REPLACE_ROOT_WITH_SYMLINK="${replace_root}" \
+      WPRISM_PAIR_TEST_REPLACED_ROOT="${replaced_root}" WPRISM_PAIR_TEST_REPLACEMENT_TARGET="${peer_abs}" \
+      WPRISM_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
       PATH="${fake_bin}:${ORIGINAL_PATH}" \
       "${case_root}/sandbox/bin/pair.sh" repo-host "${pair}" 1 >"${output}" 2>&1
   }
@@ -1765,7 +1765,7 @@ run_repo_host_platform_ownership_proof_case() {
   pass "${label}: exact root-only GID repair preserves native ownership and refuses foreign UID, chgrp failure/ineffectiveness, and root shape/inode change"
 }
 
-# --- DUO-3412: the needs-install marker's whole lifecycle --------------------
+# --- issue #3412: the needs-install marker's whole lifecycle --------------------
 #
 # reset DROP/CREATEs both databases and then leaves the containers running;
 # `up` decides whether to install by asking that still-warm site `wp core
@@ -1776,7 +1776,7 @@ run_repo_host_platform_ownership_proof_case() {
 # RECORDS the drop, `up` acts on the record instead of on a probe, and a
 # bootstrap that ends with an uninstalled side refuses in its own domain.
 #
-# The stale probe is the fake's whole point here: DUO_PAIR_TEST_THEME_STATE_DIR
+# The stale probe is the fake's whole point here: WPRISM_PAIR_TEST_THEME_STATE_DIR
 # seeded with core1/core2 makes `wp core is-installed` answer TRUE for a pair
 # whose databases were just dropped — a state the real world can only reach
 # through the bug, and the fake reaches deterministically.
@@ -1798,15 +1798,15 @@ prepare_marker_case() { # prepare_marker_case <label>
   chmod +x "$CASE_ROOT/sandbox/bin/pair.sh"
   write_fake_docker "$FAKE_BIN"
   write_fake_git "$FAKE_BIN"
-  export DUO_PAIR_TEST_LOG="$LOG" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-    DUO_PAIR_TEST_CANONICAL_ROOT="$CASE_ROOT" DUO_PAIR_TEST_LIVE_FILE='' \
-    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
-    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
-    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0 \
-    DUO_PAIR_TEST_CORE_INSTALL_NOOP=0 DUO_PAIR_TEST_THEME_FAILURES=0 \
+  export WPRISM_PAIR_TEST_LOG="$LOG" WPRISM_PAIR_TEST_LIVE_PAIRS='[]' \
+    WPRISM_PAIR_TEST_INSPECT_MOUNTS='' WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+    WPRISM_PAIR_TEST_CANONICAL_ROOT="$CASE_ROOT" WPRISM_PAIR_TEST_LIVE_FILE='' \
+    WPRISM_PAIR_TEST_RACE_GATE='' WPRISM_PAIR_TEST_FAIL_INFO=0 WPRISM_PAIR_TEST_FAIL_LIVE=0 \
+    WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_FAIL_PS=0 \
+    WPRISM_PAIR_TEST_FAIL_INSPECT_CONTAINER='' WPRISM_PAIR_BUDGET_OVERRIDE=0 \
+    WPRISM_PAIR_TEST_CORE_INSTALL_NOOP=0 WPRISM_PAIR_TEST_THEME_FAILURES=0 \
     PATH="$FAKE_BIN:$ORIGINAL_PATH"
-  unset DUO_PAIR_TEST_THEME_STATE_DIR
+  unset WPRISM_PAIR_TEST_THEME_STATE_DIR
 }
 
 assert_markers_present() { # assert_markers_present <label> <case-root> <pair> <what>
@@ -1859,11 +1859,11 @@ run_reset_up_stale_probe_case() {
   prepare_marker_case "$label"
   mkdir -p "$THEME_STATE"
   # THE stale probe: is-installed answers TRUE on both sides even though reset
-  # is about to drop both databases. This is the false positive DUO-3412 says
+  # is about to drop both databases. This is the false positive issue #3412 says
   # `up` must not act on.
   : > "$THEME_STATE/core1"
   : > "$THEME_STATE/core2"
-  export DUO_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE"
+  export WPRISM_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE"
 
   "$CASE_ROOT/sandbox/bin/pair.sh" reset "$pair" >"$OUTPUT" 2>&1 \
     || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
@@ -1888,12 +1888,12 @@ run_reset_up_stale_probe_case() {
   # Consumed, not merely overridden: a second `up` finds no marker, takes the
   # ordinary probe path, and installs nothing.
   second_log="$CASE_ROOT/docker-second-up.log"
-  DUO_PAIR_TEST_LOG="$second_log" "$CASE_ROOT/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
+  WPRISM_PAIR_TEST_LOG="$second_log" "$CASE_ROOT/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
     >>"$OUTPUT" 2>&1 || { cat "$OUTPUT" >&2; fail "$label second up failed"; }
   if grep -F '<wp> <core> <install>' "$second_log" >/dev/null; then
     fail "$label reinstalled on the second up — the marker was not consumed"
   fi
-  unset DUO_PAIR_TEST_THEME_STATE_DIR
+  unset WPRISM_PAIR_TEST_THEME_STATE_DIR
   pass "$label: reset->up installs across a stale is-installed TRUE and consumes the marker exactly once"
 }
 
@@ -1903,7 +1903,7 @@ run_reset_up_stale_probe_mutation_case() {
   launcher="$CASE_ROOT/sandbox/bin/pair.sh"
   bootstrap_lib="$CASE_ROOT/sandbox/lib/pair_bootstrap.sh"
   # THE MUTATION, stated exactly: remove install_side's marker consumption by
-  # making its branch unreachable, which leaves the pre-DUO-3412 code path
+  # making its branch unreachable, which leaves the pre-issue #3412 code path
   # verbatim — one is-installed probe, skip on TRUE. Nothing else is touched.
   # The anchor count is asserted first: a drifted anchor would silently turn
   # this proof into a second copy of the passing case.
@@ -1918,13 +1918,13 @@ run_reset_up_stale_probe_mutation_case() {
   mkdir -p "$THEME_STATE"
   : > "$THEME_STATE/core1"
   : > "$THEME_STATE/core2"
-  export DUO_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE"
+  export WPRISM_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE"
   "$launcher" reset "$pair" >"$OUTPUT" 2>&1 \
     || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
   "$launcher" up "$pair" 9911 9912 --headless >>"$OUTPUT" 2>&1 \
     || { cat "$OUTPUT" >&2; fail "$label up failed"; }
 
-  # The mutant exits 0 and reports the pair ready — the DUO-3412 failure is
+  # The mutant exits 0 and reports the pair ready — the issue #3412 failure is
   # silent at bootstrap by construction — while skipping the install that the
   # unmutated case above asserts. That skip IS reset_up_stale_probe's
   # load-bearing assertion failing.
@@ -1936,7 +1936,7 @@ run_reset_up_stale_probe_mutation_case() {
       "$label: mutant did not take the pre-fix probe-and-skip path on side $side"
   done
   assert_markers_present "$label" "$CASE_ROOT" "$pair" "mutant never consumes the marker"
-  unset DUO_PAIR_TEST_THEME_STATE_DIR
+  unset WPRISM_PAIR_TEST_THEME_STATE_DIR
   pass "$label: with marker consumption removed, the stale TRUE skips the install (race case fails on the mutant)"
 }
 
@@ -1971,7 +1971,7 @@ run_install_premise_assert_case() { # run_install_premise_assert_case <marker|no
   # `core install` "succeeds" without installing anything, so is-installed
   # keeps answering FALSE. Reached through the forced path (after reset) and
   # through the ordinary probe path, because both must refuse.
-  export DUO_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE" DUO_PAIR_TEST_CORE_INSTALL_NOOP=1
+  export WPRISM_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE" WPRISM_PAIR_TEST_CORE_INSTALL_NOOP=1
   if [ "$mode" = marker ]; then
     "$CASE_ROOT/sandbox/bin/pair.sh" reset "$pair" >"$OUTPUT" 2>&1 \
       || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
@@ -1990,8 +1990,8 @@ run_install_premise_assert_case() { # run_install_premise_assert_case <marker|no
   if grep -F "pair '$pair' ready" "$OUTPUT" >/dev/null; then
     fail "$label proceeded to report the pair ready after the premise failure"
   fi
-  unset DUO_PAIR_TEST_THEME_STATE_DIR
-  export DUO_PAIR_TEST_CORE_INSTALL_NOOP=0
+  unset WPRISM_PAIR_TEST_THEME_STATE_DIR
+  export WPRISM_PAIR_TEST_CORE_INSTALL_NOOP=0
   pass "$label: an install that leaves the side uninstalled refuses at bootstrap, not at the first seed"
 }
 
@@ -2191,25 +2191,25 @@ run_repo_host_refusal_case
 say "exact-root ownership handback repair preserves literal host ownership"
 run_repo_host_platform_ownership_proof_case
 
-say "DUO-3412: reset records a needs-install marker for both sides"
+say "issue #3412: reset records a needs-install marker for both sides"
 run_reset_marks_needs_install_case
 
-say "DUO-3412: reset->up installs across a stale is-installed TRUE (the race)"
+say "issue #3412: reset->up installs across a stale is-installed TRUE (the race)"
 run_reset_up_stale_probe_case
 
-say "DUO-3412 mutation proof: marker consumption removed => stale TRUE skips the install"
+say "issue #3412 mutation proof: marker consumption removed => stale TRUE skips the install"
 run_reset_up_stale_probe_mutation_case
 
-say "DUO-3412: no marker + is-installed TRUE stays idempotent (no reinstall)"
+say "issue #3412: no marker + is-installed TRUE stays idempotent (no reinstall)"
 run_install_idempotence_case
 
-say "DUO-3412: a still-uninstalled side refuses at bootstrap (forced path)"
+say "issue #3412: a still-uninstalled side refuses at bootstrap (forced path)"
 run_install_premise_assert_case marker
 
-say "DUO-3412: a still-uninstalled side refuses at bootstrap (probe path)"
+say "issue #3412: a still-uninstalled side refuses at bootstrap (probe path)"
 run_install_premise_assert_case nomarker
 
-say "DUO-3412: destroy clears this pair's needs-install markers"
+say "issue #3412: destroy clears this pair's needs-install markers"
 run_destroy_clears_marker_case
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_BOOTSTRAP_UNIT PASSED\033[0m\n'

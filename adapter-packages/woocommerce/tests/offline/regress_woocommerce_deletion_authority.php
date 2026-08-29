@@ -11,8 +11,8 @@
  * that mechanism test into a production capability claim.
  */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 3);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 3);
 }
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
@@ -54,14 +54,14 @@ require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Delete/DeleteGuardValueCodec.php';
 require_once $root . '/agent/src/Apply/Apply.php';
 
-use Duo\Deletion;
-use Duo\DeleteGuardValueCodec;
-use Duo\Code;
-use Duo\CodeCompatibility;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
-use Duo\Snapshot;
+use WPrism\Deletion;
+use WPrism\DeleteGuardValueCodec;
+use WPrism\Code;
+use WPrism\CodeCompatibility;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
+use WPrism\Snapshot;
 
 $failures = 0;
 function check(bool $condition, string $message): void {
@@ -180,14 +180,14 @@ final class WooDeletionFakeWpdb {
             $id = (int) $m[1];
             return isset($this->shippingMethodRows[$id]) ? $id : null;
         }
-        if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
+        if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
             if ($this->ledgerReadError) {
                 $this->last_error = 'simulated ledger lookup failure';
                 return null;
             }
             return $this->uuidToId[$m[2] . ':' . $m[1]] ?? null;
         }
-        if (preg_match("/SELECT uuid FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $sql, $m)) {
+        if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $sql, $m)) {
             return $this->idToUuid[$m[1] . ':' . $m[2]] ?? null;
         }
         return null;
@@ -195,7 +195,7 @@ final class WooDeletionFakeWpdb {
 
     public function get_row(string $sql, $format = null): ?array {
         if (preg_match(
-            "/SELECT entity_type, local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/",
+            "/SELECT entity_type, local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/",
             $sql,
             $m
         )) {
@@ -206,7 +206,7 @@ final class WooDeletionFakeWpdb {
             ];
         }
         if (preg_match(
-            "/SELECT uuid, entity_type FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = (\d+)/",
+            "/SELECT uuid, entity_type FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\d+)/",
             $sql,
             $m
         )) {
@@ -343,7 +343,7 @@ $shippedPolicy = Policy::load(
     ['woocommerce'],
     false,
     null,
-    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+    \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
 );
 check($shippedPolicy->deletion_capability('post:product') === null,
     'shipped Woo adapter keeps product deletion fail-closed for the open extension ecosystem');
@@ -351,7 +351,7 @@ $fixtureManifest = $shippedPolicy->manifests[0];
 $fixtureManifest['deletions'] = synthetic_woo_deletions();
 $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $adapterLibrary = new ReflectionProperty(Policy::class, 'adapterLibrary');
-$adapterLibrary->setValue($policy, \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
+$adapterLibrary->setValue($policy, \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 $policy->manifests = [$fixtureManifest];
 $variation = $policy->deletion_capability('post:product_variation');
 $product = $policy->deletion_capability('post:product');
@@ -485,7 +485,7 @@ check($broadLeadingZeroRejected,
     'shared resolver rejects leading-zero ids even when a legacy manifest regex is broad');
 
 // ---------------------------------------------------------------------------
-// DUO-3403 (PR #176 finding 5, site 1): Apply::count_guard_refs() copies an
+// issue #3403 (PR #176 finding 5, site 1): Apply::count_guard_refs() copies an
 // option_name_ref_match_details() throw's getMessage() into a plan row's
 // `blocked` field, and `plan --format=json` publishes `blocked` on a machine
 // surface. option_name_ref_match_details() is a CLOSED, engine-authored
@@ -501,7 +501,7 @@ check($broadLeadingZeroRejected,
 // live option name reaching the throw that is not bounded by the anchored
 // authored regex — fails HERE instead of reaching stdout.
 $screenClean = static fn(string $m): bool =>
-    !\Duo\CommandRefusalException::containsSensitivePublicDetail(['message' => $m]);
+    !\WPrism\CommandRefusalException::containsSensitivePublicDetail(['message' => $m]);
 $optionRefThrows = [];
 $collectThrow = static function (callable $run) use (&$optionRefThrows): void {
     try {
@@ -519,24 +519,24 @@ $collectThrow(fn() => $sameKindPolicy->option_name_ref_match_details($validOptio
 // invalid local id under a broad legacy regex (embeds the option name)
 $collectThrow(fn() => $legacyBroadPolicy->option_name_ref_match_details('woocommerce_flat_rate_0003_settings'));
 check(count($optionRefThrows) === 4,
-    'DUO-3403: every POLICY-REACHABLE option_name_ref_match_details() throw is enumerated for the plan-JSON closed-set pin');
+    'issue #3403: every POLICY-REACHABLE option_name_ref_match_details() throw is enumerated for the plan-JSON closed-set pin');
 foreach ($optionRefThrows as $throwMessage) {
     check($screenClean($throwMessage),
-        'DUO-3403: option_name_ref plan-`blocked` message is path/credential-free (' . $throwMessage . ')');
+        'issue #3403: option_name_ref plan-`blocked` message is path/credential-free (' . $throwMessage . ')');
 }
 // The 4th template ("did not expose its named id capture") is load-guarded
 // unreachable — validate_option_name_refs enforces exactly one (?<id>)
 // capture (Policy.php ~3881), so no policy path can produce it — but it is a
 // member of the closed set and interpolates only the option name, so its
 // literal is screened directly rather than left the one unsampled template.
-check($screenClean("duo: option_name_refs rule for option 'woocommerce_flat_rate_0003_settings' did not expose its named id capture"),
-    'DUO-3403: the load-unreachable option_name_ref template is also path/credential-free (closed set fully covered, not sampled)');
+check($screenClean("wprism: option_name_refs rule for option 'woocommerce_flat_rate_0003_settings' did not expose its named id capture"),
+    'issue #3403: the load-unreachable option_name_ref template is also path/credential-free (closed set fully covered, not sampled)');
 // Self-test: the screen this pin trusts MUST flag a path- and a credential-
 // shaped variant, or the pin above would pass vacuously.
-check(!$screenClean("duo: option '/Users/alice/.aws/credentials' matches a malformed option_name_refs namespace"),
-    'DUO-3403 self-test: a path-shaped option_name_ref message would be caught by this pin');
-check(!$screenClean("duo: option_name_refs owner leaked token sk_live_0123456789abcdef in its match"),
-    'DUO-3403 self-test: a credential-shaped option_name_ref message would be caught by this pin');
+check(!$screenClean("wprism: option '/Users/alice/.aws/credentials' matches a malformed option_name_refs namespace"),
+    'issue #3403 self-test: a path-shaped option_name_ref message would be caught by this pin');
+check(!$screenClean("wprism: option_name_refs owner leaked token sk_live_0123456789abcdef in its match"),
+    'issue #3403 self-test: a credential-shaped option_name_ref message would be caught by this pin');
 
 $rows = Snapshot::row_tables($policy);
 $order = Snapshot::topo_order($rows);
@@ -548,8 +548,8 @@ check($position['woocommerce_shipping_zones'] < $position['woocommerce_shipping_
 check($position['woocommerce_tax_rates'] < $position['woocommerce_tax_rate_locations'],
     'tax-rate parent is ordered before location child for phase-2 creation');
 
-$deletionRank = new ReflectionMethod(\Duo\ApplyPlanner::class, 'deletion_rank');
-$rankApply = new \Duo\ApplyPlanner(
+$deletionRank = new ReflectionMethod(\WPrism\ApplyPlanner::class, 'deletion_rank');
+$rankApply = new \WPrism\ApplyPlanner(
     $policy,
     $rows,
     static fn(string $uuid, string $kind): ?int => null,
@@ -584,11 +584,11 @@ check(count($taxGuards) === 1
 check(str_contains((string) ($policy->manifests[0]['notes']['shipping zones & tax rates (task #93, GRADUATED grammar)'] ?? ''),
     'WC_Tax::find_rates'),
     'manifest records the Woo shipping/tax cache/API evidence behind the typed-row contract');
-$cacheNote = (string) ($policy->manifests[0]['notes']['shipping/tax typed-row deletion cache boundary (DUO-329x)'] ?? '');
+$cacheNote = (string) ($policy->manifests[0]['notes']['shipping/tax typed-row deletion cache boundary'] ?? '');
 check(str_contains($cacheNote, 'WC_Cache_Helper::invalidate_cache_group')
     && str_contains($cacheNote, 'persistent object-cache'),
     'manifest pins Woo public cache invalidation for persistent shipping/tax caches');
-// DUO-3338: the cache boundary moved from an eval'd command string to a
+// issue #3338: the cache boundary moved from an eval'd command string to a
 // plugin-owned provider. The manifest now carries identity and arguments as
 // data; the executable half is the WooCommerce package's cache provider,
 // exercised for real below against a fake public Woo boundary.
@@ -621,7 +621,7 @@ foreach (['10.9.4', '11.0.2'] as $refusedVersion) {
         && version_compare($refusedVersion, $wooRange['max'], '<')),
         "adjacent WooCommerce $refusedVersion is outside the reviewed patch window");
 }
-$compatibilityRoot = sys_get_temp_dir() . '/duo-woo-version-boundary-' . bin2hex(random_bytes(8));
+$compatibilityRoot = sys_get_temp_dir() . '/wprism-woo-version-boundary-' . bin2hex(random_bytes(8));
 $compatibilityPlugin = $compatibilityRoot . '/plugins/woocommerce/woocommerce.php';
 if (!mkdir(dirname($compatibilityPlugin), 0700, true)) {
     throw new RuntimeException('could not create Woo version-boundary fixture');
@@ -707,7 +707,7 @@ if (!function_exists('get_transient')) {
     }
 }
 require_once $root . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-cache.php';
-$cacheProvider = new \Duo\Providers\WoocommerceCache(
+$cacheProvider = new \WPrism\Providers\WoocommerceCache(
     $policy->provider_declarations()['woocommerce-cache']
 );
 check($cacheProvider->identity() === [
@@ -768,12 +768,12 @@ $fakeWpdb->metaRows = [[
     'meta_value' => serialize([42]),
 ]];
 $GLOBALS['wpdb'] = $fakeWpdb;
-$apply = new \Duo\DeleteGuardLockCoordinator(
+$apply = new \WPrism\DeleteGuardLockCoordinator(
     $policy,
-    new \Duo\DeleteGuardReferenceScanner($policy),
+    new \WPrism\DeleteGuardReferenceScanner($policy),
     $rows
 );
-$countGuard = new ReflectionMethod(\Duo\DeleteGuardLockCoordinator::class, 'count');
+$countGuard = new ReflectionMethod(\WPrism\DeleteGuardLockCoordinator::class, 'count');
 $metaGuard = $variationMetaGuard;
 $treeWithRef = [$groupedUuid => ['data' => ['meta' => ['_children' => ["{{post:$childUuid}}"]]]]];
 $treeWithoutRef = [$groupedUuid => ['data' => ['meta' => ['_children' => []]]]];
@@ -881,18 +881,18 @@ $optionMalformedGuard = $countGuard->invoke(
 check($optionMalformedGuard['count'] === 0
     && str_contains((string) $optionMalformedGuard['error'], 'malformed option_name_refs namespace'),
     'Apply option-name guard refuses a leading-zero live option instead of hiding a stale row');
-// DUO-3347 slice 7: option_apply_target() moved from Apply onto
+// issue #3347 slice 7: option_apply_target() moved from Apply onto
 // OptionsMaterializer (Apply keeps only apply_options() as a facade). This
 // guard fires from Policy::option_name_ref_match_details() -- the method's
 // very first call, before Tokens/ApplyFieldMaterializer are ever touched --
 // so an OptionsMaterializer built with only $policy set (mirroring $apply's
 // own construction above: newInstanceWithoutConstructor() + policy alone)
 // exercises the identical path.
-$optionsMaterializerReflection = new ReflectionClass(\Duo\OptionsMaterializer::class);
+$optionsMaterializerReflection = new ReflectionClass(\WPrism\OptionsMaterializer::class);
 $optionsMaterializer = $optionsMaterializerReflection->newInstanceWithoutConstructor();
 $optionsMaterializerPolicy = $optionsMaterializerReflection->getProperty('policy');
 $optionsMaterializerPolicy->setValue($optionsMaterializer, $policy);
-$optionTarget = new ReflectionMethod(\Duo\OptionsMaterializer::class, 'option_apply_target');
+$optionTarget = new ReflectionMethod(\WPrism\OptionsMaterializer::class, 'option_apply_target');
 $optionTargetRejected = false;
 try {
     $optionTarget->invoke($optionsMaterializer, 'woocommerce_flat_rate_0003_settings', []);
@@ -1048,13 +1048,13 @@ $metaRaceManifest = $policy->manifests[0];
 $metaRaceManifest['deletions']['post:product_variation']['guards'] = [$metaGuard];
 $metaRacePolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $metaRacePolicy->manifests = [$metaRaceManifest];
-$metaRaceApply = new \Duo\DeleteGuardLockCoordinator(
+$metaRaceApply = new \WPrism\DeleteGuardLockCoordinator(
     $metaRacePolicy,
-    new \Duo\DeleteGuardReferenceScanner($metaRacePolicy),
+    new \WPrism\DeleteGuardReferenceScanner($metaRacePolicy),
     Snapshot::row_tables($metaRacePolicy)
 );
-$lockAndRevalidate = new ReflectionMethod(\Duo\DeleteGuardLockCoordinator::class, 'lock_and_revalidate');
-$deleteGuardEngines = new ReflectionMethod(\Duo\DeleteGuardLockCoordinator::class, 'assert_guard_engines');
+$lockAndRevalidate = new ReflectionMethod(\WPrism\DeleteGuardLockCoordinator::class, 'lock_and_revalidate');
+$deleteGuardEngines = new ReflectionMethod(\WPrism\DeleteGuardLockCoordinator::class, 'assert_guard_engines');
 $fakeWpdb->metaRows = [[
     'guard_id' => 200,
     'source_id' => 7,
@@ -1065,7 +1065,7 @@ $fakeWpdb->lockingQueries = [];
 $fakeWpdb->metadataQueries = [];
 $fakeWpdb->engineQueries = [];
 $fakeWpdb->events = [];
-\Duo\DeleteGuardEvaluator::begin_authored_transaction();
+\WPrism\DeleteGuardEvaluator::begin_authored_transaction();
 $plannedMeta = $countGuard->invoke(
     $metaRaceApply,
     $metaGuard,
@@ -1253,9 +1253,9 @@ $scopeManifest['deletions']['post:product_variation']['guards'] = [
 ];
 $scopePolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $scopePolicy->manifests = [$scopeManifest];
-$scopeApply = new \Duo\DeleteGuardLockCoordinator(
+$scopeApply = new \WPrism\DeleteGuardLockCoordinator(
     $scopePolicy,
-    new \Duo\DeleteGuardReferenceScanner($scopePolicy),
+    new \WPrism\DeleteGuardReferenceScanner($scopePolicy),
     Snapshot::row_tables($scopePolicy)
 );
 $fakeWpdb->engineQueries = [];
@@ -1346,9 +1346,9 @@ $optionRaceManifest = $policy->manifests[0];
 $optionRaceManifest['deletions']['table:woocommerce_shipping_zone_methods']['guards'] = [$optionGuard];
 $optionRacePolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $optionRacePolicy->manifests = [$optionRaceManifest];
-$optionRaceApply = new \Duo\DeleteGuardLockCoordinator(
+$optionRaceApply = new \WPrism\DeleteGuardLockCoordinator(
     $optionRacePolicy,
-    new \Duo\DeleteGuardReferenceScanner($optionRacePolicy),
+    new \WPrism\DeleteGuardReferenceScanner($optionRacePolicy),
     Snapshot::row_tables($optionRacePolicy)
 );
 $fakeWpdb->modernIsolationError = false;
@@ -1438,7 +1438,7 @@ try {
 }
 check($optionInsertRefused,
     'shipping-method settings option inserted after the plan is refused by the locked range');
-$planHash = new ReflectionMethod(\Duo\ApplyPlanner::class, 'plan_precondition_hash');
+$planHash = new ReflectionMethod(\WPrism\ApplyPlanner::class, 'plan_precondition_hash');
 $hashInputs = [
     'delete' => [['uuid' => $childUuid, 'guard_witnesses' => ['0' => str_repeat('a', 64)]]],
 ];

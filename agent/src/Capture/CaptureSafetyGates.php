@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
@@ -27,20 +27,20 @@ final class CaptureSafetyGates {
         if ($unclassified) {
             $keys = array_unique($unclassified);
             sort($keys);
-            $operatorMessage = "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
+            $operatorMessage = "wprism: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $keys)
-                . "\nClassify them in site.duo.json policy.options / policy.post_meta / policy.term_meta or a manifest."
-                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set='<section>:<key>=<class>'.";
+                . "\nClassify them in site.wprism.json policy.options / policy.post_meta / policy.term_meta or a manifest."
+                . " Run: wp wprism pending --repo={$this->repo} for evidence + proposals, then wp wprism classify --repo={$this->repo} --set='<section>:<key>=<class>'.";
             $diagnostics = array_map(static fn(string $surface): array => [
                 'code' => 'unclassified_state',
                 'surface' => $surface,
                 'message' => 'state surface has no reviewed classification',
-                'remediation' => 'review it with duo pending, then classify or exclude it explicitly',
+                'remediation' => 'review it with wprism pending, then classify or exclude it explicitly',
             ], $keys);
             throw new CommandRefusalException(
                 'incomplete_state_discovery',
                 'capture found state that has no reviewed classification',
-                'review the diagnostics with duo pending, then classify or exclude every named surface before another capture',
+                'review the diagnostics with wprism pending, then classify or exclude every named surface before another capture',
                 $diagnostics,
                 $operatorMessage
             );
@@ -62,7 +62,7 @@ final class CaptureSafetyGates {
                     'remediation' => "add the target type to $scopeKey, reclassify the option, or explicitly use --force-unresolved-refs to drop the reference",
                 ];
             }
-            $operatorMessage = "duo: unresolvable ref-typed option(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+            $operatorMessage = "wprism: unresolvable ref-typed option(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a scope gap, not permanent data loss.\n"
@@ -91,7 +91,7 @@ final class CaptureSafetyGates {
                     'remediation' => 'pin the owning table as authored_snapshot or explicitly use --force-unresolved-refs to drop the reference',
                 ];
             }
-            $operatorMessage = "duo: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
+            $operatorMessage = "wprism: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (no such row anywhere — dropped with a warning, "
                 . 'unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not '
@@ -122,7 +122,7 @@ final class CaptureSafetyGates {
                     'remediation' => 'add the target type to policy.post_types or explicitly use --force-unresolved-refs to drop the reference',
                 ];
             }
-            $operatorMessage = "duo: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+            $operatorMessage = "wprism: unresolvable url-query-typed reference(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
@@ -159,10 +159,10 @@ final class CaptureSafetyGates {
                 'remediation' => "add it to $policyKey or classify the exact scope as runtime, derived, or environment-owned",
             ];
         }
-        $operatorMessage = "duo: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):\n  - "
+        $operatorMessage = "wprism: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):\n  - "
             . implode("\n  - ", $lines)
-            . "\nRun: wp duo pending --repo={$this->repo} for evidence, then either add the type/taxonomy "
-            . "to policy scope or run wp duo classify --repo={$this->repo} --set='scope:<kind>:<name>=<class>'.";
+            . "\nRun: wp wprism pending --repo={$this->repo} for evidence, then either add the type/taxonomy "
+            . "to policy scope or run wp wprism classify --repo={$this->repo} --set='scope:<kind>:<name>=<class>'.";
         throw new CommandRefusalException(
             'incomplete_policy_scope',
             'capture found authored state outside reviewed policy scope',
@@ -190,7 +190,7 @@ final class CaptureSafetyGates {
                     'remediation' => "add the target type to $scopeKey or explicitly use --force-unresolved-refs to drop the reference",
                 ];
             }
-            $operatorMessage = "duo: unresolvable ref-typed block attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+            $operatorMessage = "wprism: unresolvable ref-typed block attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
@@ -221,7 +221,7 @@ final class CaptureSafetyGates {
                     'remediation' => "add the target type to $scopeKey or explicitly use --force-unresolved-refs to drop the reference",
                 ];
             }
-            $operatorMessage = "duo: unresolvable ref-typed shortcode attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
+            $operatorMessage = "wprism: unresolvable ref-typed shortcode attribute(s) point at real, out-of-scope entities (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
@@ -258,11 +258,11 @@ final class CaptureSafetyGates {
         // (regress_classify_command.php:370) — so the pasted remedy works
         // unmodified instead of trading one refusal for another.
         $setSpec = "$section:$key=authored" . ($section === 'options' ? ',autoload=preserve' : '');
-        $operatorMessage = "duo: secret guard tripped — $section '$key'$context looks like a $label but is classified authored; "
+        $operatorMessage = "wprism: secret guard tripped — $section '$key'$context looks like a $label but is classified authored; "
             . "refusing to capture it into state/.\n"
             . "If this is really a secret, reclassify it env-bound or runtime instead of authored.\n"
             . "If this is a false positive, allow it explicitly:\n"
-            . "  wp duo classify --repo={$this->repo} --set='$setSpec' --allow-secret";
+            . "  wp wprism classify --repo={$this->repo} --set='$setSpec' --allow-secret";
         throw new CommandRefusalException(
             'secret_state_refused',
             'capture found secret-shaped data on an authored surface',
@@ -287,7 +287,7 @@ final class CaptureSafetyGates {
         if ($label === null) {
             return;
         }
-        $operatorMessage = "duo: PII guard tripped — user_meta '$key' on exact login '$login' looks like $label but is "
+        $operatorMessage = "wprism: PII guard tripped — user_meta '$key' on exact login '$login' looks like $label but is "
             . "classified authored; refusing to capture it into state/.\n"
             . 'Keep it runtime/env, or declare "allow_pii": true on this exact user_meta rule after review.';
         throw new CommandRefusalException(

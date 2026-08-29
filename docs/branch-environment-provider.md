@@ -5,18 +5,18 @@
 and `CommandEnvironmentProvider`; `make release-gate` byte-compares it. Edit the code,
 then run `php tools/provider-protocol-doc.php generate`.
 
-Duo orchestrates providers; it does not supply hosting. A **branch-environment
-provider** is a program on the machine that runs `duo`, which can snapshot a source
+WPrism orchestrates providers; it does not supply hosting. A **branch-environment
+provider** is a program on the machine that runs `wprism`, which can snapshot a source
 environment, acquire a disposable target, materialize a repository into it, and reap
-it again. `duo env materialize`, `duo env reap` and `duo rehearse` refuse without one.
+it again. `wprism env materialize`, `wprism env reap` and `wprism rehearse` refuse without one.
 This document is the whole contract; `tools/reference-env-provider.php` is a worked
 example of it, not a second specification.
 
-Before pointing `duo env materialize` at production, run the harness:
+Before pointing `wprism env materialize` at production, run the harness:
 
 ```
-duo env provider-check <env>                      # non-mutating: config, capabilities, one inspect
-duo env provider-check <env> --cycle --from <disposable-src> --confirm-disposable
+wprism env provider-check <env>                      # non-mutating: config, capabilities, one inspect
+wprism env provider-check <env> --cycle --from <disposable-src> --confirm-disposable
 ```
 
 The harness drives your provider through the same `CommandEnvironmentProvider` the
@@ -27,8 +27,8 @@ orchestrator uses, so it cannot send a request the product would not send.
 ## 1. Where a provider is configured
 
 The `environment_provider` block is privileged host configuration. It is accepted
-**only** from the machine-local `.duo-envs.json`, never from the shared, committed
-`site.duo.json`:
+**only** from the machine-local `.wprism-envs.json`, never from the shared, committed
+`site.wprism.json`:
 
 ```json
 {
@@ -65,23 +65,23 @@ noncanonical evidence. stdout plus stderr may not exceed 1,048,576 bytes, and
 raw provider output is redacted on every failure — it may carry host or production-data
 diagnostics. A non-zero provider may return the canonical error response below to surface bounded, operator-safe diagnostics without exposing stderr.
 
-**Request** — `duo-branch-environment-provider-request/v1`, key set exactly:
+**Request** — `wprism-branch-environment-provider-request/v1`, key set exactly:
 
 | field | value |
 |---|---|
 | `action` | one of the 19 names in §5 |
 | `environment` | the registry name of the environment being acted on |
-| `format` | `duo-branch-environment-provider-request/v1` |
+| `format` | `wprism-branch-environment-provider-request/v1` |
 | `input` | the per-action object in §5 — the empty JSON list `[]` for `capabilities` |
 | `operation_id` | one opaque `[A-Za-z0-9._:@+-]{8,256}` id, stable for a whole operation |
 
-**Response** — `duo-branch-environment-provider-response/v1`, key set exactly:
+**Response** — `wprism-branch-environment-provider-response/v1`, key set exactly:
 
 | field | value |
 |---|---|
 | `action` | echoed verbatim |
 | `environment` | echoed verbatim |
-| `format` | `duo-branch-environment-provider-response/v1` |
+| `format` | `wprism-branch-environment-provider-response/v1` |
 | `operation_id` | echoed verbatim |
 | `provider` | exactly `{id, protocol}`; `id` matches `[A-Za-z0-9._:@+-]{1,128}`, `protocol` is the integer `1` |
 | `result` | the per-action **closed** object in §5 |
@@ -135,10 +135,10 @@ the text an operator sees after `cannot ` in
 
 | side | operation | required ids | also required when |
 |---|---|---|---|
-| target | materialize a create branch environment | `environment.create`, `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo env materialize --ttl <seconds>` is given |
-| target | materialize a create branch environment | `environment.containment.verify`, `environment.create`, `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo rehearse --ttl <seconds>` is given |
-| target | materialize a attach branch environment | `environment.attach`, `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo env materialize --ttl <seconds>` is given |
-| target | materialize a attach branch environment | `environment.attach`, `environment.containment.verify`, `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `duo rehearse --ttl <seconds>` is given |
+| target | materialize a create branch environment | `environment.create`, `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `wprism env materialize --ttl <seconds>` is given |
+| target | materialize a create branch environment | `environment.containment.verify`, `environment.create`, `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `wprism rehearse --ttl <seconds>` is given |
+| target | materialize a attach branch environment | `environment.attach`, `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `wprism env materialize --ttl <seconds>` is given |
+| target | materialize a attach branch environment | `environment.attach`, `environment.containment.verify`, `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `environment.url.discover`, `environment.url.set`, `operation.receipts`, `repository.materialize`, `snapshot.set.restore` | `environment.ttl`, `environment.ttl.read` when `wprism rehearse --ttl <seconds>` is given |
 | source | materialize a coherent production snapshot | `environment.inspect`, `operation.receipts`, `snapshot.set.abort`, `snapshot.set.create`, `snapshot.set.prepare`, `snapshot.set.read` | — |
 | target | reap a create branch environment | `environment.destroy`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `operation.receipts` | `environment.ttl.read` when the materialization journaled a `ttl-set` phase |
 | target | reap a attach branch environment | `environment.detach`, `environment.inspect`, `environment.mutation.acquire`, `environment.mutation.read`, `environment.mutation.release`, `operation.receipts` | `environment.ttl.read` when the materialization journaled a `ttl-set` phase |
@@ -775,7 +775,7 @@ provider stdout/stderr is never among them.
 | refusal | cause |
 |---|---|
 | `env '<env>': branch materialization requires machine-local environment_provider configuration` | the environment has no `environment_provider` object at all |
-| `env '<env>': environment_provider is privileged host configuration and is allowed only in .duo-envs.json` | the block was found in the shared, committed `site.duo.json` |
+| `env '<env>': environment_provider is privileged host configuration and is allowed only in .wprism-envs.json` | the block was found in the shared, committed `site.wprism.json` |
 | `env '<env>': environment_provider has missing or unknown fields` | the block is not exactly `{command, timeout_seconds}` |
 | `env '<env>': environment_provider.command must be a non-empty argv array` | `command` is a string, an object, or empty |
 | `env '<env>': environment_provider.command[<i>] is invalid` | an argv element is not a non-empty NUL-free string |
@@ -819,10 +819,10 @@ provider stdout/stderr is never among them.
 
 ## 7. The worked example
 
-`tools/reference-env-provider.php` implements all 19 actions against Duo's own
+`tools/reference-env-provider.php` implements all 19 actions against WPrism's own
 sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB). It is **DEV-ONLY** —
-`tools/` never ships, and `cli/src/Onboarding/Adopt.php` tars only `agent`,
-`manifests` and `recovery` — so read it as a demonstration of this document, not as
+`tools/` never ships. `cli/src/Onboarding/Adopt.php` embeds the assembled adapter library
+in `agent/` and tars only `agent recovery`, so read this as a demonstration, not as
 an artifact you can deploy. Its `--print-plan` flag runs the same negotiation and
 argument validation and prints the command boundary an action would use, executing
 nothing.

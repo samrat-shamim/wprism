@@ -24,14 +24,14 @@ WORDPRESS_VERSION="${CORE_DATA_BOUNDARY_WORDPRESS:-7.1}"
 WORDPRESS_IMAGE="${CORE_DATA_BOUNDARY_IMAGE:-wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf}"
 
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CORE_DATA_BOUNDARY_PAIR '$PAIR'"
-[ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
-  || fail 'DUO_EXPECTED_SOURCE_SHA is required: core data-boundary evidence must bind the exact clean candidate'
+[ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ] \
+  || fail 'WPRISM_EXPECTED_SOURCE_SHA is required: core data-boundary evidence must bind the exact clean candidate'
 command -v jq >/dev/null || fail 'jq is required'
 command -v curl >/dev/null || fail 'curl is required'
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_WP_IMAGE="$WORDPRESS_IMAGE" DUO_ARTIFACT_OFFLINE=1
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.http.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_WP_IMAGE="$WORDPRESS_IMAGE" WPRISM_ARTIFACT_OFFLINE=1
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.http.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml)
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
@@ -39,20 +39,20 @@ wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 
 fixture_code() {
   case "$1" in
-    seed-source) printf '%s' 'duo_boundary_seed_source();' ;;
-    seed-target) printf '%s' 'duo_boundary_seed_target();' ;;
-    observe) printf '%s' 'echo wp_json_encode(duo_boundary_observe(false));' ;;
-    observe-updated) printf '%s' 'echo wp_json_encode(duo_boundary_observe(true));' ;;
-    secret-meta) printf '%s' 'duo_boundary_secret_meta();' ;;
-    restore-meta) printf '%s' 'duo_boundary_restore_meta();' ;;
-    corrupt-theme) printf '%s' 'duo_boundary_corrupt_theme();' ;;
-    restore-theme) printf '%s' 'duo_boundary_restore_theme();' ;;
-    update-source) printf '%s' 'duo_boundary_update_source();' ;;
-    block-schema) printf '%s' 'echo wp_json_encode(duo_boundary_core_block_schema());' ;;
-    observe-oembed) printf '%s' 'echo wp_json_encode(duo_boundary_oembed_cache_observation());' ;;
-    legacy-id) printf '%s' 'duo_boundary_legacy_widget("id");' ;;
-    legacy-instance) printf '%s' 'duo_boundary_legacy_widget("instance");' ;;
-    remove-legacy) printf '%s' 'duo_boundary_remove_legacy_widget();' ;;
+    seed-source) printf '%s' 'wprism_boundary_seed_source();' ;;
+    seed-target) printf '%s' 'wprism_boundary_seed_target();' ;;
+    observe) printf '%s' 'echo wp_json_encode(wprism_boundary_observe(false));' ;;
+    observe-updated) printf '%s' 'echo wp_json_encode(wprism_boundary_observe(true));' ;;
+    secret-meta) printf '%s' 'wprism_boundary_secret_meta();' ;;
+    restore-meta) printf '%s' 'wprism_boundary_restore_meta();' ;;
+    corrupt-theme) printf '%s' 'wprism_boundary_corrupt_theme();' ;;
+    restore-theme) printf '%s' 'wprism_boundary_restore_theme();' ;;
+    update-source) printf '%s' 'wprism_boundary_update_source();' ;;
+    block-schema) printf '%s' 'echo wp_json_encode(wprism_boundary_core_block_schema());' ;;
+    observe-oembed) printf '%s' 'echo wp_json_encode(wprism_boundary_oembed_cache_observation());' ;;
+    legacy-id) printf '%s' 'wprism_boundary_legacy_widget("id");' ;;
+    legacy-instance) printf '%s' 'wprism_boundary_legacy_widget("instance");' ;;
+    remove-legacy) printf '%s' 'wprism_boundary_remove_legacy_widget();' ;;
     *) fail "unknown core data-boundary fixture mode '$1'" ;;
   esac
 }
@@ -80,7 +80,7 @@ tree_fingerprint() {
 
 capture_source() { # <label>
   local label="$1" output warnings
-  output=$(wp1 duo capture --repo=/siterepo 2>&1) \
+  output=$(wp1 wprism capture --repo=/siterepo 2>&1) \
     || fail "$label: source capture failed: $output"
   warnings=$(grep -c '^Warning:' <<<"$output" || true)
   [ "$warnings" = 3 ] \
@@ -92,7 +92,7 @@ capture_source() { # <label>
 
 changed_apply() { # <label>
   local label="$1" raw output
-  raw=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
+  raw=$(wp2 wprism apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
     || fail "$label: target apply failed: $raw"
   ! grep -Fq 'Warning:' <<<"$raw" \
     || fail "$label: machine apply leaked an unstructured warning: $raw"
@@ -104,7 +104,7 @@ changed_apply() { # <label>
 recapture_matches() { # <label>
   local label="$1" output warnings
   clear_tree "$R2/state-check"
-  output=$(wp2 duo capture --repo=/siterepo --out=/siterepo/state-check 2>&1) \
+  output=$(wp2 wprism capture --repo=/siterepo --out=/siterepo/state-check 2>&1) \
     || fail "$label: target recapture failed: $output"
   warnings=$(grep -c '^Warning:' <<<"$output" || true)
   [ "$warnings" = 1 ] \
@@ -130,7 +130,7 @@ assert_observation() { # <json> <label>
 assert_capture_refusal() { # <label> <message-fragment> [forbidden-fragment]
   local label="$1" fragment="$2" forbidden="${3:-}" before after output rc=0
   before=$(tree_fingerprint "$R1/state")
-  output=$(wp1 duo capture --repo=/siterepo 2>&1) || rc=$?
+  output=$(wp1 wprism capture --repo=/siterepo 2>&1) || rc=$?
   [ "$rc" -ne 0 ] && grep -Fq "$fragment" <<<"$output" \
     || fail "$label did not refuse with '$fragment': $output"
   if [ -n "$forbidden" ]; then
@@ -166,7 +166,7 @@ bash bin/pair.sh reset "$PAIR"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --http --artifacts --wordpress-offline
 for repo_dir in "$R1" "$R2"; do
   cp site-repo.gitignore.template "$repo_dir/.gitignore"
-  cp tests/fixtures/core_lifecycle_site.duo.json "$repo_dir/site.duo.json"
+  cp tests/fixtures/core_lifecycle_site.wprism.json "$repo_dir/site.wprism.json"
   cp tests/fixtures/core_data_boundary.php "$repo_dir/core_data_boundary.php"
 done
 wp1 site empty --yes >/dev/null
@@ -286,7 +286,7 @@ fixture1 secret-meta >/dev/null
 assert_capture_refusal \
   'authored post-meta secret' \
   "secret guard tripped — post_meta 'origin'" \
-  'sk_live_DUOBOUNDARYSECRET9988776655'
+  'sk_live_WPRISMBOUNDARYSECRET9988776655'
 fixture1 restore-meta >/dev/null
 
 say 'malformed serialized theme state refuses before publication'
@@ -306,7 +306,7 @@ say 'source schema drift refuses before lossy SELECT-star projection'
 SCHEMA_BASE=$(tree_fingerprint "$R1/state")
 wp1 db query 'ALTER TABLE wp_posts CHANGE post_excerpt post_excerpt_hold text NOT NULL' >/dev/null
 SCHEMA_RC=0
-SCHEMA_OUT=$(wp1 duo capture --repo=/siterepo 2>&1) || SCHEMA_RC=$?
+SCHEMA_OUT=$(wp1 wprism capture --repo=/siterepo 2>&1) || SCHEMA_RC=$?
 [ "$SCHEMA_RC" -ne 0 ] \
   && grep -Fq 'core capture schema drift' <<<"$SCHEMA_OUT" \
   && grep -Fq 'wp_posts.post_excerpt' <<<"$SCHEMA_OUT" \
@@ -322,10 +322,10 @@ fixture1 update-source >/dev/null
 capture_source 'updated difficult-value capture'
 sync_state
 TARGET_TITLE_BEFORE=$(wp2 post get "$(jq -r '.ids.post' <<<"$TARGET_OBS")" --field=title)
-TARGET_REVISION_BEFORE=$(wp2 eval 'echo (string) \Duo\Ledger::kv_get("applied_revision");')
+TARGET_REVISION_BEFORE=$(wp2 eval 'echo (string) \WPrism\Ledger::kv_get("applied_revision");')
 wp2 db query 'ALTER TABLE wp_posts CHANGE post_excerpt post_excerpt_hold text NOT NULL' >/dev/null
 APPLY_SCHEMA_RC=0
-APPLY_SCHEMA_OUT=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json 2>&1) || APPLY_SCHEMA_RC=$?
+APPLY_SCHEMA_OUT=$(wp2 wprism apply --repo=/siterepo --default-author=admin --format=json 2>&1) || APPLY_SCHEMA_RC=$?
 APPLY_SCHEMA_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$APPLY_SCHEMA_OUT")
 [ "$APPLY_SCHEMA_RC" -ne 0 ] && jq -e '
   .error == "capture_schema_unsupported" and
@@ -336,7 +336,7 @@ APPLY_SCHEMA_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$APPLY_SCHEMA_OU
   || fail "target schema drift did not refuse with its exact logical column: $APPLY_SCHEMA_OUT"
 [ "$(wp2 post get "$(jq -r '.ids.post' <<<"$TARGET_OBS")" --field=title)" = "$TARGET_TITLE_BEFORE" ] \
   || fail 'schema-refused apply partially changed the target post'
-[ "$(wp2 eval 'echo (string) \Duo\Ledger::kv_get("applied_revision");')" = "$TARGET_REVISION_BEFORE" ] \
+[ "$(wp2 eval 'echo (string) \WPrism\Ledger::kv_get("applied_revision");')" = "$TARGET_REVISION_BEFORE" ] \
   || fail 'schema-refused apply advanced target ledger authority'
 wp2 db query 'ALTER TABLE wp_posts CHANGE post_excerpt_hold post_excerpt text NOT NULL' >/dev/null
 changed_apply 'post-schema-repair retry'

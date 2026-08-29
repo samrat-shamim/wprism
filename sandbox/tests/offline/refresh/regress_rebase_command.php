@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/RebaseCommand.php';
 
-use Duo\Canon;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\Refresh;
-use Duo\Orchestrator\RebaseCommand;
-use Duo\ScopeContract;
+use WPrism\Canon;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\Refresh;
+use WPrism\Orchestrator\RebaseCommand;
+use WPrism\ScopeContract;
 
 function fail_rebase_command(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 function assert_rebase_command(bool $ok, string $message): void { if (!$ok) fail_rebase_command($message); }
@@ -68,9 +68,9 @@ $abortExit = RebaseCommand::run($abort, ['--abort=run-1', '--production-ref=main
 assert_rebase_command($abortExit === 1, 'abort rejects mixed production flags before workflow contact');
 assert_rebase_command($abort->rawCalls === 0 && $abort->wpCalls === 0, 'abort grammar refusal has no target side effect');
 
-$source = file_get_contents(__DIR__ . '/../../../../cli/duo');
-assert_rebase_command(is_string($source) && str_contains($source, 'return RebaseCommand::run($t, $extra);'), 'cli/duo retains only the rebase facade');
-assert_rebase_command(!str_contains($source, 'function rebase_flags(') && !str_contains($source, 'function interactive_tty_available('), 'rebase parser helpers moved out of cli/duo');
+$source = file_get_contents(__DIR__ . '/../../../../cli/wprism');
+assert_rebase_command(is_string($source) && str_contains($source, 'return RebaseCommand::run($t, $extra);'), 'cli/wprism retains only the rebase facade');
+assert_rebase_command(!str_contains($source, 'function rebase_flags(') && !str_contains($source, 'function interactive_tty_available('), 'rebase parser helpers moved out of cli/wprism');
 assert_rebase_command((new ReflectionMethod(RebaseCommand::class, 'run'))->isStatic(), 'rebase handler exposes a standalone static boundary');
 $refreshSource = file_get_contents(__DIR__ . '/../../../../cli/src/Refresh/Refresh.php');
 assert_rebase_command(is_string($refreshSource)

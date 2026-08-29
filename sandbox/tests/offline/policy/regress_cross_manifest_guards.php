@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for CrossManifestGuards (DUO-3348 slice 7: the
+ * Offline regression for CrossManifestGuards (issue #3348 slice 7: the
  * cross-manifest "one owner, no contradiction" guard family extracted from
  * Policy.php).
  *
@@ -25,8 +25,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/CrossManifestGuards.php';
 
-use Duo\CrossManifestGuards;
-use Duo\Policy;
+use WPrism\CrossManifestGuards;
+use WPrism\Policy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -124,14 +124,14 @@ $assertOk(
         ['name' => 'core', 'options' => ['some_option' => ['class' => 'authored']]],
         ['name' => 'plugin', 'options' => ['some_option' => ['class' => 'runtime']]],
     ], []),
-    'option rules: core is exempt from the conflict guard (DUO-3249 core-yields-to-plugin)'
+    'option rules: core is exempt from the conflict guard (issue #3249 core-yields-to-plugin)'
 );
 $assertOk(
     static fn() => CrossManifestGuards::validate_no_conflicting_option_rules([
         ['name' => 'a', 'options' => ['some_option' => ['class' => 'authored']]],
         ['name' => 'b', 'options' => ['some_option' => ['class' => 'runtime']]],
     ], ['some_option' => ['class' => 'env']]),
-    'option rules: an explicit site.duo.json policy.options override skips the guard entirely'
+    'option rules: an explicit site.wprism.json policy.options override skips the guard entirely'
 );
 
 // ----------------------------------------- validate_no_conflicting_post_type_contracts

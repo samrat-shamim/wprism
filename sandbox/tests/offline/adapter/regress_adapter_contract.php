@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3222/DUO-3243: the version-pinned adapter compatibility contract and
+ * issue #3222/issue #3243: the version-pinned adapter compatibility contract and
  * optional content-addressed site manifest pins.
  *
  * Policy::load()'s adapter contract validators and RepositoryCompiler's new
@@ -17,10 +17,10 @@
  * plugin/theme, so it's out of reach offline): Deploy::code_mismatch()'s
  * live version read. Both legs have their own live suite, each with its own
  * sandbox pair — the theme leg is
- * sandbox/tests/live/regress_adapter_theme_range.sh (DUO-3222) and the
+ * sandbox/tests/live/regress_adapter_theme_range.sh (issue #3222) and the
  * plugin leg is sandbox/tests/live/regress_adapter_plugin_range.sh
- * (DUO-3487, rebuilding the proof #478 deleted along with the
- * duo-loop-demo-versioned demo manifest it had been built on). See each
+ * (issue #3487, rebuilding the proof #478 deleted along with the
+ * wprism-loop-demo-versioned demo manifest it had been built on). See each
  * script's header for what it asserts. Deploy::in_range()'s
  * OWN min-inclusive/max-exclusive arithmetic is exercised here via
  * Reflection (same private-method-testing idiom
@@ -36,9 +36,9 @@
 // WordPress supplies this in production. The offline harness exposes a
 // switchable equivalent so Policy::load()'s real v1 single-site gate is
 // exercised without bootstrapping WordPress or replacing the product path.
-$GLOBALS['duo_test_is_multisite'] = false;
+$GLOBALS['wprism_test_is_multisite'] = false;
 function is_multisite(): bool {
-    return (bool) $GLOBALS['duo_test_is_multisite'];
+    return (bool) $GLOBALS['wprism_test_is_multisite'];
 }
 
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -52,10 +52,10 @@ require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
 require __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php';
 require __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 
-use Duo\Canon;
-use Duo\AdapterLibrary;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
+use WPrism\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
 
 /** Minimal command runner surface for exercising the real Cli handler offline. */
 final class WP_CLI {
@@ -74,8 +74,8 @@ final class WP_CLI {
 
 require __DIR__ . '/../../../../agent/src/Command/Cli.php';
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = 0;
@@ -103,7 +103,7 @@ function expect_throw(callable $fn, string $needle, string $msg): void {
 
 /** Fresh scratch manifests dir for one test group; auto-removed at exit. */
 function fresh_manifests_dir(array $files): string {
-    $root = sys_get_temp_dir() . '/duo_regress_adapter_contract_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_adapter_contract_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     foreach ($files as $name => $content) {
         Canon::write_file("$root/$name.json", is_string($content) ? $content : json_encode($content, JSON_PRETTY_PRINT));
@@ -137,15 +137,15 @@ function adapter_contract_policy_load(?string $repo, ?array $names = null): Poli
 
 /** Fresh site repo containing only the policy contract under test. */
 function fresh_site_repo(array $manifests): string {
-    $root = sys_get_temp_dir() . '/duo_regress_manifest_pin_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_manifest_pin_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
-    Canon::write_file("$root/site.duo.json", Canon::encode([
+    Canon::write_file("$root/site.wprism.json", Canon::encode([
         'manifests' => $manifests,
         'policy' => new \stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     register_shutdown_function(function () use ($root) {
-        @unlink("$root/site.duo.json");
+        @unlink("$root/site.wprism.json");
         @rmdir($root);
     });
     return $root;
@@ -157,7 +157,7 @@ echo "\n== positive path: well-formed plugin/theme + spec_version load cleanly =
 fresh_manifests_dir([
     'good' => [
         'name' => 'good',
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'plugin' => 'acme/acme.php',
         'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
         'theme' => 'acme-theme',
@@ -178,21 +178,21 @@ check(
 );
 
 echo "\n== scope boundary: multisite refuses before policy loading or mutation ==\n";
-$GLOBALS['duo_test_is_multisite'] = true;
+$GLOBALS['wprism_test_is_multisite'] = true;
 expect_throw(
     fn() => adapter_contract_policy_load(null, ['good']),
     'multisite is unsupported by the certified v1 contract',
     'multisite fails closed through the real Policy::load() entry path'
 );
-$GLOBALS['duo_test_is_multisite'] = false;
+$GLOBALS['wprism_test_is_multisite'] = false;
 adapter_contract_policy_load(null, ['good']);
 check(true, 'single-site policy loading remains available after the refusal probe');
 
-echo "\n== spec_version: MANDATORY (DUO-3247) — absent hard-fails, present-and-correct passes, present-and-WRONG hard-fails ==\n";
+echo "\n== spec_version: MANDATORY (issue #3247) — absent hard-fails, present-and-correct passes, present-and-WRONG hard-fails ==\n";
 
-// DUO-3247: absence stopped being lenient the moment DUO_SPEC_VERSION got a
-// second historical value (DUO-3210's 0->1 bump) — this is the pre-committed
-// flip from DUO-3222's own design review, actioned here. Absent and
+// issue #3247: absence stopped being lenient the moment WPRISM_SPEC_VERSION got a
+// second historical value (issue #3210's 0->1 bump) — this is the pre-committed
+// flip from issue #3222's own design review, actioned here. Absent and
 // declared-and-wrong are now the SAME failure (see AdapterContractGrammar's
 // contract), so both assertions below check for the same 'spec_version'
 // needle through the one throw site.
@@ -200,64 +200,64 @@ fresh_manifests_dir(['no-spec' => ['name' => 'no-spec']]);
 expect_throw(
     fn() => adapter_contract_policy_load(null, ['no-spec']),
     'spec_version',
-    'absent spec_version hard-fails (DUO-3247: mandatory now, not lenient — was the DUO-3222-era behavior before this issue)'
+    'absent spec_version hard-fails (issue #3247: mandatory now, not lenient — was the issue #3222-era behavior before this issue)'
 );
 
-fresh_manifests_dir(['right-spec' => ['name' => 'right-spec', 'spec_version' => DUO_SPEC_VERSION]]);
+fresh_manifests_dir(['right-spec' => ['name' => 'right-spec', 'spec_version' => WPRISM_SPEC_VERSION]]);
 adapter_contract_policy_load(null, ['right-spec']);
 check(true, 'declared-and-correct spec_version loads cleanly');
 
-fresh_manifests_dir(['wrong-spec' => ['name' => 'wrong-spec', 'spec_version' => DUO_SPEC_VERSION + 1]]);
+fresh_manifests_dir(['wrong-spec' => ['name' => 'wrong-spec', 'spec_version' => WPRISM_SPEC_VERSION + 1]]);
 expect_throw(
     fn() => adapter_contract_policy_load(null, ['wrong-spec']),
     'spec_version',
-    'declared-and-WRONG spec_version hard-fails (same failure as absent now, per DUO-3247)'
+    'declared-and-WRONG spec_version hard-fails (same failure as absent now, per issue #3247)'
 );
 
 echo "\n== unbounded/malformed ranges are refused — 'no latest/wildcard/unbounded support may be certified' ==\n";
 
-// DUO-3247: every fixture below now needs 'spec_version' => DUO_SPEC_VERSION
+// issue #3247: every fixture below now needs 'spec_version' => WPRISM_SPEC_VERSION
 // just to get PAST the (now mandatory) spec_version gate and actually reach
 // the version_range check each one exists to exercise — without it every
 // one of these would hard-fail on the spec_version needle instead.
-fresh_manifests_dir(['no-range' => ['name' => 'no-range', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php']]);
+fresh_manifests_dir(['no-range' => ['name' => 'no-range', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php']]);
 expect_throw(
     fn() => adapter_contract_policy_load(null, ['no-range']),
     'unbounded',
-    'plugin declared with NO version_range at all is refused (today\'s silent-skip is the failure mode DUO-3222 closes)'
+    'plugin declared with NO version_range at all is refused (today\'s silent-skip is the failure mode issue #3222 closes)'
 );
 
-fresh_manifests_dir(['missing-max' => ['name' => 'missing-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0']]]);
+fresh_manifests_dir(['missing-max' => ['name' => 'missing-max', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0']]]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['missing-max']), 'malformed range', 'version_range missing max is refused');
 
-fresh_manifests_dir(['missing-min' => ['name' => 'missing-min', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['max' => '2.0.0']]]);
+fresh_manifests_dir(['missing-min' => ['name' => 'missing-min', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['max' => '2.0.0']]]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['missing-min']), 'malformed range', 'version_range missing min is refused');
 
-fresh_manifests_dir(['min-gte-max' => ['name' => 'min-gte-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '2.0.0']]]);
+fresh_manifests_dir(['min-gte-max' => ['name' => 'min-gte-max', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '2.0.0']]]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['min-gte-max']), 'malformed range', 'version_range with min == max (not strictly less) is refused');
 
-fresh_manifests_dir(['min-gt-max' => ['name' => 'min-gt-max', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '3.0.0', 'max' => '2.0.0']]]);
+fresh_manifests_dir(['min-gt-max' => ['name' => 'min-gt-max', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '3.0.0', 'max' => '2.0.0']]]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['min-gt-max']), 'malformed range', 'version_range with min > max is refused');
 
-fresh_manifests_dir(['wildcard' => ['name' => 'wildcard', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '*', 'max' => '*']]]);
+fresh_manifests_dir(['wildcard' => ['name' => 'wildcard', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '*', 'max' => '*']]]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['wildcard']), 'malformed range', 'wildcard "*" min/max is refused, not silently treated as unbounded');
 
-fresh_manifests_dir(['empty-plugin' => ['name' => 'empty-plugin', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => '']]);
+fresh_manifests_dir(['empty-plugin' => ['name' => 'empty-plugin', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => '']]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['empty-plugin']), "non-string or empty", 'empty-string plugin identity is refused');
 
 echo "\n== theme mirrors every plugin malformation exactly (same validator, same code path) ==\n";
 
-fresh_manifests_dir(['theme-no-range' => ['name' => 'theme-no-range', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme']]);
+fresh_manifests_dir(['theme-no-range' => ['name' => 'theme-no-range', 'spec_version' => WPRISM_SPEC_VERSION, 'theme' => 'acme-theme']]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['theme-no-range']), 'unbounded', 'theme declared with NO theme_version_range is refused');
 
-fresh_manifests_dir(['theme-bad-range' => ['name' => 'theme-bad-range', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '5.0.0', 'max' => '1.0.0']]]);
+fresh_manifests_dir(['theme-bad-range' => ['name' => 'theme-bad-range', 'spec_version' => WPRISM_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '5.0.0', 'max' => '1.0.0']]]);
 expect_throw(fn() => adapter_contract_policy_load(null, ['theme-bad-range']), 'malformed range', 'theme_version_range with min > max is refused');
 
 echo "\n== conflicting ownership: same plugin/theme, different ranges, no v1 composition escape hatch ==\n";
 
 fresh_manifests_dir([
-    'conf-a' => ['name' => 'conf-a', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
-    'conf-b' => ['name' => 'conf-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '3.0.0']],
+    'conf-a' => ['name' => 'conf-a', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'conf-b' => ['name' => 'conf-b', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '2.0.0', 'max' => '3.0.0']],
 ]);
 expect_throw(
     fn() => adapter_contract_policy_load(null, ['conf-a', 'conf-b']),
@@ -266,8 +266,8 @@ expect_throw(
 );
 
 fresh_manifests_dir([
-    'conf-theme-a' => ['name' => 'conf-theme-a', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
-    'conf-theme-b' => ['name' => 'conf-theme-b', 'spec_version' => DUO_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '9.0.0', 'max' => '10.0.0']],
+    'conf-theme-a' => ['name' => 'conf-theme-a', 'spec_version' => WPRISM_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'conf-theme-b' => ['name' => 'conf-theme-b', 'spec_version' => WPRISM_SPEC_VERSION, 'theme' => 'acme-theme', 'theme_version_range' => ['min' => '9.0.0', 'max' => '10.0.0']],
 ]);
 expect_throw(
     fn() => adapter_contract_policy_load(null, ['conf-theme-a', 'conf-theme-b']),
@@ -278,35 +278,35 @@ expect_throw(
 // Identical ranges: redundant, not ambiguous — deliberately ALLOWED (see
 // AdapterContractGrammar's contract for why).
 fresh_manifests_dir([
-    'dup-a' => ['name' => 'dup-a', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
-    'dup-b' => ['name' => 'dup-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'dup-a' => ['name' => 'dup-a', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
+    'dup-b' => ['name' => 'dup-b', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
 ]);
 adapter_contract_policy_load(null, ['dup-a', 'dup-b']);
 check(true, 'two pinned manifests naming the SAME plugin with the IDENTICAL range load cleanly (redundant, not conflicting)');
 
 echo "\n== resolved_adapters(): digest determinism + \"schema change without version change\" detection ==\n";
 
-// DUO-3247: spec_version is declared here (was deliberately absent before
+// issue #3247: spec_version is declared here (was deliberately absent before
 // this issue, to test resolved_adapters()'s own null-reporting fallback —
 // that scenario is now UNREACHABLE, since Policy::load() hard-fails on an
 // undeclared spec_version before a Policy object naming this manifest can
 // exist at all; the assertion below was repointed to the declared-value
 // case instead of deleted, so resolved_adapters()'s spec_version field is
 // still covered).
-$dirA = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'authored']]]]);
+$dirA = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'authored']]]]);
 $pA = adapter_contract_policy_load(null, ['woo']);
 $adaptersA = RepositoryCompiler::resolved_adapters($pA);
 check(count($adaptersA) === 1 && $adaptersA[0]['name'] === 'woo', 'resolved_adapters() returns one row per pinned manifest, correctly named');
 check($adaptersA[0]['plugin'] === 'woocommerce/woocommerce.php', 'resolved_adapters() row carries the declared plugin identity');
 check($adaptersA[0]['version_range'] === ['min' => '1.0.0', 'max' => '2.0.0'], 'resolved_adapters() row carries the declared version_range verbatim');
-check($adaptersA[0]['spec_version'] === DUO_SPEC_VERSION, 'resolved_adapters() row carries the declared (now-mandatory) spec_version');
+check($adaptersA[0]['spec_version'] === WPRISM_SPEC_VERSION, 'resolved_adapters() row carries the declared (now-mandatory) spec_version');
 check(preg_match('/^[0-9a-f]{64}$/', $adaptersA[0]['digest']) === 1, 'resolved_adapters() digest is a real sha256 hex string');
 
 // SAME name/plugin/version_range, but a DIFFERENT rule elsewhere in the
 // manifest (the exact "schema change without version change" case the
 // issue's own Evidence-required list names — no version field moved at
 // all, only unrelated manifest content did).
-$dirB = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'env', 'required' => false]]]]);
+$dirB = fresh_manifests_dir(['woo' => ['name' => 'woo', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'woocommerce/woocommerce.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'], 'option_autoload' => 'preserve', 'options' => ['a' => ['class' => 'env', 'required' => false]]]]);
 $pB = adapter_contract_policy_load(null, ['woo']);
 $adaptersB = RepositoryCompiler::resolved_adapters($pB);
 check(
@@ -328,11 +328,11 @@ check(
     'the pre-existing combined manifest_hash() also moves — resolved_adapters() digests are the SAME underlying bytes exposed per-adapter, not a second independently-maintained notion of identity'
 );
 
-echo "\n== site.duo.json optional content pins: legacy, match, mismatch, reviewed update ==\n";
+echo "\n== site.wprism.json optional content pins: legacy, match, mismatch, reviewed update ==\n";
 
 $pinDir = fresh_manifests_dir(['pinned' => [
     'name' => 'pinned',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => ['example' => ['class' => 'authored']],
 ]]);
@@ -362,7 +362,7 @@ try {
 
 Canon::write_file("$pinDir/pinned.json", Canon::encode([
     'name' => 'pinned',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => ['example' => ['class' => 'env', 'required' => false]],
 ]));
@@ -387,10 +387,10 @@ check(
     'the manifest-pin projection is the exact current copy-pasteable {name,digest,source} object without loading a stale site repo'
 );
 $updatedPin = ['digest' => $changedDigest, 'name' => 'pinned', 'source' => 'shipped'];
-Canon::write_file("$pinnedRepo/site.duo.json", Canon::encode([
+Canon::write_file("$pinnedRepo/site.wprism.json", Canon::encode([
     'manifests' => [$updatedPin],
     'policy' => new \stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 adapter_contract_policy_load($pinnedRepo);
 check(
@@ -409,14 +409,14 @@ echo "\n== Deploy::in_range() edge arithmetic (min inclusive, max exclusive) —
 // setAccessible() is a no-op on PHP 8.1+ (private methods are always
 // Reflection-invokable) and deprecated to call at all on newer PHP —
 // omitted deliberately, not missing.
-$inRange = new \ReflectionMethod(\Duo\Deploy::class, 'in_range');
+$inRange = new \ReflectionMethod(\WPrism\Deploy::class, 'in_range');
 check($inRange->invoke(null, '1.0.0', '1.0.0', '2.0.0') === true, 'installed == min is IN range (min inclusive)');
 check($inRange->invoke(null, '2.0.0', '1.0.0', '2.0.0') === false, 'installed == max is OUTSIDE range (max exclusive)');
 check($inRange->invoke(null, '1.9.9', '1.0.0', '2.0.0') === true, 'installed just below max is in range');
 check($inRange->invoke(null, '0.9.9', '1.0.0', '2.0.0') === false, 'installed just below min is outside range');
 check($inRange->invoke(null, '2.0.1', '1.0.0', '2.0.0') === false, 'installed above max is outside range (unsupported upgrade — the exact scenario a real plugin/theme update out of a pinned range produces)');
 
-$adapterContractGrammar = new \ReflectionClass('Duo\\AdapterContractGrammar');
+$adapterContractGrammar = new \ReflectionClass('WPrism\\AdapterContractGrammar');
 $policySource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $manifestValidatorSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php');
 $finalizerSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/PolicyLoadFinalizer.php');

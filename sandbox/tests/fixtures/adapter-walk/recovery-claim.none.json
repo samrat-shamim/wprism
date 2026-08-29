@@ -1,5 +1,5 @@
 {
-    "claim_digest": "sha256:e1d5b9b2abeff94721f7d7041187d253a7d3b49b7cd76e8a168bc048c3e42400",
+    "claim_digest": "sha256:cfde8224b75bf95ef19c4f9702576799cfde9e50fe63ad3d0fdf5a731a874c80",
     "covered_resources": [],
     "does_not_restore": [
         "emails already sent",
@@ -13,7 +13,7 @@
         "provider effect bundles — no inverse effect operation is authorized in this profile",
         "declared external effect \"code-lifecycle-window\" — restored by \"code release\", which the none profile does not restore"
     ],
-    "format": "duo-recovery-claim/v1",
+    "format": "wprism-recovery-claim/v1",
     "maximum_loss_boundary": "everything this release writes: no checkpoint is taken, so nothing bounds the loss",
     "profile": "none",
     "restores": [],

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Offline DUO-3343 regression for the Git-ref compiler boundary.
+ * Offline issue #3343 regression for the Git-ref compiler boundary.
  *
  * Every fixture commit deliberately defines the same manifest interpreter and
  * regenerator class names, but each implementation declares a different
@@ -13,7 +13,7 @@ declare(strict_types=1);
  * worker checks the worktree HEAD instead of trusting the declared commit.
  */
 
-use Duo\Orchestrator\RefreshPlan;
+use WPrism\Orchestrator\RefreshPlan;
 
 $root = realpath(__DIR__ . '/../../../..');
 if ($root === false) {
@@ -135,7 +135,7 @@ function order_preserving_post_source(): string {
 
 function provider_source(string $version, string $ref): string {
     return "<?php\n"
-        . "namespace Duo\\Regenerators;\n"
+        . "namespace WPrism\\Regenerators;\n"
         . "final class Probe {\n"
         . '    public const VERSION = ' . var_export($version, true) . ";\n"
         . "    public function __construct(\$policy) {}\n"
@@ -149,7 +149,7 @@ function provider_source(string $version, string $ref): string {
 function interpreter_source(string $version): string {
     return str_replace('__VERSION__', var_export($version, true), <<<'PHP'
 <?php
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 final class Probe {
     public const VERSION = __VERSION__;
     private array $rule;
@@ -158,7 +158,7 @@ final class Probe {
         // This makes both same-named provider and interpreter classes part of
         // the ref compilation, without putting plugin semantics in the engine.
         $policy->regenerators();
-        $this->rule = \Duo\Regenerators\Probe::rule();
+        $this->rule = \WPrism\Regenerators\Probe::rule();
     }
     public function post_meta_rule(string $key, array $allMeta): ?array {
         if ($key === '_ordered') return ['class' => 'authored', 'order_preserving' => true];
@@ -215,9 +215,9 @@ function excluded_disposition_source(): string {
 
 function platform_source(): string {
     return json_encode([
-        'format' => 'duo-platform-boundary/v1',
+        'format' => 'wprism-platform-boundary/v1',
         'platform' => [
-            'agent_version' => '0.6.0',
+            'agent_version' => '0.7.0',
             'compatibility' => new stdClass(),
             'spec_version' => 3,
         ],
@@ -226,7 +226,7 @@ function platform_source(): string {
 
 function authorities_source(): string {
     return json_encode([
-        'format' => 'duo-adapter-authorities/v1',
+        'format' => 'wprism-adapter-authorities/v1',
         'keys' => new stdClass(),
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 }
@@ -249,10 +249,10 @@ function options_source(): string {
     // Exact Canon::encode() bytes for an intentionally empty option document.
     // The compile worker must retain these structured state bytes rather than
     // emitting an empty-string placeholder for options/core.
-    return "{\n    \"format\": \"duo-options/v1\",\n    \"records\": []\n}\n";
+    return "{\n    \"format\": \"wprism-options/v1\",\n    \"records\": []\n}\n";
 }
 
-$fixture = sys_get_temp_dir() . '/duo_refresh_compile_refs_' . bin2hex(random_bytes(6));
+$fixture = sys_get_temp_dir() . '/wprism_refresh_compile_refs_' . bin2hex(random_bytes(6));
 $trees = [
     $fixture . '/tree-base',
     $fixture . '/tree-branch',
@@ -273,10 +273,10 @@ register_shutdown_function(static function () use ($fixture, $trees): void {
 
 try {
     git_fixture($fixture, ['init', '-q']);
-    git_fixture($fixture, ['config', 'user.email', 'duo-refresh-regression@example.test']);
-    git_fixture($fixture, ['config', 'user.name', 'Duo refresh regression']);
+    git_fixture($fixture, ['config', 'user.email', 'wprism-refresh-regression@example.test']);
+    git_fixture($fixture, ['config', 'user.name', 'WPrism refresh regression']);
 
-    fixture_write($fixture . '/site.duo.json', site_source());
+    fixture_write($fixture . '/site.wprism.json', site_source());
     fixture_write($fixture . '/manifests/probe.json', manifest_source());
     fixture_write($fixture . '/manifests/dispositions/probe.json', excluded_disposition_source());
     fixture_write($fixture . '/manifests/dispositions/profiles.json', "{}\n");
@@ -361,8 +361,8 @@ try {
 
     // These three calls intentionally share this PHP caller.  The public
     // seam must dispatch each one to a fresh worker process; compiling B in
-    // the A worker would reuse Duo\Interpreters\Probe and/or
-    // Duo\Regenerators\Probe and reject the list-vs-scalar declaration.
+    // the A worker would reuse WPrism\Interpreters\Probe and/or
+    // WPrism\Regenerators\Probe and reject the list-vs-scalar declaration.
     $base = RefreshPlan::compileGitWorktree($trees[0], $baseCommit, 'base');
     $branch = RefreshPlan::compileGitWorktree($trees[1], $branchCommit, 'branch');
     $productionCode = RefreshPlan::compileGitWorktree($trees[2], $productionCommit, 'production-code');
@@ -376,14 +376,14 @@ try {
     );
     $hostileManifests = $fixture . '/hostile-manifests';
     mkdir($hostileManifests, 0777, true);
-    $previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
-    putenv('DUO_MANIFESTS_DIR=' . $hostileManifests);
+    $previousManifestsDir = getenv('WPRISM_MANIFESTS_DIR');
+    putenv('WPRISM_MANIFESTS_DIR=' . $hostileManifests);
     try {
         $logicalPackages = RefreshPlan::compileGitWorktree($trees[3], $logicalCommit, 'branch');
     } finally {
         $previousManifestsDir === false
-            ? putenv('DUO_MANIFESTS_DIR')
-            : putenv('DUO_MANIFESTS_DIR=' . $previousManifestsDir);
+            ? putenv('WPRISM_MANIFESTS_DIR')
+            : putenv('WPRISM_MANIFESTS_DIR=' . $previousManifestsDir);
     }
 
     foreach ([['base', $base, $baseCommit], ['branch', $branch, $branchCommit], ['production-code', $productionCode, $productionCommit]] as [$label, $artifact, $commit]) {
@@ -412,7 +412,7 @@ try {
         'each ref has an independent compiled artifact rather than leaked PHP class state'
     );
     check_compile(
-        ($candidatePolicy['format'] ?? null) === 'duo-refresh-field-policy/v1'
+        ($candidatePolicy['format'] ?? null) === 'wprism-refresh-field-policy/v1'
             && preg_match('/^[a-f0-9]{64}$/D', (string) ($candidatePolicy['projection_hash'] ?? '')) === 1
             && ($candidatePolicy['derived_post_fields'] ?? null) === ($branch['field_diff_policy']['derived_post_fields'] ?? null)
             && ($candidatePolicy['manifest_hash'] ?? null) === ($branch['field_diff_policy']['manifest_hash'] ?? null)
@@ -449,12 +449,12 @@ try {
         // parent process as well as exercising the exact consumer boundary.
         $roundTripPlan = RefreshPlan::plan($base, $base, $base, []);
         check_compile(
-            ($roundTripPlan['format'] ?? null) === 'duo-refresh-plan/v1',
+            ($roundTripPlan['format'] ?? null) === 'wprism-refresh-plan/v1',
             'semantic planner accepts compiled options/core content without an empty/noncanonical decode'
         );
-        $decodedOptions = \Duo\Canon::decode((string) $optionsContent);
+        $decodedOptions = \WPrism\Canon::decode((string) $optionsContent);
         check_compile(
-            \Duo\Canon::encode($decodedOptions) === $optionsContent,
+            \WPrism\Canon::encode($decodedOptions) === $optionsContent,
             'compiled options/core content is canonical and round-trips through the state serializer'
         );
     } catch (Throwable $e) {

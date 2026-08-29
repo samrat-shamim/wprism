@@ -86,20 +86,20 @@ command -v docker >/dev/null || fail 'docker is required'
 
 SOURCE_ROOT=$(git rev-parse --show-toplevel) || fail 'platform evidence has no resolvable repository root'
 SOURCE_SHA=$(git rev-parse --verify 'HEAD^{commit}') || fail 'platform evidence has no resolvable Git HEAD'
-[ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] || fail 'DUO_EXPECTED_SOURCE_SHA is required for exact platform evidence'
-[ "$DUO_EXPECTED_SOURCE_SHA" = "$SOURCE_SHA" ] \
-  || fail "expected source $DUO_EXPECTED_SOURCE_SHA does not equal this checkout HEAD $SOURCE_SHA"
+[ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ] || fail 'WPRISM_EXPECTED_SOURCE_SHA is required for exact platform evidence'
+[ "$WPRISM_EXPECTED_SOURCE_SHA" = "$SOURCE_SHA" ] \
+  || fail "expected source $WPRISM_EXPECTED_SOURCE_SHA does not equal this checkout HEAD $SOURCE_SHA"
 [ -z "$(git status --porcelain=v1 --untracked-files=all)" ] \
   || fail "platform evidence checkout is dirty; commit the exact candidate $SOURCE_SHA first"
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_ARTIFACT_OFFLINE=1
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_ARTIFACT_OFFLINE=1
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
-ENVS_FILE=$(mktemp "${TMPDIR:-/tmp}/duo-core-platform.${PAIR}.XXXXXX")
+ENVS_FILE=$(mktemp "${TMPDIR:-/tmp}/wprism-core-platform.${PAIR}.XXXXXX")
 COMPOSE=(
-  docker compose -p "duo-$PAIR"
+  docker compose -p "wprism-$PAIR"
   -f pair.yml
   -f pair.artifacts.yml
   -f pair.wordpress-offline.yml
@@ -107,10 +107,10 @@ COMPOSE=(
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 
-duo_json() { # <wp-runner> <label> <duo arguments...>
+wprism_json() { # <wp-runner> <label> <wprism arguments...>
   local runner="$1" label="$2" output payload
   shift 2
-  if ! output=$("$runner" duo "$@" --format=json 2>&1); then
+  if ! output=$("$runner" wprism "$@" --format=json 2>&1); then
     fail "$label failed: $output"
   fi
   payload=$(awk 'NF { line=$0 } END { print line }' <<<"$output")
@@ -155,25 +155,25 @@ write_env_file() {
 }
 
 prepare_repo() {
-  cp tests/fixtures/core_lifecycle_site.duo.json "$R1/site.duo.json"
-  cp tests/fixtures/core_lifecycle_site.duo.json "$R2/site.duo.json"
+  cp tests/fixtures/core_lifecycle_site.wprism.json "$R1/site.wprism.json"
+  cp tests/fixtures/core_lifecycle_site.wprism.json "$R2/site.wprism.json"
   cp site-repo.gitignore.template "$R1/.gitignore"
   cp site-repo.gitignore.template "$R2/.gitignore"
   wp1 site empty --yes >/dev/null
   wp2 site empty --yes >/dev/null
-  wp1 option update duo_platform_mutation_canary untouched >/dev/null
-  wp2 option update duo_platform_mutation_canary untouched >/dev/null
+  wp1 option update wprism_platform_mutation_canary untouched >/dev/null
+  wp2 option update wprism_platform_mutation_canary untouched >/dev/null
   write_env_file
 }
 
 assert_platform_json_refusal() { # <expected-code> <observed> <required> <label>
   local expected_code="$1" observed="$2" required="$3" label="$4"
   local output payload rc=0
-  output=$(wp1 duo capture --repo=/siterepo --format=json 2>&1) || rc=$?
+  output=$(wp1 wprism capture --repo=/siterepo --format=json 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "$label capture unexpectedly succeeded"
   payload=$(awk 'NF { line=$0 } END { print line }' <<<"$output")
   jq -e --arg code "$expected_code" --arg observed "$observed" --arg required "$required" '
-    .format == "duo-command-refusal/v1" and .command == "capture" and
+    .format == "wprism-command-refusal/v1" and .command == "capture" and
     .reason_code == "platform_unsupported" and .details_redacted != true and
     (.diagnostics | length) == 1 and .diagnostics[0].code == $code and
     .diagnostics[0].observed == $observed and .diagnostics[0].required == $required
@@ -200,10 +200,10 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
 
   say "supported claimed core $version on claimed PHP $php_series ($php_proof): real core round trip and doctor"
   destroy_owned_pair
-  export DUO_WP_IMAGE="$image" DUO_CLI_IMAGE="$cli_image"
+  export WPRISM_WP_IMAGE="$image" WPRISM_CLI_IMAGE="$cli_image"
   bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
   prepare_repo
-  facts=$(wp1 eval 'echo wp_json_encode(\Duo\PlatformCompatibility::current_facts());' | awk 'NF { line=$0 } END { print line }')
+  facts=$(wp1 eval 'echo wp_json_encode(\WPrism\PlatformCompatibility::current_facts());' | awk 'NF { line=$0 } END { print line }')
   jq -e --arg version "$version" --arg php "$php_proof" '
     .site_mode == "single-site" and .wordpress == $version and
     .php == $php and .database.engine == "MariaDB" and
@@ -225,7 +225,7 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
     --post_content='Exact platform content — বাংলা — delimiter | value' --porcelain)
   wp2 post create --post_type=post --post_status=publish --post_title='Target-only platform row' \
     --post_name=target-only-platform --post_content='must survive' --porcelain >/dev/null
-  capture=$(duo_json wp1 "claimed core $version source capture" capture --repo=/siterepo)
+  capture=$(wprism_json wp1 "claimed core $version source capture" capture --repo=/siterepo)
   jq -e '
     .counts.post == 1 and .counts.term == 1 and .counts.options == 1 and
     .media == 0 and .notes == [] and .warnings == [] and
@@ -233,7 +233,7 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
   ' <<<"$capture" >/dev/null \
     || fail "claimed core $version source capture reported unexpected coverage: $capture"
   cp -R "$R1/state" "$R2/state"
-  first_apply=$(duo_json wp2 "claimed core $version initial apply" apply --repo=/siterepo \
+  first_apply=$(wprism_json wp2 "claimed core $version initial apply" apply --repo=/siterepo \
     --default-author=admin --adopt-by-slug=terms)
   jq -e '
     .plan.create == 1 and .plan.update == 2 and .plan.adopt == 1 and
@@ -245,7 +245,7 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
     (.warnings[0] | endswith("--uncategorized.json)"))
   ' <<<"$first_apply" >/dev/null \
     || fail "claimed core $version initial apply did not prove explicit default-term adoption: $first_apply"
-  second_apply=$(duo_json wp2 "claimed core $version idempotent apply" apply --repo=/siterepo \
+  second_apply=$(wprism_json wp2 "claimed core $version idempotent apply" apply --repo=/siterepo \
     --default-author=admin --adopt-by-slug=terms)
   jq -e '
     .plan.create == 0 and .plan.update == 0 and .plan.unchanged == 4 and
@@ -264,7 +264,7 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
   target_only_post=$(wp2 post list --post_type=post --name=target-only-platform --field=ID | awk 'NF { print; exit }')
   [ -n "$target_only_post" ] && [ "$(wp2 post get "$target_only_post" --field=post_content)" = 'must survive' ] \
     || fail "claimed core $version apply overwrote target-only core state"
-  recapture=$(duo_json wp2 "claimed core $version target recapture" capture \
+  recapture=$(wprism_json wp2 "claimed core $version target recapture" capture \
     --repo=/siterepo --out=/siterepo/state-check)
   jq -e '
     .counts.post == 2 and .counts.term == 1 and .counts.options == 1 and
@@ -285,7 +285,7 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
     && [[ "$extra_state" =~ ^\./posts/post/[0-9a-f-]+--target-only-platform\.md$ ]] \
     || fail "claimed core $version recapture did not add exactly the surviving target-only post: $extra_state"
 
-  doctor_out=$(php ../cli/duo doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1) \
+  doctor_out=$(php ../cli/wprism doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1) \
     || fail "claimed core $version host doctor refused: $doctor_out"
   grep -q "\[PASS\] PHP version (${php_proof//./\\.})" <<<"$doctor_out" \
     && grep -q '\[PASS\] database (mariadb 11\.' <<<"$doctor_out" \
@@ -345,9 +345,9 @@ for process_index in "${!PROCESS_PROFILE_SERIES[@]}"; do
   process_series=${PROCESS_PROFILE_SERIES[$process_index]}
   process_image=${PROCESS_PROFILE_IMAGES[$process_index]}
   process_output=$(docker run --rm \
-    --volume "$SOURCE_ROOT:/duo-source:ro" \
+    --volume "$SOURCE_ROOT:/wprism-source:ro" \
     --entrypoint php "$process_image" \
-    /duo-source/sandbox/tests/offline/guards/regress_wp_cli_child_process.php 2>&1) \
+    /wprism-source/sandbox/tests/offline/guards/regress_wp_cli_child_process.php 2>&1) \
     || fail "PHP $process_series Linux process-profile behavior failed: $process_output"
   grep -Fxq 'PASS: bounded WP-CLI child process (63 assertions)' <<<"$process_output" \
     || fail "PHP $process_series Linux process-profile regression returned an incomplete verdict: $process_output"
@@ -483,18 +483,18 @@ done
 
 say "real core below the claimed range refuses before mutation"
 destroy_owned_pair
-export DUO_WP_IMAGE="$WORDPRESS_REFUSED_IMAGE" DUO_CLI_IMAGE="$CLI83_IMAGE"
+export WPRISM_WP_IMAGE="$WORDPRESS_REFUSED_IMAGE" WPRISM_CLI_IMAGE="$CLI83_IMAGE"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
 prepare_repo
 [ "$(wp1 core version)" = "$WORDPRESS_REFUSED" ] \
   || fail 'pinned unexercised WordPress artifact did not boot the refused runtime'
 assert_platform_json_refusal platform_wordpress_version_unsupported "$WORDPRESS_REFUSED" \
   "$WORDPRESS_REQUIRED_LABEL" "WordPress $WORDPRESS_REFUSED"
-[ ! -e "$R1/state" ] && [ "$(wp1 option get duo_platform_mutation_canary)" = untouched ] \
+[ ! -e "$R1/state" ] && [ "$(wp1 option get wprism_platform_mutation_canary)" = untouched ] \
   && [ ! -e "$R1/state.capture-staging" ] && [ ! -e "$R1/state.capture-backup" ] \
   || fail 'WordPress version refusal changed repository or authored state'
 set +e
-DOCTOR_OUT=$(php ../cli/duo doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1)
+DOCTOR_OUT=$(php ../cli/wprism doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1)
 DOCTOR_RC=$?
 set -e
 [ "$DOCTOR_RC" -ne 0 ] && grep -q "\[FAIL\] WordPress core (${WORDPRESS_REFUSED//./\\.})" <<<"$DOCTOR_OUT" \
@@ -503,7 +503,7 @@ pass 'a real WordPress artifact outside the claimed matrix is rejected by agent 
 
 say 'real PHP runtime past the exclusive maximum refuses before first publication'
 destroy_owned_pair
-export DUO_WP_IMAGE="$WP85_IMAGE" DUO_CLI_IMAGE="$CLI85_IMAGE"
+export WPRISM_WP_IMAGE="$WP85_IMAGE" WPRISM_CLI_IMAGE="$CLI85_IMAGE"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
 prepare_repo
 PHP_BOOTED=$(wp1 eval 'echo PHP_VERSION;' | awk 'NF { line=$0 } END { print line }')
@@ -516,10 +516,10 @@ PHP_BOOTED=$(wp1 eval 'echo PHP_VERSION;' | awk 'NF { line=$0 } END { print line
 assert_platform_json_refusal platform_php_version_unsupported "$PHP_BOOTED" "$PHP_REQUIRED_LABEL" \
   "PHP $PHP_BOOTED past the exclusive maximum"
 [ ! -e "$R1/state" ] && [ ! -e "$R1/state.capture-staging" ] && [ ! -e "$R1/state.capture-backup" ] \
-  && [ "$(wp1 option get duo_platform_mutation_canary)" = untouched ] \
+  && [ "$(wp1 option get wprism_platform_mutation_canary)" = untouched ] \
   || fail 'PHP version refusal published repository state or changed authored state'
 set +e
-DOCTOR_OUT=$(php ../cli/duo doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1)
+DOCTOR_OUT=$(php ../cli/wprism doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1)
 DOCTOR_RC=$?
 set -e
 [ "$DOCTOR_RC" -ne 0 ] && grep -q "\[FAIL\] PHP version ($PHP_BOOTED)" <<<"$DOCTOR_OUT" \

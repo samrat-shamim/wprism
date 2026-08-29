@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-use Duo\Tooling\ArtifactLibrary;
+use WPrism\Tooling\ArtifactLibrary;
 
 require_once __DIR__ . '/src/ArtifactLibrary.php';
 

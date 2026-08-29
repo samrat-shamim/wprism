@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/Refresh.php';
-// Same guard, same reason as cli/duo:71-74: RefreshPlan is a separately
+// Same guard, same reason as cli/wprism:71-74: RefreshPlan is a separately
 // reviewable semantic layer, and this host shell must stay loadable while it
 // is unavailable. requirePlanner() below then refuses by name.
 if (is_file(__DIR__ . '/RefreshPlan.php')) {
@@ -26,7 +26,7 @@ final class MergeCheckRefusal extends \RuntimeException {
 }
 
 /**
- * `duo merge-check` — repository-side merge validation and ref-vs-ref
+ * `wprism merge-check` — repository-side merge validation and ref-vs-ref
  * conflict planning, with no environment, no registry and no target.
  *
  * ## What was missing
@@ -50,7 +50,7 @@ final class MergeCheckRefusal extends \RuntimeException {
  *
  *   1. `RefreshPlan::assertSnapshot()` (RefreshPlan.php:1045-1059) validates
  *      structure — records, deletions, media, policy, repository — and never
- *      inspects `format`. A `duo-refresh-git/v1` artifact from
+ *      inspects `format`. A `wprism-refresh-git/v1` artifact from
  *      `compileGitWorktree()` is therefore already a legal P slot.
  *   2. `plan()` reads `$production['scope']` only when a scope contract is
  *      supplied (RefreshPlan.php:349-353). Unscoped, nothing in the planner
@@ -82,7 +82,7 @@ final class MergeCheckRefusal extends \RuntimeException {
  * mode 1 refuses a dirty canonical partition by name and says so.
  */
 final class MergeCheck {
-    public const FORMAT = 'duo-merge-check/v1';
+    public const FORMAT = 'wprism-merge-check/v1';
 
     /** Exit 3 is an ANSWER, not a refusal: the tree compiled and the plan is valid. */
     public const EXIT_OK = 0;
@@ -90,11 +90,11 @@ final class MergeCheck {
     public const EXIT_USAGE = 2;
     public const EXIT_CONFLICTS = 3;
 
-    private const PLAN_FORMAT = 'duo-refresh-plan/v1';
+    private const PLAN_FORMAT = 'wprism-refresh-plan/v1';
 
     /** The canonical partitions a compile reads from the filesystem. */
     private const CANONICAL_PARTITIONS = [
-        'site.duo.json',
+        'site.wprism.json',
         'state',
         'media',
         'code',
@@ -106,7 +106,7 @@ final class MergeCheck {
 
     /**
      * @param array{ref?:?string,against?:?string,base?:?string} $options
-     * @return array<string,mixed> one `duo-merge-check/v1` document
+     * @return array<string,mixed> one `wprism-merge-check/v1` document
      */
     public static function run(array $options): array {
         self::requirePlanner(['compileGitWorktree', 'plan', 'normalizePlan']);
@@ -275,7 +275,7 @@ final class MergeCheck {
      * This has nowhere else to live: `code_versions` is "overwritten, never
      * merged" (docs/guides/code-updates.md:196), so the two branches' locked
      * component versions never meet in a state merge at all. Each ref's
-     * `code/duo-code.lock.json` is TRACKED even on a split repository — that
+     * `code/wprism-code.lock.json` is TRACKED even on a split repository — that
      * is the whole point of the lock (agent/src/Code/CodeSourceLock.php:70) —
      * so both sides are readable straight out of Git with no worktree and no
      * environment.
@@ -331,8 +331,8 @@ final class MergeCheck {
      */
     private static function lockAt(string $root, string $commit): ?array {
         try {
-            $bytes = Refresh::gitStdout($root, ['cat-file', '-p', $commit . ':' . \Duo\CodeSourceLock::PATH]);
-            $lock = \Duo\CodeSourceLock::parse($bytes);
+            $bytes = Refresh::gitStdout($root, ['cat-file', '-p', $commit . ':' . \WPrism\CodeSourceLock::PATH]);
+            $lock = \WPrism\CodeSourceLock::parse($bytes);
         } catch (\Throwable) {
             return null;
         }
@@ -399,7 +399,7 @@ final class MergeCheck {
             throw new MergeCheckRefusal(
                 'ref_unresolvable',
                 'merge-check must run inside the site repository it validates',
-                'cd into the site repository (the directory holding site.duo.json) and rerun merge-check',
+                'cd into the site repository (the directory holding site.wprism.json) and rerun merge-check',
                 $e->getMessage(),
                 $e
             );
@@ -408,7 +408,7 @@ final class MergeCheck {
             throw new MergeCheckRefusal(
                 'ref_unresolvable',
                 'merge-check must run inside the site repository it validates',
-                'cd into the site repository (the directory holding site.duo.json) and rerun merge-check'
+                'cd into the site repository (the directory holding site.wprism.json) and rerun merge-check'
             );
         }
         return $root;
@@ -486,7 +486,7 @@ final class MergeCheck {
 
     /** A scratch directory that is NOT a refresh run: merge-check creates no run identity. */
     private static function scratch(): string {
-        $scratch = rtrim(sys_get_temp_dir(), '/') . '/duo-merge-check-' . bin2hex(random_bytes(8));
+        $scratch = rtrim(sys_get_temp_dir(), '/') . '/wprism-merge-check-' . bin2hex(random_bytes(8));
         if (!mkdir($scratch, 0700, true) && !is_dir($scratch)) {
             throw new MergeCheckRefusal(
                 'merge_check_failed',

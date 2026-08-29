@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     /** Narrow checked-write double; the product materializer calls this API. */
     final class Db {
         public static function query($sql, string $context) {
@@ -255,7 +255,7 @@ namespace {
 
     require __DIR__ . '/../../../../agent/src/Apply/TypedTableMaterializer.php';
 
-    use Duo\TypedTableMaterializer;
+    use WPrism\TypedTableMaterializer;
 
     $failures = 0;
     function materializer_check(bool $condition, string $message): void {
@@ -383,7 +383,7 @@ namespace {
         static fn(string $table): array => []
     );
     materializer_check(class_exists(TypedTableMaterializer::class, false), 'materializer loads standalone');
-    materializer_check(!class_exists(Duo\Snapshot::class, false) && !class_exists(Duo\Policy::class, false),
+    materializer_check(!class_exists(WPrism\Snapshot::class, false) && !class_exists(WPrism\Policy::class, false),
         'standalone materializer does not pull in Snapshot or Policy');
 
     $tokens = new MaterializerTokens();

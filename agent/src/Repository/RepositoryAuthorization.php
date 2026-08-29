@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
 
@@ -30,13 +30,13 @@ final class RepositoryAuthorizationException extends \RuntimeException {
             // (sandbox/tests/live/regress_option_subkeys.sh:592 quotes a whole
             // line). A remedy is an ADDITIONAL indented line under its own
             // finding rather than another key=value pair, because the sentence
-            // holds spaces and would end the scan mid-remedy (DUO-3495).
+            // holds spaces and would end the scan mid-remedy (issue #3495).
             return isset($d['remediation']) && is_string($d['remediation']) && $d['remediation'] !== ''
                 ? $line . "\n      remedy: " . $d['remediation']
                 : $line;
         }, $diagnostics);
         parent::__construct(
-            'duo: repository authorization failed (' . count($diagnostics)
+            'wprism: repository authorization failed (' . count($diagnostics)
             . " finding(s)); no target mutation attempted:\n  - " . implode("\n  - ", $lines)
         );
     }
@@ -79,7 +79,7 @@ final class RepositoryAuthorization {
     public static function load_tree(string $repo, Policy $policy): array {
         $stateDir = rtrim($repo, '/') . '/state';
         if (!is_dir($stateDir)) {
-            throw new \RuntimeException('duo: no state/ directory in ' . rtrim($repo, '/'));
+            throw new \RuntimeException('wprism: no state/ directory in ' . rtrim($repo, '/'));
         }
         $out = [];
         foreach (glob($stateDir . '/posts/*/*.md') ?: [] as $f) {
@@ -199,16 +199,16 @@ final class RepositoryAuthorization {
         ), $path, $uuid, 'post_field', $out);
 
         if (!in_array($postType, $policy->post_types(), true)) {
-            self::finding($out, 'repository_entity_out_of_scope', $path, $uuid, 'post_type', 'type', 'unscoped', 'site.duo.json');
+            self::finding($out, 'repository_entity_out_of_scope', $path, $uuid, 'post_type', 'type', 'unscoped', 'site.wprism.json');
         }
         $typeDetails = $policy->post_type_rule_details($postType);
         $typeClass = $typeDetails['rule']['class'] ?? 'authored';
         if ($typeClass !== 'authored') {
             // The whole-type class is the one finding whose coordinates named
-            // no repair: `classification=runtime declared_by=site.duo.json`
+            // no repair: `classification=runtime declared_by=site.wprism.json`
             // says a rule exists somewhere without saying WHICH entry or what
-            // to write instead, and DUO-3495's walkthrough spent two more
-            // hand-edits of site.duo.json discovering both.
+            // to write instead, and issue #3495's walkthrough spent two more
+            // hand-edits of site.wprism.json discovering both.
             self::finding(
                 $out, 'repository_field_not_authored', $path, $uuid, 'post_type', 'type',
                 $typeClass, $typeDetails['source'],
@@ -298,7 +298,7 @@ final class RepositoryAuthorization {
             $refMeta = ($item['type'] ?? '') === 'custom' ? '_menu_item_url' : '_menu_item_object_id';
             self::require_managed_meta($policy, $refMeta, "items[$index].ref", $path, $uuid, $out);
 
-            // DUO-3266: re-derive classification from the COMPILED
+            // issue #3266: re-derive classification from the COMPILED
             // repository's own policy, independent of what captured it —
             // same defense-in-depth authorize_post() already applies to
             // its own 'meta' field (a merge/rebase can land a captured
@@ -350,7 +350,7 @@ final class RepositoryAuthorization {
 
     private static function authorize_options(Policy $policy, string $uuid, array $entity, array &$out): void {
         $document = $entity['data'] ?? Canon::decode($entity['content']);
-        // DUO-3263: re-derivation is about this one immutable revision (same
+        // issue #3263: re-derivation is about this one immutable revision (same
         // "authorization is about one immutable revision" principle
         // manifests/interpreters/acf.php's own prime_repository() docblock
         // documents) — the sibling-lookup context (ACF's shadow pointer) an
@@ -363,14 +363,14 @@ final class RepositoryAuthorization {
                 ? $policy->canonical_option_name_ref_details((string) $name)
                 : $policy->option_rule_details_for_option((string) $name, $allOptions);
             $rule = $details['rule'] ?? [];
-            // DUO-3264 (fork A): theme_mods_<stylesheet>'s own sub_keys
+            // issue #3264 (fork A): theme_mods_<stylesheet>'s own sub_keys
             // rule is never findable via the ordinary single-name lookup
             // above (its physical NAME is computed, not declared).
             // Deliberately the PREFIX-only match (Policy::
             // dynamic_option_rule_for_prefix(), not the exact-match
             // dynamic_option_rule_for_name() Apply::option_apply_target()
             // uses): authorization runs as part of repository compilation,
-            // which `wp duo deploy` also goes through — including on a
+            // which `wp wprism deploy` also goes through — including on a
             // target whose active theme does not match yet, since deploy
             // is what reconciles that mismatch. Requiring an exact match
             // here would make deploy unable to compile the very repository
@@ -414,7 +414,7 @@ final class RepositoryAuthorization {
                 );
             }
             if (!empty($rule['sub_keys'])) {
-                // DUO-3233: this option's OWN top-level class is legitimately
+                // issue #3233: this option's OWN top-level class is legitimately
                 // something other than 'authored' (Polylang's `polylang`/
                 // Yoast's `wpseo` are both 'env' — excluded whole, except
                 // named sub-keys carved out below them) — so the ordinary
@@ -567,7 +567,7 @@ final class RepositoryAuthorization {
 
     /**
      * `$remediation` is an OPTIONAL in-place field, not a new envelope
-     * version. `duo-apply-in-progress` needed v2 (DUO-3489) because absence
+     * version. `wprism-apply-in-progress` needed v2 (issue #3489) because absence
      * of its new field could be read as a claim; absence here claims nothing
      * beyond "this finding carries no reviewed one-line remedy", which is
      * exactly what every finding said before. Existing readers key on `code`

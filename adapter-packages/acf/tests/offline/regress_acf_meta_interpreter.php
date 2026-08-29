@@ -1,17 +1,17 @@
 <?php
 /**
- * Offline (no docker, no WordPress bootstrap) regression for DUO-3263's ACF
+ * Offline (no docker, no WordPress bootstrap) regression for issue #3263's ACF
  * interpreter extensions: term_meta_rule() (thin reuse of post_meta_rule()'s
  * shadow-key/field-definition machinery against wp_termmeta's identical
  * "first value per key" shape — confirmed by reading Capture::term_meta_map()
  * against post_meta_map()) and option_rule() (the options_/_options_ prefix
  * convention, empirically grounded against a fresh ACF 6.8.7 free-plugin
  * install — see package/runtime/interpreters/acf.php's own class docblock and the
- * DUO-3263 PR body for the full finding, including that acf_add_options_page()
+ * issue #3263 PR body for the full finding, including that acf_add_options_page()
  * itself is PRO-only while the underlying update_field(...,'option') storage
  * is not).
  *
- * DUO-3262's own regress_interpreter_policy.php already proves the GENERIC
+ * issue #3262's own regress_interpreter_policy.php already proves the GENERIC
  * Policy-level dispatch mechanism (precedence, optional-hook fallback, the
  * post_meta_rule-is-mandatory load-time check) with FAKE interpreters — this
  * file does not re-prove that. It proves two different things: (1) the REAL
@@ -30,15 +30,15 @@ require $repoRoot . '/agent/src/Policy/Policy.php';
 require $repoRoot . '/agent/src/Repository/RepositoryAuthorization.php';
 require dirname(__DIR__, 2) . '/package/runtime/interpreters/acf.php';
 
-use Duo\Policy;
-use Duo\Interpreters\Acf;
+use WPrism\Policy;
+use WPrism\Interpreters\Acf;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    // DUO-3261 bumped the engine's required spec_version to 2 (the term-file
+if (!defined('WPRISM_SPEC_VERSION')) {
+    // issue #3261 bumped the engine's required spec_version to 2 (the term-file
     // `meta` wire format) after this test was first written — the real
     // package/manifest.json this file's end-to-end section loads now declares
     // 2, so this constant has to match or Policy::load() refuses it outright.
-    define('DUO_SPEC_VERSION', 2);
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 $failures = 0;
@@ -98,7 +98,7 @@ final class AcfSerializedWakeupProbe {
 $emptyPolicy = Policy::load(
     null,
     [],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
 );
 
 echo "\n== term_meta_rule(): reuses post_meta_rule()'s exact shadow-key machinery ==\n";
@@ -144,7 +144,7 @@ $acf2->prime_repository([
     fake_field('field_site_logo', 'image'),
 ]);
 $allOptions = [
-    'options_site_tagline' => 'Duo makes WordPress branchable.',
+    'options_site_tagline' => 'WPrism makes WordPress branchable.',
     '_options_site_tagline' => 'field_site_tagline',
     'options_site_logo' => '9',
     '_options_site_logo' => 'field_site_logo',
@@ -224,7 +224,7 @@ echo "\n== end-to-end: Policy dispatch through the REAL ACF package ==\n";
 $policy = Policy::load(
     null,
     ['acf'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
 );
 // Policy's OWN internal Acf instance (built lazily inside interpreters(),
 // separate from $acf/$acf2 above) must be primed the same way a real
@@ -238,19 +238,19 @@ $policy->prime_interpreters_from_repository([
 ]);
 
 echo "\n== option tombstones: cold-tree classification witness ==\n";
-$priorTagline = \Duo\OptionState::present('Duo makes WordPress branchable.', 'off');
-$priorShadow = \Duo\OptionState::present('field_site_tagline', 'off');
+$priorTagline = \WPrism\OptionState::present('WPrism makes WordPress branchable.', 'off');
+$priorShadow = \WPrism\OptionState::present('field_site_tagline', 'off');
 check(
-    \Duo\OptionState::document(['blogname' => $priorTagline])['format'] === 'duo-options/v1',
+    \WPrism\OptionState::document(['blogname' => $priorTagline])['format'] === 'wprism-options/v1',
     'ordinary documents stay byte-compatible v1; the format changes only when the new field is used'
 );
-$deletedOptions = \Duo\OptionState::document([
-    'options_site_tagline' => \Duo\OptionState::deleted($priorTagline),
-    '_options_site_tagline' => \Duo\OptionState::deleted($priorShadow, true),
+$deletedOptions = \WPrism\OptionState::document([
+    'options_site_tagline' => \WPrism\OptionState::deleted($priorTagline),
+    '_options_site_tagline' => \WPrism\OptionState::deleted($priorShadow, true),
 ]);
-$deletionContext = \Duo\OptionState::classification_values($deletedOptions);
+$deletionContext = \WPrism\OptionState::classification_values($deletedOptions);
 check(
-    $deletedOptions['format'] === 'duo-options/v2'
+    $deletedOptions['format'] === 'wprism-options/v2'
         && !isset($deletedOptions['records']['options_site_tagline']['classification_witness'])
         && ($deletedOptions['records']['_options_site_tagline']['classification_witness']['value'] ?? null)
             === 'field_site_tagline',
@@ -267,16 +267,16 @@ try {
     $coldPolicy = Policy::load(
         null,
         ['acf'],
-        adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+        adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
     );
     $coldPolicy->site['policy']['post_types'] = ['acf-field'];
-    \Duo\RepositoryAuthorization::assert_tree($coldPolicy, [
+    \WPrism\RepositoryAuthorization::assert_tree($coldPolicy, [
         'field_site_tagline' => fake_field('field_site_tagline', 'text'),
         'options/core' => [
             'type' => 'options',
             'path' => 'options/core.json',
             'data' => $deletedOptions,
-            'content' => \Duo\Canon::encode($deletedOptions),
+            'content' => \WPrism\Canon::encode($deletedOptions),
         ],
     ]);
 } catch (\Throwable $e) {
@@ -293,27 +293,27 @@ $tampered = $deletedOptions;
 $tampered['records']['_options_site_tagline']['classification_witness']['value'] = 'field_site_logo';
 $tamperRefused = false;
 try {
-    \Duo\OptionState::records($tampered);
+    \WPrism\OptionState::records($tampered);
 } catch (\RuntimeException $e) {
     $tamperRefused = str_contains($e->getMessage(), 'does not match its expected_hash');
 }
 check($tamperRefused, 'a witness edited independently of its prior-record hash is rejected');
 
 $misversioned = $deletedOptions;
-$misversioned['format'] = 'duo-options/v1';
+$misversioned['format'] = 'wprism-options/v1';
 $misversionedRefused = false;
 try {
-    \Duo\OptionState::records($misversioned);
+    \WPrism\OptionState::records($misversioned);
 } catch (\RuntimeException $e) {
     $misversionedRefused = str_contains($e->getMessage(), 'optional v2 classification_witness');
 }
 check($misversionedRefused, 'the new witness is refused under the legacy v1 format tag');
 
-$unrelatedDocument = \Duo\OptionState::document([
+$unrelatedDocument = \WPrism\OptionState::document([
     // Simulate the strongest hand-edit: a syntactically valid, hash-matched
     // witness on an option no active policy/interpreter owns.
-    'cron' => \Duo\OptionState::deleted(
-        \Duo\OptionState::present('field_site_tagline', 'yes'),
+    'cron' => \WPrism\OptionState::deleted(
+        \WPrism\OptionState::present('field_site_tagline', 'yes'),
         true
     ),
 ]);
@@ -322,7 +322,7 @@ $unrelatedTree = [
         'type' => 'options',
         'path' => 'options/core.json',
         'data' => $unrelatedDocument,
-        'content' => \Duo\Canon::encode($unrelatedDocument),
+        'content' => \WPrism\Canon::encode($unrelatedDocument),
     ],
 ];
 $unrelatedRefused = false;
@@ -330,10 +330,10 @@ try {
     $corePolicy = Policy::load(
         null,
         ['core'],
-        adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
+        adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'acf')
     );
-    \Duo\RepositoryAuthorization::assert_tree($corePolicy, $unrelatedTree);
-} catch (\Duo\RepositoryAuthorizationException $e) {
+    \WPrism\RepositoryAuthorization::assert_tree($corePolicy, $unrelatedTree);
+} catch (\WPrism\RepositoryAuthorizationException $e) {
     $unrelatedRefused = count(array_filter(
         $e->diagnostics,
         static fn(array $d): bool => ($d['code'] ?? '') === 'repository_option_delete_not_authored'

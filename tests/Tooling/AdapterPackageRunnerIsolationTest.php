@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterPackageTestRunner;
+use WPrism\Tooling\AdapterPackageTestRunner;
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2) . '/tools/src/AdapterPackageTestRunner.php';
@@ -15,7 +15,7 @@ final class AdapterPackageRunnerIsolationTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->scratch = sys_get_temp_dir() . '/duo-adapter-runner-isolation-' . bin2hex(random_bytes(8));
+        $this->scratch = sys_get_temp_dir() . '/wprism-adapter-runner-isolation-' . bin2hex(random_bytes(8));
         self::assertTrue(mkdir($this->scratch, 0o777, true));
     }
 

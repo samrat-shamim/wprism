@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Circular with Policy.php's require_once of this file: safe because
 // require_once marks Policy.php as included before its class body executes.
@@ -10,7 +10,7 @@ require_once __DIR__ . '/Policy.php';
 
 /**
  * The pure discovery-contract grammar extracted from Policy.php
- * (DUO-3348): option namespace matchers and version-pinned authored-meta
+ * (issue #3348): option namespace matchers and version-pinned authored-meta
  * keyspaces.
  *
  * Discovery uses these declarations to decide which live option names and
@@ -23,13 +23,13 @@ final class DiscoveryGrammar {
         $name = (string) ($manifest['name'] ?? '?');
         $namespaces = $manifest['option_namespaces'] ?? [];
         if (!is_array($namespaces)) {
-            throw new \RuntimeException("duo: manifest '$name' option_namespaces must be an array");
+            throw new \RuntimeException("wprism: manifest '$name' option_namespaces must be an array");
         }
         foreach ($namespaces as $i => $decl) {
             $match = is_array($decl) ? ($decl['match'] ?? null) : null;
             if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' option_namespaces[$i].match must be a non-empty valid regex"
+                    "wprism: manifest '$name' option_namespaces[$i].match must be a non-empty valid regex"
                 );
             }
         }
@@ -48,13 +48,13 @@ final class DiscoveryGrammar {
             $patterns = $keyspace['patterns'] ?? [];
             if (!is_array($keys) || !is_array($patterns)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' table '$table' keyspace keys/patterns must be arrays"
+                    "wprism: manifest '$name' table '$table' keyspace keys/patterns must be arrays"
                 );
             }
             foreach ($keys as $key) {
                 if (!is_string($key) || $key === '') {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' table '$table' keyspace.keys must contain non-empty strings"
+                        "wprism: manifest '$name' table '$table' keyspace.keys must contain non-empty strings"
                     );
                 }
             }
@@ -62,7 +62,7 @@ final class DiscoveryGrammar {
                 $match = is_array($pattern) ? ($pattern['match'] ?? null) : null;
                 if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' table '$table' keyspace.patterns[$i].match must be a valid regex"
+                        "wprism: manifest '$name' table '$table' keyspace.patterns[$i].match must be a valid regex"
                     );
                 }
             }

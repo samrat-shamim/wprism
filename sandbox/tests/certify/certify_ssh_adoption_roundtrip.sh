@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# DUO-3257: prove the remaining adoption boundary with two independent hosts.
+# issue #3257: prove the remaining adoption boundary with two independent hosts.
 # Docker supplies disposable machines only. Once the hosts are reachable,
-# every WordPress/Duo operation and every site-repo transfer crosses SSH;
+# every WordPress/WPrism operation and every site-repo transfer crosses SSH;
 # neither host shares the source checkout or a state volume with the other.
 set -euo pipefail
 
@@ -24,7 +24,7 @@ SOURCE_VOLUME="${PREFIX}-source-wordpress"
 TARGET_VOLUME="${PREFIX}-target-wordpress"
 IMAGE="${PREFIX}-ssh-image"
 TMP="$(mktemp -d)"
-DUO="$ROOT/cli/duo"
+WPRISM="$ROOT/cli/wprism"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -42,8 +42,8 @@ trap cleanup EXIT
 cleanup
 mkdir -p "$TMP"
 
-ssh_source() { ssh -F "$TMP/ssh_config" duo-adoption-source "$@"; }
-ssh_target() { ssh -F "$TMP/ssh_config" duo-adoption-target "$@"; }
+ssh_source() { ssh -F "$TMP/ssh_config" wprism-adoption-source "$@"; }
+ssh_target() { ssh -F "$TMP/ssh_config" wprism-adoption-target "$@"; }
 
 say "build two standalone SSH WordPress hosts"
 docker build -q -t "$IMAGE" -f sandbox/tests/fixtures/ssh-adopt.Dockerfile . >/dev/null
@@ -84,11 +84,11 @@ done
 docker run -d --name "$SOURCE" --network "$NET" -p "127.0.0.1:${SOURCE_PORT}:22" \
   -v "$SOURCE_VOLUME:/var/www/html" -v "$TMP/id_ed25519.pub:/tmp/authorized_key:ro" \
   --entrypoint sh "$IMAGE" -lc \
-  'cp /tmp/authorized_key /home/duo/.ssh/authorized_keys; chown duo:duo /home/duo/.ssh/authorized_keys; chmod 0600 /home/duo/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
+  'cp /tmp/authorized_key /home/wprism/.ssh/authorized_keys; chown wprism:wprism /home/wprism/.ssh/authorized_keys; chmod 0600 /home/wprism/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
 docker run -d --name "$TARGET" --network "$NET" -p "127.0.0.1:${TARGET_PORT}:22" \
   -v "$TARGET_VOLUME:/var/www/html" -v "$TMP/id_ed25519.pub:/tmp/authorized_key:ro" \
   --entrypoint sh "$IMAGE" -lc \
-  'cp /tmp/authorized_key /home/duo/.ssh/authorized_keys; chown duo:duo /home/duo/.ssh/authorized_keys; chmod 0600 /home/duo/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
+  'cp /tmp/authorized_key /home/wprism/.ssh/authorized_keys; chown wprism:wprism /home/wprism/.ssh/authorized_keys; chmod 0600 /home/wprism/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
 
 for port in "$SOURCE_PORT" "$TARGET_PORT"; do
   for _ in $(seq 1 60); do
@@ -97,19 +97,19 @@ for port in "$SOURCE_PORT" "$TARGET_PORT"; do
   done
 done
 cat >"$TMP/ssh_config" <<EOF
-Host duo-adoption-source
+Host wprism-adoption-source
   HostName 127.0.0.1
   Port $SOURCE_PORT
-  User duo
+  User wprism
   IdentityFile $TMP/id_ed25519
   UserKnownHostsFile $TMP/known_hosts
   StrictHostKeyChecking yes
   IdentitiesOnly yes
   BatchMode yes
-Host duo-adoption-target
+Host wprism-adoption-target
   HostName 127.0.0.1
   Port $TARGET_PORT
-  User duo
+  User wprism
   IdentityFile $TMP/id_ed25519
   UserKnownHostsFile $TMP/known_hosts
   StrictHostKeyChecking yes
@@ -120,7 +120,7 @@ ssh_source 'echo source-ready' | grep -qx source-ready || fail "source SSH trans
 ssh_target 'echo target-ready' | grep -qx target-ready || fail "target SSH transport not ready"
 pass "two isolated target filesystems are reachable only through their SSH ports"
 
-say "install distinct pre-Duo WordPress sites through SSH"
+say "install distinct pre-WPrism WordPress sites through SSH"
 ssh_source "cd /var/www/html && wp config create --dbname=sourcewp --dbuser=wordpress --dbpass=wordpress-pass --dbhost=$DB --skip-check --quiet"
 ssh_target "cd /var/www/html && wp config create --dbname=targetwp --dbuser=wordpress --dbpass=wordpress-pass --dbhost=$DB --skip-check --quiet"
 ssh_source "cd /var/www/html && wp core install --url=http://source.example.test --title='Aged Source' --admin_user=admin --admin_password=admin-pass --admin_email=source@example.test --skip-email --quiet"
@@ -136,29 +136,29 @@ cat >"$TMP/envs.json" <<EOF
   "envs": {
     "source": {
       "transport": "ssh",
-      "host": "duo-adoption-source",
+      "host": "wprism-adoption-source",
       "ssh_config": "$TMP/ssh_config",
       "wp_path": "/var/www/html",
-      "repo_path": "/home/duo/site"
+      "repo_path": "/home/wprism/site"
     },
     "target": {
       "transport": "ssh",
-      "host": "duo-adoption-target",
+      "host": "wprism-adoption-target",
       "ssh_config": "$TMP/ssh_config",
       "wp_path": "/var/www/html",
-      "repo_path": "/home/duo/site"
+      "repo_path": "/home/wprism/site"
     }
   }
 }
 EOF
 
 say "adopt both sites and export a redacted source review batch"
-"$DUO" --envs-file="$TMP/envs.json" adopt source >/dev/null
-"$DUO" --envs-file="$TMP/envs.json" adopt target >/dev/null
-"$DUO" --envs-file="$TMP/envs.json" coverage source --format=json >"$TMP/coverage.json"
+"$WPRISM" --envs-file="$TMP/envs.json" adopt source >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" coverage source --format=json >"$TMP/coverage.json"
 jq -e '.options.total > 0' "$TMP/coverage.json" >/dev/null \
   || fail "coverage did not report the source option inventory"
-"$DUO" --envs-file="$TMP/envs.json" classify source --export-batch="$TMP/review.json" >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" classify source --export-batch="$TMP/review.json" >/dev/null
 jq -e '[.decisions[] | select(.section == "post_meta" and (.key == "legacy_banner" or .key == "legacy_runtime_token"))] | length == 2' \
   "$TMP/review.json" >/dev/null || fail "review artifact did not name both legacy decisions"
 grep -q 'source-authored-banner' "$TMP/review.json" && fail "review artifact leaked an authored value"
@@ -166,42 +166,42 @@ grep -q 'source-runtime-token' "$TMP/review.json" && fail "review artifact leake
 pass "coverage is measurable and the queue review artifact contains evidence without values"
 
 say "prove a changed queue refuses before policy mutation"
-SOURCE_POLICY_BEFORE="$(ssh_source 'cksum /home/duo/site/site.duo.json')"
+SOURCE_POLICY_BEFORE="$(ssh_source 'cksum /home/wprism/site/site.wprism.json')"
 ssh_source "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); update_post_meta(\$p->ID, \"late_unreviewed_write\", \"arrived-after-export\");'"
-if OUT="$("$DUO" --envs-file="$TMP/envs.json" classify source --apply-batch="$TMP/review.json" 2>&1)"; then CODE=0; else CODE=$?; fi
+if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" classify source --apply-batch="$TMP/review.json" 2>&1)"; then CODE=0; else CODE=$?; fi
 [ "$CODE" -ne 0 ] || fail "stale classification batch unexpectedly applied"
 grep -q 'classification batch is stale' <<<"$OUT" || fail "queue change did not name the stale-batch boundary"
-[ "$(ssh_source 'cksum /home/duo/site/site.duo.json')" = "$SOURCE_POLICY_BEFORE" ] \
+[ "$(ssh_source 'cksum /home/wprism/site/site.wprism.json')" = "$SOURCE_POLICY_BEFORE" ] \
   || fail "stale-batch refusal changed source policy"
 ssh_source "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); delete_post_meta(\$p->ID, \"late_unreviewed_write\");'"
 rm "$TMP/review.json"
-"$DUO" --envs-file="$TMP/envs.json" classify source --export-batch="$TMP/review.json" >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" classify source --export-batch="$TMP/review.json" >/dev/null
 jq '(.decisions[] | select(.key == "legacy_banner") | .class) = "authored" |
     (.decisions[] | select(.key == "legacy_runtime_token") | .class) = "runtime"' \
   "$TMP/review.json" >"$TMP/review.edited.json"
 mv "$TMP/review.edited.json" "$TMP/review.json"
-"$DUO" --envs-file="$TMP/envs.json" classify source --apply-batch="$TMP/review.json" >/dev/null
-"$DUO" --envs-file="$TMP/envs.json" pending source | grep -q 'review queue is empty' \
+"$WPRISM" --envs-file="$TMP/envs.json" classify source --apply-batch="$TMP/review.json" >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" pending source | grep -q 'review queue is empty' \
   || fail "reviewed batch did not empty the source queue"
 pass "fresh, complete reviewed batch applies once; stale batch is mutation-free"
 
 say "capture source without changing its runtime-owned value"
 SOURCE_RUNTIME_BEFORE="$(ssh_source "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo hash(\"sha256\", (string) get_post_meta(\$p->ID, \"legacy_runtime_token\", true));'")"
-"$DUO" --envs-file="$TMP/envs.json" capture source >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" capture source >/dev/null
 SOURCE_RUNTIME_AFTER="$(ssh_source "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo hash(\"sha256\", (string) get_post_meta(\$p->ID, \"legacy_runtime_token\", true));'")"
 [ "$SOURCE_RUNTIME_AFTER" = "$SOURCE_RUNTIME_BEFORE" ] || fail "source capture changed runtime-owned state"
-scp -F "$TMP/ssh_config" -r duo-adoption-source:/home/duo/site "$TMP/source-site" >/dev/null
+scp -F "$TMP/ssh_config" -r wprism-adoption-source:/home/wprism/site "$TMP/source-site" >/dev/null
 cp -R "$TMP/source-site/state" "$TMP/source-state"
 pass "source canonical state captured and source runtime checksum preserved"
 
 say "transfer the canonical repo over SSH and apply it to the independent target"
-tar --no-xattrs -C "$TMP/source-site" -czf "$TMP/site-transfer.tgz" site.duo.json state
-scp -F "$TMP/ssh_config" "$TMP/site-transfer.tgz" duo-adoption-target:/tmp/site-transfer.tgz >/dev/null
-ssh_target 'cd /home/duo/site && rm -rf state && tar -xzf /tmp/site-transfer.tgz && rm /tmp/site-transfer.tgz'
+tar --no-xattrs -C "$TMP/source-site" -czf "$TMP/site-transfer.tgz" site.wprism.json state
+scp -F "$TMP/ssh_config" "$TMP/site-transfer.tgz" wprism-adoption-target:/tmp/site-transfer.tgz >/dev/null
+ssh_target 'cd /home/wprism/site && rm -rf state && tar -xzf /tmp/site-transfer.tgz && rm /tmp/site-transfer.tgz'
 TARGET_RUNTIME_BEFORE="$(ssh_target "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo hash(\"sha256\", (string) get_post_meta(\$p->ID, \"legacy_runtime_token\", true));'")"
 require_observed_nonempty "target runtime checksum before apply" "$TARGET_RUNTIME_BEFORE"
-"$DUO" --envs-file="$TMP/envs.json" plan target --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null
-"$DUO" --envs-file="$TMP/envs.json" apply target --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" plan target --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" apply target --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null
 TARGET_RUNTIME_AFTER="$(ssh_target "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo hash(\"sha256\", (string) get_post_meta(\$p->ID, \"legacy_runtime_token\", true));'")"
 require_observed_nonempty "target runtime checksum after apply" "$TARGET_RUNTIME_AFTER"
 [ "$TARGET_RUNTIME_AFTER" = "$TARGET_RUNTIME_BEFORE" ] || fail "target apply changed runtime-owned state"
@@ -212,11 +212,11 @@ require_observed_nonempty "target authored banner after apply" "$TARGET_BANNER"
 pass "cross-environment apply converged authored state and preserved target runtime state"
 
 say "recapture target and prove byte identity plus a clean plan"
-"$DUO" --envs-file="$TMP/envs.json" capture target >/dev/null
-scp -F "$TMP/ssh_config" -r duo-adoption-target:/home/duo/site/state "$TMP/target-state" >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" capture target >/dev/null
+scp -F "$TMP/ssh_config" -r wprism-adoption-target:/home/wprism/site/state "$TMP/target-state" >/dev/null
 diff -ru "$TMP/source-state" "$TMP/target-state" >/dev/null \
   || fail "source and target canonical state trees are not byte-identical"
-"$DUO" --envs-file="$TMP/envs.json" plan target --adopt-by-slug=posts,terms,menus --default-author=admin \
+"$WPRISM" --envs-file="$TMP/envs.json" plan target --adopt-by-slug=posts,terms,menus --default-author=admin \
   | grep -q 'UNCHANGED' || fail "final target plan was not clean"
 pass "target recapture is byte-identical to source and the final plan is clean"
 

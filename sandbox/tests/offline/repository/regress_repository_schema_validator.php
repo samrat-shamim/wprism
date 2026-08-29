@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Policy {
         public bool $derivedLocations = false;
         /** @var array<string,string> */
@@ -27,8 +27,8 @@ namespace Duo {
 namespace {
     require_once __DIR__ . '/../../../../agent/src/Repository/RepositorySchemaValidator.php';
 
-    use Duo\Policy;
-    use Duo\RepositorySchemaValidator;
+    use WPrism\Policy;
+    use WPrism\RepositorySchemaValidator;
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -37,7 +37,7 @@ namespace {
     };
     $validatorPath = realpath(__DIR__ . '/../../../../agent/src/Repository/RepositorySchemaValidator.php');
     $probe = proc_open(
-        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Policy::class, false) ? "loaded\\n" : "missing\\n";', (string) $validatorPath],
+        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\Policy::class, false) ? "loaded\\n" : "missing\\n";', (string) $validatorPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
@@ -59,7 +59,7 @@ namespace {
     $codes = static function () use (&$diagnostics): array { return array_column($diagnostics, 'code'); };
     $reset = static function () use (&$diagnostics): void { $diagnostics = []; };
 
-    $check(!class_exists(\Duo\RepositoryCompiler::class, false), 'direct schema-validator loading does not pull RepositoryCompiler');
+    $check(!class_exists(\WPrism\RepositoryCompiler::class, false), 'direct schema-validator loading does not pull RepositoryCompiler');
     $post = ['uuid' => 'u', 'type' => 'post', 'slug' => 'one', 'title' => '', 'status' => 'publish', 'date' => '', 'date_gmt' => '', 'modified_gmt' => '', 'author' => null, 'parent' => null, 'menu_order' => 0, 'comment_status' => '', 'ping_status' => '', 'excerpt' => '', 'meta' => [], 'terms' => ['category' => []]];
     $validator->validate('post', 'posts/post/u--one.md', $post, '');
     $check($diagnostics === [], 'a complete post shape with the declared post keyspace is accepted without compiler state');

@@ -1,5 +1,5 @@
 {
-  "format": "duo-woocommerce-settings-inventory/v1",
+  "format": "wprism-woocommerce-settings-inventory/v1",
   "artifacts": {
     "11.0.0": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
     "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"

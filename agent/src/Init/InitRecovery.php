@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Publication/Publish.php';
@@ -15,7 +15,7 @@ require_once __DIR__ . '/InitRepositoryBoundary.php';
 /** Verification and cleanup of sealed interrupted first-init attempts. */
 final class InitRecovery {
     public const PLAN_FORMAT = InitProtocol::PLAN_FORMAT;
-    public const ARCHIVE_FORMAT = 'duo-init-interrupted-archive/v1';
+    public const ARCHIVE_FORMAT = 'wprism-init-interrupted-archive/v1';
 
     /**
      * Preserve an ambiguous interrupted attempt as one exact sibling tree and
@@ -29,7 +29,7 @@ final class InitRecovery {
         $repo = InitRepositoryBoundary::normalize($repo);
         $archive = InitRepositoryBoundary::normalize($archive);
         if (dirname($repo) !== dirname($archive) || $repo === $archive) {
-            throw new \RuntimeException('duo: interrupted-init archive must be a distinct absolute sibling of the repository');
+            throw new \RuntimeException('wprism: interrupted-init archive must be a distinct absolute sibling of the repository');
         }
 
         $repoPresent = file_exists($repo) || is_link($repo);
@@ -40,25 +40,25 @@ final class InitRecovery {
             // did not return. The sealed journal still binds the archived
             // inode to the original logical path.
             if (is_link($archive) || !is_dir($archive)) {
-                throw new \RuntimeException('duo: interrupted-init archive continuation is not an ordinary directory');
+                throw new \RuntimeException('wprism: interrupted-init archive continuation is not an ordinary directory');
             }
             $attempt = InitAttemptJournal::read($archive);
             if ($attempt === null
                 || ($attempt['repository'] ?? null) !== $repo
                 || ($attempt['repository_identity'] ?? null) !== self::root_identity($archive)) {
-                throw new \RuntimeException('duo: interrupted-init archive continuation is not bound to the missing repository');
+                throw new \RuntimeException('wprism: interrupted-init archive continuation is not bound to the missing repository');
             }
             if (!@mkdir($repo, 0700)) {
-                throw new \RuntimeException('duo: interrupted-init archive is preserved but the configured repository path could not be recreated');
+                throw new \RuntimeException('wprism: interrupted-init archive is preserved but the configured repository path could not be recreated');
             }
 
             return self::archive_receipt($repo, $archive, $attempt, true);
         }
         if (!$repoPresent) {
-            throw new \RuntimeException('duo: interrupted-init repository and selected archive are both absent');
+            throw new \RuntimeException('wprism: interrupted-init repository and selected archive are both absent');
         }
         if ($archivePresent) {
-            throw new \RuntimeException('duo: interrupted-init archive destination already exists');
+            throw new \RuntimeException('wprism: interrupted-init archive destination already exists');
         }
 
         $binding = InitRepositoryBoundary::bind($repo);
@@ -67,20 +67,20 @@ final class InitRecovery {
             if ($attempt === null
                 || ($attempt['repository'] ?? null) !== $repo
                 || ($attempt['repository_identity'] ?? null) !== $binding['identity']) {
-                throw new \RuntimeException('duo: repository has no sealed interrupted-init attempt bound to this exact root');
+                throw new \RuntimeException('wprism: repository has no sealed interrupted-init attempt bound to this exact root');
             }
             $reason = self::interrupted_attempt_manual_recovery_reason($repo, $attempt);
             if ($reason === null) {
                 throw new \RuntimeException(
-                    'duo: interrupted init has exact automatic recovery authority; confirm its recovery proposal instead of archiving it'
+                    'wprism: interrupted init has exact automatic recovery authority; confirm its recovery proposal instead of archiving it'
                 );
             }
             InitRepositoryBoundary::assert_binding($repo, $binding['stat']);
             if (!@chdir(dirname($repo))) {
-                throw new \RuntimeException('duo: interrupted-init archive could not bind the repository parent');
+                throw new \RuntimeException('wprism: interrupted-init archive could not bind the repository parent');
             }
             if (!@rename($repo, $archive)) {
-                throw new \RuntimeException('duo: interrupted-init repository could not be atomically archived');
+                throw new \RuntimeException('wprism: interrupted-init repository could not be atomically archived');
             }
             $mode = ((int) ($binding['stat']['mode'] ?? 0700)) & 0777;
             if ($mode === 0) {
@@ -89,10 +89,10 @@ final class InitRecovery {
             if (!@mkdir($repo, $mode)) {
                 if (!@rename($archive, $repo)) {
                     throw new \RuntimeException(
-                        'duo: interrupted-init archive is preserved but repository recreation and rollback both failed'
+                        'wprism: interrupted-init archive is preserved but repository recreation and rollback both failed'
                     );
                 }
-                throw new \RuntimeException('duo: interrupted-init repository recreation failed; the original root was restored');
+                throw new \RuntimeException('wprism: interrupted-init repository recreation failed; the original root was restored');
             }
 
             return self::archive_receipt($repo, $archive, $attempt, false);
@@ -109,7 +109,7 @@ final class InitRecovery {
         if (!is_dir($repo) || is_link($repo) || (scandir($repo) ?: []) !== ['.', '..']
             || !is_dir($archive) || is_link($archive)
             || ($attempt['repository_identity'] ?? null) !== self::root_identity($archive)) {
-            throw new \RuntimeException('duo: interrupted-init archive transaction did not preserve its exact root boundary');
+            throw new \RuntimeException('wprism: interrupted-init archive transaction did not preserve its exact root boundary');
         }
         $receipt = [
             'archive' => $archive,
@@ -127,7 +127,7 @@ final class InitRecovery {
         clearstatcache(true, $path);
         $stat = @lstat($path);
         if (!is_array($stat) || (((int) ($stat['mode'] ?? 0)) & 0170000) !== 0040000) {
-            throw new \RuntimeException('duo: interrupted-init archive root is not an ordinary directory');
+            throw new \RuntimeException('wprism: interrupted-init archive root is not an ordinary directory');
         }
 
         return 'sha256:' . hash('sha256', Canon::encode([
@@ -145,14 +145,14 @@ final class InitRecovery {
     ): array {
         if (!hash_equals((string) $attempt['repository'], $logicalRepo)
             || !hash_equals((string) $attempt['repository_identity'], $rootIdentity)) {
-            throw new \RuntimeException('duo: interrupted init record belongs to a different repository identity');
+            throw new \RuntimeException('wprism: interrupted init record belongs to a different repository identity');
         }
         $proposal = $attempt['proposal'];
         if (($proposal['format'] ?? null) !== self::PLAN_FORMAT
             || ($proposal['ready'] ?? null) !== true
             || !is_array($proposal['unsupported'] ?? null)
             || $proposal['unsupported'] !== []) {
-            throw new \RuntimeException('duo: interrupted init record does not contain a confirmable original proposal');
+            throw new \RuntimeException('wprism: interrupted init record does not contain a confirmable original proposal');
         }
         $manualReason = self::interrupted_attempt_manual_recovery_reason($repo, $attempt);
         $stateDir = rtrim($repo, '/') . '/state';
@@ -169,7 +169,7 @@ final class InitRecovery {
                 'extension' => $logicalRepo,
                 'kind' => 'repository',
                 'reason' => $manualReason,
-                'remediation' => 'keep the repository quiesced and run the host command `duo init <env> --archive-interrupted-to=<absolute-sibling> --yes`; it atomically preserves the complete root and recreates the configured path',
+                'remediation' => 'keep the repository quiesced and run the host command `wprism init <env> --archive-interrupted-to=<absolute-sibling> --yes`; it atomically preserves the complete root and recreates the configured path',
             ];
             $proposal['ready'] = false;
         } elseif ($committed) {
@@ -258,10 +258,10 @@ final class InitRecovery {
             return 'the interrupted-init repository root cannot be enumerated for recovery artifacts';
         }
         foreach ($entries as $entry) {
-            if (str_contains($entry, '.duo-claim-')) {
+            if (str_contains($entry, '.wprism-claim-')) {
                 return 'the interrupted-init repository contains an unjournaled cleanup claim artifact';
             }
-            // DUO-3427: "unbound" is the recovery authority's word, and it
+            // issue #3427: "unbound" is the recovery authority's word, and it
             // has a precise meaning there — a write_record() temp that is NOT
             // a hard link to its sealed next slot carrying that exact record
             // (Publish::remove_matching_record_temps(), whose docblock refuses
@@ -280,8 +280,8 @@ final class InitRecovery {
             }
             $knownInitArtifact = $entry === InitAttemptJournal::FILE
                 || $entry === InitAttemptJournal::NEXT_FILE
-                || str_starts_with($entry, '.duo-init-code-');
-            if (str_contains($entry, '.duo-init-') && !$knownInitArtifact) {
+                || str_starts_with($entry, '.wprism-init-code-');
+            if (str_contains($entry, '.wprism-init-') && !$knownInitArtifact) {
                 return 'the interrupted-init repository contains an unjournaled Init temporary or claim artifact';
             }
         }
@@ -438,23 +438,23 @@ final class InitRecovery {
             }
         }
 
-        // DUO-3421: an owned-file artifact that is PRESENT while the journal
+        // issue #3421: an owned-file artifact that is PRESENT while the journal
         // holds no plan for it is not this attempt's artifact -- it is content
         // that predates the attempt, and recovery must leave it exactly where
         // it is. Both publications are strictly write-ahead: confirm() journals
         // `<artifact>_plan` (carrying the previous bytes to restore) BEFORE
         // publish_owned_file() touches the path, so "present and unrecorded"
-        // cannot describe anything Duo wrote. Refusing it instead declared an
+        // cannot describe anything WPrism wrote. Refusing it instead declared an
         // ordinary pre-existing .gitignore -- which every existing Git worktree
         // has, and which the live harness sets up by name -- an unprovable
         // ownership situation, so a crash before the gitignore phase demanded
-        // manual recovery for a file Duo had never opened. The recorded shapes
+        // manual recovery for a file WPrism had never opened. The recorded shapes
         // below are unchanged and still refuse: a non-regular boundary here, a
         // recorded plan or publication whose bytes no longer match in the
         // compensation path, and every partial tree.
-        $siteFile = rtrim($repo, '/') . '/site.duo.json';
+        $siteFile = rtrim($repo, '/') . '/site.wprism.json';
         if ($present($siteFile) && (is_link($siteFile) || !is_file($siteFile))) {
-            return 'the sealed attempt has a non-regular site.duo.json boundary';
+            return 'the sealed attempt has a non-regular site.wprism.json boundary';
         }
         $gitignore = rtrim($repo, '/') . '/.gitignore';
         if ($present($gitignore) && (is_link($gitignore) || !is_file($gitignore))) {
@@ -534,7 +534,7 @@ final class InitRecovery {
         InitRepositoryBoundary::assert_binding($logicalRepo, $rootStat);
         $currentAttempt = InitAttemptJournal::read($repo);
         if ($currentAttempt === null || Canon::encode($currentAttempt) !== Canon::encode($attempt)) {
-            throw new \RuntimeException('duo: interrupted init record changed before recovery locking');
+            throw new \RuntimeException('wprism: interrupted init record changed before recovery locking');
         }
         $stateDir = rtrim($repo, '/') . '/state';
         Publish::assert_lock_path($lock, $stateDir);
@@ -544,7 +544,7 @@ final class InitRecovery {
                 (string) $owned['lock_inode'],
                 InitOwnedArtifacts::regular_file_inode_identity(Publish::lock_path($stateDir), 'state.capture.lock')
             )) {
-            throw new \RuntimeException('duo: interrupted init lock identity changed; retained recovery evidence');
+            throw new \RuntimeException('wprism: interrupted init lock identity changed; retained recovery evidence');
         }
 
         $intentPath = Publish::intent_path($stateDir);
@@ -555,7 +555,7 @@ final class InitRecovery {
             $stagingManifest = $owned['state_staging_manifest'] ?? null;
             if (!is_array($stagingManifest)) {
                 throw new \RuntimeException(
-                    'duo: interrupted init retained an unpublished intent without a complete staging manifest; manual recovery is required'
+                    'wprism: interrupted init retained an unpublished intent without a complete staging manifest; manual recovery is required'
                 );
             }
             Publish::recover_initial_unpublished_intent_next($stateDir, $stagingManifest);
@@ -581,7 +581,7 @@ final class InitRecovery {
             $stateReservationManifest = $owned['state_reservation_manifest'] ?? null;
             if (!is_array($stagingManifest) || !is_array($stateReservationManifest)) {
                 throw new \RuntimeException(
-                    'duo: interrupted init retained a publication record without complete state manifests; manual recovery is required'
+                    'wprism: interrupted init retained a publication record without complete state manifests; manual recovery is required'
                 );
             }
             Publish::recover_initial(
@@ -594,7 +594,7 @@ final class InitRecovery {
             );
         } elseif (file_exists(Publish::backup_dir($stateDir)) || is_link(Publish::backup_dir($stateDir))) {
             throw new \RuntimeException(
-                'duo: interrupted init retained a backup without a sealed publication record; manual recovery is required'
+                'wprism: interrupted init retained a backup without a sealed publication record; manual recovery is required'
             );
         }
         if (!$hasPublicationRecord) {
@@ -618,14 +618,14 @@ final class InitRecovery {
             $stagingManifest = $owned['state_staging_manifest'] ?? null;
             if (!is_array($stagingManifest)) {
                 throw new \RuntimeException(
-                    'duo: interrupted init retained a partial state staging tree without a complete deletion manifest; manual recovery is required'
+                    'wprism: interrupted init retained a partial state staging tree without a complete deletion manifest; manual recovery is required'
                 );
             }
             Publish::remove_owned_tree($staging, $stagingManifest, 'initial capture staging');
         }
         foreach ([Publish::intent_path($stateDir), $staging, Publish::backup_dir($stateDir)] as $path) {
             if (file_exists($path) || is_link($path)) {
-                throw new \RuntimeException('duo: interrupted init recovery retained an ambiguous state publication boundary');
+                throw new \RuntimeException('wprism: interrupted init recovery retained an ambiguous state publication boundary');
             }
         }
         if (is_dir($stateDir) || is_link($stateDir)) {
@@ -633,7 +633,7 @@ final class InitRecovery {
             if (!is_string($stateIdentity)
                 || !hash_equals($stateIdentity, InitOwnedArtifacts::directory_identity($stateDir, 'initial state reservation'))) {
                 throw new \RuntimeException(
-                    'duo: interrupted init retained an incomplete state reservation without a complete ownership manifest; manual recovery is required'
+                    'wprism: interrupted init retained an incomplete state reservation without a complete ownership manifest; manual recovery is required'
                 );
             }
             InitOwnedArtifacts::remove_owned_tree($stateDir, $stateIdentity, 'initial state reservation');
@@ -649,7 +649,7 @@ final class InitRecovery {
                 if (!is_string($mediaIdentity)
                     || !hash_equals($mediaIdentity, InitOwnedArtifacts::directory_identity($mediaDir, 'media publication root'))) {
                     throw new \RuntimeException(
-                        'duo: interrupted init retained a partial media root without a complete deletion manifest; manual recovery is required'
+                        'wprism: interrupted init retained a partial media root without a complete deletion manifest; manual recovery is required'
                     );
                 }
                 InitOwnedArtifacts::remove_owned_tree($mediaDir, $mediaIdentity, 'media publication root');
@@ -664,7 +664,7 @@ final class InitRecovery {
                 if (!is_string($codeIdentity)
                     || !hash_equals($codeIdentity, InitOwnedArtifacts::directory_identity($codeDir, 'code publication root'))) {
                     throw new \RuntimeException(
-                        'duo: interrupted init retained an incomplete code root without a complete descriptor; manual recovery is required'
+                        'wprism: interrupted init retained an incomplete code root without a complete descriptor; manual recovery is required'
                     );
                 }
             }
@@ -673,18 +673,18 @@ final class InitRecovery {
         $stage = $owned['code_stage'] ?? null;
         $stageIdentity = $owned['code_stage_identity'] ?? null;
         if (is_string($stage) && (file_exists($stage) || is_link($stage))) {
-            if (!str_starts_with($stage, rtrim($repo, '/') . '/.duo-init-code-')) {
-                throw new \RuntimeException('duo: interrupted init code-stage path escaped the repository boundary');
+            if (!str_starts_with($stage, rtrim($repo, '/') . '/.wprism-init-code-')) {
+                throw new \RuntimeException('wprism: interrupted init code-stage path escaped the repository boundary');
             }
             if (!is_string($stageIdentity)) {
                 throw new \RuntimeException(
-                    'duo: interrupted init retained a partial code staging tree without a complete descriptor; manual recovery is required'
+                    'wprism: interrupted init retained a partial code staging tree without a complete descriptor; manual recovery is required'
                 );
             }
             InitOwnedArtifacts::remove_owned_tree($stage, $stageIdentity, 'code staging root');
         }
 
-        // DUO-3421: presence-guarded like every sibling branch above and below
+        // issue #3421: presence-guarded like every sibling branch above and below
         // (state, media, code, stage, git, and both `plan` arms). This one is
         // ALSO reached in-process: Init::confirm()'s catch compensates its own
         // publications and then re-enters this function through
@@ -703,30 +703,30 @@ final class InitRecovery {
         $sitePublication = $owned['site_publication'] ?? null;
         if (is_array($sitePublication)
             && !InitOwnedArtifacts::owned_file_already_compensated(
-                rtrim($repo, '/') . '/site.duo.json',
+                rtrim($repo, '/') . '/site.wprism.json',
                 $sitePublication
             )) {
             InitOwnedArtifacts::compensate_owned_file(
-                rtrim($repo, '/') . '/site.duo.json',
+                rtrim($repo, '/') . '/site.wprism.json',
                 $sitePublication,
-                'site.duo.json'
+                'site.wprism.json'
             );
         } elseif (!is_array($sitePublication)
             && is_array($owned['site_plan'] ?? null)
-            && (file_exists(rtrim($repo, '/') . '/site.duo.json')
-            || is_link(rtrim($repo, '/') . '/site.duo.json'))) {
+            && (file_exists(rtrim($repo, '/') . '/site.wprism.json')
+            || is_link(rtrim($repo, '/') . '/site.wprism.json'))) {
             // Same write-ahead invariant as the proposal gate above, and the
             // same shape the .gitignore arm below already had: with no
             // journaled plan this file predates the attempt and compensation
-            // has nothing to undo. (DUO-3421)
+            // has nothing to undo. (issue #3421)
             $sitePlan = $owned['site_plan'];
             $expected = (string) ($sitePlan['expected_identity'] ?? '');
-            $current = InitOwnedArtifacts::regular_file_identity(rtrim($repo, '/') . '/site.duo.json', 'site.duo.json');
+            $current = InitOwnedArtifacts::regular_file_identity(rtrim($repo, '/') . '/site.wprism.json', 'site.wprism.json');
             if (!hash_equals($expected, $current)) {
                 InitOwnedArtifacts::compensate_owned_file(
-                    rtrim($repo, '/') . '/site.duo.json',
+                    rtrim($repo, '/') . '/site.wprism.json',
                     ['previous' => $sitePlan['previous'] ?? null, 'published' => $current],
-                    'site.duo.json'
+                    'site.wprism.json'
                 );
             }
         }
@@ -818,7 +818,7 @@ final class InitRecovery {
                 $gitIdentity = self::git_deletion_identity_current($repo, $owned);
                 if (!is_string($gitIdentity)) {
                     throw new \RuntimeException(
-                        'duo: interrupted init retained incomplete Git metadata without a complete ownership manifest; manual recovery is required'
+                        'wprism: interrupted init retained incomplete Git metadata without a complete ownership manifest; manual recovery is required'
                     );
                 }
                 InitOwnedArtifacts::remove_owned_tree($gitDir, $gitIdentity, 'Git metadata root');
@@ -827,7 +827,7 @@ final class InitRecovery {
         $postCleanupGit = InitRepositoryBoundary::git_probe($repo);
         if (($postCleanupGit['blockers'] ?? []) !== []) {
             throw new \RuntimeException(
-                'duo: interrupted init retained an unjournalled repository artifact; inspect it before retrying'
+                'wprism: interrupted init retained an unjournalled repository artifact; inspect it before retrying'
             );
         }
         InitRepositoryBoundary::assert_binding($logicalRepo, $rootStat);
@@ -847,15 +847,15 @@ final class InitRecovery {
         $stateDir = rtrim($repo, '/') . '/state';
         foreach ([Publish::intent_path($stateDir), Publish::stage_dir($stateDir), Publish::backup_dir($stateDir)] as $path) {
             if (file_exists($path) || is_link($path)) {
-                throw new \RuntimeException('duo: committed init finalization retained an ambiguous publication boundary');
+                throw new \RuntimeException('wprism: committed init finalization retained an ambiguous publication boundary');
             }
         }
         if (is_link($stateDir) || !is_dir($stateDir)
             || !hash_equals((string) ($receipt['candidate_sha256'] ?? ''), Publish::tree_digest($stateDir))
             || !hash_equals((string) ($receipt['previous_sha256'] ?? ''), hash('sha256', ''))) {
-            throw new \RuntimeException('duo: committed init receipt does not prove the current state tree');
+            throw new \RuntimeException('wprism: committed init receipt does not prove the current state tree');
         }
-        // DUO-3427: two questions, each asked of evidence that survives the
+        // issue #3427: two questions, each asked of evidence that survives the
         // sealed journal.
         //
         // This compared the committed file's BYTES to a re-encoding of the
@@ -871,39 +871,39 @@ final class InitRecovery {
         //
         // Byte-exactness is still the anti-tamper contract (a single appended
         // newline must refuse), so it moves to the evidence that CAN carry it
-        // through the journal: the publication identity Duo recorded when it
+        // through the journal: the publication identity WPrism recorded when it
         // wrote the file, which folds the content digest with dev/ino. The
         // proposal binding is kept as a structural comparison, both sides
         // normalized through the same decode/encode, so it means what it says
         // without depending on a distinction the journal cannot hold. The
         // identity is tested FIRST and short-circuits, so the decode below
-        // only ever runs on bytes Duo itself wrote.
+        // only ever runs on bytes WPrism itself wrote.
         $proposal = $attempt['proposal'] ?? null;
         $expectedConfig = is_array($proposal) ? ($proposal['state']['config'] ?? null) : null;
         $sitePublication = ((array) ($attempt['owned'] ?? []))['site_publication'] ?? null;
-        $siteFile = rtrim($repo, '/') . '/site.duo.json';
+        $siteFile = rtrim($repo, '/') . '/site.wprism.json';
         if (!is_array($expectedConfig) || is_link($siteFile) || !is_file($siteFile)
             || !is_array($sitePublication) || !is_string($sitePublication['published'] ?? null)
             || !hash_equals(
                 (string) $sitePublication['published'],
-                InitOwnedArtifacts::regular_file_identity($siteFile, 'site.duo.json')
+                InitOwnedArtifacts::regular_file_identity($siteFile, 'site.wprism.json')
             )
             || Canon::encode(Canon::decode(Canon::read_file($siteFile))) !== Canon::encode($expectedConfig)) {
-            throw new \RuntimeException('duo: committed init site.duo.json no longer matches the confirmed proposal');
+            throw new \RuntimeException('wprism: committed init site.wprism.json no longer matches the confirmed proposal');
         }
-        // DUO-3427: two quantities that are never equal were compared as if
+        // issue #3427: two quantities that are never equal were compared as if
         // they were one. `proposal.code.source_revision` digests the LIVE
         // SOURCE inventory (the target's own wp-content) and is verified
         // against that source, correctly, in capture_code(); a compiled
         // `code_revision` digests the REPOSITORY PAYLOAD. They are computed
         // over different roots from different inputs — the payload
-        // deliberately excludes Duo's own control-plane loader, for one — so
+        // deliberately excludes WPrism's own control-plane loader, for one — so
         // this refused every committed finalization on arithmetic alone, a
-        // second unconditional gate behind the site.duo.json one above.
+        // second unconditional gate behind the site.wprism.json one above.
         //
         // The payload is proved the way everything else in this subsystem is:
         // against evidence the sealed journal carries. `code_identity` is the
-        // publication identity Duo recorded for the code root at `code-ready`
+        // publication identity WPrism recorded for the code root at `code-ready`
         // (dev/ino plus content digest for every child), so it proves the
         // payload is byte-for-byte the tree this attempt published; the
         // completed_code_mismatch() check immediately below already proves
@@ -919,15 +919,15 @@ final class InitRecovery {
         if (!is_array($descriptor) || !is_string($codeIdentity)
             || is_link($codeRoot) || !is_dir($codeRoot)
             || !hash_equals($codeIdentity, InitOwnedArtifacts::directory_identity($codeRoot, 'code publication root'))) {
-            throw new \RuntimeException('duo: committed init code payload changed after Duo published it');
+            throw new \RuntimeException('wprism: committed init code payload changed after WPrism published it');
         }
         $codeMismatch = Code::completed_code_mismatch($compiled);
         if ($codeMismatch !== null) {
-            throw new \RuntimeException('duo: committed init code lifecycle is not complete: ' . $codeMismatch);
+            throw new \RuntimeException('wprism: committed init code lifecycle is not complete: ' . $codeMismatch);
         }
         $git = InitRepositoryBoundary::git_probe($repo);
         if (($git['mode'] ?? null) !== 'existing-worktree' || ($git['blockers'] ?? []) !== []) {
-            throw new \RuntimeException('duo: committed init Git worktree no longer satisfies the confirmed boundary');
+            throw new \RuntimeException('wprism: committed init Git worktree no longer satisfies the confirmed boundary');
         }
         return [
             'revision_hash' => $compiled->revision_hash(),

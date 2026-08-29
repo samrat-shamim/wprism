@@ -1,74 +1,74 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Manifest validation is a pure offline pass with several entry points of
 // its own (the frozen-snapshot path, the offline harnesses that load this
 // file directly). The native-action vocabulary is part of that pass, so it
-// is required here rather than left to duo.php's bootstrap order — same
+// is required here rather than left to wprism.php's bootstrap order — same
 // precedent as Deploy.php requiring CodeCompatibility.php.
 require_once __DIR__ . '/../Rebuild/NativeActions.php';
-// DUO-3314: adapter provenance is decided inside the same offline pass, before
+// issue #3314: adapter provenance is decided inside the same offline pass, before
 // any manifest reaches a policy consumer, so it is required here for the same
 // reason NativeActions is.
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 // Shipped executable paths belong to the adapter package that declares them.
 // Required here because this file is also loaded directly by offline policy
-// validators that never pass through agent/duo.php.
+// validators that never pass through agent/wprism.php.
 require_once __DIR__ . '/AdapterLibrary.php';
 require_once __DIR__ . '/AdapterPackage.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
-// DUO-3348 first extraction slice: the pure table/widget declaration grammar,
+// issue #3348 first extraction slice: the pure table/widget declaration grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ManifestGrammar.php';
-// DUO-3348 slice 4: adapter provenance / capability-readiness resolution,
+// issue #3348 slice 4: adapter provenance / capability-readiness resolution,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Adapter/AdapterRegistry.php';
-// Runtime platform compatibility is a pre-policy gate: direct `wp duo`
+// Runtime platform compatibility is a pre-policy gate: direct `wp wprism`
 // mutations must not be able to bypass the host-side doctor boundary.
 require_once __DIR__ . '/PlatformCompatibility.php';
 // The topology gate assert_single_site() delegates to. Required here for the
 // same "loads alone" reason as its neighbors: the offline policy harnesses
-// include this file directly, never agent/duo.php's bootstrap.
+// include this file directly, never agent/wprism.php's bootstrap.
 require_once __DIR__ . '/../Kernel/SiteTopology.php';
-// The typed refusal the missing-site.duo.json gates below throw. SiteTopology
+// The typed refusal the missing-site.wprism.json gates below throw. SiteTopology
 // loads it too, but the direct-require contract
 // (sandbox/tests/offline/guards/regress_agent_src_requires.php) is that every
 // engine class a file NAMES is loaded by that file, not by a neighbour.
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
-// DUO-3348 slice 5: manifest-pin normalization/validation, required here for
+// issue #3348 slice 5: manifest-pin normalization/validation, required here for
 // the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/PinResolver.php';
-// DUO-3348 slice 6: action/provider/effect grammar validation, required here
+// issue #3348 slice 6: action/provider/effect grammar validation, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Adapter/ActionProviderGrammar.php';
-// DUO-3348 slice 7: cross-manifest "one owner, no contradiction" guards,
+// issue #3348 slice 7: cross-manifest "one owner, no contradiction" guards,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/CrossManifestGuards.php';
-// DUO-3348 slice 8: the "named sub-key of an otherwise-atomic value"
+// issue #3348 slice 8: the "named sub-key of an otherwise-atomic value"
 // declaration grammar, required here for the same "loads alone" reason as
 // its neighbors above.
 require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
-// DUO-3348 slice 9: exact and pattern taxonomy object_keyspace declaration
+// issue #3348 slice 9: exact and pattern taxonomy object_keyspace declaration
 // grammar, required here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/../Grammar/TaxonomyGrammar.php';
-// DUO-3348 slice 11: option-name reference declaration grammar and its
+// issue #3348 slice 11: option-name reference declaration grammar and its
 // cross-manifest identical-pattern guard, required here for the same
 // "loads alone" reason as its neighbors.
 require_once __DIR__ . '/../Grammar/OptionReferenceGrammar.php';
-// DUO-3348 slice 12: the closed post-type body/phase declaration grammar,
+// issue #3348 slice 12: the closed post-type body/phase declaration grammar,
 // required here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/../Grammar/PostTypeGrammar.php';
-// DUO-3348 slice 13: the pure option-namespace/authored-meta discovery
+// issue #3348 slice 13: the pure option-namespace/authored-meta discovery
 // grammar, required here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/DiscoveryGrammar.php';
-// DUO-3348 slice 16: option declaration/storage grammar, required here for
+// issue #3348 slice 16: option declaration/storage grammar, required here for
 // the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/../Grammar/OptionGrammar.php';
-// DUO-3348 slice 17: block/shortcode attribute declaration grammar, required
+// issue #3348 slice 17: block/shortcode attribute declaration grammar, required
 // here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/../Grammar/AttributeGrammar.php';
-// DUO-3348 slice 50: block/shortcode structural registry projection is pure
+// issue #3348 slice 50: block/shortcode structural registry projection is pure
 // manifest work; Policy retains the public compatibility accessors below.
 require_once __DIR__ . '/../Grammar/ContentAttributeRuleResolver.php';
 // WP-6.1's two `engine_features`-staged codec sections. Required here for the
@@ -78,55 +78,55 @@ require_once __DIR__ . '/../Grammar/ContentAttributeRuleResolver.php';
 require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/AttrIdCodecGrammar.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
-// DUO-3348 slice 52: widget type registry/provenance is a pure manifest
+// issue #3348 slice 52: widget type registry/provenance is a pure manifest
 // projection; Policy retains its public facades for current callers.
 require_once __DIR__ . '/../Grammar/WidgetTypeResolver.php';
-// DUO-3348 slice 53: effective table declarations and attached-meta lookup
+// issue #3348 slice 53: effective table declarations and attached-meta lookup
 // are pure raw declaration projection; grammar and graph validation stay put.
 require_once __DIR__ . '/../Grammar/TableDeclarationResolver.php';
-// DUO-3348 slice 54: exact/pattern classification rule selection remains pure
+// issue #3348 slice 54: exact/pattern classification rule selection remains pure
 // manifest work; Policy keeps the public facades and source-autoload port.
 require_once __DIR__ . '/PolicyRuleResolver.php';
-// DUO-3348 slice 55: the exact option declaration projection is pure
+// issue #3348 slice 55: the exact option declaration projection is pure
 // manifest work; Policy keeps its public inventory facades below.
 require_once __DIR__ . '/../Grammar/ExactOptionResolver.php';
-// DUO-3348 slice 56: option namespace ownership is pure manifest work;
+// issue #3348 slice 56: option namespace ownership is pure manifest work;
 // Policy keeps its public discovery authority facade below.
 require_once __DIR__ . '/../Grammar/OptionNamespaceResolver.php';
-// DUO-3348 slice 18: pure reference-valued declaration shape grammar,
+// issue #3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Kernel/ReferenceShapeGrammar.php';
-// DUO-3348 slice 19: pure post/menu field declaration grammar, required here
+// issue #3348 slice 19: pure post/menu field declaration grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Grammar/FieldGrammar.php';
-// DUO-3348 slice 20: user-meta safety grammar, required here for the same
+// issue #3348 slice 20: user-meta safety grammar, required here for the same
 // "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Grammar/UserMetaGrammar.php';
-// DUO-3348 slice 21: whole-entity scope declaration grammar, required here
+// issue #3348 slice 21: whole-entity scope declaration grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ScopeGrammar.php';
-// DUO-3348 slice 22: adapter compatibility contract grammar, required here
+// issue #3348 slice 22: adapter compatibility contract grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Adapter/AdapterContractGrammar.php';
-// DUO-3348 slice 23: cross-source reference-keyspace and attached-meta
+// issue #3348 slice 23: cross-source reference-keyspace and attached-meta
 // ownership grammar, required here for the same "loads alone" reason as its
 // neighbors above.
 require_once __DIR__ . '/../Kernel/ReferenceKeyspaceGrammar.php';
-// DUO-3348 slice 24: ref/token/ledger kind vocabulary grammar, required here
+// issue #3348 slice 24: ref/token/ledger kind vocabulary grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Kernel/ReferenceKindGrammar.php';
-// DUO-3348 slice 25: optional site code-declaration grammar, required here
+// issue #3348 slice 25: optional site code-declaration grammar, required here
 // for the same "loads alone" reason as its neighbors above. The grammar
 // preserves Policy's pre-existing implicit Code boundary; it does not load
 // Code.php or its materialization graph transitively.
 require_once __DIR__ . '/CodeConfigGrammar.php';
-// DUO-3348 slice 27: pure manifest export projection, required here so the
+// issue #3348 slice 27: pure manifest export projection, required here so the
 // stable Policy::export_manifest() facade remains independently loadable.
 require_once __DIR__ . '/PolicyWriter.php';
-// DUO-3348 slice 28: shared per-manifest validation orchestration, required
+// issue #3348 slice 28: shared per-manifest validation orchestration, required
 // here so the live and frozen loaders retain one grammar pipeline.
 require_once __DIR__ . '/ManifestValidator.php';
-// DUO-3348 slice 29: the site.duo.json policy envelope has one shared
+// issue #3348 slice 29: the site.wprism.json policy envelope has one shared
 // validation sequence for live and frozen loaders, required here so both
 // entry points retain the same standalone load graph and refusal order.
 require_once __DIR__ . '/SitePolicyValidator.php';
@@ -140,32 +140,32 @@ require_once __DIR__ . '/VersionEvidenceGrammar.php';
 // displaced_adapter_claims() reports. Required directly for the same
 // self-satisfied-references reason VersionEvidenceGrammar is.
 require_once __DIR__ . '/AdapterClaimResolutions.php';
-// DUO-3348 slice 36: live and frozen loads share one post-local-load
+// issue #3348 slice 36: live and frozen loads share one post-local-load
 // validation/pin-binding sequence, so keep its refusal order in one place.
 require_once __DIR__ . '/PolicyLoadFinalizer.php';
-// DUO-3348 slice 37: pure dynamic-option declaration resolution is separate
+// issue #3348 slice 37: pure dynamic-option declaration resolution is separate
 // from Policy's public compatibility/query surface and caller-owned live values.
 require_once __DIR__ . '/../Grammar/DynamicOptionResolver.php';
-// DUO-3348 slice 47: taxonomy-pattern declaration normalization and concrete
+// issue #3348 slice 47: taxonomy-pattern declaration normalization and concrete
 // matching are pure manifest work; Policy retains the live taxonomy discovery
 // query and the public compatibility facades below.
 require_once __DIR__ . '/../Grammar/TaxonomyPatternResolver.php';
-// DUO-3348 slice 48: taxonomy relationship-keyspace resolution consumes only
+// issue #3348 slice 48: taxonomy relationship-keyspace resolution consumes only
 // exact declarations and the pure taxonomy-pattern contract, never live DB state.
 require_once __DIR__ . '/../Grammar/TaxonomyKeyspaceResolver.php';
-// DUO-3348 slice 49: description-reference lookup is pure manifest grammar;
+// issue #3348 slice 49: description-reference lookup is pure manifest grammar;
 // Policy retains public facades so every current runtime caller stays stable.
 require_once __DIR__ . '/../Grammar/TaxonomyDescriptionReferenceResolver.php';
-// DUO-3348 slice 51: option-derived taxonomy object-type declarations are
+// issue #3348 slice 51: option-derived taxonomy object-type declarations are
 // pure manifest lookups; Apply retains the compiled-tree timing behavior.
 require_once __DIR__ . '/../Grammar/TaxonomyObjectTypeOptionResolver.php';
-// DUO-3348 slice 45: pure option-name reference declaration resolution is
+// issue #3348 slice 45: pure option-name reference declaration resolution is
 // separate from Policy's public compatibility/query surface and live callers.
 require_once __DIR__ . '/../Grammar/OptionNameReferenceResolver.php';
-// DUO-3348 slice 46: pure deletion-capability declaration resolution is
+// issue #3348 slice 46: pure deletion-capability declaration resolution is
 // separate from Policy's public compatibility/query surface and live callers.
 require_once __DIR__ . '/DeletionCapabilityResolver.php';
-// DUO-3348 slice 40: manifest-declared post-type relationship queries are
+// issue #3348 slice 40: manifest-declared post-type relationship queries are
 // pure and reusable by scope/planning without broadening their authority.
 require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';
 
@@ -176,7 +176,7 @@ require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';
  */
 final class Policy {
     private const DEPLOYED_ADAPTER_LIBRARY_MARKER = 'adapter-library.deployed';
-    private const DEPLOYED_ADAPTER_LIBRARY_MARKER_BYTES = "duo-embedded-adapter-library-assembly/v1\n";
+    private const DEPLOYED_ADAPTER_LIBRARY_MARKER_BYTES = "wprism-embedded-adapter-library-assembly/v1\n";
 
     private const MAX_DISCOVERED_TAXONOMIES = 4096;
     private const MAX_NATIVE_OPTION_COMPANIONS = 8;
@@ -190,7 +190,7 @@ final class Policy {
      * names the coordinate so one message serves every caller: this
      * project's own discovery-contract keyspace versioning, the plugin/theme
      * adapter version_range contract, and (via ActionProviderGrammar, a
-     * DUO-3348 slice 6 extraction) the provider `requires` grammar's three
+     * issue #3348 slice 6 extraction) the provider `requires` grammar's three
      * separate version bounds all call this same one implementation.
      *
      * @param array<string,mixed> $range
@@ -201,14 +201,14 @@ final class Policy {
         if (!is_string($min) || $min === '' || !is_string($max) || $max === ''
             || version_compare($min, $max, '>=')) {
             throw new \RuntimeException(
-                "duo: $where has a malformed range (min=" . var_export($min, true)
+                "wprism: $where has a malformed range (min=" . var_export($min, true)
                 . ', max=' . var_export($max, true) . ') — both must be non-empty version strings '
                 . 'with min strictly less than max; wildcards/empty/unbounded are not certifiable'
             );
         }
     }
 
-    // v4 adds the required `adapter_sources` record (DUO-3314). It is required
+    // v4 adds the required `adapter_sources` record (issue #3314). It is required
     // rather than optional on purpose: if a snapshot could omit it and have
     // every manifest default to "shipped", dropping one key would silently
     // launder an out-of-tree adapter into a shipped one on the verification
@@ -226,16 +226,16 @@ final class Policy {
     // (55538ad) through the last v5 commit — so v6's closed key set already
     // refused every genuine v4 document before the format was even consulted.
     // What the read path still accepted was a five-key shape nothing ever
-    // wrote, and it accepted it onto the FAIL-OPEN duo-adapter-sources/v1
+    // wrote, and it accepted it onto the FAIL-OPEN wprism-adapter-sources/v1
     // record, where a name absent from `out_of_tree` took shipped authority
     // with no proof against the trusted library. Verifying nothing, reachable
     // only by hand-built input, and weaker than the wire it shadowed: refusing
     // it by name is the honest answer.
-    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v6';
+    private const SNAPSHOT_FORMAT = 'wprism-policy-snapshot/v6';
     /**
      * The exact canonical-surface literal grammar. Apply derives these keys
      * from authored work as a pure projection (Apply::rebuild_surfaces()) and
-     * manifests match them literally in `actions[].triggers`; DUO-3338's
+     * manifests match them literally in `actions[].triggers`; issue #3338's
      * provider capabilities describe their own reads/writes in the same
      * vocabulary, so it is a shared constant rather than two regexes that can
      * drift into accepting different names for the same surface.
@@ -247,13 +247,13 @@ final class Policy {
     public array $manifests = [];
     /** External review state; null only for explicit legacy/custom flat libraries without reviewed data. */
     private ?ManifestDispositions $manifestDispositions = null;
-    /** Which source installed each pinned adapter, and what that origin may do (DUO-3314). */
+    /** Which source installed each pinned adapter, and what that origin may do (issue #3314). */
     private ?AdapterSources $adapterSources = null;
     /** The shipped library whose package paths this policy executes and hashes. */
     private ?AdapterLibrary $adapterLibrary = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
-    /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
+    /** @var array<string, object>|null lazily-built regenerator instances (issue #3234) */
     private ?array $regeneratorInstances = null;
 
     /**
@@ -271,14 +271,14 @@ final class Policy {
      * retained value/autoload to the prior record hash and apply never
      * treats it as desired data. Manifests opt in via
      * {"interpreter": "<name>"} — for schema-driven plugins (ACF) whose meta
-     * semantics live in data, not in a static key list. option_rule() (DUO-3263)
+     * semantics live in data, not in a static key list. option_rule() (issue #3263)
      * is consulted only for an option NAME already namespace-owned by some
      * manifest's option_namespaces declaration — unlike the meta hooks, an
      * interpreter has no implicit reach over every option in the table.
      *
      * Interpreter CODE is part of the adapter package, never the engine:
      * a declared name resolves through that package's closed runtime inventory,
-     * which must define \Duo\Interpreters\<CamelCase(name)>. The engine holds
+     * which must define \WPrism\Interpreters\<CamelCase(name)>. The engine holds
      * only this loading contract — no plugin names, no plugin logic. Trust
      * boundary: the embedded adapter library ships with the agent itself (ro
      * in the sandbox), so loading PHP from it is
@@ -298,16 +298,16 @@ final class Policy {
             if (is_link($marker)
                 || !is_file($marker)
                 || file_get_contents($marker) !== self::DEPLOYED_ADAPTER_LIBRARY_MARKER_BYTES) {
-                throw new \RuntimeException("duo: deployed adapter library marker is invalid: $marker");
+                throw new \RuntimeException("wprism: deployed adapter library marker is invalid: $marker");
             }
             return AdapterLibrary::fromEmbeddedDirectory(
                 $embedded,
-                dirname($agentRoot) . '/duo-control/adapter-revocations.json'
+                dirname($agentRoot) . '/wprism-control/adapter-revocations.json'
             );
         }
         if (file_exists($embedded) || is_link($embedded)) {
             throw new \RuntimeException(
-                "duo: embedded adapter library exists without its deployment marker: $embedded"
+                "wprism: embedded adapter library exists without its deployment marker: $embedded"
             );
         }
 
@@ -321,7 +321,7 @@ final class Policy {
         // refusal instead of searching a neighboring or process-selected tree.
         return AdapterLibrary::fromEmbeddedDirectory(
             $embedded,
-            dirname($agentRoot) . '/duo-control/adapter-revocations.json'
+            dirname($agentRoot) . '/wprism-control/adapter-revocations.json'
         );
     }
 
@@ -353,7 +353,7 @@ final class Policy {
         $package = $this->adapter_library()->package($name);
         if ($package === null) {
             throw new \RuntimeException(
-                "duo: shipped adapter package '$name' is absent from " . $this->adapter_library()->root()
+                "wprism: shipped adapter package '$name' is absent from " . $this->adapter_library()->root()
             );
         }
         return $package;
@@ -366,10 +366,10 @@ final class Policy {
         $package = $this->adapter_package($manifest);
         return match ($kind) {
             'interpreters' => $package->interpreterPath()
-                ?? throw new \RuntimeException("duo: adapter $manifest does not declare interpreter $id"),
+                ?? throw new \RuntimeException("wprism: adapter $manifest does not declare interpreter $id"),
             'providers' => $package->providerPath($id),
             'regenerators' => $package->regeneratorPath($id),
-            default => throw new \RuntimeException("duo: unknown adapter runtime kind '$kind'"),
+            default => throw new \RuntimeException("wprism: unknown adapter runtime kind '$kind'"),
         };
     }
 
@@ -440,7 +440,7 @@ final class Policy {
     }
 
     /**
-     * "This directory is not a duo repository" is the first thing an
+     * "This directory is not a wprism repository" is the first thing an
      * orchestrator meets on a mistyped --repo, and it was a bare
      * \RuntimeException: `Cli::halt_json_failure()` classified it through its
      * catch-all (agent/src/Command/Cli.php:83-98), so `--format=json` returned
@@ -463,10 +463,10 @@ final class Policy {
     private static function repository_missing(string $siteFile): CommandRefusalException {
         return new CommandRefusalException(
             'repository_missing',
-            'the given repository path is not a duo site repository: it has no site.duo.json',
-            'point --repo at an initialized duo site repository, or run duo init against that directory first',
+            'the given repository path is not a wprism site repository: it has no site.wprism.json',
+            'point --repo at an initialized wprism site repository, or run wprism init against that directory first',
             [],
-            "duo: $siteFile not found (not a duo site repo?)"
+            "wprism: $siteFile not found (not a wprism site repo?)"
         );
     }
 
@@ -577,14 +577,14 @@ final class Policy {
         $p = new self();
         $p->adapterLibrary = $selectedLibrary;
         if ($repo !== null) {
-            $siteFile = rtrim($repo, '/') . '/site.duo.json';
+            $siteFile = rtrim($repo, '/') . '/site.wprism.json';
             if (!is_file($siteFile)) {
                 throw self::repository_missing($siteFile);
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
             SitePolicyValidator::validate(
                 $p->site,
-                'site.duo.json',
+                'site.wprism.json',
                 self::CLASSES,
                 self::MISSING_USER_MODES
             );
@@ -598,14 +598,14 @@ final class Policy {
         // assembling a logically inconsistent resolution array.
         if ($library !== null && $library['dir'] !== $dir) {
             throw new \RuntimeException(
-                'duo: a resolved adapter library was offered for a different manifest directory than the one this '
+                'wprism: a resolved adapter library was offered for a different manifest directory than the one this '
                 . 'process now loads from'
             );
         }
-        // DUO-3314: every installed source is scanned, and ambiguous identity or
+        // issue #3314: every installed source is scanned, and ambiguous identity or
         // shadowing refused, before the first pin resolves — a broken adapter
         // installation must not wait for a pin to reveal itself.
-        // Init needs source-aware validation before site.duo.json exists. Its
+        // Init needs source-aware validation before site.wprism.json exists. Its
         // fourth argument supplies only the repository-owned adapter source;
         // ordinary loads continue to derive both config and source from $repo.
         //
@@ -641,7 +641,7 @@ final class Policy {
             $manifest = Canon::decode(Canon::read_file(
                 $p->adapterSources->file($key, $p->adapterLibrary ?? $dir)
             ));
-            // DUO-3371: the earliest point on the live load path where a
+            // issue #3371: the earliest point on the live load path where a
             // manifest's FILE name and its DECLARED name are both in hand, and
             // therefore the only place one identity can be enforced for both
             // keyings. The pin and the file key off the file name;
@@ -655,11 +655,11 @@ final class Policy {
             // answering to two keys. from_snapshot() has always refused the
             // same disagreement against the frozen pin; this is the
             // live path's half of that, and AdapterSources owns the sentence so
-            // the site source (DUO-3314) and the shipped source say it once.
+            // the site source (issue #3314) and the shipped source say it once.
             //
-            // DUO-3339/B2: for the PLUGIN source this is a TAUTOLOGY, and
+            // issue #3339/B2: for the PLUGIN source this is a TAUTOLOGY, and
             // deliberately kept. Identity inverts there — every bundle is
-            // named `duo-adapter.json`, so the file name carries none and the
+            // named `wprism-adapter.json`, so the file name carries none and the
             // scan keys the origin off the DECLARED name — which makes
             // $key === $manifest['name'] true by construction. It stays
             // because it is only true by construction while that remains how
@@ -732,10 +732,10 @@ final class Policy {
         // carries the retired `capabilities` key, so the closed key set would
         // otherwise answer an operator holding a real pre-v5 snapshot with the
         // generic "malformed shape" and never tell them the format is why.
-        if ($snapshotFormat === 'duo-policy-snapshot/v4') {
+        if ($snapshotFormat === 'wprism-policy-snapshot/v4') {
             throw new \RuntimeException(
-                'duo: frozen policy snapshot format duo-policy-snapshot/v4 is retired and is no longer read; '
-                . 'its duo-adapter-sources/v1 record let a manifest absent from `out_of_tree` take shipped '
+                'wprism: frozen policy snapshot format wprism-policy-snapshot/v4 is retired and is no longer read; '
+                . 'its wprism-adapter-sources/v1 record let a manifest absent from `out_of_tree` take shipped '
                 . 'authority without proving its bytes against the trusted library, which '
                 . self::SNAPSHOT_FORMAT . ' refuses — re-export the policy with this agent'
             );
@@ -746,11 +746,11 @@ final class Policy {
             || !is_array($snapshot['site'] ?? null)
             || !is_array($snapshot['manifests'] ?? null)
             || !array_is_list($snapshot['manifests'])) {
-            throw new \RuntimeException('duo: frozen policy snapshot has an unsupported or malformed shape');
+            throw new \RuntimeException('wprism: frozen policy snapshot has an unsupported or malformed shape');
         }
         if (($snapshot['adapter_sources']['format'] ?? null) !== AdapterSources::FORMAT) {
             throw new \RuntimeException(
-                'duo: frozen policy snapshot format disagrees with its adapter source record format'
+                'wprism: frozen policy snapshot format disagrees with its adapter source record format'
             );
         }
 
@@ -759,7 +759,7 @@ final class Policy {
         $p->site = $snapshot['site'];
         SitePolicyValidator::validate(
             $p->site,
-            'frozen site.duo.json',
+            'frozen site.wprism.json',
             self::CLASSES,
             self::MISSING_USER_MODES
         );
@@ -767,15 +767,15 @@ final class Policy {
 
         $pins = PinResolver::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
         if (count($pins) !== count($snapshot['manifests'])) {
-            throw new \RuntimeException('duo: frozen policy snapshot manifest count disagrees with site pins');
+            throw new \RuntimeException('wprism: frozen policy snapshot manifest count disagrees with site pins');
         }
         foreach ($snapshot['manifests'] as $i => $manifest) {
             if (!is_array($manifest) || array_is_list($manifest)) {
-                throw new \RuntimeException("duo: frozen policy snapshot manifests[$i] is not an object");
+                throw new \RuntimeException("wprism: frozen policy snapshot manifests[$i] is not an object");
             }
             $name = (string) ($manifest['name'] ?? '');
             if ($name === '' || !hash_equals((string) $pins[$i]['name'], $name)) {
-                throw new \RuntimeException("duo: frozen policy snapshot manifest order/name disagrees with site pin $i");
+                throw new \RuntimeException("wprism: frozen policy snapshot manifest order/name disagrees with site pin $i");
             }
             ManifestValidator::validate_manifest(
                 $manifest,
@@ -786,11 +786,11 @@ final class Policy {
             $p->manifests[] = $manifest;
         }
         // Provenance is reconstructed before the reviewed dispositions so both
-        // see the same shipped subset load() gave them (DUO-3314). Only the
+        // see the same shipped subset load() gave them (issue #3314). Only the
         // shipped subset is a reviewed claim: handing an out-of-tree manifest
         // to disposition validation would demand an entry that cannot exist,
         // so one site-installed adapter would refuse every unrelated shipped
-        // adapter along with itself — the exact failure DUO-3314 removes.
+        // adapter along with itself — the exact failure issue #3314 removes.
         $p->adapterSources = AdapterSources::from_snapshot(
             $snapshot['adapter_sources'],
             $p->manifests,
@@ -801,7 +801,7 @@ final class Policy {
         $dispositions = $snapshot['dispositions'] ?? null;
         if ($dispositions !== null) {
             if (!is_array($dispositions) || !class_exists(ManifestDispositions::class)) {
-                throw new \RuntimeException('duo: frozen policy snapshot disposition registry is unavailable or malformed');
+                throw new \RuntimeException('wprism: frozen policy snapshot disposition registry is unavailable or malformed');
             }
             $p->manifestDispositions = ManifestDispositions::from_snapshot($dispositions, $shipped);
         }
@@ -830,7 +830,7 @@ final class Policy {
      * binds its origin into the adapter digest exactly where a reviewed entry
      * would sit — and every shipped row keeps hashing the bytes it always did.
      *
-     * DUO-3348 slice 4: the implementation now lives in
+     * issue #3348 slice 4: the implementation now lives in
      * AdapterRegistry::manifest_disposition(); this method is a thin facade
      * kept so every existing caller needs no change.
      */
@@ -841,7 +841,7 @@ final class Policy {
     /**
      * The reviewed capability claim for one pinned adapter.
      *
-     * DUO-3348 slice 4: the implementation now lives in
+     * issue #3348 slice 4: the implementation now lives in
      * AdapterRegistry::capability_claim(); thin facade, as above.
      */
     public function capability_claim(string $name): ?array {
@@ -857,7 +857,7 @@ final class Policy {
      * Calling the global provider view here would turn an unrelated or empty
      * plan into a blocker for a declaration it cannot execute on that plan.
      *
-     * DUO-3348 slice 4: the implementation now lives in
+     * issue #3348 slice 4: the implementation now lives in
      * AdapterRegistry::certification_readiness_blockers(); thin facade, as
      * manifest_disposition() above.
      */
@@ -876,7 +876,7 @@ final class Policy {
      * certification_readiness_blockers() plus the selected-action method
      * below instead.
      *
-     * DUO-3348 slice 4: the implementation now lives in
+     * issue #3348 slice 4: the implementation now lives in
      * AdapterRegistry::adapter_readiness_blockers(); thin facade, as
      * manifest_disposition() above.
      */
@@ -896,7 +896,7 @@ final class Policy {
      * @param list<array<string,mixed>> $actions
      * @return list<array<string,mixed>>
      *
-     * DUO-3348 slice 4: the implementation now lives in
+     * issue #3348 slice 4: the implementation now lives in
      * AdapterRegistry::provider_readiness_blockers(); thin facade, as
      * manifest_disposition() above.
      */
@@ -907,7 +907,7 @@ final class Policy {
     /**
      * Resolve CLI capability output from the same manifests and external review bytes.
      *
-     * DUO-3348 slice 4: the implementation now lives in
+     * issue #3348 slice 4: the implementation now lives in
      * AdapterRegistry::capability_report(); thin facade, as
      * manifest_disposition() above.
      */
@@ -917,7 +917,7 @@ final class Policy {
 
     /**
      * Fresh per call, matching ConvergenceVerifier's identical relationship to
-     * Apply (DUO-3347): AdapterRegistry has no state of its own to lose between
+     * Apply (issue #3347): AdapterRegistry has no state of its own to lose between
      * calls (every field is set once at load()/from_snapshot() time and read
      * from here, never mutated), so constructing on demand needs no cache.
      */
@@ -934,7 +934,7 @@ final class Policy {
     /**
      * The repository-relative code lock path a format-2 declaration names, or
      * null for the fully vendored format-1 shape and for a state-only repo
-     * (DUO-3499). Read straight off the declaration so Policy keeps no code
+     * (issue #3499). Read straight off the declaration so Policy keeps no code
      * grammar of its own — CodeConfigGrammar already refused anything else at
      * load time.
      */
@@ -1017,10 +1017,10 @@ final class Policy {
             return null;
         }
         $details = $this->option_rule_details($name);
-        if ($details['rule'] !== null && $details['source'] !== 'site.duo.json'
+        if ($details['rule'] !== null && $details['source'] !== 'site.wprism.json'
             && $details['source'] !== $owner['owner']) {
             throw new \RuntimeException(
-                "duo: option '$name' namespace is owned by '{$owner['owner']}' but its classification comes from "
+                "wprism: option '$name' namespace is owned by '{$owner['owner']}' but its classification comes from "
                 . "'{$details['source']}' — cross-manifest ownership is ambiguous"
             );
         }
@@ -1084,7 +1084,7 @@ final class Policy {
      * and deliberately a separate accessor rather than a filter argument on
      * them: bulk CAPTURE asks "is this name in the whitelist", which is a
      * class question, while bulk VISIBILITY asks "does any rule win for this
-     * name at all", which is not. DUO-3505: Coverage::options_report()
+     * name at all", which is not. issue #3505: Coverage::options_report()
      * answered the second question with the first question's enumerators, so
      * a name an adapter declares env/runtime/derived was reported "invisible
      * to every installed adapter" — 10 of the 19 option names
@@ -1101,7 +1101,7 @@ final class Policy {
     /**
      * Option names classified authored (the capture whitelist).
      *
-     * DUO-3255: ExactOptionResolver is the single precedence path for this
+     * issue #3255: ExactOptionResolver is the single precedence path for this
      * and the env/sub-key bulk enumerators. It delegates every name to
      * PolicyRuleResolver, so bulk lookup can never silently use a different
      * pin winner than the per-name capture/apply path. Policy::load() has
@@ -1114,7 +1114,7 @@ final class Policy {
     }
 
     /**
-     * Options declaring `sub_keys` (DUO-3233): name => full rule (including
+     * Options declaring `sub_keys` (issue #3233): name => full rule (including
      * the `sub_keys` map). Sibling enumeration to authored_options() above,
      * same merge precedence (site policy replaces a manifest's whole rule
      * wholesale, never a deep merge — a site overriding options.<name> is
@@ -1135,7 +1135,7 @@ final class Policy {
      * that capability — a NAMED sub-key of one option blob captured/
      * excluded independently, with apply-side merge into the live blob
      * (Apply::apply_option_sub_keys()) so the undeclared remainder is never
-     * clobbered. DUO-3211's review comment asked for exactly this: "'exact'
+     * clobbered. issue #3211's review comment asked for exactly this: "'exact'
      * [option] reconciliation should be written so per-key ownership can
      * later narrow to sub-key ownership without another format change" —
      * `sub_keys` on an ordinary options.<name> rule IS that narrowing, not
@@ -1148,7 +1148,7 @@ final class Policy {
     }
 
     /**
-     * DUO-3264 (owner ruling, fork A, issue comment 9fd882a6): "a manifest-
+     * issue #3264 (owner ruling, fork A, issue comment 9fd882a6): "a manifest-
      * level dynamic-name resolution primitive... one new primitive, reusable
      * for any future active-theme-bound option, instead of a second bespoke
      * path beside nav_menu_locations." theme_mods_<stylesheet> is the proven
@@ -1212,7 +1212,7 @@ final class Policy {
      * but is NOT the one name resolve_dynamic_option() would currently
      * produce for that same entry — a theme_mods_* row for a theme that
      * used to be active, kept by WordPress itself so nothing is lost if the
-     * site switches back (confirmed empirically, DUO-3264: this is the same
+     * site switches back (confirmed empirically, issue #3264: this is the same
      * shape of residue as the nested sidebars_widgets/wp_classic_sidebars
      * theme-switch bookkeeping already excluded in
      * `platform/adapter-library/core/manifest.json`'s own note).
@@ -1237,7 +1237,7 @@ final class Policy {
      * currently-resolved row (residue; see is_dynamic_option_residue() —
      * never guessed at, never silently applied to the wrong theme's own
      * row). Safe to require an exact match here specifically because
-     * Apply::apply()'s own theme-mismatch refuse-gate (DUO-3216) already
+     * Apply::apply()'s own theme-mismatch refuse-gate (issue #3216) already
      * guarantees the target's active theme matches what was captured by
      * the time this method is ever reached (the identical invariant
      * assign_locations()/nav_menu_locations already depends on) — this is
@@ -1257,12 +1257,12 @@ final class Policy {
      * instead — deliberately LOOSER than dynamic_option_rule_for_name()
      * above: matches $name against a declared prefix alone, independent of
      * which theme is active on THIS environment right now. Authorization
-     * runs as part of RepositoryCompiler::compile(), which BOTH `wp duo
-     * deploy` and `wp duo apply` go through — including deploy itself, the
-     * command that reconciles a theme mismatch in the first place (DUO-3216).
+     * runs as part of RepositoryCompiler::compile(), which BOTH `wp wprism
+     * deploy` and `wp wprism apply` go through — including deploy itself, the
+     * command that reconciles a theme mismatch in the first place (issue #3216).
      * Requiring an exact match here would make deploy unable to compile the
      * very repository it needs to read to know which theme to switch to, a
-     * genuine circular dependency (caught live, not by inspection: `wp duo
+     * genuine circular dependency (caught live, not by inspection: `wp wprism
      * deploy` itself refused with 'theme_mods_<captured-theme>' unclassified
      * while the target was still on its PREVIOUS theme). Authorization's own
      * checks (declared sub_keys class, autoload) are already theme-agnostic
@@ -1270,7 +1270,7 @@ final class Policy {
      * environment — so this method never needed the exact-match constraint
      * dynamic_option_rule_for_name() correctly enforces for the different
      * question (never write to the wrong theme's own row), which only
-     * matters once actual mutation is about to happen, well after DUO-3216's
+     * matters once actual mutation is about to happen, well after issue #3216's
      * own refuse-gate has already run.
      *
      * @return ?array{class:string, sub_keys:array<string,array>, autoload:?string}
@@ -1308,7 +1308,7 @@ final class Policy {
     }
 
     /**
-     * Thin compatibility facades over ManifestGrammar (DUO-3348 first
+     * Thin compatibility facades over ManifestGrammar (issue #3348 first
      * extraction slice — the pure table/widget declaration grammar). Kept so
      * existing external callers (Snapshot.php's live schema re-checks) need
      * no change while this decomposition proceeds; Policy's own internal
@@ -1415,10 +1415,10 @@ final class Policy {
     }
 
     /**
-     * `shortcode_attrs` (DUO-3259): the shortcode twin of `block_attrs()`
+     * `shortcode_attrs` (issue #3259): the shortcode twin of `block_attrs()`
      * above, same precedence (last pin wins per tag name, a structural
      * fact about a shortcode's own attribute grammar, not a site-local
-     * policy choice — no site.duo.json override, mirroring block_attrs'
+     * policy choice — no site.wprism.json override, mirroring block_attrs'
      * own reasoning exactly), but a flatter rule shape: tagName => list of
      * named path rules or closed positional/alternate lookup rules. Ordinary
      * named refs use {path, kind, cast?} — no `type`, unlike block_attrs — a
@@ -1456,9 +1456,9 @@ final class Policy {
      * Manifest-only structural fact about the taxonomy's OWN data shape
      * (like block_attrs is a structural fact about a block type's shape),
      * not a site-local policy choice, so
-     * — unlike options/post_meta/term_meta — there is no site.duo.json
+     * — unlike options/post_meta/term_meta — there is no site.wprism.json
      * policy override. This also sidesteps a real naming collision:
-     * site.duo.json's policy.taxonomies is already the flat taxonomy-scope
+     * site.wprism.json's policy.taxonomies is already the flat taxonomy-scope
      * LIST (Policy::taxonomies() below); reusing that key for a name-keyed
      * rule map would silently shadow it instead of erroring, since PHP's
      * array access on a list by an unknown string key just returns null.
@@ -1507,7 +1507,7 @@ final class Policy {
             if (!is_array($rule) || array_is_list($rule)
                 || array_keys($rule) !== ['lint_ok'] || $rule['lint_ok'] !== true) {
                 throw new \RuntimeException(
-                    "duo: interpreter '$name' taxonomy_description_lint_rule() must return null "
+                    "wprism: interpreter '$name' taxonomy_description_lint_rule() must return null "
                     . "or exactly ['lint_ok' => true]"
                 );
             }
@@ -1532,7 +1532,7 @@ final class Policy {
      * of whether the relationship rows themselves belong to posts or terms:
      * plugins may use arbitrary object-type strings, and an engine sentinel
      * such as literal `term` would make that plugin implementation detail a
-     * hidden part of Duo's wire contract.
+     * hidden part of WPrism's wire contract.
      *
      * A manifest can therefore declare `object_keyspace: "post"|"term"`
      * under an exact `taxonomies.<name>` rule or a matching
@@ -1558,7 +1558,7 @@ final class Policy {
     }
 
     /**
-     * `taxonomies.<tax>.object_type_from_option` (DUO-3280): declares that
+     * `taxonomies.<tax>.object_type_from_option` (issue #3280): declares that
      * $tax's registered object_type is additionally, DYNAMICALLY driven by
      * sub_keys-declared option values. The original object form names one
      * array of object-type slugs; a declaration list can also name a boolean
@@ -1764,7 +1764,7 @@ final class Policy {
     }
 
     /**
-     * The full in-scope taxonomy list: site.duo.json's exact
+     * The full in-scope taxonomy list: site.wprism.json's exact
      * `policy.taxonomies` PLUS every taxonomy name actually present in
      * wp_term_taxonomy that matches a manifest's taxonomy_patterns regex
      * (WooCommerce's pa_* — task #92). Empirically confirmed live (not
@@ -1826,10 +1826,10 @@ final class Policy {
         if (!is_array($liveRows)
             || !array_is_list($liveRows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: taxonomy-pattern scope discovery read failed');
+            throw new \RuntimeException('wprism: taxonomy-pattern scope discovery read failed');
         }
         if (count($liveRows) > self::MAX_DISCOVERED_TAXONOMIES) {
-            throw new \RuntimeException('duo: taxonomy-pattern scope discovery exceeds the bounded taxonomy limit');
+            throw new \RuntimeException('wprism: taxonomy-pattern scope discovery exceeds the bounded taxonomy limit');
         }
         $live = [];
         foreach ($liveRows as $position => $row) {
@@ -1838,7 +1838,7 @@ final class Policy {
                 || preg_match('/^[a-z0-9_-]{1,32}$/D', $tax) !== 1
                 || isset($live[$tax])) {
                 throw new \RuntimeException(
-                    "duo: taxonomy-pattern scope discovery returned a malformed/duplicate row at position $position"
+                    "wprism: taxonomy-pattern scope discovery returned a malformed/duplicate row at position $position"
                 );
             }
             $live[$tax] = $tax;
@@ -1954,7 +1954,7 @@ final class Policy {
      * Resolve every declared interpreter name to a loaded, instantiated class.
      *
      * Public for the same reason regenerators() below is: a second caller
-     * outside this class needs it. `duo manifest-validate` (DUO-3327) calls it
+     * outside this class needs it. `wprism manifest-validate` (issue #3327) calls it
      * immediately after each successful load, because a manifest naming an
      * interpreter file that does not exist — or a file that does not define the
      * contract class — is a manifest that is wrong offline, and leaving that
@@ -1976,20 +1976,20 @@ final class Policy {
                 continue;
             }
             if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
-                throw new \RuntimeException("duo: manifest '{$m['name']}' declares invalid interpreter name '$name'");
+                throw new \RuntimeException("wprism: manifest '{$m['name']}' declares invalid interpreter name '$name'");
             }
             $file = $this->adapter_runtime_path((string) $m['name'], 'interpreters', $name);
             if (!is_file($file)) {
                 throw new \RuntimeException(
-                    "duo: manifest '{$m['name']}' wants interpreter '$name' but $file is missing — "
+                    "wprism: manifest '{$m['name']}' wants interpreter '$name' but $file is missing — "
                     . 'interpreter code ships with its manifest, not the engine'
                 );
             }
             require_once $file;
-            $class = '\\Duo\\Interpreters\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
+            $class = '\\WPrism\\Interpreters\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
             if (!class_exists($class) || !method_exists($class, 'post_meta_rule')) {
                 throw new \RuntimeException(
-                    "duo: interpreter file $file must define $class with post_meta_rule(string, array): ?array"
+                    "wprism: interpreter file $file must define $class with post_meta_rule(string, array): ?array"
                 );
             }
             $this->interpreterInstances[$name] = new $class($this);
@@ -1998,7 +1998,7 @@ final class Policy {
     }
 
     /**
-     * DUO-3234 regenerator loading — the exact same trust boundary and
+     * issue #3234 regenerator loading — the exact same trust boundary and
      * validate/load/instantiate shape as interpreters() above (same
      * rationale: manifest-shipped PHP, engine holds only the loading
      * contract, never plugin-specific logic), deliberately mirrored rather
@@ -2012,7 +2012,7 @@ final class Policy {
      * short, independently-readable methods.
      *
      * A declared name resolves through its adapter package's regenerator inventory,
-     * which must define \Duo\Regenerators\<CamelCase(name)> with
+     * which must define \WPrism\Regenerators\<CamelCase(name)> with
      * regenerate(int $localId): void. Any exception it throws is the
      * caller's (Apply::regen_dependencies()) hard-failure signal — there is
      * no success/failure return-value protocol, matching interpreters' own
@@ -2020,7 +2020,7 @@ final class Policy {
      *
      * Public, like interpreters() above, and for the same reason: the callers
      * are in other classes — Apply::regen_dependencies() drives it live, and
-     * `duo manifest-validate` resolves it offline so a declared-but-missing
+     * `wprism manifest-validate` resolves it offline so a declared-but-missing
      * regenerator file is refused by the authoring check rather than by the
      * first apply that needs it.
      *
@@ -2039,21 +2039,21 @@ final class Policy {
                 }
                 if (!preg_match('/^[a-z0-9_-]+$/', $name)) {
                     throw new \RuntimeException(
-                        "duo: manifest '{$m['name']}' post_types.$postType declares invalid regenerator name '$name'"
+                        "wprism: manifest '{$m['name']}' post_types.$postType declares invalid regenerator name '$name'"
                     );
                 }
                 $file = $this->adapter_runtime_path((string) $m['name'], 'regenerators', $name);
                 if (!is_file($file)) {
                     throw new \RuntimeException(
-                        "duo: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $file is missing — "
+                        "wprism: manifest '{$m['name']}' post_types.$postType wants regenerator '$name' but $file is missing — "
                         . 'regenerator code ships with its manifest, not the engine'
                     );
                 }
                 require_once $file;
-                $class = '\\Duo\\Regenerators\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
+                $class = '\\WPrism\\Regenerators\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $name)));
                 if (!class_exists($class) || !method_exists($class, 'regenerate')) {
                     throw new \RuntimeException(
-                        "duo: regenerator file $file must define $class with regenerate(int \$localId): void"
+                        "wprism: regenerator file $file must define $class with regenerate(int \$localId): void"
                     );
                 }
                 $this->regeneratorInstances[$name] = new $class($this);
@@ -2086,7 +2086,7 @@ final class Policy {
     }
 
     /**
-     * DUO-3263: a third optional interpreter hook, same contract shape as
+     * issue #3263: a third optional interpreter hook, same contract shape as
      * term/user above, for options whose NAME a manifest's option_namespaces
      * claims but whose per-name classification can't be a static exact/
      * pattern rule (ACF options-page fields: arbitrary field names, ref kind
@@ -2116,7 +2116,7 @@ final class Policy {
     }
 
     /**
-     * Interpreter-aware sibling of owned_option_rule() (DUO-3263): same
+     * Interpreter-aware sibling of owned_option_rule() (issue #3263): same
      * namespace-ownership gate and cross-manifest-ambiguity check, but
      * consulting a declared interpreter's option_rule() before the static
      * options rule. A separate method rather than changing owned_option_rule()
@@ -2131,11 +2131,11 @@ final class Policy {
             return null;
         }
         $details = $this->option_rule_details_for_option($name, $allOptions);
-        if ($details['rule'] !== null && $details['source'] !== 'site.duo.json'
+        if ($details['rule'] !== null && $details['source'] !== 'site.wprism.json'
             && $details['source'] !== $owner['owner']
             && !str_starts_with((string) $details['source'], $owner['owner'] . ' (interpreter')) {
             throw new \RuntimeException(
-                "duo: option '$name' namespace is owned by '{$owner['owner']}' but its classification comes from "
+                "wprism: option '$name' namespace is owned by '{$owner['owner']}' but its classification comes from "
                 . "'{$details['source']}' — cross-manifest ownership is ambiguous"
             );
         }
@@ -2184,23 +2184,23 @@ final class Policy {
             $finalizeStorage,
             $restoreStorage,
             $registerRuntimeRestore ?? static function (): void {
-                throw new \RuntimeException('duo: native option runtime restoration registrar is unavailable');
+                throw new \RuntimeException('wprism: native option runtime restoration registrar is unavailable');
             },
             $writeStorage ?? static function (): void {
-                throw new \RuntimeException('duo: native option engine-owned storage writer is unavailable');
+                throw new \RuntimeException('wprism: native option engine-owned storage writer is unavailable');
             },
             $writeRuntimeOption ?? static function (): void {
-                throw new \RuntimeException('duo: native option runtime-companion writer is unavailable');
+                throw new \RuntimeException('wprism: native option runtime-companion writer is unavailable');
             }
         );
         if (!is_bool($handled)) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' materialize_option_sub_keys() must return a boolean"
+                "wprism: interpreter '{$candidate['interpreter_name']}' materialize_option_sub_keys() must return a boolean"
             );
         }
         if (!$handled) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' is the exact native materialization owner for "
+                "wprism: interpreter '{$candidate['interpreter_name']}' is the exact native materialization owner for "
                 . "option '$name' but returned false after dispatch; generic SQL fallback is forbidden"
             );
         }
@@ -2230,7 +2230,7 @@ final class Policy {
     ): array {
         if (!array_is_list($desiredAuthoredKeys)) {
             throw new \RuntimeException(
-                "duo: native materialization projection for option '$name' requires a desired authored-key list"
+                "wprism: native materialization projection for option '$name' requires a desired authored-key list"
             );
         }
         $desiredSeen = [];
@@ -2239,7 +2239,7 @@ final class Policy {
                 || isset($desiredSeen[$desiredKey])
                 || (($effectiveRule['sub_keys'][$desiredKey]['class'] ?? null) !== 'authored')) {
                 throw new \RuntimeException(
-                    "duo: native materialization projection for option '$name' received a malformed/"
+                    "wprism: native materialization projection for option '$name' received a malformed/"
                     . "non-authored desired key at position $position"
                 );
             }
@@ -2264,21 +2264,21 @@ final class Policy {
         );
         if (!is_array($projected) || ($projected !== [] && array_is_list($projected))) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
+                "wprism: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
                 . 'must return an object-shaped array'
             );
         }
         PlainData::assert($projected, "interpreter-projected materialized option '$name'");
         if (array_diff_key($projected, $rawAuthored) !== []) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
+                "wprism: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
                 . "must not add an authored key beyond raw finalized storage for option '$name'"
             );
         }
         foreach ($desiredAuthoredKeys as $desiredKey) {
             if (!array_key_exists($desiredKey, $projected)) {
                 throw new \RuntimeException(
-                    "duo: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
+                    "wprism: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
                     . "must retain every desired authored key for option '$name'"
                 );
             }
@@ -2313,20 +2313,20 @@ final class Policy {
         $companions = $candidate['interpreter']->option_sub_key_materialization_companions($name);
         if (!is_array($companions) || !array_is_list($companions)) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' option_sub_key_materialization_companions() "
+                "wprism: interpreter '{$candidate['interpreter_name']}' option_sub_key_materialization_companions() "
                 . 'must return a list'
             );
         }
         if (count($companions) > self::MAX_NATIVE_OPTION_COMPANIONS) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' returned too many native option companions"
+                "wprism: interpreter '{$candidate['interpreter_name']}' returned too many native option companions"
             );
         }
         $seen = [];
         foreach ($companions as $position => $companion) {
             if (!is_string($companion) || $companion === '' || isset($seen[$companion])) {
                 throw new \RuntimeException(
-                    "duo: interpreter '{$candidate['interpreter_name']}' returned a malformed/duplicate native "
+                    "wprism: interpreter '{$candidate['interpreter_name']}' returned a malformed/duplicate native "
                     . "option companion at position $position"
                 );
             }
@@ -2363,20 +2363,20 @@ final class Policy {
         $companions = $candidate['interpreter']->option_sub_key_materialization_runtime_companions($name);
         if (!is_array($companions) || !array_is_list($companions)) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' "
+                "wprism: interpreter '{$candidate['interpreter_name']}' "
                 . 'option_sub_key_materialization_runtime_companions() must return a list'
             );
         }
         if (count($companions) > self::MAX_NATIVE_OPTION_COMPANIONS) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' returned too many native option runtime companions"
+                "wprism: interpreter '{$candidate['interpreter_name']}' returned too many native option runtime companions"
             );
         }
         $seen = [];
         foreach ($companions as $position => $companion) {
             if (!is_string($companion) || $companion === '' || isset($seen[$companion])) {
                 throw new \RuntimeException(
-                    "duo: interpreter '{$candidate['interpreter_name']}' returned a malformed/duplicate native "
+                    "wprism: interpreter '{$candidate['interpreter_name']}' returned a malformed/duplicate native "
                     . "option runtime companion at position $position"
                 );
             }
@@ -2426,14 +2426,14 @@ final class Policy {
         );
         if (!is_array($normalized) || ($normalized !== [] && array_is_list($normalized))) {
             throw new \RuntimeException(
-                "duo: interpreter '{$candidate['interpreter_name']}' normalize_captured_option_sub_keys() "
+                "wprism: interpreter '{$candidate['interpreter_name']}' normalize_captured_option_sub_keys() "
                 . 'must return an object-shaped array'
             );
         }
         foreach (array_keys($rawAuthored) as $subKey) {
             if (!array_key_exists($subKey, $normalized)) {
                 throw new \RuntimeException(
-                    "duo: interpreter '{$candidate['interpreter_name']}' native capture normalization dropped "
+                    "wprism: interpreter '{$candidate['interpreter_name']}' native capture normalization dropped "
                     . "already-present authored option '$name.$subKey'"
                 );
             }
@@ -2442,7 +2442,7 @@ final class Policy {
         foreach ($normalized as $subKey => $value) {
             if (($subKeys[(string) $subKey]['class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: interpreter '{$candidate['interpreter_name']}' native capture normalization returned "
+                    "wprism: interpreter '{$candidate['interpreter_name']}' native capture normalization returned "
                     . "undeclared/non-authored option '$name.$subKey'"
                 );
             }
@@ -2474,13 +2474,13 @@ final class Policy {
             $declaredRule = self::with_option_autoload((array) $manifest['options'][$name], $manifest);
             if ($effectiveSource !== $manifestName || $declaredRule !== $effectiveRule) {
                 throw new \RuntimeException(
-                    "duo: interpreter '$interpreterName' $operation declaration for option '$name' is owned by "
+                    "wprism: interpreter '$interpreterName' $operation declaration for option '$name' is owned by "
                     . "manifest '$manifestName', but the full effective rule/provenance differs; refusing hook dispatch"
                 );
             }
             if (($effectiveRule['closed_sub_keys'] ?? null) !== true) {
                 throw new \RuntimeException(
-                    "duo: interpreter '$interpreterName' $operation declaration for option '$name' is not a "
+                    "wprism: interpreter '$interpreterName' $operation declaration for option '$name' is not a "
                     . 'closed_sub_keys registry; native hook dispatch is forbidden'
                 );
             }
@@ -2497,7 +2497,7 @@ final class Policy {
                 $candidates
             );
             throw new \RuntimeException(
-                "duo: option '$name' $operation has multiple exact manifest/interpreter owners: "
+                "wprism: option '$name' $operation has multiple exact manifest/interpreter owners: "
                 . implode(', ', $owners)
             );
         }
@@ -2505,7 +2505,7 @@ final class Policy {
     }
 
     /**
-     * Backward-compatible facade kept for callers introduced by DUO-3262.
+     * Backward-compatible facade kept for callers introduced by issue #3262.
      * Authored user meta is representable now, so classification itself is
      * no longer a blocker; Capture performs the value-level PII/secret and
      * shape checks while building the login-keyed sidecar.
@@ -2562,7 +2562,7 @@ final class Policy {
     }
 
     /**
-     * DUO-3263: option_rule() sibling of meta_rule_details_for_post() above,
+     * issue #3263: option_rule() sibling of meta_rule_details_for_post() above,
      * for the same "which interpreter/manifest actually decided this"
      * provenance RepositoryAuthorization/RepositoryCompiler need (they
      * report a mismatched source, not just a classification).
@@ -2629,7 +2629,7 @@ final class Policy {
                 $ownerNames = array_map(static fn(array $m): string => "'" . (string) ($m['name'] ?? '?') . "'", $owners);
                 sort($ownerNames, SORT_STRING);
                 throw new \RuntimeException(
-                    "duo: interpreter '$name' classified $section '$key' but its manifest owner is ambiguous: "
+                    "wprism: interpreter '$name' classified $section '$key' but its manifest owner is ambiguous: "
                     . implode(', ', $ownerNames)
                 );
             }
@@ -2660,7 +2660,7 @@ final class Policy {
         if (count($owners) > 1) {
             ksort($owners, SORT_STRING);
             throw new \RuntimeException(
-                "duo: $section '$key' has multiple classification owners: "
+                "wprism: $section '$key' has multiple classification owners: "
                 . implode(', ', array_values($owners))
                 . '; dynamic interpreter dispatch cannot resolve cross-manifest ownership'
             );
@@ -2732,7 +2732,7 @@ final class Policy {
             }
             foreach ((array) $i->repository_diagnostics($tree) as $d) {
                 if (!is_array($d)) {
-                    throw new \RuntimeException("duo: interpreter '$name' returned a non-array repository diagnostic");
+                    throw new \RuntimeException("wprism: interpreter '$name' returned a non-array repository diagnostic");
                 }
                 $d['adapter'] ??= $name;
                 $out[] = $d;
@@ -2745,7 +2745,7 @@ final class Policy {
     public function post_type_rule_details(string $postType): array {
         $site = $this->site['policy']['scope']['post_type'][$postType] ?? null;
         if (is_array($site)) {
-            return ['rule' => $site, 'source' => 'site.duo.json'];
+            return ['rule' => $site, 'source' => 'site.wprism.json'];
         }
         foreach ($this->manifests as $m) {
             if (isset($m['post_types'][$postType]['class'])) {
@@ -2765,7 +2765,7 @@ final class Policy {
     public function taxonomy_rule_details(string $taxonomy): array {
         $site = $this->site['policy']['scope']['taxonomy'][$taxonomy] ?? null;
         if (is_array($site)) {
-            return ['rule' => $site, 'source' => 'site.duo.json'];
+            return ['rule' => $site, 'source' => 'site.wprism.json'];
         }
         foreach ($this->manifests as $m) {
             if (isset($m['taxonomies'][$taxonomy])) {
@@ -2782,16 +2782,16 @@ final class Policy {
      * Which pinned ADAPTER declares a surface — provenance, deliberately
      * independent of which declaration won the classification above.
      *
-     * The two questions are different and DUO-3504 is the bill for having
+     * The two questions are different and issue #3504 is the bill for having
      * conflated them. `post_type_rule_details()`:1841-1843 returns
-     * `site.duo.json` the moment a site scope rule exists, which is correct
+     * `site.wprism.json` the moment a site scope rule exists, which is correct
      * and load-bearing (site policy always wins, and that source is compared
      * against namespace owners in `owned_option_rule()`:667-668). But
-     * DUO-3495 made `duo adapter certify --pin` write exactly such a rule for
+     * issue #3495 made `wprism adapter certify --pin` write exactly such a rule for
      * every type the adapter declares
      * (cli/src/Adapter/AdapterCertify.php:588-609), so a site that adopted a
      * certified adapter's CPT erased the adapter from
-     * `AssessInventory::declarant()` and `duo assess` printed
+     * `AssessInventory::declarant()` and `wprism assess` printed
      * "Platform-certified" for that adapter's own post type. Deciding a
      * type's CLASS does not un-declare the type.
      *
@@ -2838,7 +2838,7 @@ final class Policy {
     public function taxonomy_scope_details(string $taxonomy): array {
         if (in_array($taxonomy, $this->site['policy']['taxonomies'] ?? ['category', 'post_tag'], true)
             || (($this->site['policy']['scope']['taxonomy'][$taxonomy]['class'] ?? null) === 'authored')) {
-            return ['authorized' => true, 'source' => 'site.duo.json'];
+            return ['authorized' => true, 'source' => 'site.wprism.json'];
         }
         foreach ($this->manifests as $m) {
             foreach ($m['taxonomy_patterns'] ?? [] as $pat) {
@@ -2882,7 +2882,7 @@ final class Policy {
     }
 
     /**
-     * DUO-3234 — a post type's derived-table hard-dependency declaration, if
+     * issue #3234 — a post type's derived-table hard-dependency declaration, if
      * any: `{"regenerator": "<name>", "verify": {"table": "<t>", "column": "<c>"}}`.
      * v2 scope, stated loudly: post_types{}-keyed only (a per-post-type
      * property, matching the phase/fields precedents immediately above and
@@ -2996,7 +2996,7 @@ final class Policy {
      * self-healing precedent. Widening this list is a deliberate, separate
      * decision per field, not a mechanical extension of the mechanism.
      *
-     * A MAP, front-matter field => the wp_posts column it writes (DUO-3318).
+     * A MAP, front-matter field => the wp_posts column it writes (issue #3318).
      * Apply::finalize_post() has to drop the mapped COLUMN from its UPDATE
      * payload, and it used to carry its own independent copy of this
      * translation: widening the allowlist here without also widening that
@@ -3049,7 +3049,7 @@ final class Policy {
      * type behaves (a fact this manifest is asserting about WooCommerce's
      * own code), not a site-local policy choice. It also sidesteps the
      * same real naming collision body_mode()/post_type_phase() already
-     * avoid: site.duo.json's policy.post_types is already the flat SCOPE
+     * avoid: site.wprism.json's policy.post_types is already the flat SCOPE
      * LIST post_types() reads above — a site-policy override here would
      * need a different key or silently shadow that list.
      *
@@ -3080,7 +3080,7 @@ final class Policy {
     }
 
     /**
-     * v2-supported MENU FIELD classification surface (DUO-3272) — same
+     * v2-supported MENU FIELD classification surface (issue #3272) — same
      * purpose as DERIVABLE_FIELD_COLUMNS above (task #88), but for `menus/*.json`
      * entities: a field name must appear here before ANY manifest may
      * declare it under top-level `menu_fields.<field>` —
@@ -3093,7 +3093,7 @@ final class Policy {
      * 'authored', a manifest may only ever DECLARE 'derived' — no core
      * declaration exists to yield to, since every shipped user is a PLUGIN
      * manifest asserting a fact about its own post type). menu_fields
-     * needs the full DUO-3249 core-yields-to-plugin precedence instead:
+     * needs the full issue #3249 core-yields-to-plugin precedence instead:
      * `platform/adapter-library/core/manifest.json` declares 'locations'
      * authored as its v0 baseline (every
      * ordinary, non-Polylang site), and a pinned plugin manifest may
@@ -3109,7 +3109,7 @@ final class Policy {
     private const MENU_FIELD_CLASSES = ['authored', 'derived'];
 
     /**
-     * Menu-FIELD classification (DUO-3272). Proven case: Polylang's own
+     * Menu-FIELD classification (issue #3272). Proven case: Polylang's own
      * Languages::update_default() (wp-content/plugins/polylang/src/Model/
      * Languages.php:774) unconditionally rewrites
      * theme_mods_<stylesheet>['nav_menu_locations'] — the exact raw value
@@ -3120,20 +3120,20 @@ final class Policy {
      * arbitrarily" — an environment-dependent term-query-ordering pick
      * this engine does not control). Two environments processing the
      * identical captured state can end up with a DIFFERENT menu owning
-     * the same location, entirely outside Duo's own capture/apply cycle —
-     * DUO-3272's filed repro is 100% reproducible on demand: calling
+     * the same location, entirely outside WPrism's own capture/apply cycle —
+     * issue #3272's filed repro is 100% reproducible on demand: calling
      * update_default() with a different language flips which menu file's
      * `locations` holds a given slot, byte-for-byte matching the original
      * flake.
      *
      * Owner ruling (issue comment 8e0edde6): the raw slot is a PROJECTION
-     * of state Duo already carries losslessly elsewhere —
+     * of state WPrism already carries losslessly elsewhere —
      * `adapter-packages/polylang/package/manifest.json`'s own sub_keys
-     * mechanism (DUO-3233/task #121) already propagates both
+     * mechanism (issue #3233/task #121) already propagates both
      * `nav_menus` (which menu belongs at which location, PER LANGUAGE) and
      * `default_lang` inside the `polylang` option itself. So classifying
      * `locations` 'derived' under Polylang does not drop authored
-     * information — it stops Duo from ALSO separately carrying a value
+     * information — it stops WPrism from ALSO separately carrying a value
      * Polylang's own machinery treats as its mutable cache and rewrites at
      * will, which is exactly what made the flake possible. Default
      * 'authored' if nothing declares a rule at all (defensive fallback
@@ -3157,14 +3157,14 @@ final class Policy {
     /**
      * The pure-grammar half of ONE `widgets.<type>` declaration — the exact
      * mirror of assert_table_grammar() above, and for the same reason
-     * (DUO-3318 review, S4).
+     * (issue #3318 review, S4).
      *
      * This is the only implementation of these rules: ManifestGrammar's
      * aggregate validator runs it for every declared type at load, and
      * SidebarState::assert_policy() runs it again immediately before its own
      * genuinely-live work.
      *
-     * DUO-3348 first extraction slice: the implementation now lives in
+     * issue #3348 first extraction slice: the implementation now lives in
      * ManifestGrammar::assert_widget_grammar(); this method is a thin
      * compatibility facade kept so SidebarState.php's capture-time re-check
      * needs no change while this decomposition proceeds. Policy's loader paths
@@ -3183,10 +3183,10 @@ final class Policy {
      * authored_options() above, same merge precedence (site policy
      * replaces a manifest's whole rule wholesale, never a deep merge).
      *
-     * DUO-3232: the enumeration half of "env-bound value provisioning" —
+     * issue #3232: the enumeration half of "env-bound value provisioning" —
      * feeds Apply::build_plan()'s env_missing bucket (which entity of
      * this list actually looks unset on THIS environment) and, indirectly
-     * via `wp duo env-set`'s own lookup, the write-time guard that refuses
+     * via `wp wprism env-set`'s own lookup, the write-time guard that refuses
      * to write to any option name NOT in this map (never an arbitrary
      * option, only a manifest-declared env-classified one).
      *
@@ -3206,7 +3206,7 @@ final class Policy {
     }
 
     /**
-     * DUO-3249: every core-manifest OPTION name where a pinned, NON-core
+     * issue #3249: every core-manifest OPTION name where a pinned, NON-core
      * manifest's own declaration outranks core's per rule_details()'s
      * core-yields-to-plugin precedence AND actually resolves to a
      * DIFFERENT class — the loud, plan-visible half of that precedence fix
@@ -3217,13 +3217,13 @@ final class Policy {
      * Deliberately narrow, matching the ruling's own scope: options only
      * (mirrors env_options()'s identical "options only for v2" cut — no
      * shipped manifest reclassifies a core post_meta/term_meta/table key
-     * today), and core-vs-PLUGIN-MANIFEST only — a site.duo.json override
+     * today), and core-vs-PLUGIN-MANIFEST only — a site.wprism.json override
      * of a core option is the operator's own explicit, already-visible
      * choice (it's sitting in a file they wrote), not a silent manifest-
      * pinning side effect, so it does not need this same loud treatment
      * and is excluded here on purpose, not by oversight. This says nothing
      * about, and does not resolve, the SEPARATE question of two non-core
-     * manifests declaring the same option name (DUO-3255) — that
+     * manifests declaring the same option name (issue #3255) — that
      * collision (if it exists in this policy at all) does not surface
      * here regardless of which of the two manifests rule_details() picks.
      *
@@ -3244,7 +3244,7 @@ final class Policy {
         foreach ($core['options'] ?? [] as $name => $coreRule) {
             $winner = $this->option_rule_details($name);
             $source = $winner['source'] ?? null;
-            if ($source === null || $source === 'core' || $source === 'site.duo.json') {
+            if ($source === null || $source === 'core' || $source === 'site.wprism.json') {
                 continue;
             }
             $activeClass = $winner['rule']['class'] ?? null;
@@ -3263,8 +3263,8 @@ final class Policy {
     }
 
     /**
-     * DUO-3272's own version of active_reclassifications() immediately
-     * above — same purpose (the loud, plan-visible half of the DUO-3249
+     * issue #3272's own version of active_reclassifications() immediately
+     * above — same purpose (the loud, plan-visible half of the issue #3249
      * core-yields-to-plugin precedence, this time for menu_fields instead
      * of options), kept as a separate function rather than a generalized
      * shared one for the same reason validate_menu_field_classes() stays
@@ -3292,7 +3292,7 @@ final class Policy {
         foreach ($core['menu_fields'] ?? [] as $name => $coreRule) {
             $winner = $this->menu_field_rule_details($name);
             $source = $winner['source'] ?? null;
-            if ($source === null || $source === 'core' || $source === 'site.duo.json') {
+            if ($source === null || $source === 'core' || $source === 'site.wprism.json') {
                 continue;
             }
             $activeClass = $winner['rule']['class'] ?? null;
@@ -3311,7 +3311,7 @@ final class Policy {
     }
 
     /**
-     * WP-5.5: every plugin/theme claim an explicit `site.duo.json`
+     * WP-5.5: every plugin/theme claim an explicit `site.wprism.json`
      * `policy.adapter_claims` resolution displaced — the REPORTING half of
      * that section, and the reason it is a resolution rather than a silent
      * override (spec/repo-format.md § v3.13).
@@ -3651,7 +3651,7 @@ final class Policy {
      *
      * WP-5.5 keeps that true by removing the arbitration rather than by
      * teaching this walk to arbitrate. Where TWO pinned manifests claim one
-     * plugin and `site.duo.json` `policy.adapter_claims` says which is in
+     * plugin and `site.wprism.json` `policy.adapter_claims` says which is in
      * force (spec/repo-format.md § v3.13), the manifests that are NOT in force
      * are skipped, so the answer is the operator's written decision and not
      * this loop's traversal order. With no resolution declared the map is
@@ -3659,7 +3659,7 @@ final class Policy {
      * skip: the guard above refused before the site could reach this line.
      *
      * Deploy::code_mismatch() / Apply::build_plan()'s code_mismatch bucket
-     * and DUO-3338's provider negotiation (Providers::negotiate(), which
+     * and issue #3338's provider negotiation (Providers::negotiate(), which
      * bounds a plugin-owned provider by the same declared range that bounds
      * its manifest's classification guarantees) are this accessor's readers.
      *
@@ -3687,7 +3687,7 @@ final class Policy {
     }
 
     /**
-     * DUO-3222: theme twin of version_ranges() above — same {min,max} +
+     * issue #3222: theme twin of version_ranges() above — same {min,max} +
      * version_compare() shape, same first-pin-order-wins internal fallback
      * (never actually exercised in practice: validate_no_conflicting_
      * adapter_claims() at load time already refuses two pinned manifests
@@ -3752,8 +3752,8 @@ final class Policy {
     private const CASTS = ['string', 'csv'];
 
     /**
-     * Write one classification rule into site.duo.json's policy overrides
-     * (`wp duo classify`'s only write path — DESIGN.md 3.1.5: "accepted
+     * Write one classification rule into site.wprism.json's policy overrides
+     * (`wp wprism classify`'s only write path — DESIGN.md 3.1.5: "accepted
      * decisions persist to policy.yml/json"). Validates shape, then loads +
      * rewrites the file via Canon::encode so formatting stays canonical.
      */
@@ -3761,19 +3761,19 @@ final class Policy {
         if ($section === 'scope') {
             if (!preg_match('/^(post_type|taxonomy):(.+)$/', $key, $m)) {
                 throw new \RuntimeException(
-                    "duo: scope key '$key' must be post_type:<name> or taxonomy:<name>"
+                    "wprism: scope key '$key' must be post_type:<name> or taxonomy:<name>"
                 );
             }
             $class = $rule['class'] ?? '';
             if (!in_array($class, ScopeGrammar::scopeClasses(), true)) {
                 throw new \RuntimeException(
-                    "duo: unknown scope class '$class' (expected " . implode('|', ScopeGrammar::scopeClasses()) . ')'
+                    "wprism: unknown scope class '$class' (expected " . implode('|', ScopeGrammar::scopeClasses()) . ')'
                 );
             }
             if (array_diff_key($rule, ['class' => true])) {
-                throw new \RuntimeException('duo: scope rules accept class only (no ref, cast, or secret override)');
+                throw new \RuntimeException('wprism: scope rules accept class only (no ref, cast, or secret override)');
             }
-            $siteFile = rtrim($repo, '/') . '/site.duo.json';
+            $siteFile = rtrim($repo, '/') . '/site.wprism.json';
             if (!is_file($siteFile)) {
                 throw self::repository_missing($siteFile);
             }
@@ -3784,41 +3784,41 @@ final class Policy {
         }
         if (!in_array($section, self::SECTIONS, true)) {
             throw new \RuntimeException(
-                'duo: unknown policy section \'' . $section . '\' (expected '
+                'wprism: unknown policy section \'' . $section . '\' (expected '
                 . implode('|', array_merge(self::SECTIONS, ['scope'])) . ')'
             );
         }
         if ($key === '') {
-            throw new \RuntimeException('duo: policy key must not be empty');
+            throw new \RuntimeException('wprism: policy key must not be empty');
         }
         $class = $rule['class'] ?? '';
         if (!in_array($class, self::CLASSES, true)) {
             throw new \RuntimeException(
-                "duo: unknown class '$class' (expected " . implode('|', self::CLASSES) . ')'
+                "wprism: unknown class '$class' (expected " . implode('|', self::CLASSES) . ')'
             );
         }
         if (isset($rule['ref']) && !preg_match('/^(post|term|user)(\[\])?$/', (string) $rule['ref'])) {
             throw new \RuntimeException(
-                "duo: invalid ref '{$rule['ref']}' (expected post|term|user, optionally suffixed with [])"
+                "wprism: invalid ref '{$rule['ref']}' (expected post|term|user, optionally suffixed with [])"
             );
         }
         if (isset($rule['cast']) && !in_array($rule['cast'], self::CASTS, true)) {
-            throw new \RuntimeException("duo: invalid cast '{$rule['cast']}' (expected " . implode('|', self::CASTS) . ')');
+            throw new \RuntimeException("wprism: invalid cast '{$rule['cast']}' (expected " . implode('|', self::CASTS) . ')');
         }
         if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
-            throw new \RuntimeException('duo: allow_secret must be a boolean');
+            throw new \RuntimeException('wprism: allow_secret must be a boolean');
         }
         if ($section === 'user_meta') {
             UserMetaGrammar::validate_user_meta_rule($rule, "user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
         } elseif (isset($rule['allow_pii']) || isset($rule['missing_user'])) {
-            throw new \RuntimeException('duo: allow_pii and missing_user are valid only for user_meta rules');
+            throw new \RuntimeException('wprism: allow_pii and missing_user are valid only for user_meta rules');
         }
         if ($section !== 'options'
             && (array_key_exists('autoload', $rule) || array_key_exists('required', $rule))) {
-            throw new \RuntimeException('duo: autoload and required are valid only for options rules');
+            throw new \RuntimeException('wprism: autoload and required are valid only for options rules');
         }
 
-        $siteFile = rtrim($repo, '/') . '/site.duo.json';
+        $siteFile = rtrim($repo, '/') . '/site.wprism.json';
         if (!is_file($siteFile)) {
             throw self::repository_missing($siteFile);
         }
@@ -3831,15 +3831,15 @@ final class Policy {
     }
 
     /**
-     * The loader's own option grammar, run at the write boundary (DUO-3496).
+     * The loader's own option grammar, run at the write boundary (issue #3496).
      *
      * `classify` used to write `options.<key> = {"class":"authored"}` and
      * exit 0; the very next command refused the document it had just
-     * produced — "site.duo.json options.legacy_banner needs autoload=preserve
+     * produced — "site.wprism.json options.legacy_banner needs autoload=preserve
      * or an explicit supported autoload value", or the env twin demanding an
      * explicit boolean `required` (agent/src/Grammar/OptionGrammar.php:76-96
      * and :42-56) — because SitePolicyValidator runs both on every
-     * Policy::load(). Running them here, with the same 'site.duo.json' label,
+     * Policy::load(). Running them here, with the same 'site.wprism.json' label,
      * makes the refusal identical but arrives before the bytes land, so
      * nothing has to be repaired by hand.
      *
@@ -3863,20 +3863,20 @@ final class Policy {
         // operator's answer that no consumer ever asks for.
         if (array_key_exists('autoload', $rule) && !in_array($class, ['authored', 'managed'], true)) {
             throw new \RuntimeException(
-                "duo: options.$key declares autoload with class=$class; the storage flag is read only for authored and managed option rules"
+                "wprism: options.$key declares autoload with class=$class; the storage flag is read only for authored and managed option rules"
             );
         }
         if (array_key_exists('required', $rule) && $class !== 'env') {
             throw new \RuntimeException(
-                "duo: options.$key declares required with class=$class; the provisioning decision is read only for env option rules"
+                "wprism: options.$key declares required with class=$class; the provisioning decision is read only for env option rules"
             );
         }
         $probe = ['options' => [$key => $rule]];
         if (array_key_exists('option_autoload', $policy)) {
             $probe['option_autoload'] = $policy['option_autoload'];
         }
-        OptionGrammar::validate_option_storage($probe, 'site.duo.json');
-        OptionGrammar::validate_env_options($probe, 'site.duo.json');
+        OptionGrammar::validate_option_storage($probe, 'site.wprism.json');
+        OptionGrammar::validate_env_options($probe, 'site.wprism.json');
     }
 
     /**
@@ -3885,8 +3885,8 @@ final class Policy {
      * policy overrides (not inherited manifest rules — the human is
      * promoting decisions they made) whose key matches $matchRegex, grouped
      * into a manifest-shaped {name, options, post_meta, term_meta, user_meta}
-     * structure. Reads site.duo.json; never writes it — promotion is a
-     * deliberate, separate human act (`wp duo policy-to-manifest` only
+     * structure. Reads site.wprism.json; never writes it — promotion is a
+     * deliberate, separate human act (`wp wprism policy-to-manifest` only
      * prints to stdout).
      */
     public static function export_manifest(
@@ -3898,21 +3898,21 @@ final class Policy {
         $policy = self::load($repo, adapterLibrary: $adapterLibrary);
         $sitePolicy = $policy->site['policy'] ?? [];
 
-        // DUO-3247 made spec_version mandatory at load() — sourced from the
+        // issue #3247 made spec_version mandatory at load() — sourced from the
         // canonical constant, never a literal, so this can never drift out
         // of sync with what load() actually requires the way it silently
         // did before (this export wrote no spec_version at all until
-        // DUO-3284 caught it live: an exported manifest the engine's own
+        // issue #3284 caught it live: an exported manifest the engine's own
         // loader refused, found via a sandbox/tests/ run that finally
         // exercised the full export-then-reload path).
-        $specVersion = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
+        $specVersion = defined('WPRISM_SPEC_VERSION') ? WPRISM_SPEC_VERSION : 0;
         return PolicyWriter::export_manifest($sitePolicy, $matchRegex, $name, $specVersion, self::SECTIONS);
     }
 
     /**
      * The closed VALUE vocabularies this class refuses against — the legal
      * values of a declared field — keyed by the grammar name an adapter author
-     * sees (DUO-3327).
+     * sees (issue #3327).
      *
      * Bounded on purpose, and the boundary is published with the document (see
      * ManifestValidate::emitSchema()'s `coverage` field) rather than left for a
@@ -3999,7 +3999,7 @@ final class Policy {
 
     /**
      * The NAMED SUBSET of bounded string patterns the manifest grammar checks
-     * against, as the exact PCRE this class hands to preg_match() (DUO-3327).
+     * against, as the exact PCRE this class hands to preg_match() (issue #3327).
      *
      * A subset, and it says so: these five are the patterns that have an
      * engine-owned NAME (a `*_PATTERN` const, referenced from more than one

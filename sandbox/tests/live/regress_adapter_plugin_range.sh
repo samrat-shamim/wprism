@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Regression — DUO-3487: Deploy::code_mismatch()'s PLUGIN version_range leg,
+# Regression — issue #3487: Deploy::code_mismatch()'s PLUGIN version_range leg,
 # live. This is the plugin twin of sandbox/tests/live/regress_adapter_theme_range.sh
-# (DUO-3222's theme leg) and it exists because the plugin half lost its live
+# (issue #3222's theme leg) and it exists because the plugin half lost its live
 # proof in #478: it was carried by spike_g_code.sh (e), built on the
-# duo-loop-demo-versioned demo manifest, and both were deleted together.
+# wprism-loop-demo-versioned demo manifest, and both were deleted together.
 #
 # WHAT IS AND IS NOT COVERED ELSEWHERE — read before assuming this file is a
 # duplicate. Deploy::in_range()'s min-inclusive/max-exclusive arithmetic is
 # exercised offline by reflection in
 # sandbox/tests/offline/adapter/regress_adapter_contract.php; that is pure
 # arithmetic over two strings and proves nothing about where the installed
-# version comes from. The PRODUCT-PATH refusal half — `wp duo deploy` exiting
+# version comes from. The PRODUCT-PATH refusal half — `wp wprism deploy` exiting
 # non-zero, naming the plugin and its installed version — is proven live by
 # sandbox/tests/certify/certify_version_matrix.sh's per-subject negative
 # controls (acf 5.12.6, contact-form-7 5.9.8, elementor 3.35.9, …), which
@@ -41,7 +41,7 @@
 # range endpoint below is DERIVED from the version this run actually read.
 #
 # $desired['active_plugins'] is always the environment's own live active list
-# (Deploy::current_active_plugins()), so DUO-3216's lifecycle rows
+# (Deploy::current_active_plugins()), so issue #3216's lifecycle rows
 # (inactive_in_environment / unexpected_active_plugin) are structurally empty
 # and cannot mask or pad the version-range assertion — the theme leg's
 # "activate the stylesheet it declares" discipline, in the shape the plugin
@@ -66,10 +66,10 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 PAIR="${PLUGIN_RANGE_PAIR:-a3487pr}"
 P1="${PLUGIN_RANGE_PORT1:-8988}"
 P2="${PLUGIN_RANGE_PORT2:-8989}"
-export DUO_PAIR="$PAIR"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
+export WPRISM_PAIR="$PAIR"
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
-CONTAINER="duo-${PAIR}-wp1-1"
+CONTAINER="wprism-${PAIR}-wp1-1"
 AKISMET_FILE=/var/www/html/wp-content/plugins/akismet/akismet.php
 AKISMET_BASENAME=akismet/akismet.php
 HELLO_BASENAME=hello.php
@@ -94,13 +94,13 @@ trap cleanup EXIT
 # environment's own live active list.
 probe() { # probe <manifest-name> <plugin-basename> <min> <max>
   wp1 eval "
-\$p = new \\Duo\\Policy();
+\$p = new \\WPrism\\Policy();
 \$p->manifests = [[
     'name' => '$1',
     'plugin' => '$2',
     'version_range' => ['min' => '$3', 'max' => '$4'],
 ]];
-echo json_encode(\\Duo\\Deploy::code_mismatch(\$p, ['active_plugins' => \\Duo\\Deploy::current_active_plugins()]));
+echo json_encode(\\WPrism\\Deploy::code_mismatch(\$p, ['active_plugins' => \\WPrism\\Deploy::current_active_plugins()]));
 " | tail -1
 }
 
@@ -229,21 +229,21 @@ pass "(f) restored cleanly and the finding cleared — both directions are the s
 
 say "(g) a genuinely ABSENT plugin with a declared range reports missing_in_code ONLY — the existence check short-circuits the version read"
 MISSING_JSON=$(wp1 eval "
-\$p = new \\Duo\\Policy();
+\$p = new \\WPrism\\Policy();
 \$p->manifests = [[
     'name' => 'plugin-range-test',
-    'plugin' => 'duo-3487-absent/duo-3487-absent.php',
+    'plugin' => 'range-absent-absent/range-absent-absent.php',
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
 ]];
-\$desired = array_merge(\\Duo\\Deploy::current_active_plugins(), ['duo-3487-absent/duo-3487-absent.php']);
-echo json_encode(\\Duo\\Deploy::code_mismatch(\$p, ['active_plugins' => \$desired]));
+\$desired = array_merge(\\WPrism\\Deploy::current_active_plugins(), ['range-absent-absent/range-absent-absent.php']);
+echo json_encode(\\WPrism\\Deploy::code_mismatch(\$p, ['active_plugins' => \$desired]));
 " | tail -1)
 assert_rows "(g) missing plugin" "$MISSING_JSON" "
 assert len(rows) == 1, f'expected exactly one finding, got {rows}'
 r = rows[0]
 assert r['issue'] == 'missing_in_code', r
 assert r['kind'] == 'plugin', r
-assert r['plugin'] == 'duo-3487-absent/duo-3487-absent.php', r
+assert r['plugin'] == 'range-absent-absent/range-absent-absent.php', r
 assert not any(x['issue'] == 'outside_version_range' for x in rows), rows
 "
 pass "(g) a plugin that isn't there has no version to read, and none is invented — missing_in_code alone, never a bogus empty-version range finding"

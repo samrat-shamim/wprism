@@ -9,7 +9,7 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
-SCRATCH=$(mktemp -d /tmp/duo-offline-diagnostics.XXXXXX)
+SCRATCH=$(mktemp -d /tmp/wprism-offline-diagnostics.XXXXXX)
 cleanup() { rm -rf "$SCRATCH"; }
 trap cleanup EXIT INT TERM
 

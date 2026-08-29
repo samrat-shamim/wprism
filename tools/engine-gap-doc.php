@@ -92,7 +92,7 @@ declare(strict_types=1);
  * break one of those in half and fail the corpus for a formatting reason.
  */
 
-use Duo\AdapterLibrary;
+use WPrism\AdapterLibrary;
 
 $repo = dirname(__DIR__);
 
@@ -100,7 +100,7 @@ require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 
 const GAP_LEDGER_FILE = '/tools/engine-gaps.json';
 const GAP_DOC_FILE = '/docs/guides/adapter-authoring-limitations.md';
-const GAP_LEDGER_FORMAT = 'duo-engine-gaps/v1';
+const GAP_LEDGER_FORMAT = 'wprism-engine-gaps/v1';
 
 /** The three lifecycle states a candidate row can be in; nothing else is a disposition. */
 const GAP_DISPOSITIONS = ['rejected', 'promotion_blocked', 'closed'];

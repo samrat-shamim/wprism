@@ -1,13 +1,13 @@
 <?php
 /**
- * Render `duo rehearse`'s preview human view and its `--format=json`
+ * Render `wprism rehearse`'s preview human view and its `--format=json`
  * document, so `regress_mup_leak_audit.sh` can hold the two against each
  * other the same way it does for assess/release/verify/recover.
  *
  * ## Why this verb is rendered rather than driven end to end
  *
- * The other views in the audit come out of a real `php cli/duo` run against a
- * fake site, and so does half of this one: the audit drives `duo rehearse
+ * The other views in the audit come out of a real `php cli/wprism` run against a
+ * fake site, and so does half of this one: the audit drives `wprism rehearse
  * <env> --reap`, which prints MUP §2.2's containment disclosure BEFORE any
  * provider is contacted and then refuses, because a branch materialization
  * needs machine-local `environment_provider` configuration and a provider
@@ -21,7 +21,7 @@
  * T3 rehearsal fixture generator's own `plan.json` + `surfaces.json`. Both
  * halves are the shipped classes with the shipped arguments; only the
  * `EnvironmentCommand` materialization in between is absent, and its output
- * belongs to `duo env materialize` and predates MUP.
+ * belongs to `wprism env materialize` and predates MUP.
  *
  * The build call below mirrors `RehearseCommand::preview()` field for field
  * (branch, env, generated_at, operation, source_env) and the render mirrors
@@ -35,7 +35,7 @@
  * Writes, into <out-dir>:
  *   fixture/plan.json, fixture/surfaces.json  the T3 generator's own output
  *   rehearse-human.txt                        the human view
- *   rehearse.json                             `duo rehearse --format=json`
+ *   rehearse.json                             `wprism rehearse --format=json`
  *
  * Offline: no docker, no WordPress, no network, no provider, no target.
  */
@@ -43,8 +43,8 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/cli/src/Rehearse/RehearsalPlanPreview.php';
 
-use Duo\Orchestrator\RehearsalDisclosure;
-use Duo\Orchestrator\RehearsalPlanPreview;
+use WPrism\Orchestrator\RehearsalDisclosure;
+use WPrism\Orchestrator\RehearsalPlanPreview;
 
 $argvList = $_SERVER['argv'] ?? [];
 array_shift($argvList);

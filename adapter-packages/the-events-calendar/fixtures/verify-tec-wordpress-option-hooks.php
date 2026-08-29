@@ -591,7 +591,7 @@ if (!is_array($legacyBoundary)
         'depth' => 6,
         'nodes' => 64,
     ]
-    || ($legacyBoundary['duo_status']['portable'] ?? null) !== true) {
+    || ($legacyBoundary['wprism_status']['portable'] ?? null) !== true) {
     tec_option_usage('reviewed legacy-widget storage boundary is malformed');
 }
 

@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/WpOrgReleases.php';
 require_once __DIR__ . '/ImportedArchives.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 
-use Duo\CodeSourceLock;
+use WPrism\CodeSourceLock;
 
 /**
- * The host's per-component sourcing decision: `duo init` and
- * `duo code-classify` share it, the agent verifies it, and the lock records it.
+ * The host's per-component sourcing decision: `wprism init` and
+ * `wprism code-classify` share it, the agent verifies it, and the lock records it.
  *
  * Three outcomes, and the default is the blocking one:
  *
@@ -27,7 +27,7 @@ use Duo\CodeSourceLock;
  *   recorded in the lock so the compile gate can tell it from omission.
  * - `unsourced` — neither. This is not a third shape Git could take: the
  *   agent turns it into a blocking `code_component_unsourced` row at init,
- *   `duo code-classify` refuses on it, and the row's reason says what was
+ *   `wprism code-classify` refuses on it, and the row's reason says what was
  *   tried so the operator can pick between importing an archive and
  *   declaring first-party.
  *

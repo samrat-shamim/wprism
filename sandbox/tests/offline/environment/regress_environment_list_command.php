@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/EnvironmentListCommand.php';
 
-use Duo\Orchestrator\EnvironmentListCommand;
+use WPrism\Orchestrator\EnvironmentListCommand;
 
 function fail_environment_list(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -14,7 +14,7 @@ function assert_environment_list(bool $condition, string $message): void {
     if (!$condition) fail_environment_list($message);
 }
 
-$tmp = sys_get_temp_dir() . '/duo-env-list-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-env-list-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0700, true);
 $envs = $tmp . '/envs.json';
 file_put_contents($envs, json_encode([

@@ -26,7 +26,7 @@ if ($wpdb->last_error !== '') {
     throw new RuntimeException('Elementor target could not establish the high-term-ID premise');
 }
 
-function duo_elementor_target_image(string $path, int $red, int $green, int $blue): void {
+function wprism_elementor_target_image(string $path, int $red, int $green, int $blue): void {
     $image = imagecreatetruecolor(48, 36);
     if (!$image) {
         throw new RuntimeException('Elementor target could not allocate an image');
@@ -36,7 +36,7 @@ function duo_elementor_target_image(string $path, int $red, int $green, int $blu
     imagedestroy($image);
 }
 
-function duo_elementor_target_import(string $path, string $title): int {
+function wprism_elementor_target_import(string $path, string $title): int {
     $id = media_handle_sideload(['name' => basename($path), 'tmp_name' => $path], 0, $title);
     if (is_wp_error($id)) {
         throw new RuntimeException('Elementor target attachment import failed');
@@ -44,7 +44,7 @@ function duo_elementor_target_import(string $path, string $title): int {
     return (int) $id;
 }
 
-function duo_elementor_target_post(string $type, string $title, string $slug): int {
+function wprism_elementor_target_post(string $type, string $title, string $slug): int {
     $id = wp_insert_post([
         'post_type' => $type,
         'post_title' => $title,
@@ -58,7 +58,7 @@ function duo_elementor_target_post(string $type, string $title, string $slug): i
     return (int) $id;
 }
 
-function duo_elementor_target_save(int $id, string $templateType, array $elements): void {
+function wprism_elementor_target_save(int $id, string $templateType, array $elements): void {
     update_post_meta($id, '_elementor_edit_mode', 'builder');
     update_post_meta($id, '_elementor_template_type', $templateType);
     $document = \Elementor\Plugin::$instance->documents->get($id);
@@ -67,19 +67,19 @@ function duo_elementor_target_save(int $id, string $templateType, array $element
     }
 }
 
-duo_elementor_target_image('/tmp/duo-conf-elementor-hero.png', 220, 25, 25);
-duo_elementor_target_image('/tmp/duo-conf-elementor-gallery-a.png', 25, 220, 25);
-duo_elementor_target_image('/tmp/duo-conf-elementor-gallery-b.png', 25, 25, 220);
-duo_elementor_target_image('/tmp/duo-conf-elementor-bg.png', 220, 220, 25);
-$hero = duo_elementor_target_import('/tmp/duo-conf-elementor-hero.png', 'Duo Conformance Elementor Hero');
-$galleryA = duo_elementor_target_import('/tmp/duo-conf-elementor-gallery-a.png', 'Duo Conformance Elementor Gallery A');
-$galleryB = duo_elementor_target_import('/tmp/duo-conf-elementor-gallery-b.png', 'Duo Conformance Elementor Gallery B');
-$background = duo_elementor_target_import('/tmp/duo-conf-elementor-bg.png', 'Duo Conformance Elementor BG');
+wprism_elementor_target_image('/tmp/wprism-conf-elementor-hero.png', 220, 25, 25);
+wprism_elementor_target_image('/tmp/wprism-conf-elementor-gallery-a.png', 25, 220, 25);
+wprism_elementor_target_image('/tmp/wprism-conf-elementor-gallery-b.png', 25, 25, 220);
+wprism_elementor_target_image('/tmp/wprism-conf-elementor-bg.png', 220, 220, 25);
+$hero = wprism_elementor_target_import('/tmp/wprism-conf-elementor-hero.png', 'WPrism Conformance Elementor Hero');
+$galleryA = wprism_elementor_target_import('/tmp/wprism-conf-elementor-gallery-a.png', 'WPrism Conformance Elementor Gallery A');
+$galleryB = wprism_elementor_target_import('/tmp/wprism-conf-elementor-gallery-b.png', 'WPrism Conformance Elementor Gallery B');
+$background = wprism_elementor_target_import('/tmp/wprism-conf-elementor-bg.png', 'WPrism Conformance Elementor BG');
 $heroUrl = (string) wp_get_attachment_url($hero);
 
-$target = duo_elementor_target_post('page', 'Target Elementor Link Stale', 'duo-elementor-target');
-$classic = duo_elementor_target_post('page', 'Target Elementor Classic Stale', 'duo-conformance-elementor-page');
-duo_elementor_target_save($classic, 'wp-page', [[
+$target = wprism_elementor_target_post('page', 'Target Elementor Link Stale', 'wprism-elementor-target');
+$classic = wprism_elementor_target_post('page', 'Target Elementor Classic Stale', 'wprism-conformance-elementor-page');
+wprism_elementor_target_save($classic, 'wp-page', [[
     'id' => 'stalsec1',
     'elType' => 'section',
     'settings' => [],
@@ -97,16 +97,16 @@ duo_elementor_target_save($classic, 'wp-page', [[
     ]],
 ]]);
 
-$deletion = duo_elementor_target_post('page', 'Target Elementor Deletion Stale', 'duo-elementor-deletion-page');
-duo_elementor_target_save($deletion, 'wp-page', [[
+$deletion = wprism_elementor_target_post('page', 'Target Elementor Deletion Stale', 'wprism-elementor-deletion-page');
+wprism_elementor_target_save($deletion, 'wp-page', [[
     'id' => 'stdelsec',
     'elType' => 'section',
     'settings' => ['background_background' => 'classic', 'background_color' => '#ff00ff'],
     'elements' => [],
 ]]);
 
-$template = duo_elementor_target_post('elementor_library', 'Duo Portable Section', 'duo-portable-section');
-duo_elementor_target_save($template, 'section', [[
+$template = wprism_elementor_target_post('elementor_library', 'WPrism Portable Section', 'wprism-portable-section');
+wprism_elementor_target_save($template, 'section', [[
     'id' => 'staltpl1',
     'elType' => 'section',
     'settings' => [],
@@ -120,8 +120,8 @@ $libraryType = (int) $libraryTypes[0];
 
 $atomic = 0;
 if (class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Html_V3_Prop_Type')) {
-    $atomic = duo_elementor_target_post('page', 'Target Atomic Elementor Stale', 'duo-atomic-elementor-page');
-    duo_elementor_target_save($atomic, 'wp-page', [[
+    $atomic = wprism_elementor_target_post('page', 'Target Atomic Elementor Stale', 'wprism-atomic-elementor-page');
+    wprism_elementor_target_save($atomic, 'wp-page', [[
         'id' => 'stalat01',
         'elType' => 'e-flexbox',
         'settings' => [],
@@ -129,7 +129,7 @@ if (class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Html_V3_Prop_Type')
     ]]);
 }
 
-$kitId = (int) \Elementor\Plugin::$instance->kits_manager->create_new_kit('Duo Portable Kit', [], true);
+$kitId = (int) \Elementor\Plugin::$instance->kits_manager->create_new_kit('WPrism Portable Kit', [], true);
 $kit = \Elementor\Plugin::$instance->documents->get($kitId);
 if (!$kit instanceof \Elementor\Core\Kits\Documents\Kit) {
     throw new RuntimeException('Elementor hostile custom kit creation failed');

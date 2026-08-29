@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // This collaborator is also exercised directly by offline harnesses. Keep
 // its declaration-shape dependency explicit instead of relying on Policy's
@@ -72,7 +72,7 @@ final class ReferenceShapeGrammar {
             foreach (($declaration['keys'] ?? []) as $key => $rule) {
                 if (!is_array($rule) || array_is_list($rule)) {
                     throw new \RuntimeException(
-                        "duo: $label.tables.$table.keys.$key must be an attached-meta rule object"
+                        "wprism: $label.tables.$table.keys.$key must be an attached-meta rule object"
                     );
                 }
                 self::validate_reference_value_rule($rule, "$label.tables.$table.keys.$key");
@@ -89,12 +89,12 @@ final class ReferenceShapeGrammar {
         ReferenceRules::value_rule($rule, $where);
         if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
             throw new \RuntimeException(
-                "duo: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"
+                "wprism: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"
             );
         }
         if (array_key_exists('sub_keys', $rule) && !$allowSubKeys) {
             throw new \RuntimeException(
-                "duo: $where cannot declare sub_keys; the one-level sub_keys map belongs only on an exact or dynamic option declaration"
+                "wprism: $where cannot declare sub_keys; the one-level sub_keys map belongs only on an exact or dynamic option declaration"
             );
         }
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {

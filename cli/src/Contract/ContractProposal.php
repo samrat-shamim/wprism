@@ -1,15 +1,15 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/ApplicationContract.php';
 require_once __DIR__ . '/ProjectionVocabulary.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
  * `proposed.json`: the assess report turned into a draft application
@@ -34,7 +34,7 @@ use Duo\CommandRefusalException;
  * only way to accept the proposal is to have edited it — the human review
  * step is enforced by the schema rather than requested in a guide.
  *
- * ## `duo-assess-report/v1`
+ * ## `wprism-assess-report/v1`
  *
  * The input document, validated here as a closed key set because it crosses
  * a module boundary (`cli/src/Assess/AssessReport.php` emits it, this class
@@ -42,7 +42,7 @@ use Duo\CommandRefusalException;
  * declaration:
  *
  * ```
- * {"format":"duo-assess-report/v1","generated_at":"<RFC3339>","env":"<name>",
+ * {"format":"wprism-assess-report/v1","generated_at":"<RFC3339>","env":"<name>",
  *  "target":{"wordpress":..,"php":..,"database":{"engine":..,"version":..},
  *            "site_mode":..,"home":..,"siteurl":..},
  *  "authority":{...},                       // assess owns this shape
@@ -56,20 +56,20 @@ use Duo\CommandRefusalException;
  *  "assess_digest":"sha256:.."}
  * ```
  *
- * `target` is `duo-assess-inventory/v1`'s `target` block verbatim.
+ * `target` is `wprism-assess-inventory/v1`'s `target` block verbatim.
  * `authority` is deliberately not key-closed: it is assess's own rendering
- * of "what access Duo actually has", the contract reads none of it, and
+ * of "what access WPrism actually has", the contract reads none of it, and
  * pinning its shape here would couple two modules for nothing.
  *
  * Three contract fields have no field in that report and arrive as the
  * `$seed` argument instead of by inventing an assess key: the site's name
  * and spec version, the pinned manifests, and the environment bindings. All
- * three come from `duo-assess-inventory/v1`, which the same command already
+ * three come from `wprism-assess-inventory/v1`, which the same command already
  * holds — see fromAssessReport().
  */
 final class ContractProposal {
-    public const FORMAT = 'duo-application-contract-proposal/v1';
-    public const ASSESS_REPORT_FORMAT = 'duo-assess-report/v1';
+    public const FORMAT = 'wprism-application-contract-proposal/v1';
+    public const ASSESS_REPORT_FORMAT = 'wprism-assess-report/v1';
 
     /** MUP §6.1 step 4: the entry an operator reviews before the first release. */
     public const LIFECYCLE_EFFECT_ID = 'code-lifecycle-window';
@@ -134,9 +134,9 @@ final class ContractProposal {
     /**
      * Build `proposed.json` from one assess report.
      *
-     * @param array<string,mixed> $report a `duo-assess-report/v1` document
+     * @param array<string,mixed> $report a `wprism-assess-report/v1` document
      * @param array<string,mixed> $seed the four facts the report has no
-     *        field for, read from `duo-assess-inventory/v1` by the caller:
+     *        field for, read from `wprism-assess-inventory/v1` by the caller:
      *        `site` ({name, spec_version}), `manifest_pins` (the inventory's
      *        `policy.manifests` rows narrowed to name/source/adapter_digest),
      *        `plugins` (active plugins as {slug, version}) and
@@ -206,7 +206,7 @@ final class ContractProposal {
             throw new CommandRefusalException(
                 'assess_digest_stale',
                 'the proposal was generated from a different assessment than the site returns now',
-                'run duo assess and duo contract propose again, review the fresh proposal, then accept it',
+                'run wprism assess and wprism contract propose again, review the fresh proposal, then accept it',
                 [['proposed_from' => (string) $proposal['assess_digest'], 'observed' => $freshAssessDigest]]
             );
         }
@@ -231,9 +231,9 @@ final class ContractProposal {
             );
         }
         // `dispositions` is OPTIONAL for the same reason
-        // `unknown.undeclared_tables_count` is (see below): `duo contract
+        // `unknown.undeclared_tables_count` is (see below): `wprism contract
         // accept` compares a stored proposal against a fresh report, and a
-        // proposal written before DUO-3484 must refuse with the staleness
+        // proposal written before issue #3484 must refuse with the staleness
         // message the operator can act on, not with a schema error about a
         // key its build had no way to emit. Every report THIS build produces
         // carries it — `AssessReport::build()` takes it as an argument.
@@ -256,7 +256,7 @@ final class ContractProposal {
             $unknown,
             ['pending_count', 'invisible_names_count', 'names_sample'],
             // T6 §3.7 item 2 added the third count. It is OPTIONAL here on
-            // purpose: `duo contract accept` compares a stored proposal
+            // purpose: `wprism contract accept` compares a stored proposal
             // against a fresh report, and making an additive count mandatory
             // would refuse every proposal written before this build with a
             // schema error instead of the stale-review message the operator
@@ -705,7 +705,7 @@ final class ContractProposal {
         return new CommandRefusalException(
             $code,
             $message,
-            'run duo assess again and regenerate the proposal with duo contract propose'
+            'run wprism assess again and regenerate the proposal with wprism contract propose'
         );
     }
 }

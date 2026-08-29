@@ -207,7 +207,7 @@ pass 'Yoast provider 2.0.0 rebuilt indexables, hierarchy, primary terms, and SEO
 # The authored redirect is itself plugin-visible behavior. Prove it first,
 # then remove it for one controlled render so title/description output can be
 # observed; restore the exact target-local URL before any subsequent capture.
-REDIRECT_HEADERS=$(mktemp "${TMPDIR:-/tmp}/duo-yoast-redirect.XXXXXX")
+REDIRECT_HEADERS=$(mktemp "${TMPDIR:-/tmp}/wprism-yoast-redirect.XXXXXX")
 REDIRECT_CODE=$(curl -sS -D "$REDIRECT_HEADERS" -o /dev/null -w '%{http_code}' \
   "http://localhost:${CONF2_PORT}/conformance-yoast-post/")
 REDIRECT_LOCATION=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/\r$/, ""); print substr($0, 11) }' "$REDIRECT_HEADERS" | tail -1)
@@ -236,12 +236,12 @@ grep -Fq "http://localhost:${CONF1_PORT}" <<<"$FRONT" && fail 'conf2 Yoast rende
 pass 'frontend metadata renders UTF-8 authored values and target-local URLs without fatal output'
 pass 'Yoast authored redirect executes and the controlled render probe restores it exactly'
 
-ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast zero-change plan' json "$ZERO_PLAN"
+ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast zero-change plan' json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null \
   || fail "Yoast retry retained work: $ZERO_PLAN"
-ZERO_APPLY=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast zero-change apply' json "$ZERO_APPLY"
+ZERO_APPLY=$($COMPOSE run --rm -T cli2 wp wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "Yoast no-op apply was not clean and idempotent: $ZERO_APPLY"
 pass 'Yoast zero-change plan/apply is mutation-free and does not rerun the provider'
@@ -252,9 +252,9 @@ if [ "${YOAST_BOUNDARY_ONLY:-0}" = 1 ]; then
 fi
 
 commit_yoast_source() { # <message>
-  wp_conf1 duo capture --repo=/siterepo >/dev/null
+  wp_conf1 wprism capture --repo=/siterepo >/dev/null
   git -C "$CONF_REPO1" add -A
-  git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm "$1"
+  git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "$1"
   git -C "$CONF_REPO1" push -q origin main
   git -C "$CONF_REPO2" pull -q origin main
 }
@@ -288,7 +288,7 @@ yoast_derived_hash() {
 
 install_yoast_index_fixture() { # <wp1|wp2>
   $COMPOSE exec -T --user root "$1" sh -c \
-    'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/duo-yoast-index-fixture.php'
+    'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/wprism-yoast-index-fixture.php'
 }
 
 # Malformed structured options and credential-shaped authored metadata must
@@ -301,8 +301,8 @@ wp_conf1 eval '
   wp_cache_delete("wpseo_taxonomy_meta","options");
 ' >/dev/null
 MALFORMED_RC=0
-MALFORMED_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
-require_duo_answered 'Yoast malformed taxonomy-option capture' human "$MALFORMED_OUT"
+MALFORMED_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
+require_wprism_answered 'Yoast malformed taxonomy-option capture' human "$MALFORMED_OUT"
 [ "$MALFORMED_RC" -ne 0 ] && grep -Eqi 'structured|array|wpseo_taxonomy_meta|container' <<<"$MALFORMED_OUT" \
   || fail "Yoast malformed taxonomy option did not refuse: $MALFORMED_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
@@ -323,8 +323,8 @@ wp_conf1 eval '
   update_post_meta($post->ID,"_yoast_wpseo_focuskw","AKIAABCDEFGHIJKLMNOP");
 ' >/dev/null
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
-require_duo_answered 'Yoast credential-shaped metadata capture' human "$SECRET_OUT"
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || SECRET_RC=$?
+require_wprism_answered 'Yoast credential-shaped metadata capture' human "$SECRET_OUT"
 [ "$SECRET_RC" -ne 0 ] && grep -q 'secret guard tripped' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
   || fail "Yoast credential-shaped metadata did not refuse and redact: $SECRET_OUT"
@@ -334,7 +334,7 @@ wp_conf1 eval '
   $post=get_page_by_path("conformance-yoast-post",OBJECT,"post");
   update_post_meta($post->ID,"_yoast_wpseo_focuskw","portable 東京 search");
 ' >/dev/null
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-yoast-restored >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-yoast-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-yoast-restored" \
   || fail 'Yoast source did not restore byte-identically after malformed/secret probes'
 rm -rf "$CONF_REPO1/.tmp-yoast-restored"
@@ -353,18 +353,18 @@ wp_conf2 eval '
   update_post_meta($post->ID,"_yoast_wpseo_title","Target competing Yoast title");
 ' >/dev/null
 CONFLICT_BEFORE=$(yoast_target_hash)
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast competing branch plan' json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast competing branch plan' json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "Yoast competing title did not produce a typed conflict: $CONFLICT_PLAN"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered 'Yoast unforced competing branch apply' human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered 'Yoast unforced competing branch apply' human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflict' <<<"$CONFLICT_OUT" \
   || fail "Yoast competing branch did not refuse: $CONFLICT_OUT"
 [ "$(yoast_target_hash)" = "$CONFLICT_BEFORE" ] || fail 'Yoast unforced conflict partially mutated target state'
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast forced competing branch apply' json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast forced competing branch apply' json "$FORCED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict > 0' <<<"$FORCED" >/dev/null \
   || fail "Yoast forced repository intent did not converge cleanly: $FORCED"
 CONVERGED=$(observe_yoast conf2)
@@ -379,15 +379,15 @@ pass 'dirty authored conflicts refuse atomically; explicit force converges witho
 # contexts. Removing only the disposable filter exercises that exact branch:
 # authored state lands, derived bytes stay untouched, and the receipt is a
 # verified no-op rather than a hollow reindex claim.
-$COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-yoast-index-fixture.php
+$COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/wprism-yoast-index-fixture.php
 DISABLED_DERIVED_BEFORE=$(yoast_derived_hash)
 wp_conf1 eval '
   $post=get_page_by_path("conformance-yoast-post",OBJECT,"post");
   update_post_meta($post->ID,"_yoast_wpseo_focuskw","disabled-branch authored 東京 🚀");
 ' >/dev/null
 commit_yoast_source 'conformance: Yoast plugin-disabled indexing branch'
-DISABLED_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast disabled-indexing apply' json "$DISABLED_APPLY"
+DISABLED_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast disabled-indexing apply' json "$DISABLED_APPLY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:yoast-index/reindex" and
@@ -413,13 +413,13 @@ wp_conf1 eval '
   update_post_meta($post->ID,"_yoast_wpseo_metadesc","Schema recovery Yoast description 東京 🚀");
 ' >/dev/null
 commit_yoast_source 'conformance: Yoast schema-fault recovery intent'
-wp_conf2 db query 'ALTER TABLE wp_yoast_indexable RENAME COLUMN link_count TO duo_fault_link_count' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_yoast_indexable RENAME COLUMN link_count TO wprism_fault_link_count' >/dev/null
 SCHEMA_DERIVED_BEFORE=$(yoast_derived_hash)
-SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty 'Yoast applied revision before schema fault' "$SCHEMA_REV_BEFORE"
 SCHEMA_RC=0
-SCHEMA_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
-require_duo_answered 'Yoast schema-preflight failure' human "$SCHEMA_OUT"
+SCHEMA_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
+require_wprism_answered 'Yoast schema-preflight failure' human "$SCHEMA_OUT"
 [ "$SCHEMA_RC" -ne 0 ] && grep -q "provider 'yoast-index' capability 'reindex' failed" <<<"$SCHEMA_OUT" \
   || fail "Yoast missing provider column did not refuse exactly: $SCHEMA_OUT"
 [ "$(yoast_derived_hash)" = "$SCHEMA_DERIVED_BEFORE" ] \
@@ -428,13 +428,13 @@ require_duo_answered 'Yoast schema-preflight failure' human "$SCHEMA_OUT"
   || fail 'Yoast schema failure did not retain the post-commit authored state needed for retry'
 [ "$(wp_conf2 option get yoast_target_undeclared_neighbor)" = target-neighbor-preserved ] \
   || fail 'Yoast schema recovery crossed the target-owned option boundary'
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_REV_BEFORE" ] \
+[ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_REV_BEFORE" ] \
   || fail 'Yoast schema failure advanced applied_revision before verified effects'
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail 'Yoast schema failure did not retain retry authority'
-wp_conf2 db query 'ALTER TABLE wp_yoast_indexable RENAME COLUMN duo_fault_link_count TO link_count' >/dev/null
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast retry after schema repair' json "$RETRY"
+wp_conf2 db query 'ALTER TABLE wp_yoast_indexable RENAME COLUMN wprism_fault_link_count TO link_count' >/dev/null
+RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast retry after schema repair' json "$RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$RETRY" >/dev/null \
   || fail "Yoast schema retry did not consume durable intent: $RETRY"
 RETRIED=$(observe_yoast conf2)
@@ -453,8 +453,8 @@ wp_conf1 eval '
   WPSEO_Options::set("contact_page",0);
 ' >/dev/null
 commit_yoast_source 'conformance: Yoast authored field absence'
-FIELD_REMOVED=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast field/sub-key absence apply' json "$FIELD_REMOVED"
+FIELD_REMOVED=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast field/sub-key absence apply' json "$FIELD_REMOVED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update > 0 and .plan.delete == 0 and .plan.deleted == 0' <<<"$FIELD_REMOVED" >/dev/null \
   || fail "Yoast field/sub-key absence did not converge as an ordinary update: $FIELD_REMOVED"
 FIELD_OBSERVED=$(observe_yoast conf2)
@@ -473,8 +473,8 @@ wp_conf1 eval '
   if (!wp_delete_post($remove,true)) throw new RuntimeException("Yoast deletion fixture page was not removed");
 ' >/dev/null
 commit_yoast_source 'conformance: Yoast whole-post deletion intent'
-WITHHELD=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1)
-require_duo_answered 'Yoast whole-post deletion withheld without authority' human "$WITHHELD"
+WITHHELD=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1)
+require_wprism_answered 'Yoast whole-post deletion withheld without authority' human "$WITHHELD"
 grep -q 'planned deletions NOT applied (1)' <<<"$WITHHELD" \
   && grep -q -- '--with-deletes' <<<"$WITHHELD" \
   && grep -q 'canary clean' <<<"$WITHHELD" \
@@ -484,8 +484,8 @@ grep -q 'planned deletions NOT applied (1)' <<<"$WITHHELD" \
 WITHHELD_OBSERVED=$(observe_yoast conf2)
 jq -e '(.llms.included | length) == 1 and .derived.invalid_hierarchy == 0 and .derived.invalid_links == 0' <<<"$WITHHELD_OBSERVED" >/dev/null \
   || fail "Yoast non-destructive state did not converge while its tombstone was withheld: $WITHHELD_OBSERVED"
-DELETED=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast authorized whole-post deletion apply' json "$DELETED"
+DELETED=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast authorized whole-post deletion apply' json "$DELETED"
 jq -e '.canary == "clean" and .verification.result == "pass" and (.plan.delete + .plan.deleted) > 0' <<<"$DELETED" >/dev/null \
   || fail "Yoast authorized whole-post deletion did not converge: $DELETED"
 [ "$(wp_conf2 post list --post_type=page --name=conformance-included-b --format=count)" = 0 ] \
@@ -505,8 +505,8 @@ commit_yoast_source 'conformance: concurrent Yoast apply intent'
 CONCURRENT_A="$CONF_REPO2/.tmp-yoast-concurrent-a.log"
 CONCURRENT_B="$CONF_REPO2/.tmp-yoast-concurrent-b.log"
 set +e
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
 wait "$PID_A"; RC_A=$?
 wait "$PID_B"; RC_B=$?
 set -e
@@ -526,8 +526,8 @@ rm -f "$CONCURRENT_A" "$CONCURRENT_B"
 CONCURRENT=$(observe_yoast conf2)
 jq -e '.meta["_yoast_wpseo_twitter-title"] == "Concurrent Yoast intent 東京 🚀"' <<<"$CONCURRENT" >/dev/null \
   || fail "competing Yoast applies lost repository intent: $CONCURRENT"
-CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast plan after competing applies' json "$CONCURRENT_PLAN"
+CONCURRENT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast plan after competing applies' json "$CONCURRENT_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "Yoast competing applies left retained work: $CONCURRENT_PLAN"
 pass 'competing Yoast applies serialize and leave one exact idempotent result'
@@ -537,9 +537,9 @@ pass 'competing Yoast applies serialize and leave one exact idempotent result'
 # refuse, then the digest-bound exact artifact restores a clean active runtime.
 wp_conf2 plugin deactivate wordpress-seo >/dev/null
 wp_conf2 plugin is-active wordpress-seo >/dev/null 2>&1 && fail 'Yoast deactivation premise did not land'
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast deploy after deactivation' json "$REACTIVATE"
-wp_conf2 plugin is-active wordpress-seo >/dev/null || fail 'Duo deploy did not reactivate exact Yoast code'
+REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast deploy after deactivation' json "$REACTIVATE"
+wp_conf2 plugin is-active wordpress-seo >/dev/null || fail 'WPrism deploy did not reactivate exact Yoast code'
 LIFECYCLE_BEFORE=$(yoast_target_hash)
 wp_conf2 plugin deactivate wordpress-seo >/dev/null
 wp_conf2 plugin uninstall wordpress-seo >/dev/null
@@ -547,8 +547,8 @@ wp_conf2 plugin is-installed wordpress-seo >/dev/null 2>&1 && fail 'Yoast uninst
 [ "$(yoast_target_hash)" = "$LIFECYCLE_BEFORE" ] \
   || fail 'Yoast ordinary uninstall unexpectedly removed or changed retained state'
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered 'Yoast deploy with code absent' human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered 'Yoast deploy with code absent' human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing Yoast code did not refuse at compatibility: $MISSING_OUT"
 YOAST_SHA=381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb
@@ -557,23 +557,23 @@ YOAST_ARTIFACT="/artifacts-cache/plugin-wordpress-seo-28.3-${YOAST_SHA}.zip"
   || fail 'cached Yoast reinstall artifact digest moved'
 wp_conf2 plugin install "$YOAST_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get wordpress-seo --field=version)" = 28.3 ] || fail 'Yoast exact reinstall reported wrong version'
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast deploy after exact reinstall' json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast deploy after exact reinstall' json "$REINSTALL_DEPLOY"
 RECOVERED=$(observe_yoast conf2)
 jq -e '
   .version == "28.3" and .meta["_yoast_wpseo_twitter-title"] == "Concurrent Yoast intent 東京 🚀" and
   .runtime.undeclared_neighbor == "target-neighbor-preserved" and .runtime.main_excluded == false and
   .derived.main_primary == 1 and .derived.invalid_hierarchy == 0 and .derived.invalid_links == 0
 ' <<<"$RECOVERED" >/dev/null || fail "Yoast retained state did not recover after exact reinstall: $RECOVERED"
-FINAL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast final apply after exact reinstall' json "$FINAL_APPLY"
+FINAL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast final apply after exact reinstall' json "$FINAL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$FINAL_APPLY" >/dev/null \
   || fail "Yoast exact reinstall did not remain clean: $FINAL_APPLY"
-FINAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast final recovery plan' json "$FINAL_PLAN"
+FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Yoast final recovery plan' json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "Yoast recovery was not idempotent: $FINAL_PLAN"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-yoast-final >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-yoast-final >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-yoast-final" || fail 'Yoast final recovered state was not byte-identical'
 rm -rf "$CONF_REPO2/.tmp-yoast-final"
 pass 'deactivate/reactivate, retained-data uninstall, absent-code refusal, exact reinstall, and final retry are clean'

@@ -16,15 +16,15 @@ require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Grammar/Tokens.php';
 require_once $root . '/agent/src/Policy/ScopeDiscovery.php';
 
-use Duo\Canon;
-use Duo\Ledger;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\RefreshExport;
-use Duo\ScopeDiscovery;
-use Duo\Snapshot;
-use Duo\Tokens;
-use Duo\Uuid;
+use WPrism\Canon;
+use WPrism\Ledger;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\RefreshExport;
+use WPrism\ScopeDiscovery;
+use WPrism\Snapshot;
+use WPrism\Tokens;
+use WPrism\Uuid;
 
 function fail_re(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function check_re(bool $ok, string $message): void { if (!$ok) fail_re($message); }
@@ -54,7 +54,7 @@ final class RefreshExportReadOnlyWpdb {
     public function get_results(string $sql, mixed $_output = null): array {
         if (str_contains($sql, 'information_schema.COLUMNS')) return $this->columns();
         if (str_contains($sql, 'information_schema.STATISTICS')) return $this->indexes();
-        if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM wp_duo_map')) return $this->maps;
+        if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM wp_wprism_map')) return $this->maps;
         throw new RuntimeException("FAIL: unexpected inventory query $sql");
     }
     public function get_var(string $sql): mixed {
@@ -91,33 +91,33 @@ final class RefreshExportReadOnlyWpdb {
             $out[] = ['TABLE_NAME' => $table, 'COLUMN_NAME' => $name, 'DATA_TYPE' => $type,
                 'COLUMN_TYPE' => $type, 'CHARACTER_MAXIMUM_LENGTH' => $length];
         };
-        $add('wp_duo_map', 'uuid', 'char(36)', 36);
-        $add('wp_duo_map', 'entity_type', 'varchar(64)', 64);
-        $add('wp_duo_map', 'id_kind', 'varchar(64)', 64);
-        $add('wp_duo_map', 'local_id', 'bigint(20) unsigned', 0);
-        $add('wp_duo_state', 'uuid', 'varchar(64)', 64);
-        $add('wp_duo_state', 'entity_type', 'varchar(64)', 64);
-        $add('wp_duo_state', 'content_hash', 'char(64)', 64);
-        $add('wp_duo_kv', 'k', 'varchar(191)', 191);
-        $add('wp_duo_kv', 'v', 'longtext', PHP_INT_MAX);
+        $add('wp_wprism_map', 'uuid', 'char(36)', 36);
+        $add('wp_wprism_map', 'entity_type', 'varchar(64)', 64);
+        $add('wp_wprism_map', 'id_kind', 'varchar(64)', 64);
+        $add('wp_wprism_map', 'local_id', 'bigint(20) unsigned', 0);
+        $add('wp_wprism_state', 'uuid', 'varchar(64)', 64);
+        $add('wp_wprism_state', 'entity_type', 'varchar(64)', 64);
+        $add('wp_wprism_state', 'content_hash', 'char(64)', 64);
+        $add('wp_wprism_kv', 'k', 'varchar(191)', 191);
+        $add('wp_wprism_kv', 'v', 'longtext', PHP_INT_MAX);
         return $out;
     }
     /** @return list<array<string,mixed>> */
     private function indexes(): array {
         return [
-            ['TABLE_NAME'=>'wp_duo_map','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'uuid'],
-            ['TABLE_NAME'=>'wp_duo_map','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>2,'COLUMN_NAME'=>'id_kind'],
-            ['TABLE_NAME'=>'wp_duo_map','INDEX_NAME'=>'kind_local','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'id_kind'],
-            ['TABLE_NAME'=>'wp_duo_map','INDEX_NAME'=>'kind_local','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>2,'COLUMN_NAME'=>'local_id'],
-            ['TABLE_NAME'=>'wp_duo_state','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'uuid'],
-            ['TABLE_NAME'=>'wp_duo_kv','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'k'],
+            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'uuid'],
+            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>2,'COLUMN_NAME'=>'id_kind'],
+            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'kind_local','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'id_kind'],
+            ['TABLE_NAME'=>'wp_wprism_map','INDEX_NAME'=>'kind_local','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>2,'COLUMN_NAME'=>'local_id'],
+            ['TABLE_NAME'=>'wp_wprism_state','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'uuid'],
+            ['TABLE_NAME'=>'wp_wprism_kv','INDEX_NAME'=>'PRIMARY','NON_UNIQUE'=>0,'SEQ_IN_INDEX'=>1,'COLUMN_NAME'=>'k'],
         ];
     }
 }
 
 $uuid = '123e4567-e89b-42d3-a456-426614174000';
 $renamedNaturalUuid = Uuid::v5(
-    Uuid::NAMESPACE_DUO,
+    Uuid::NAMESPACE_WPRISM,
     'woocommerce_attribute_taxonomies:original-name'
 );
 $wpdb = new RefreshExportReadOnlyWpdb();
@@ -136,7 +136,7 @@ Ledger::require_read_only_mapping($uuid, 'post', 'post', 7, 'fixture post');
 check_re($wpdb->queries === 0, 'read-only ledger helper attempted a mutation query');
 
 $identify = new ReflectionMethod(Snapshot::class, 'identify_row');
-// DUO-3318: identify_row() takes the capture-direction tokenizer, because a
+// issue #3318: identify_row() takes the capture-direction tokenizer, because a
 // parent-scoped natural key's ref component derives from the REFERENCED row's
 // uuid. The strict read-only branch under test returns before touching it —
 // asserted below by the unchanged zero-mutation-query check — so an

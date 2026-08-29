@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regression — DUO-3285 fast-follow: the durable fix for the drift class
-# that let regress-coverage-offline (DUO-3290, asub's PR #82) land with a
+# Regression — issue #3285 fast-follow: the durable fix for the drift class
+# that let regress-coverage-offline (issue #3290, asub's PR #82) land with a
 # real Makefile target and no bundle entry, invisible to CI for as long as
-# nobody happened to notice by inspection. Re-running the DUO-3285 survey
+# nobody happened to notice by inspection. Re-running the issue #3285 survey
 # by hand the same day found two more of the same shape it had NOT been
 # re-run against since (regress-coverage, regress-woo-attribute-deletion) --
 # so "wire the one flagged suite in" fixes an instance, not the class. This

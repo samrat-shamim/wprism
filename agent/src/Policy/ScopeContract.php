@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
@@ -23,7 +23,7 @@ final class ScopedOptionMutationUnsupported extends \RuntimeException {}
  * target-side precondition before it can write anything.
  */
 final class ScopeContract {
-    public const FORMAT = 'duo-scope-contract/v1';
+    public const FORMAT = 'wprism-scope-contract/v1';
     public const TOMBSTONE_PREFIX = 'tombstone:';
 
     private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/';
@@ -60,7 +60,7 @@ final class ScopeContract {
                 $records = OptionState::records((array) (($tree['options/core'] ?? [])['data'] ?? []));
                 $name = (string) $row['option'];
                 if (!isset($records[$name])) {
-                    throw new \RuntimeException('duo: scope option root disappeared from compiled options/core');
+                    throw new \RuntimeException('wprism: scope option root disappeared from compiled options/core');
                 }
                 $optionRecords[$name] = $records[$name];
                 continue;
@@ -145,12 +145,12 @@ final class ScopeContract {
             'purpose', 'read_only_evidence', 'resolution', 'scope_hash', 'source', 'selectors', 'tombstones', 'uploads',
         ], 'scope contract');
         if (($contract['format'] ?? null) !== self::FORMAT) {
-            throw new \RuntimeException('duo: scope contract has an unsupported format');
+            throw new \RuntimeException('wprism: scope contract has an unsupported format');
         }
         if (($contract['purpose'] ?? null) !== 'read-only scope evidence; never mutation authority'
             || ($contract['read_only_evidence'] ?? null) !== true
             || ($contract['mutation_authority'] ?? null) !== false) {
-            throw new \RuntimeException('duo: scope contract must explicitly be read-only evidence with no mutation authority');
+            throw new \RuntimeException('wprism: scope contract must explicitly be read-only evidence with no mutation authority');
         }
         self::assert_source($contract['source'] ?? null);
         self::assert_code_diagnostic($contract['code_diagnostic'] ?? null);
@@ -169,17 +169,17 @@ final class ScopeContract {
         ], 'scope contract exclusions');
         foreach ($contract['exclusions'] as $key => $value) {
             if (!is_string($value) || $value === '') {
-                throw new \RuntimeException("duo: scope contract exclusions.$key must be a non-empty string");
+                throw new \RuntimeException("wprism: scope contract exclusions.$key must be a non-empty string");
             }
         }
         $scopeHash = $contract['scope_hash'] ?? null;
         if (!is_string($scopeHash) || !self::is_hash($scopeHash)) {
-            throw new \RuntimeException('duo: scope contract has no valid scope_hash');
+            throw new \RuntimeException('wprism: scope contract has no valid scope_hash');
         }
         $withoutHash = $contract;
         unset($withoutHash['scope_hash']);
         if (!hash_equals(self::hash($withoutHash), $scopeHash)) {
-            throw new \RuntimeException('duo: scope contract scope_hash does not verify');
+            throw new \RuntimeException('wprism: scope contract scope_hash does not verify');
         }
         return $contract;
     }
@@ -235,7 +235,7 @@ final class ScopeContract {
         $selectsWholeOptions = in_array('options', (array) $contract['selectors'], true);
         if (self::option_root_names($contract) !== [] && !$selectsWholeOptions) {
             throw new ScopedOptionMutationUnsupported(
-                "duo: $operation does not support per-option scoped mutation; select the whole 'options' surface instead"
+                "wprism: $operation does not support per-option scoped mutation; select the whole 'options' surface instead"
             );
         }
     }
@@ -253,11 +253,11 @@ final class ScopeContract {
         if (!hash_equals($compiled->artifact_hash(), (string) $source['artifact_hash'])
             || !hash_equals($compiled->revision_hash(), (string) $source['state_revision_hash'])
             || !hash_equals($compiled->manifest_hash(), (string) $source['manifest_hash'])) {
-            throw new \RuntimeException('duo: scope contract is not associated with this exact compiled artifact/policy');
+            throw new \RuntimeException('wprism: scope contract is not associated with this exact compiled artifact/policy');
         }
         $expected = self::resolve($compiled, $policy, $contract['selectors']);
         if (!hash_equals(Canon::encode($expected), Canon::encode($contract))) {
-            throw new \RuntimeException('duo: scope contract does not match the complete resolved evidence for this artifact/policy');
+            throw new \RuntimeException('wprism: scope contract does not match the complete resolved evidence for this artifact/policy');
         }
     }
 
@@ -302,7 +302,7 @@ final class ScopeContract {
             foreach (array_merge(array_keys($tree), array_keys($deletions)) as $identity) {
                 if (!isset($allowed[(string) $identity])) {
                     throw new \RuntimeException(
-                        "duo: scoped all target observation introduced identity '$identity' outside the immutable source contract"
+                        "wprism: scoped all target observation introduced identity '$identity' outside the immutable source contract"
                     );
                 }
             }
@@ -315,12 +315,12 @@ final class ScopeContract {
         foreach (array_keys($authorizedDeletionSet) as $identity) {
             if (!isset($allowed[$identity]) || isset($selectedTombstones[$identity])) {
                 throw new \RuntimeException(
-                    "duo: scoped candidate deletion authority escaped to '$identity'"
+                    "wprism: scoped candidate deletion authority escaped to '$identity'"
                 );
             }
         }
         if (!array_is_list($authorizedDeauthorizations)) {
-            throw new \RuntimeException('duo: scoped candidate deauthorization evidence is malformed');
+            throw new \RuntimeException('wprism: scoped candidate deauthorization evidence is malformed');
         }
         $authorizedDeauthorizationSet = [];
         foreach ($authorizedDeauthorizations as $position => $evidence) {
@@ -356,7 +356,7 @@ final class ScopeContract {
                 $hasInbound = $hasInbound || ($row['target'] ?? null) === $identity;
             }
             if ($keys !== ['format', 'entity', 'previous_hash', 'source_revision', 'scanned_selected_post_uuids']
-                || ($evidence['format'] ?? null) !== 'duo-inactive-overlay-deauthorization/v1'
+                || ($evidence['format'] ?? null) !== 'wprism-inactive-overlay-deauthorization/v1'
                 || $identity !== 'sidebar/wp_inactive_widgets'
                 || !is_string($evidence['previous_hash'] ?? null)
                 || preg_match('/^[a-f0-9]{64}$/D', $evidence['previous_hash']) !== 1
@@ -382,12 +382,12 @@ final class ScopeContract {
                 || isset($selectedTombstones[$identity])
                 || ($expectedTypes[$identity] ?? null) !== 'sidebar') {
                 throw new \RuntimeException(
-                    "duo: scoped candidate deauthorization evidence escaped at position $position"
+                    "wprism: scoped candidate deauthorization evidence escaped at position $position"
                 );
             }
             if (isset($tree[$identity]) || isset($deletions[$identity])) {
                 throw new \RuntimeException(
-                    "duo: scoped candidate deauthorization '$identity' contradicts observed state"
+                    "wprism: scoped candidate deauthorization '$identity' contradicts observed state"
                 );
             }
             $authorizedDeauthorizationSet[$identity] = true;
@@ -396,7 +396,7 @@ final class ScopeContract {
             if (isset($selectedTombstones[$identity])) {
                 if (!isset($deletions[$identity]) || isset($tree[$identity])) {
                     throw new \RuntimeException(
-                        "duo: scoped candidate changed selected tombstone '$identity' without deletion/resurrection authority"
+                        "wprism: scoped candidate changed selected tombstone '$identity' without deletion/resurrection authority"
                     );
                 }
                 continue;
@@ -409,7 +409,7 @@ final class ScopeContract {
                     : [];
                 if (!array_key_exists($name, $records)) {
                     throw new \RuntimeException(
-                        "duo: scoped candidate lost selected option '$name' without bounded option evidence"
+                        "wprism: scoped candidate lost selected option '$name' without bounded option evidence"
                     );
                 }
                 continue;
@@ -417,7 +417,7 @@ final class ScopeContract {
             if (isset($tree[$identity]) && !isset($deletions[$identity])) {
                 if ((string) ($tree[$identity]['type'] ?? '') !== (string) ($expectedTypes[$identity] ?? '')) {
                     throw new \RuntimeException(
-                        "duo: scoped candidate changed selected identity '$identity' to a different entity type"
+                        "wprism: scoped candidate changed selected identity '$identity' to a different entity type"
                     );
                 }
                 continue;
@@ -430,7 +430,7 @@ final class ScopeContract {
             }
             if (!isset($tree[$identity]) || isset($deletions[$identity])) {
                 throw new \RuntimeException(
-                    "duo: scoped candidate changed selected live identity '$identity' without deletion/resurrection authority"
+                    "wprism: scoped candidate changed selected live identity '$identity' without deletion/resurrection authority"
                 );
             }
         }
@@ -455,7 +455,7 @@ final class ScopeContract {
                 $identity = (string) ($row['entity'] ?? '');
                 if (!isset($allowed[$identity])) {
                     throw new \RuntimeException(
-                        "duo: scoped candidate dependency closure escaped to excluded identity '$identity'"
+                        "wprism: scoped candidate dependency closure escaped to excluded identity '$identity'"
                     );
                 }
             }
@@ -475,7 +475,7 @@ final class ScopeContract {
                 $from = (string) ($owners[$rawFrom]['entity'] ?? $rawFrom);
                 if (isset($authorizedDeletionSet[$target]) && !isset($allowed[$from])) {
                     throw new \RuntimeException(
-                        "duo: scoped target drift added an out-of-scope inbound reference to selected deletion '$target'"
+                        "wprism: scoped target drift added an out-of-scope inbound reference to selected deletion '$target'"
                     );
                 }
             }
@@ -497,7 +497,7 @@ final class ScopeContract {
         $all = false;
         foreach ($requestedSelectors as $raw) {
             if (!is_string($raw)) {
-                throw new \RuntimeException('duo: scope-contract selectors must be strings');
+                throw new \RuntimeException('wprism: scope-contract selectors must be strings');
             }
             $selector = trim($raw);
             if ($selector === '') {
@@ -510,11 +510,11 @@ final class ScopeContract {
             if (str_starts_with($selector, self::TOMBSTONE_PREFIX)) {
                 $uuid = substr($selector, strlen(self::TOMBSTONE_PREFIX));
                 if (preg_match(self::UUID_RE, $uuid) !== 1) {
-                    throw new \RuntimeException("duo: tombstone selector '$selector' must be exactly tombstone:<lowercase-uuid>");
+                    throw new \RuntimeException("wprism: tombstone selector '$selector' must be exactly tombstone:<lowercase-uuid>");
                 }
             } elseif (str_starts_with($selector, 'delete:')) {
                 throw new \RuntimeException(
-                    "duo: selector '$selector' is not mutation authority; use tombstone:<uuid> to name immutable deletion evidence"
+                    "wprism: selector '$selector' is not mutation authority; use tombstone:<uuid> to name immutable deletion evidence"
                 );
             }
             $seen[$selector] = true;
@@ -525,7 +525,7 @@ final class ScopeContract {
         $out = array_keys($seen);
         sort($out, SORT_STRING);
         if ($out === []) {
-            throw new \RuntimeException('duo: a scope contract needs at least one selector (or "all")');
+            throw new \RuntimeException('wprism: a scope contract needs at least one selector (or "all")');
         }
         return $out;
     }
@@ -544,7 +544,7 @@ final class ScopeContract {
             }
             $entity = $tree[$identity] ?? null;
             if (!is_array($entity)) {
-                throw new \RuntimeException('duo: scope closure root disappeared from compiled tree');
+                throw new \RuntimeException('wprism: scope closure root disappeared from compiled tree');
             }
             $roots[] = self::live_row($entity, $identity, [
                 'kind' => 'root',
@@ -558,7 +558,7 @@ final class ScopeContract {
             }
             $entity = $tree[(string) ($row['entity'] ?? '')] ?? null;
             if (!is_array($entity)) {
-                throw new \RuntimeException('duo: scope closure inclusion disappeared from compiled tree');
+                throw new \RuntimeException('wprism: scope closure inclusion disappeared from compiled tree');
             }
             $closed[] = self::live_row($entity, (string) $row['entity'], [
                 'kind' => 'closure',
@@ -594,7 +594,7 @@ final class ScopeContract {
             $entity = $tree[$entityId] ?? null;
             $target = $tree[$targetId] ?? null;
             if (!is_array($entity) || !is_array($target)) {
-                throw new \RuntimeException('duo: scope closure inbound evidence disappeared from compiled tree');
+                throw new \RuntimeException('wprism: scope closure inbound evidence disappeared from compiled tree');
             }
             $inbound[] = [
                 'entity' => $entityId,
@@ -633,12 +633,12 @@ final class ScopeContract {
     private static function option_live_row(array $tree, string $identity, array $provenance): array {
         $options = $tree['options/core'] ?? null;
         if (!is_array($options)) {
-            throw new \RuntimeException('duo: scope option root disappeared from compiled options/core');
+            throw new \RuntimeException('wprism: scope option root disappeared from compiled options/core');
         }
         $name = ScopeClosure::option_name_from_root($identity);
         $records = OptionState::records((array) ($options['data'] ?? []));
         if (!array_key_exists($name, $records)) {
-            throw new \RuntimeException('duo: scope option root disappeared from compiled options/core');
+            throw new \RuntimeException('wprism: scope option root disappeared from compiled options/core');
         }
         return [
             'entity' => $identity,
@@ -676,7 +676,7 @@ final class ScopeContract {
             foreach ($tombstoneSelectors as $selector) {
                 $uuid = substr($selector, strlen(self::TOMBSTONE_PREFIX));
                 if (!isset($deletions[$uuid])) {
-                    throw new \RuntimeException("duo: tombstone selector '$selector' names no compiled tombstone in this revision");
+                    throw new \RuntimeException("wprism: tombstone selector '$selector' names no compiled tombstone in this revision");
                 }
                 $wanted[] = $uuid;
             }
@@ -687,7 +687,7 @@ final class ScopeContract {
         foreach ($wanted as $uuid) {
             $entry = $deletions[$uuid] ?? null;
             if (!is_array($entry)) {
-                throw new \RuntimeException("duo: compiled tombstone '$uuid' is missing");
+                throw new \RuntimeException("wprism: compiled tombstone '$uuid' is missing");
             }
             $deletion = (array) ($entry['data'] ?? []);
             $kind = (string) ($deletion['kind'] ?? '');
@@ -751,7 +751,7 @@ final class ScopeContract {
         foreach (array_keys($names) as $name) {
             $row = $artifact['media'][$name] ?? null;
             if (!is_array($row) || !is_string($row['sha256'] ?? null) || !self::is_hash($row['sha256'])) {
-                throw new \RuntimeException("duo: compiled artifact lacks verified media '$name' for scope contract");
+                throw new \RuntimeException("wprism: compiled artifact lacks verified media '$name' for scope contract");
             }
             $out[] = ['name' => $name, 'sha256' => $row['sha256']];
         }
@@ -800,7 +800,7 @@ final class ScopeContract {
             if (!is_array($declaration)) {
                 // Policy::validate_actions() prevents this. Keep the read-only
                 // contract fail-closed if a malformed frozen Policy reaches it.
-                throw new \RuntimeException("duo: potential provider '$id' has no policy declaration");
+                throw new \RuntimeException("wprism: potential provider '$id' has no policy declaration");
             }
             $sources = array_values(array_unique($sources));
             sort($sources, SORT_STRING);
@@ -910,7 +910,7 @@ final class ScopeContract {
         self::assert_keys($source, ['artifact_hash', 'manifest_hash', 'state_revision_hash'], 'scope contract source');
         foreach ($source as $key => $value) {
             if (!is_string($value) || !self::is_hash($value)) {
-                throw new \RuntimeException("duo: scope contract source.$key must be a lowercase SHA-256 hash");
+                throw new \RuntimeException("wprism: scope contract source.$key must be a lowercase SHA-256 hash");
             }
         }
     }
@@ -923,18 +923,18 @@ final class ScopeContract {
         self::assert_keys($diagnostic, ['code_revision', 'statement'], 'scope contract code_diagnostic');
         if (!is_string($diagnostic['code_revision']) || $diagnostic['code_revision'] === ''
             || !is_string($diagnostic['statement']) || $diagnostic['statement'] === '') {
-            throw new \RuntimeException('duo: scope contract code_diagnostic is malformed');
+            throw new \RuntimeException('wprism: scope contract code_diagnostic is malformed');
         }
     }
 
     /** @param mixed $selectors */
     private static function assert_selector_list(mixed $selectors): void {
         if (!is_array($selectors) || !array_is_list($selectors)) {
-            throw new \RuntimeException('duo: scope contract selectors must be a list');
+            throw new \RuntimeException('wprism: scope contract selectors must be a list');
         }
         $normalized = self::normalize_selectors($selectors);
         if ($normalized !== $selectors) {
-            throw new \RuntimeException('duo: scope contract selectors are not normalized');
+            throw new \RuntimeException('wprism: scope contract selectors are not normalized');
         }
     }
 
@@ -943,7 +943,7 @@ final class ScopeContract {
         self::assert_keys($live, ['closure', 'excluded', 'inbound', 'roots'], 'scope contract live');
         foreach (['roots' => 'root', 'closure' => 'closure', 'excluded' => 'excluded'] as $field => $kind) {
             if (!is_array($live[$field]) || !array_is_list($live[$field])) {
-                throw new \RuntimeException("duo: scope contract live.$field must be a list");
+                throw new \RuntimeException("wprism: scope contract live.$field must be a list");
             }
             foreach ($live[$field] as $row) {
                 $isOption = ($row['type'] ?? null) === 'option';
@@ -956,12 +956,12 @@ final class ScopeContract {
                 );
                 foreach (['entity', 'path', 'type'] as $key) {
                     if (!is_string($row[$key]) || $row[$key] === '') {
-                        throw new \RuntimeException("duo: scope contract live.$field row.$key must be a non-empty string");
+                        throw new \RuntimeException("wprism: scope contract live.$field row.$key must be a non-empty string");
                     }
                 }
                 if ($isOption) {
                     if ($kind !== 'root') {
-                        throw new \RuntimeException("duo: scope contract live.$field option evidence must be a root");
+                        throw new \RuntimeException("wprism: scope contract live.$field option evidence must be a root");
                     }
                     if (!ScopeClosure::is_option_root((string) $row['entity'])
                         || !is_string($row['option'] ?? null)
@@ -970,14 +970,14 @@ final class ScopeContract {
                             ScopeClosure::option_name_from_root((string) $row['entity']),
                             (string) $row['option']
                         )) {
-                        throw new \RuntimeException("duo: scope contract live.$field option root is malformed");
+                        throw new \RuntimeException("wprism: scope contract live.$field option root is malformed");
                     }
                 } elseif (ScopeClosure::is_option_root((string) $row['entity'])) {
-                    throw new \RuntimeException("duo: scope contract live.$field synthetic option root has an invalid type");
+                    throw new \RuntimeException("wprism: scope contract live.$field synthetic option root has an invalid type");
                 }
                 foreach (['entity_hash', 'source_hash'] as $key) {
                     if (!is_string($row[$key]) || !self::is_hash($row[$key])) {
-                        throw new \RuntimeException("duo: scope contract live.$field row.$key must be a SHA-256 hash");
+                        throw new \RuntimeException("wprism: scope contract live.$field row.$key must be a SHA-256 hash");
                     }
                 }
                 $expected = match ($kind) {
@@ -987,12 +987,12 @@ final class ScopeContract {
                 };
                 self::assert_keys($row['provenance'], $expected, "scope contract live.$field provenance");
                 if (($row['provenance']['kind'] ?? null) !== $kind) {
-                    throw new \RuntimeException("duo: scope contract live.$field provenance kind is invalid");
+                    throw new \RuntimeException("wprism: scope contract live.$field provenance kind is invalid");
                 }
             }
         }
         if (!is_array($live['inbound']) || !array_is_list($live['inbound'])) {
-            throw new \RuntimeException('duo: scope contract live.inbound must be a list');
+            throw new \RuntimeException('wprism: scope contract live.inbound must be a list');
         }
         foreach ($live['inbound'] as $row) {
             self::assert_keys($row, [
@@ -1000,12 +1000,12 @@ final class ScopeContract {
             ], 'scope contract live.inbound row');
             foreach (['entity', 'locator', 'path', 'relation', 'target', 'target_path', 'type'] as $key) {
                 if (!is_string($row[$key]) || $row[$key] === '') {
-                    throw new \RuntimeException("duo: scope contract live.inbound row.$key must be a non-empty string");
+                    throw new \RuntimeException("wprism: scope contract live.inbound row.$key must be a non-empty string");
                 }
             }
             foreach (['entity_hash', 'source_hash', 'target_hash'] as $key) {
                 if (!is_string($row[$key]) || !self::is_hash($row[$key])) {
-                    throw new \RuntimeException("duo: scope contract live.inbound row.$key must be a SHA-256 hash");
+                    throw new \RuntimeException("wprism: scope contract live.inbound row.$key must be a SHA-256 hash");
                 }
             }
         }
@@ -1018,7 +1018,7 @@ final class ScopeContract {
         self::assert_string_set($resolution['tombstone_uuids'] ?? null, 'resolution tombstone_uuids');
         foreach ($resolution['tombstone_uuids'] as $uuid) {
             if (preg_match(self::UUID_RE, $uuid) !== 1) {
-                throw new \RuntimeException('duo: scope contract resolution tombstone_uuids must be UUIDs');
+                throw new \RuntimeException('wprism: scope contract resolution tombstone_uuids must be UUIDs');
             }
         }
     }
@@ -1026,21 +1026,21 @@ final class ScopeContract {
     /** @param mixed $tombstones */
     private static function assert_tombstones(mixed $tombstones): void {
         if (!is_array($tombstones) || !array_is_list($tombstones)) {
-            throw new \RuntimeException('duo: scope contract tombstones must be a list');
+            throw new \RuntimeException('wprism: scope contract tombstones must be a list');
         }
         foreach ($tombstones as $row) {
             self::assert_keys($row, ['deletion', 'path', 'policy_deletion_obligations', 'tombstone_hash', 'uuid'], 'scope contract tombstone');
             if (!is_string($row['uuid']) || preg_match(self::UUID_RE, $row['uuid']) !== 1
                 || !is_string($row['path']) || $row['path'] === ''
                 || !is_string($row['tombstone_hash']) || !self::is_hash($row['tombstone_hash'])) {
-                throw new \RuntimeException('duo: scope contract tombstone identity/hash is malformed');
+                throw new \RuntimeException('wprism: scope contract tombstone identity/hash is malformed');
             }
             self::assert_keys($row['deletion'], [
                 'expected_hash', 'expected_revision', 'format', 'kind', 'source_path', 'type', 'uuid',
             ], 'scope contract tombstone deletion');
             if (($row['deletion']['format'] ?? null) !== Deletion::FORMAT
                 || ($row['deletion']['uuid'] ?? null) !== $row['uuid']) {
-                throw new \RuntimeException('duo: scope contract tombstone deletion does not match its row');
+                throw new \RuntimeException('wprism: scope contract tombstone deletion does not match its row');
             }
             self::assert_keys($row['policy_deletion_obligations'], [
                 'cascades', 'declared_by', 'guards', 'selector', 'static_only',
@@ -1050,7 +1050,7 @@ final class ScopeContract {
                 || !is_array($row['policy_deletion_obligations']['cascades'] ?? null)
                 || !is_array($row['policy_deletion_obligations']['guards'] ?? null)
                 || !is_array($row['policy_deletion_obligations']['declared_by'] ?? null)) {
-                throw new \RuntimeException('duo: scope contract policy deletion obligations are malformed');
+                throw new \RuntimeException('wprism: scope contract policy deletion obligations are malformed');
             }
         }
     }
@@ -1058,7 +1058,7 @@ final class ScopeContract {
     /** @param mixed $uploads */
     private static function assert_uploads(mixed $uploads): void {
         if (!is_array($uploads) || !array_is_list($uploads)) {
-            throw new \RuntimeException('duo: scope contract uploads must be a list');
+            throw new \RuntimeException('wprism: scope contract uploads must be a list');
         }
         foreach ($uploads as $row) {
             self::assert_keys($row, [
@@ -1066,7 +1066,7 @@ final class ScopeContract {
             ], 'scope contract upload');
             foreach ($row as $value) {
                 if (!is_string($value)) {
-                    throw new \RuntimeException('duo: scope contract upload values must be strings');
+                    throw new \RuntimeException('wprism: scope contract upload values must be strings');
                 }
             }
         }
@@ -1075,12 +1075,12 @@ final class ScopeContract {
     /** @param mixed $media */
     private static function assert_media(mixed $media): void {
         if (!is_array($media) || !array_is_list($media)) {
-            throw new \RuntimeException('duo: scope contract media must be a list');
+            throw new \RuntimeException('wprism: scope contract media must be a list');
         }
         foreach ($media as $row) {
             self::assert_keys($row, ['name', 'sha256'], 'scope contract media');
             if (!is_string($row['name']) || $row['name'] === '' || !is_string($row['sha256']) || !self::is_hash($row['sha256'])) {
-                throw new \RuntimeException('duo: scope contract media row is malformed');
+                throw new \RuntimeException('wprism: scope contract media row is malformed');
             }
         }
     }
@@ -1088,12 +1088,12 @@ final class ScopeContract {
     /** @param mixed $set */
     private static function assert_string_set(mixed $set, string $where): void {
         if (!is_array($set) || !array_is_list($set)) {
-            throw new \RuntimeException("duo: scope contract $where must be a list");
+            throw new \RuntimeException("wprism: scope contract $where must be a list");
         }
         $previous = null;
         foreach ($set as $value) {
             if (!is_string($value) || $value === '' || ($previous !== null && strcmp($previous, $value) >= 0)) {
-                throw new \RuntimeException("duo: scope contract $where must be sorted unique non-empty strings");
+                throw new \RuntimeException("wprism: scope contract $where must be sorted unique non-empty strings");
             }
             $previous = $value;
         }
@@ -1102,7 +1102,7 @@ final class ScopeContract {
     /** @param mixed $actions @param mixed $surfaces */
     private static function assert_potential_actions(mixed $actions, mixed $surfaces): void {
         if (!is_array($actions) || !array_is_list($actions) || !is_array($surfaces)) {
-            throw new \RuntimeException('duo: scope contract potential_actions must be a list');
+            throw new \RuntimeException('wprism: scope contract potential_actions must be a list');
         }
         $surfaceSet = array_fill_keys($surfaces, true);
         foreach ($actions as $row) {
@@ -1110,12 +1110,12 @@ final class ScopeContract {
             if (!is_string($row['manifest']) || $row['manifest'] === '' || !is_int($row['index'])
                 || !is_string($row['source']) || $row['source'] === '' || !is_array($row['declaration'])
                 || ($row['potential_only'] ?? null) !== true) {
-                throw new \RuntimeException('duo: scope contract potential action is malformed');
+                throw new \RuntimeException('wprism: scope contract potential action is malformed');
             }
             self::assert_string_set($row['eligible_surfaces'], 'potential action eligible_surfaces');
             foreach ($row['eligible_surfaces'] as $surface) {
                 if (!isset($surfaceSet[$surface])) {
-                    throw new \RuntimeException('duo: scope contract potential action names an ineligible surface');
+                    throw new \RuntimeException('wprism: scope contract potential action names an ineligible surface');
                 }
             }
         }
@@ -1124,13 +1124,13 @@ final class ScopeContract {
     /** @param mixed $providers */
     private static function assert_potential_providers(mixed $providers): void {
         if (!is_array($providers) || !array_is_list($providers)) {
-            throw new \RuntimeException('duo: scope contract potential_providers must be a list');
+            throw new \RuntimeException('wprism: scope contract potential_providers must be a list');
         }
         foreach ($providers as $row) {
             self::assert_keys($row, ['declaration', 'id', 'potential_action_sources', 'potential_only'], 'scope contract potential provider');
             if (!is_string($row['id']) || $row['id'] === '' || !is_array($row['declaration'])
                 || ($row['potential_only'] ?? null) !== true) {
-                throw new \RuntimeException('duo: scope contract potential provider is malformed');
+                throw new \RuntimeException('wprism: scope contract potential provider is malformed');
             }
             self::assert_string_set($row['potential_action_sources'], 'potential provider action sources');
         }
@@ -1139,14 +1139,14 @@ final class ScopeContract {
     /** @param mixed $effects */
     private static function assert_potential_effects(mixed $effects): void {
         if (!is_array($effects) || !array_is_list($effects)) {
-            throw new \RuntimeException('duo: scope contract potential_effects must be a list');
+            throw new \RuntimeException('wprism: scope contract potential_effects must be a list');
         }
         foreach ($effects as $row) {
             self::assert_keys($row, ['basis', 'effect', 'manifest', 'phase', 'potential_only', 'source'], 'scope contract potential effect');
             if (!is_string($row['basis']) || $row['basis'] === '' || !is_array($row['effect'])
                 || !is_string($row['manifest']) || $row['manifest'] === '' || !in_array($row['phase'], ['rebuild', 'regenerator'], true)
                 || !is_string($row['source']) || $row['source'] === '' || ($row['potential_only'] ?? null) !== true) {
-                throw new \RuntimeException('duo: scope contract potential effect is malformed or includes a forbidden phase');
+                throw new \RuntimeException('wprism: scope contract potential effect is malformed or includes a forbidden phase');
             }
         }
     }
@@ -1154,13 +1154,13 @@ final class ScopeContract {
     /** @param mixed $value @param list<string> $expected */
     private static function assert_keys(mixed $value, array $expected, string $where): void {
         if (!is_array($value) || array_is_list($value)) {
-            throw new \RuntimeException("duo: $where must be an object");
+            throw new \RuntimeException("wprism: $where must be an object");
         }
         $actual = array_keys($value);
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
-            throw new \RuntimeException("duo: $where has an unexpected schema");
+            throw new \RuntimeException("wprism: $where has an unexpected schema");
         }
     }
 

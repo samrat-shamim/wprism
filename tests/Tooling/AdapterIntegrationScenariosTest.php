@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterIntegrationScenarios;
+use WPrism\Tooling\AdapterIntegrationScenarios;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -16,7 +16,7 @@ final class AdapterIntegrationScenariosTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->scratch = sys_get_temp_dir() . '/duo-integration-scenarios-' . bin2hex(random_bytes(8));
+        $this->scratch = sys_get_temp_dir() . '/wprism-integration-scenarios-' . bin2hex(random_bytes(8));
         self::assertTrue(mkdir($this->scratch . '/adapter-packages', 0777, true));
         self::assertTrue(mkdir($this->scratch . '/integration-scenarios', 0777, true));
     }

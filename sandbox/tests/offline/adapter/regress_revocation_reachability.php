@@ -4,9 +4,9 @@
  *
  * THE GAP THIS CLOSES, EXACTLY
  * ----------------------------
- * Before this rider, revocation was one `status` word per key in a file that
- * ships inside the agent archive (`Adopt.php:149` tars `agent manifests
- * recovery`), so revocation latency was agent-release latency. On the FROZEN
+ * Before this rider, revocation was one `status` word per key in the
+ * agent-bound manifest library, so revocation latency was agent-release
+ * latency. On the FROZEN
  * path it was worse than slow — it was unreachable: verifyCertificate() re-binds
  * a site-rooted certificate to the authority record its own SIGNATURE covers,
  * because frozen verification reopens no mutable site file, so nothing an
@@ -45,7 +45,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -54,11 +54,11 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
 require_once __DIR__ . '/certification_fixture.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\WithdrawnAuthoritySiteAdapterCertificate;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\WithdrawnAuthoritySiteAdapterCertificate;
 
 $repo = dirname(__DIR__, 4);
 $root = $repo . '/sandbox/tmp/revocation-reachability-' . getmypid();
@@ -117,7 +117,7 @@ if (!mkdir($root . '/site/adapters', 0777, true)) {
 }
 register_shutdown_function(static fn() => rev_remove_tree($root));
 
-$library = duo_cert_hermetic_library($repo, $root . '/library-projection');
+$library = wprism_cert_hermetic_library($repo, $root . '/library-projection');
 $adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
 $site = $root . '/site';
 
@@ -198,18 +198,18 @@ $setClock('2026-06-01T00:00:00Z');
 
 echo "\n== the channel ships ABSENT, and absence is an answer ==\n";
 
-duo_check(
+wprism_check(
     !file_exists($repo . '/platform/adapter-library/capabilities/adapter-revocations.json'),
     'no revocation document ships: the flag day moves no byte, because this channel\'s shipped state is "the '
     . 'file is not there"'
 );
-duo_check_same(
-    ['format' => 'duo-adapter-authorities/v1', 'keys' => []],
+wprism_check_same(
+    ['format' => 'wprism-adapter-authorities/v1', 'keys' => []],
     (array) json_decode((string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'), true),
     'and the shipped trust root is still the empty v1 registry, so no key exists anywhere that this channel '
     . 'could revoke in the field'
 );
-duo_check(
+wprism_check(
     AdapterCertification::SIGNATURE_DOMAIN_REVOCATION !== AdapterCertification::SIGNATURE_DOMAIN_DELEGATION
         && AdapterCertification::SIGNATURE_DOMAIN_REVOCATION !== AdapterCertification::SIGNATURE_DOMAIN_AUTHORITIES
         && str_ends_with(AdapterCertification::SIGNATURE_DOMAIN_REVOCATION, "\0"),
@@ -225,14 +225,14 @@ $manifest = [
     'options' => ['acme_shop_layout' => ['class' => 'authored']],
     'plugin' => 'acme-shop/acme-shop.php',
     'post_types' => [],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'version_range' => ['max' => '3.0.0', 'min' => '1.0.0'],
 ];
 file_put_contents($site . '/adapters/acme-shop.json', Canon::encode($manifest));
-file_put_contents($site . '/site.duo.json', Canon::encode((object) [
+file_put_contents($site . '/site.wprism.json', Canon::encode((object) [
     'manifests' => [['name' => 'acme-shop', 'source' => 'site']],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 // The operator's OWN root: a plain v1 record, minted by the operator, under a
 // name the v1 grammar allows and the v2 fingerprint rule would not. That is the
@@ -269,13 +269,13 @@ $signSite = static fn(string $authorityId, string $secretPath): array => rev_run
     '--reason=grammar verified by the site operator; not exercised',
 ]);
 $operatorSign = $signSite($operatorId, $operatorSecretPath);
-duo_check(
+wprism_check(
     $operatorSign['exit'] === 0,
     'the operator certifies their own adapter under their own root (' . trim($operatorSign['stderr']) . ')'
 );
 $operatorVerified = AdapterCertification::verifyFile($library, $site, 'acme-shop', $manifest, $site . '/adapters/certifications/acme-shop.json');
 $operatorEnvelope = $operatorVerified['envelope'];
-duo_check_same(
+wprism_check_same(
     'experimental',
     $operatorVerified['claim']['status'] ?? null,
     'and it verifies live, under trust root site'
@@ -291,7 +291,7 @@ $liveStatusFlip = (string) $refusal(static fn() => AdapterCertification::verifyF
     $manifest,
     $site . '/adapters/certifications/acme-shop.json'
 ));
-duo_check(
+wprism_check(
     str_contains($liveStatusFlip, "site adapter 'acme-shop' certification authority/key/fingerprint/trust root")
         && str_contains($liveStatusFlip, 'does not match the current site authority record'),
     'flipping `status` in the operator\'s OWN adapters/authorities.json still stops every LIVE scan with '
@@ -299,7 +299,7 @@ duo_check(
     . 'the two scope lists from what a certificate binds, so a moved `status` is an identity move ('
     . $liveStatusFlip . ')'
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $operatorEnvelope)['claim']['status'] ?? null,
     'and it still does NOT reach an already-frozen snapshot — the asymmetry T6 §2 defers is preserved exactly, '
@@ -364,19 +364,19 @@ $vendorSecretPath = $root . '/vendor.key';
 file_put_contents($vendorSecretPath, base64_encode($vendorKey['secret']) . "\n");
 chmod($vendorSecretPath, 0600);
 $vendorSign = $signSite($vendorId, $vendorSecretPath);
-duo_check(
+wprism_check(
     $vendorSign['exit'] === 0,
     'a DELEGATED vendor key certifies an adapter in this repository (' . trim($vendorSign['stderr']) . ')'
 );
 $vendorVerified = AdapterCertification::verifyFile($library, $site, 'acme-shop', $manifest, $site . '/adapters/certifications/acme-shop.json');
 $vendorEnvelope = $vendorVerified['envelope'];
-duo_check_same(
+wprism_check_same(
     'site',
     $vendorVerified['claim']['certification']['trust_root'] ?? null,
     'and the certificate it mints is site-rooted — a vendor key in a site root, which is precisely the shape the '
     . 'frozen path used to reason about as "the operator\'s own"'
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'it verifies frozen too, before anything is revoked — the control this whole section is measured against'
@@ -390,19 +390,19 @@ $installRevocations(
 $frozenRefusal = (string) $refusal(
     static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)
 );
-duo_check(
+wprism_check(
     str_contains($frozenRefusal, "authority key '$vendorId' is revoked by the platform-signed revocation record at capabilities/adapter-revocations.json")
         && str_contains($frozenRefusal, 'effective 2026-05-01T00:00:00Z')
         && str_contains($frozenRefusal, 'reason: vendor signing key disclosed in incident 2026-05-01'),
     'THE GAP IS CLOSED: a revoked vendor key held in a site root stops verifying ON THE FROZEN PATH, and the '
     . 'refusal carries the instant and the reason an operator needs (' . $frozenRefusal . ')'
 );
-duo_check(
+wprism_check(
     str_contains($frozenRefusal, 'This channel reaches the frozen path, which a status flip in the operator\'s own adapters/authorities.json deliberately does not'),
     'and the REASON TEXT STATES THE DISTINCTION: an operator reading a refused snapshot can tell which of the '
     . 'two revocation mechanisms answered without reading the source'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFile(
             $library,
@@ -415,7 +415,7 @@ duo_check(
     ),
     'the same document reaches the LIVE path through the same seat — one channel, one sentence, both paths'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $signSite($vendorId, $vendorSecretPath)['exit'] === 0
             ? throw new RuntimeException('signing succeeded')
@@ -440,7 +440,7 @@ $delegatorRefusal = (string) $refusal(static fn() => AdapterCertification::verif
     $manifest,
     $site . '/adapters/certifications/acme-shop.json'
 ));
-duo_check(
+wprism_check(
     str_contains($delegatorRefusal, "authority key '$platformId' is revoked by the platform-signed revocation record"),
     'revoking the DELEGATOR through the typed channel invalidates its delegates on the live path, without '
     . 'waiting for an agent release to move a status word (' . $delegatorRefusal . ')'
@@ -449,7 +449,7 @@ duo_check(
 // passed for any refusal that happened to word itself differently, including a
 // future one that broke this path outright; what the sentence claims is that
 // the snapshot still VERIFIES, so that is what is asserted.
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'while the FROZEN path is unaffected by the delegator\'s revocation alone: it holds the delegate\'s own '
@@ -463,13 +463,13 @@ duo_check_same(
 // consumer reaches, with no repository: that IS the frozen shape.
 $selector = new ReflectionMethod(AdapterCertification::class, 'authority');
 $platformFrozen = (string) $refusal(static fn() => $selector->invoke(null, $library, $platformId, null));
-duo_check(
+wprism_check(
     str_contains($platformFrozen, "authority key '$platformId' is revoked by the platform-signed revocation record"),
     'and a revoked PLATFORM key refuses on that same frozen shape — the shipped root IS readable there, so what '
     . 'is out of reach is the delegation document and nothing else (' . $platformFrozen . ')'
 );
 $installRevocations([], $platformId, $platformKey['secret']);
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'removing the document restores the verdict: ABSENCE means "nothing is revoked", which is the shipped state '
@@ -494,7 +494,7 @@ $tamperedStatement = (array) $tampered['statement'];
 $tamperedStatement['revocations'] = [];
 $tampered['statement'] = (object) $tamperedStatement;
 file_put_contents($revocationsPath, Canon::encode($tampered));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         "do not verify under key '$platformId'"
@@ -512,7 +512,7 @@ file_put_contents($revocationsPath, AdapterCertification::signRevocations(
     $platformId,
     base64_encode($platformKey['secret'])
 ));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'must carry a non-empty revocations list'
@@ -529,7 +529,7 @@ $droppedStatement['revocations'] = [
 ];
 $dropped['statement'] = (object) $droppedStatement;
 file_put_contents($revocationsPath, Canon::encode($dropped));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         "do not verify under key '$platformId'"
@@ -540,7 +540,7 @@ duo_check(
 $unsigned = $signed;
 unset($unsigned['signature']);
 file_put_contents($revocationsPath, Canon::encode($unsigned));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'must contain exactly format, signature, statement'
@@ -549,7 +549,7 @@ duo_check(
     . 'adornment, and stripping it is not a downgrade path'
 );
 file_put_contents($revocationsPath, "not json at all\n");
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'is not valid JSON'
@@ -587,14 +587,14 @@ file_put_contents($revocationsPath, AdapterCertification::signRevocations(
 // read them); the document is REPORTED, with the same sentence, so "installed
 // and inert" is never silent; and TAMPERING still hard-refuses, which is what
 // keeps the state named rather than a hole.
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'a revocation signed by a key the SHIPPED root does not carry is INERT: its entries do not apply, and the '
     . 'site keeps working — the honest posture for a channel that is empty until enrollment'
 );
 $channel = AdapterCertification::revocation_channel($library);
-duo_check(
+wprism_check(
     is_array($channel)
         && ($channel['signer'] ?? null) === $operatorId
         && str_contains((string) $channel['message'], "are signed by key '$operatorId', which is not installed in capabilities/adapter-authorities.json")
@@ -612,7 +612,7 @@ $inertRows = array_values(array_filter(
     $librarySurvey['refusals'],
     static fn(array $row): bool => ($row['code'] ?? '') === AdapterSources::REFUSAL_REVOCATION_INERT
 ));
-duo_check(
+wprism_check(
     count($inertRows) === 1
         && ($inertRows[0]['scope'] ?? null) === AdapterSources::SCOPE_LIBRARY
         && str_contains((string) $inertRows[0]['remediation'], 'enroll the signing key'),
@@ -624,7 +624,7 @@ $tamperedInertStatement = (array) $tamperedInert['statement'];
 $tamperedInertStatement['issued_at'] = '2026-05-02T00:00:00Z';
 $tamperedInert['statement'] = (object) $tamperedInertStatement;
 file_put_contents($revocationsPath, Canon::encode($tamperedInert));
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'editing a document whose signer is not installed changes nothing either: with no key to check it against, '
@@ -641,7 +641,7 @@ $enrolledStatement = (array) $enrolledTamper['statement'];
 $enrolledStatement['issued_at'] = '2026-05-02T00:00:00Z';
 $enrolledTamper['statement'] = (object) $enrolledStatement;
 file_put_contents($revocationsPath, Canon::encode($enrolledTamper));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         "do not verify under key '$platformId'"
@@ -683,7 +683,7 @@ file_put_contents($authoritiesPath, Canon::encode((object) [
 $revokedRevoker = (string) $refusal(
     static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)
 );
-duo_check(
+wprism_check(
     str_contains($revokedRevoker, "were signed by revoked key '$platformId'")
         && !str_contains($revokedRevoker, 'inert'),
     'and a document signed by a REVOKED platform key hard-refuses rather than applying OR going inert: the root '
@@ -695,7 +695,7 @@ $installRevocations(
     $platformId,
     $platformKey['secret']
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'an entry binds the key FINGERPRINT, not the id: naming the vendor\'s id over somebody else\'s key material '
@@ -706,7 +706,7 @@ $installRevocations(
     $platformId,
     $platformKey['secret']
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'is revoked by the platform-signed revocation record'
@@ -719,14 +719,14 @@ $installRevocations(
     $platformId,
     $platformKey['secret']
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'a SCHEDULED revocation grants its subject until its own instant, judged against the same named host clock '
     . '(`$now ?? time()`) every window in this file reads'
 );
 $setClock('2026-09-01T00:00:00Z');
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'effective 2026-09-01T00:00:00Z'
@@ -754,7 +754,7 @@ $installRevocations(
     '2026-05-01T00:00:00Z'
 );
 $setClock('2026-06-01T00:00:00Z');
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'is revoked by the platform-signed revocation record'
@@ -765,7 +765,7 @@ $setClock('2020-01-01T00:00:00Z');
 $backwards = (string) $refusal(
     static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)
 );
-duo_check(
+wprism_check(
     str_contains($backwards, "this host's own wall clock reads 2020-01-01T00:00:00Z")
         && str_contains($backwards, 'before the platform-signed revocation record at capabilities/adapter-revocations.json was issued at 2026-05-01T00:00:00Z')
         && str_contains($backwards, "resurrecting the revoked key '$vendorId'")
@@ -779,7 +779,7 @@ try {
 } catch (Throwable $e) {
     $thrown = $e;
 }
-duo_check(
+wprism_check(
     $thrown instanceof WithdrawnAuthoritySiteAdapterCertificate
         && $thrown->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_REVOKED,
     'and it is the TYPED withdrawal (C3), carrying the `' . AdapterSources::WITHDRAWN_AUTHORITY_REVOKED
@@ -807,7 +807,7 @@ $grammarCases = [
 ];
 foreach ($grammarCases as $label => [$row, $needle]) {
     $installRevocations([$row], $platformId, $platformKey['secret']);
-    duo_check(
+    wprism_check(
         str_contains(
             (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
             $needle
@@ -823,7 +823,7 @@ $installRevocations(
     $platformId,
     $platformKey['secret']
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'revoke the same key fingerprint twice'
@@ -848,7 +848,7 @@ $futureStatement['version'] = 2;
 $future = $versioned;
 $future['statement'] = (object) $futureStatement;
 file_put_contents($revocationsPath, Canon::encode($future));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)),
         'refused by version, never read as a v1 revocation with unexpected members'
@@ -869,12 +869,12 @@ $courierBytes = (string) file_get_contents($revocationsPath);
 $second = $root . '/second-library';
 rev_copy_tree($library, $second);
 $installRevocations([], $platformId, $platformKey['secret']);
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen($library, 'acme-shop', $manifest, $vendorEnvelope)['claim']['status'] ?? null,
     'the first library, with the document removed, verifies again'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::verifyFrozen($second, 'acme-shop', $manifest, $vendorEnvelope)),
         'is revoked by the platform-signed revocation record'
@@ -883,7 +883,7 @@ duo_check(
     . 'signature, not from the channel that carried it — which is the whole claim behind "a distribution '
     . 'channel that is NOT the agent release"'
 );
-duo_check_same(
+wprism_check_same(
     $courierBytes,
     (string) file_get_contents($second . '/capabilities/adapter-revocations.json'),
     'and the bytes a courier moves are the whole document: there is nothing to re-derive, re-sign or install '
@@ -891,4 +891,4 @@ duo_check_same(
 );
 
 $setClock(null);
-duo_check_summary('revocation reachability');
+wprism_check_summary('revocation reachability');

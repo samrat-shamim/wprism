@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for ActionProviderGrammar (DUO-3348 slice 6: the
+ * Offline regression for ActionProviderGrammar (issue #3348 slice 6: the
  * action/provider/effect declaration grammar extracted from Policy.php).
  *
  * The existing regress_actions_providers.php/regress_manifest_validate.php/
@@ -8,7 +8,7 @@
  * grammar's actual refusal behavior through Policy::load() with real
  * manifests — that coverage is unchanged by this move and stays the primary
  * behavioral proof. This file is new characterization in the same spirit as
- * regress_manifest_grammar.php (DUO-3348 slice 1): direct-API-call coverage
+ * regress_manifest_grammar.php (issue #3348 slice 1): direct-API-call coverage
  * proving the moved methods work identically reached directly on the new
  * class, plus an exact byte-for-byte check that closed_vocabularies() and
  * grammar_patterns() publish the identical values they did before the move
@@ -21,8 +21,8 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/ActionProviderGrammar.php';
 
-use Duo\ActionProviderGrammar;
-use Duo\Policy;
+use WPrism\ActionProviderGrammar;
+use WPrism\Policy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {

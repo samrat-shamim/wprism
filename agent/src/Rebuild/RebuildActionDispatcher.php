@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/NativeActions.php';
@@ -52,14 +52,14 @@ final class RebuildActionDispatcher {
         array &$actionReceipts
     ): void {
         if ($scoped && ($scopedSession === null || $scopedObservation === null)) {
-            throw new \RuntimeException('duo: scoped rebuild action dispatch has no durable session observation');
+            throw new \RuntimeException('wprism: scoped rebuild action dispatch has no durable session observation');
         }
         $batchBuilder = $this->batchBuilder;
 
         if ($selectedActions !== []) {
             Db::checkpoint('rebuild object cache (pre-action)');
             if (wp_cache_flush() === false) {
-                throw new \RuntimeException('duo: required pre-action object-cache flush failed');
+                throw new \RuntimeException('wprism: required pre-action object-cache flush failed');
             }
         }
 
@@ -131,12 +131,12 @@ final class RebuildActionDispatcher {
                         (string) $action['action'],
                         (array) ($action['args'] ?? [])
                     );
-                    // DUO-3282: unconditional per-declaration confirmation
+                    // issue #3282: unconditional per-declaration confirmation
                     // that this pass actually invoked the declaration — the
                     // layer that was previously unverifiable from outside (a
                     // caller could only ever infer it indirectly, e.g. by
                     // querying a rebuilder's own side-effect table after the
-                    // fact, as DUO-3267's grind script did before that fix
+                    // fact, as issue #3267's grind script did before that fix
                     // existed). The structured receipt below carries the
                     // observed before/after state the warning line cannot.
                     $warnings[] = "native action fired: {$action['action']} (verified)";
@@ -159,7 +159,7 @@ final class RebuildActionDispatcher {
                     // rather than fatal on a null instance if that ordering
                     // is ever changed.
                     throw new \RuntimeException(
-                        "duo: required manifest action '$source' was never negotiated before mutation"
+                        "wprism: required manifest action '$source' was never negotiated before mutation"
                     );
                 }
                 $entities = [];
@@ -229,7 +229,7 @@ final class RebuildActionDispatcher {
                     // a repair as done — so the skip is explicit, in both the
                     // human line and the machine receipt, never silent.
                     //
-                    // DUO-3369 narrowed WHEN that is true rather than
+                    // issue #3369 narrowed WHEN that is true rather than
                     // loosening it: a capability that declared the `deletions`
                     // channel asked to be told about tombstones, so a
                     // deletion-only selection is real work for it and no
@@ -425,24 +425,24 @@ final class RebuildActionDispatcher {
                 if ($scoped && $scopedSession !== null
                     && !$scopedSession->is_recovery_required()
                     && !$scopedSession->is_terminal()) {
-                    $scopedSession->recover(hash('sha256', 'duo:scoped-effect-reconciliation-refused'));
+                    $scopedSession->recover(hash('sha256', 'wprism:scoped-effect-reconciliation-refused'));
                 }
-                // DUO-3206 posture, unchanged by the channel swap: a failed
+                // issue #3206 posture, unchanged by the channel swap: a failed
                 // required rebuild is a hard apply failure, never a warning,
                 // so the target stays truthfully unapplied and retryable.
-                if (str_starts_with($t->getMessage(), 'duo: required manifest action')) {
+                if (str_starts_with($t->getMessage(), 'wprism: required manifest action')) {
                     throw $t;
                 }
                 // The inner message rides in the wrapper because nothing in
                 // the product path renders getPrevious() — Cli's handlers all
                 // print getMessage() alone. Providers assemble exit codes and
                 // stdout/stderr tails precisely so an operator sees the real
-                // error (DUO-3282); swallowing them here would recreate the
+                // error (issue #3282); swallowing them here would recreate the
                 // "exited 255, go reproduce it by hand" experience that issue
                 // closed (independent review of this change caught exactly
                 // that regression before it shipped).
                 throw new \RuntimeException(
-                    "duo: required manifest action '$source' failed — " . $t->getMessage(),
+                    "wprism: required manifest action '$source' failed — " . $t->getMessage(),
                     0,
                     $t
                 );
@@ -451,7 +451,7 @@ final class RebuildActionDispatcher {
 
         Db::checkpoint('rebuild object cache');
         if (wp_cache_flush() === false) {
-            throw new \RuntimeException('duo: required object-cache flush failed');
+            throw new \RuntimeException('wprism: required object-cache flush failed');
         }
     }
 }

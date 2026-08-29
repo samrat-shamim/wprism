@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
 LIB="$PWD/lib/proof_legacy_pair.sh"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-proof-legacy-pair.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-proof-legacy-pair.XXXXXX")"
 FAKE_BIN="$TMP/bin"
 LOG="$TMP/docker.log"
 STDIN_CAPTURE="$TMP/docker.stdin"

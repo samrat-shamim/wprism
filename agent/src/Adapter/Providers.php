@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
-// DUO-3383: receipt bounding screens provider strings through the same
+// issue #3383: receipt bounding screens provider strings through the same
 // public-output authority the JSON refusal envelope uses, so there is one
 // secret grammar in this engine rather than a second one written here. Pulled
 // in the way CommandRefusal.php pulls in Secrets.php — this file's callers all
@@ -47,9 +47,9 @@ final class Providers {
      * is persisted verbatim in a target-owned receipt and is therefore a
      * durable protocol boundary.
      */
-    public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
-    public const SCOPED_RECEIPT_FORMAT = 'duo-scoped-effect-receipt/v1';
-    public const SCOPED_OPERATION_RECEIPT_FORMAT = 'duo-scoped-provider-operation-receipt/v1';
+    public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
+    public const SCOPED_RECEIPT_FORMAT = 'wprism-scoped-effect-receipt/v1';
+    public const SCOPED_OPERATION_RECEIPT_FORMAT = 'wprism-scoped-provider-operation-receipt/v1';
 
     /**
      * Reserved argument key the engine injects for `scope: entity`
@@ -58,11 +58,11 @@ final class Providers {
      * batch the engine assembled and the batch the manifest asked for could
      * silently disagree about which entities were repaired.
      *
-     * DUO-3369: its VALUE now has two shapes, and which one a capability
+     * issue #3369: its VALUE now has two shapes, and which one a capability
      * receives is decided by that capability's OWN declaration, never by what
      * this run happened to produce:
      *   - no `context` key declared — the bare `list<array{kind,id}>` batch,
-     *     byte-identical to what DUO-3338 injected. An already-shipped
+     *     byte-identical to what issue #3338 injected. An already-shipped
      *     provider cannot observe that this channel grew at all;
      *     regress_provider_contract.php freezes the exact serialized bytes a
      *     channel-less capability receives, captured from the pre-change
@@ -79,7 +79,7 @@ final class Providers {
 
     /**
      * The engine batch channels a `scope: entity` capability may opt into
-     * (DUO-3369). This is the doctrine's "declared … required lifecycle
+     * (issue #3369). This is the doctrine's "declared … required lifecycle
      * context" and "batching … and retry semantics" (docs/adapter-boundary.md,
      * "The provider contract must define"), made declarable instead of
      * implicit. Closed for the same reason the
@@ -147,9 +147,9 @@ final class Providers {
 
     /**
      * Publication bounds for a SUCCESSFUL receipt's `before`/`after` values
-     * (DUO-3383). DUO-3314 hardened the FAILURE diagnostics; a successful
+     * (issue #3383). issue #3314 hardened the FAILURE diagnostics; a successful
      * receipt was the remaining path on which arbitrary provider-returned
-     * bytes reached `wp duo apply --format=json` (Apply::rebuild() copies
+     * bytes reached `wp wprism apply --format=json` (Apply::rebuild() copies
      * them into its `actions` rows, Cli::apply() serializes the summary
      * whole) with no secrecy and no size contract at all.
      *
@@ -181,13 +181,13 @@ final class Providers {
      * The value-level redaction witness, and the property that makes bounding
      * safe to do at all.
      *
-     * A witness is `<duo:receipt-witness/v1:<reason>:sha256:<digest>>`, where
+     * A witness is `<wprism:receipt-witness/v1:<reason>:sha256:<digest>>`, where
      * the digest is a canonical, type-tagged hash of the RAW value it stands
      * for. That is what keeps value-level verification intact while the
      * plaintext never publishes: equal raw values always project to the same
      * bytes and unequal ones never do (modulo sha256), so a reader of the
      * PUBLISHED receipt can still decide `before === after` — the question
-     * DUO-3338 receipts exist to answer — without the engine handing it the
+     * issue #3338 receipts exist to answer — without the engine handing it the
      * secret, the control bytes, or the megabyte.
      *
      * The house convention is PlanExplanation::publicCoordinate()'s
@@ -198,7 +198,7 @@ final class Providers {
      * (`ambiguous`), so no published verbatim string can ever be mistaken for
      * one.
      */
-    public const RECEIPT_WITNESS_PREFIX = '<duo:receipt-witness/v1:';
+    public const RECEIPT_WITNESS_PREFIX = '<wprism:receipt-witness/v1:';
 
     /**
      * Why a value was replaced. Closed, and engine-owned: every reason names
@@ -208,7 +208,7 @@ final class Providers {
      *   - `secret`     failed the shared public-output sensitivity screen
      *                  (CommandRefusalException::containsSensitivePublicDetail(),
      *                  which is Secrets::hard_match() plus the credentialed
-     *                  URI / query-secret / email / home-path shapes DUO-3345
+     *                  URI / query-secret / email / home-path shapes issue #3345
      *                  reviewed for exactly this surface).
      *   - `control`    carries C0/DEL bytes — the injection half of the
      *                  acceptance, told apart from `secret` because the screen
@@ -322,7 +322,7 @@ final class Providers {
             $problems[] = self::packaging_problem(new ProviderPackagingException(
                 $id,
                 $manifest,
-                "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
+                "wprism: manifest '$manifest' declares provider '$id' but $file is missing — "
                     . 'provider code ships with its manifest, not the engine'
             ));
         }
@@ -409,7 +409,7 @@ final class Providers {
     }
 
     /**
-     * The negotiation itself, as a READ-ONLY question (DUO-3339).
+     * The negotiation itself, as a READ-ONLY question (issue #3339).
      *
      * negotiate() is this method — one body, not two — so that `plan` and
      * `status` can answer "which declared provider capability is missing or
@@ -423,7 +423,7 @@ final class Providers {
      * invokes NO capability and writes nothing — invoke() is the only thing
      * that runs provider work, and nothing here calls it. It does LOAD code:
      * a manifest-sourced provider's file is required and constructed, a
-     * plugin-sourced one is pulled off the `duo_providers` filter, and both
+     * plugin-sourced one is pulled off the `wprism_providers` filter, and both
      * are asked for identity() and capabilities(). There is no way to check a
      * contract without the object, so that cost is negotiation's, was always
      * negotiation's, and is now also plan's — which is why plan reports these
@@ -515,7 +515,7 @@ final class Providers {
                     $id, $manifest, $plugin, 'inactive_plugin',
                     "$plugin active",
                     'not in active_plugins',
-                    "run 'duo deploy <env>' so activation hooks complete before apply, "
+                    "run 'wprism deploy <env>' so activation hooks complete before apply, "
                         . "or unpin manifest '$manifest'"
                 );
                 continue;
@@ -532,8 +532,8 @@ final class Providers {
                 continue;
             }
 
-            // DUO-3317: the declared `requires` contract is enforced here,
-            // BEFORE the provider file is loaded or its `duo_providers`
+            // issue #3317: the declared `requires` contract is enforced here,
+            // BEFORE the provider file is loaded or its `wprism_providers`
             // registry is consulted — strictly earlier than the retired
             // per-adapter assert_runtime_contract(), which only guarded
             // invoke()/regenerate_batch() after the object already existed. An
@@ -554,7 +554,7 @@ final class Providers {
                 if (!$pluginSupplied['available']) {
                     $problems[] = self::problem(
                         $id, $manifest, $plugin, 'provider_registry_unavailable',
-                        'a readable `duo_providers` registry',
+                        'a readable `wprism_providers` registry',
                         'provider registry callback failed',
                         'upgrade or disable the faulty provider plugin and retry'
                     );
@@ -564,7 +564,7 @@ final class Providers {
                 if ($provider === null) {
                     $problems[] = self::problem(
                         $id, $manifest, $plugin, 'missing_plugin_provider',
-                        "a `duo_providers` filter entry with identity id '$id'",
+                        "a `wprism_providers` filter entry with identity id '$id'",
                         'no registered provider matched the declared identity',
                         "upgrade $plugin to a version that registers the '$id' provider, or install its adapter package"
                     );
@@ -694,7 +694,7 @@ final class Providers {
         // Neither claimant may bind: which of them would have cleared the
         // shared marker is exactly the question that has no answer, so leaving
         // either one bound would pick a winner by accident. Carried beside the
-        // problems rather than ON them (DUO-3314 rebase): a problem row is now
+        // problems rather than ON them (issue #3314 rebase): a problem row is now
         // promoted verbatim into the operator-facing readiness wire shape
         // (Policy::provider_readiness_blockers()), so every row this method
         // emits stays exactly what self::problem() returns — no extra key some
@@ -732,10 +732,10 @@ final class Providers {
      * the point rather than an accident:
      *
      *   1. The action set is `Policy::actions()`, not one run's selection.
-     *      The NARROWED set already exists and already gates: DUO-3314's
+     *      The NARROWED set already exists and already gates: issue #3314's
      *      `Policy::provider_readiness_blockers($selectedActions)` negotiates
      *      exactly what this plan's work touches and merges its rows into
-     *      `adapter_dispositions`, which IS part of `duo status`'s `ok`. That
+     *      `adapter_dispositions`, which IS part of `wprism status`'s `ok`. That
      *      is correct — an unrelated adapter's missing plugin must not refuse a
      *      promotion that never reaches it. This method is the complement: a
      *      readiness report answering only "for this diff" goes quiet the
@@ -756,7 +756,7 @@ final class Providers {
      *      call for opposite actions. A ProviderPackagingException is the
      *      adapter's own fault, it names the exact file, and "repair
      *      providers/<id>.php" is real advice. Anything ELSE reaching here is
-     *      third-party code misbehaving inside the diagnosis — a `duo_providers`
+     *      third-party code misbehaving inside the diagnosis — a `wprism_providers`
      *      callback whose identity() throws, a provider whose capabilities()
      *      throws, a lifecycle read that failed — and telling that operator to
      *      go repair a `providers/<id>.php` (with a LITERAL `<id>`, since
@@ -850,7 +850,7 @@ final class Providers {
      * free-form data"). problems()'s generic `\Throwable` catch is the single,
      * deliberate exception: it publishes a message from code this engine does
      * not own, on purpose, so an operator sees the actual fault a misbehaving
-     * `duo_providers` callback (or a provider identity()/capabilities() read)
+     * `wprism_providers` callback (or a provider identity()/capabilities() read)
      * threw during diagnosis. That transparency is the intended behavior and is
      * kept — but a third-party exception is unreviewed prose, and nothing stops
      * one embedding an absolute path or a credential it happened to interpolate
@@ -858,7 +858,7 @@ final class Providers {
      * secret/path screen reviewed typed refusals use
      * (CommandRefusalException::containsSensitivePublicDetail(), i.e.
      * Secrets::hard_match() plus the credential/URI and HOME-dir path shapes) —
-     * alongside bound_receipt_string()'s DUO-3383 `secret` witness — and,
+     * alongside bound_receipt_string()'s issue #3383 `secret` witness — and,
      * ONLY if it
      * trips, replaces the whole detail with a bounded, secret-free placeholder.
      * This is a secret/home-dir FLOOR inherited from that shared screen, not a
@@ -921,7 +921,7 @@ final class Providers {
      * CONTEXT_CHANNELS member (validate_capability_declaration() ran before the
      * capability was bound), the surface came from the action's own
      * SURFACE_PATTERN-checked triggers, and the claimant names are
-     * ID_PATTERN/CAPABILITY_PATTERN identities. That is the property DUO-3314's
+     * ID_PATTERN/CAPABILITY_PATTERN identities. That is the property issue #3314's
      * fail-closed readiness posture needs from a row it renders to an operator:
      * no exception text, no class name, no third-party free-form data.
      *
@@ -1034,7 +1034,7 @@ final class Providers {
             // silently: a caller that assembled deletion evidence and had it
             // discarded would report a repair that never saw the tombstones.
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' is scope: site but was handed engine batch "
+                "wprism: provider '$id' capability '$capability' is scope: site but was handed engine batch "
                 . 'context (' . implode(', ', array_keys($context)) . ') — only scope: entity capabilities '
                 . 'receive a batch'
             );
@@ -1054,7 +1054,7 @@ final class Providers {
         try {
             $receipt = $provider->invoke($capability, $args);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' failed");
+            throw new \RuntimeException("wprism: provider '$id' capability '$capability' failed");
         }
         $elapsed = microtime(true) - $started;
 
@@ -1062,20 +1062,20 @@ final class Providers {
         sort($keys, SORT_STRING);
         if ($keys !== ['after', 'before', 'verified']) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' returned a malformed receipt — "
+                "wprism: provider '$id' capability '$capability' returned a malformed receipt — "
                 . 'exactly before, after, and verified are required'
             );
         }
         if ($receipt['verified'] !== true) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' reported no value-level verification — "
+                "wprism: provider '$id' capability '$capability' reported no value-level verification — "
                 . 'a receipt must prove the state it wrote, not that a call returned'
             );
         }
         $budget = (int) $capabilityDecl['timeout_seconds'];
         if ($elapsed > $budget) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' overran its declared budget ("
+                "wprism: provider '$id' capability '$capability' overran its declared budget ("
                 . round($elapsed, 3) . "s > {$budget}s) — raise timeout_seconds if the work is "
                 . 'legitimately this large, or reduce the batch it is given'
             );
@@ -1097,7 +1097,7 @@ final class Providers {
         foreach ($observation['read_only'] as $surface) {
             if ($before[$surface] !== $after[$surface]) {
                 throw new \RuntimeException(
-                    "duo: provider '$id' capability '$capability' declared '$surface' under reads but the "
+                    "wprism: provider '$id' capability '$capability' declared '$surface' under reads but the "
                     . 'surface changed across the call — a capability may only change what it declared in '
                     . "writes; declare '$surface' there if this capability writes it, or re-run the apply if "
                     . 'another process on this target wrote it'
@@ -1131,7 +1131,7 @@ final class Providers {
             }
             if (count($unchanged) === count($observation['writes'])) {
                 throw new \RuntimeException(
-                    "duo: provider '$id' capability '$capability' reported a value-level change that its own "
+                    "wprism: provider '$id' capability '$capability' reported a value-level change that its own "
                     . 'declared writes surfaces do not show (' . implode(', ', $unchanged) . ' unchanged) — a '
                     . 'receipt must prove the state it wrote; declare the surface the capability actually '
                     . 'writes, or return before === after when the target was already converged'
@@ -1147,13 +1147,13 @@ final class Providers {
      * Project one accepted receipt's `before`/`after` onto what may publish.
      *
      * Public because it is the contract, not an implementation detail: this
-     * is the whole of what `wp duo apply --format=json` is allowed to say
+     * is the whole of what `wp wprism apply --format=json` is allowed to say
      * about provider-observed values, and a suite proving that must be able
      * to call it directly.
      *
      * Key order is preserved by assigning through the existing keys, so a
      * receipt whose values were all already in bounds is byte-identical to
-     * what the pre-DUO-3383 engine returned.
+     * what the pre-issue #3383 engine returned.
      *
      * @param array{before:mixed, after:mixed, verified:true} $receipt
      * @return array{before:mixed, after:mixed, verified:true}
@@ -1297,7 +1297,7 @@ final class Providers {
 
     private static function receipt_witness(string $reason, string $digest): string {
         if (!in_array($reason, self::RECEIPT_WITNESS_REASONS, true)) {
-            throw new \RuntimeException('duo: receipt witness reason is outside the closed vocabulary');
+            throw new \RuntimeException('wprism: receipt witness reason is outside the closed vocabulary');
         }
         return self::RECEIPT_WITNESS_PREFIX . $reason . ':sha256:' . $digest . '>';
     }
@@ -1315,7 +1315,7 @@ final class Providers {
         string $reason
     ): \RuntimeException {
         return new \RuntimeException(
-            "duo: provider '$id' capability '$capability' returned a receipt the engine cannot publish ($reason) — "
+            "wprism: provider '$id' capability '$capability' returned a receipt the engine cannot publish ($reason) — "
             . 'before and after must be bounded arrays of scalars; summarize the observation in the provider '
             . 'rather than returning raw state'
         );
@@ -1342,7 +1342,7 @@ final class Providers {
         $capability = (string) ($actionEntry['capability'] ?? '');
         if (preg_match(self::ID_PATTERN, $id) !== 1
             || preg_match(self::CAPABILITY_PATTERN, $capability) !== 1) {
-            throw new \RuntimeException('duo: scoped provider input has an invalid provider or capability identity');
+            throw new \RuntimeException('wprism: scoped provider input has an invalid provider or capability identity');
         }
         return self::scoped_hash([
             'kind' => 'provider',
@@ -1368,7 +1368,7 @@ final class Providers {
     ): string {
         if (preg_match(self::ID_PATTERN, $providerId) !== 1
             || preg_match(self::CAPABILITY_PATTERN, $capability) !== 1) {
-            throw new \RuntimeException('duo: scoped capability digest has an invalid provider or capability identity');
+            throw new \RuntimeException('wprism: scoped capability digest has an invalid provider or capability identity');
         }
         self::validate_capability_declaration(
             $capabilityDecl,
@@ -1410,19 +1410,19 @@ final class Providers {
         $expected = ['authority_hash', 'effect_hash', 'input_hash', 'lease_session_id', 'operation_id'];
         if ($keys !== $expected) {
             throw new \RuntimeException(
-                'duo: scoped effect operation envelope must contain exactly authority_hash, lease_session_id, operation_id, input_hash, and effect_hash'
+                'wprism: scoped effect operation envelope must contain exactly authority_hash, lease_session_id, operation_id, input_hash, and effect_hash'
             );
         }
         foreach (['authority_hash', 'input_hash', 'effect_hash'] as $field) {
             if (!is_string($operation[$field] ?? null)
                 || preg_match(self::SCOPED_HASH_PATTERN, $operation[$field]) !== 1) {
-                throw new \RuntimeException("duo: scoped effect operation $field must be a lowercase SHA-256 hash");
+                throw new \RuntimeException("wprism: scoped effect operation $field must be a lowercase SHA-256 hash");
             }
         }
         foreach (['lease_session_id', 'operation_id'] as $field) {
             if (!is_string($operation[$field] ?? null)
                 || preg_match(self::SCOPED_TOKEN_PATTERN, $operation[$field]) !== 1) {
-                throw new \RuntimeException("duo: scoped effect operation $field is not a bounded identity token");
+                throw new \RuntimeException("wprism: scoped effect operation $field is not a bounded identity token");
             }
         }
         return [
@@ -1467,14 +1467,14 @@ final class Providers {
             $context
         );
         if (!is_callable([$provider, 'invoke_scoped'])) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' lacks scoped invocation support");
+            throw new \RuntimeException("wprism: provider '$id' capability '$capability' lacks scoped invocation support");
         }
         self::begin_scoped_operation($id, $capability, $operation);
         $started = microtime(true);
         try {
             $raw = $provider->invoke_scoped($capability, $args, $operation);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' scoped invocation failed");
+            throw new \RuntimeException("wprism: provider '$id' capability '$capability' scoped invocation failed");
         }
         $elapsed = microtime(true) - $started;
         self::assert_scoped_budget($id, $capability, $capabilityDecl, $elapsed);
@@ -1488,7 +1488,7 @@ final class Providers {
         );
         if (!hash_equals($evidence['before_hash'], $stored['before_hash'])
             || !hash_equals($evidence['after_hash'], $stored['after_hash'])) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' scoped receipt readback did not bind reviewed evidence");
+            throw new \RuntimeException("wprism: provider '$id' capability '$capability' scoped receipt readback did not bind reviewed evidence");
         }
         return self::reviewed_scoped_result($operation, $digest, $stored, true);
     }
@@ -1526,18 +1526,18 @@ final class Providers {
             return self::reviewed_scoped_result($operation, $digest, $stored, false);
         }
         if (!is_callable([$provider, 'reconcile_scoped'])) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' lacks scoped reconciliation support");
+            throw new \RuntimeException("wprism: provider '$id' capability '$capability' lacks scoped reconciliation support");
         }
         try {
             $raw = $provider->reconcile_scoped($capability, $args, $operation);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("duo: provider '$id' capability '$capability' scoped reconciliation failed");
+            throw new \RuntimeException("wprism: provider '$id' capability '$capability' scoped reconciliation failed");
         }
         $after = self::review_scoped_reconcile_response($id, $capability, $operation, $raw);
         $afterHash = self::scoped_evidence_hash($after);
         if (!hash_equals($stored['after_hash'], $afterHash)) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' scoped effect readback does not match its durable operation receipt; recovery_required"
+                "wprism: provider '$id' capability '$capability' scoped effect readback does not match its durable operation receipt; recovery_required"
             );
         }
         return self::reviewed_scoped_result($operation, $digest, $stored, true);
@@ -1557,7 +1557,7 @@ final class Providers {
         $existing = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
         if ($existing !== null) {
             throw new \RuntimeException(
-                "duo: scoped operation '$owner/$operationName' already has a durable intent or receipt; reconcile that exact operation instead"
+                "wprism: scoped operation '$owner/$operationName' already has a durable intent or receipt; reconcile that exact operation instead"
             );
         }
         $record = [
@@ -1569,22 +1569,22 @@ final class Providers {
         ];
         $record['receipt_hash'] = self::scoped_hash($record);
         if (!function_exists('add_option')) {
-            throw new \RuntimeException('duo: scoped operation receipt storage requires add_option()');
+            throw new \RuntimeException('wprism: scoped operation receipt storage requires add_option()');
         }
         $encoded = Canon::encode($record);
         $added = add_option($key, $encoded, '', 'no');
         $readback = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
         if (!$added) {
             if ($readback === null) {
-                throw new \RuntimeException("duo: scoped operation '$owner/$operationName' intent was not durable");
+                throw new \RuntimeException("wprism: scoped operation '$owner/$operationName' intent was not durable");
             }
             throw new \RuntimeException(
-                "duo: scoped operation '$owner/$operationName' collided with another durable operation; reconcile before retrying"
+                "wprism: scoped operation '$owner/$operationName' collided with another durable operation; reconcile before retrying"
             );
         }
         if ($readback === null || $readback['state'] !== 'intent') {
             throw new \RuntimeException(
-                "duo: scoped operation '$owner/$operationName' collided with another durable operation; reconcile before retrying"
+                "wprism: scoped operation '$owner/$operationName' collided with another durable operation; reconcile before retrying"
             );
         }
     }
@@ -1608,7 +1608,7 @@ final class Providers {
         $current = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
         if ($current === null || $current['state'] !== 'intent') {
             throw new \RuntimeException(
-                "duo: scoped operation '$owner/$operationName' cannot complete without its exact durable intent; recovery_required"
+                "wprism: scoped operation '$owner/$operationName' cannot complete without its exact durable intent; recovery_required"
             );
         }
         $record = [
@@ -1624,7 +1624,7 @@ final class Providers {
         self::write_scoped_operation_record($key, $record, $owner, $operationName, $operation);
         $stored = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
         if ($stored === null || $stored['state'] !== 'verified') {
-            throw new \RuntimeException("duo: scoped operation '$owner/$operationName' verified receipt was not durable");
+            throw new \RuntimeException("wprism: scoped operation '$owner/$operationName' verified receipt was not durable");
         }
         return [
             'status' => 'verified',
@@ -1656,7 +1656,7 @@ final class Providers {
         }
         if ($record['state'] !== 'verified') {
             throw new \RuntimeException(
-                "duo: scoped operation '$owner/$operationName' has a durable intent without a verified receipt; recovery_required"
+                "wprism: scoped operation '$owner/$operationName' has a durable intent without a verified receipt; recovery_required"
             );
         }
         return [
@@ -1682,7 +1682,7 @@ final class Providers {
         $capability = (string) ($actionEntry['capability'] ?? '');
         if (preg_match(self::ID_PATTERN, $id) !== 1
             || preg_match(self::CAPABILITY_PATTERN, $capability) !== 1) {
-            throw new \RuntimeException('duo: scoped provider invocation has an invalid provider or capability identity');
+            throw new \RuntimeException('wprism: scoped provider invocation has an invalid provider or capability identity');
         }
         self::validate_capability_declaration($capabilityDecl, "provider '$id' capability '$capability'");
         self::validate_scoped_capability_declaration($capabilityDecl, "provider '$id' capability '$capability'");
@@ -1696,7 +1696,7 @@ final class Providers {
         ]);
         if (!hash_equals($expectedInput, $operation['input_hash'])) {
             throw new \RuntimeException(
-                "duo: scoped provider '$id' capability '$capability' operation input_hash does not bind the exact prepared invocation"
+                "wprism: scoped provider '$id' capability '$capability' operation input_hash does not bind the exact prepared invocation"
             );
         }
         return [
@@ -1722,7 +1722,7 @@ final class Providers {
             $args[self::ENTITIES_ARG] = self::batch_payload($id, $capability, $capabilityDecl, $entities, $context);
         } elseif ($context !== []) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' is scope: site but was handed engine batch "
+                "wprism: provider '$id' capability '$capability' is scope: site but was handed engine batch "
                 . 'context (' . implode(', ', array_keys($context)) . ') — only scope: entity capabilities '
                 . 'receive a batch'
             );
@@ -1740,7 +1740,7 @@ final class Providers {
         $budget = (int) $capabilityDecl['timeout_seconds'];
         if ($elapsed > $budget) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' scoped invocation overran its declared budget ("
+                "wprism: provider '$id' capability '$capability' scoped invocation overran its declared budget ("
                 . round($elapsed, 3) . "s > {$budget}s)"
             );
         }
@@ -1760,12 +1760,12 @@ final class Providers {
         sort($keys, SORT_STRING);
         if ($keys !== ['after', 'before', 'operation', 'verified']) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' returned a malformed scoped invocation receipt"
+                "wprism: provider '$id' capability '$capability' returned a malformed scoped invocation receipt"
             );
         }
         if (($raw['verified'] ?? null) !== true || !is_array($raw['operation'] ?? null)) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' returned an unverified scoped invocation receipt"
+                "wprism: provider '$id' capability '$capability' returned an unverified scoped invocation receipt"
             );
         }
         self::assert_same_scoped_operation($operation, self::validate_scoped_operation($raw['operation']));
@@ -1788,12 +1788,12 @@ final class Providers {
         sort($keys, SORT_STRING);
         if ($keys !== ['after', 'operation', 'verified']) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' returned a malformed scoped reconciliation receipt"
+                "wprism: provider '$id' capability '$capability' returned a malformed scoped reconciliation receipt"
             );
         }
         if (($raw['verified'] ?? null) !== true || !is_array($raw['operation'] ?? null)) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' returned an unverified scoped reconciliation receipt"
+                "wprism: provider '$id' capability '$capability' returned an unverified scoped reconciliation receipt"
             );
         }
         self::assert_same_scoped_operation($operation, self::validate_scoped_operation($raw['operation']));
@@ -1817,7 +1817,7 @@ final class Providers {
     ): array {
         if (!$verified) {
             if (($state['status'] ?? null) !== 'not_started') {
-                throw new \RuntimeException('duo: scoped effect receipt has an invalid not_started state');
+                throw new \RuntimeException('wprism: scoped effect receipt has an invalid not_started state');
             }
             return [
                 'format' => self::SCOPED_RECEIPT_FORMAT,
@@ -1834,7 +1834,7 @@ final class Providers {
             || !is_string($state['after_hash'] ?? null)
             || preg_match(self::SCOPED_HASH_PATTERN, $state['before_hash']) !== 1
             || preg_match(self::SCOPED_HASH_PATTERN, $state['after_hash']) !== 1) {
-            throw new \RuntimeException('duo: scoped effect receipt has an invalid verified state');
+            throw new \RuntimeException('wprism: scoped effect receipt has an invalid verified state');
         }
         return [
             'format' => self::SCOPED_RECEIPT_FORMAT,
@@ -1851,7 +1851,7 @@ final class Providers {
     private static function assert_same_scoped_operation(array $left, array $right): void {
         foreach (['authority_hash', 'lease_session_id', 'operation_id', 'input_hash', 'effect_hash'] as $field) {
             if (!hash_equals((string) $left[$field], (string) $right[$field])) {
-                throw new \RuntimeException('duo: scoped provider receipt does not bind the exact operation envelope');
+                throw new \RuntimeException('wprism: scoped provider receipt does not bind the exact operation envelope');
             }
         }
     }
@@ -1859,13 +1859,13 @@ final class Providers {
     private static function assert_scoped_operation_owner(string $owner, string $operationName): void {
         if (preg_match(self::ID_PATTERN, $owner) !== 1
             || preg_match(self::SCOPED_OPERATION_NAME_PATTERN, $operationName) !== 1) {
-            throw new \RuntimeException('duo: scoped operation receipt owner or operation name is outside the closed vocabulary');
+            throw new \RuntimeException('wprism: scoped operation receipt owner or operation name is outside the closed vocabulary');
         }
     }
 
     /** @param array<string,mixed> $operation */
     private static function scoped_operation_option_name(string $owner, string $operationName, array $operation): string {
-        return 'duo_scoped_effect_' . self::scoped_hash([
+        return 'wprism_scoped_effect_' . self::scoped_hash([
             'owner' => $owner,
             'operation_name' => $operationName,
             'operation_id' => $operation['operation_id'],
@@ -1887,7 +1887,7 @@ final class Providers {
             || !isset($database->options)
             || !is_callable([$database, 'prepare'])
             || !is_callable([$database, 'get_var'])) {
-            throw new \RuntimeException('duo: scoped operation receipt storage requires a readable WordPress options table');
+            throw new \RuntimeException('wprism: scoped operation receipt storage requires a readable WordPress options table');
         }
         $database->last_error = '';
         $raw = $database->get_var($database->prepare(
@@ -1895,18 +1895,18 @@ final class Providers {
             $key
         ));
         if ($raw === false || (string) ($database->last_error ?? '') !== '') {
-            throw new \RuntimeException('duo: scoped operation receipt read failed');
+            throw new \RuntimeException('wprism: scoped operation receipt read failed');
         }
         if ($raw === null) {
             return null;
         }
         if (!is_string($raw)) {
-            throw new \RuntimeException('duo: scoped operation receipt is not a canonical string');
+            throw new \RuntimeException('wprism: scoped operation receipt is not a canonical string');
         }
         try {
             $record = Canon::decode($raw);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: scoped operation receipt is malformed; recovery_required');
+            throw new \RuntimeException('wprism: scoped operation receipt is malformed; recovery_required');
         }
         return self::assert_scoped_operation_record($record, $owner, $operationName, $operation);
     }
@@ -1923,12 +1923,12 @@ final class Providers {
         array $operation
     ): void {
         if (!function_exists('update_option')) {
-            throw new \RuntimeException('duo: scoped operation receipt storage requires update_option()');
+            throw new \RuntimeException('wprism: scoped operation receipt storage requires update_option()');
         }
         update_option($key, Canon::encode($record), false);
         $readback = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
         if ($readback === null || !hash_equals((string) $record['receipt_hash'], (string) $readback['receipt_hash'])) {
-            throw new \RuntimeException('duo: scoped operation receipt write was not durable');
+            throw new \RuntimeException('wprism: scoped operation receipt write was not durable');
         }
     }
 
@@ -1944,7 +1944,7 @@ final class Providers {
         array $operation
     ): array {
         if (!is_array($record) || (array_is_list($record) && $record !== [])) {
-            throw new \RuntimeException('duo: scoped operation receipt has an invalid schema; recovery_required');
+            throw new \RuntimeException('wprism: scoped operation receipt has an invalid schema; recovery_required');
         }
         $state = $record['state'] ?? null;
         $keys = array_keys($record);
@@ -1959,20 +1959,20 @@ final class Providers {
             || !is_array($record['operation'] ?? null)
             || !is_string($record['receipt_hash'] ?? null)
             || preg_match(self::SCOPED_HASH_PATTERN, $record['receipt_hash']) !== 1) {
-            throw new \RuntimeException('duo: scoped operation receipt has an invalid schema; recovery_required');
+            throw new \RuntimeException('wprism: scoped operation receipt has an invalid schema; recovery_required');
         }
         self::assert_same_scoped_operation($operation, self::validate_scoped_operation($record['operation']));
         if ($state === 'verified') {
             foreach (['before_hash', 'after_hash'] as $field) {
                 if (!is_string($record[$field]) || preg_match(self::SCOPED_HASH_PATTERN, $record[$field]) !== 1) {
-                    throw new \RuntimeException('duo: scoped operation receipt evidence hash is malformed; recovery_required');
+                    throw new \RuntimeException('wprism: scoped operation receipt evidence hash is malformed; recovery_required');
                 }
             }
         }
         $withoutHash = $record;
         unset($withoutHash['receipt_hash']);
         if (!hash_equals(self::scoped_hash($withoutHash), $record['receipt_hash'])) {
-            throw new \RuntimeException('duo: scoped operation receipt hash does not verify; recovery_required');
+            throw new \RuntimeException('wprism: scoped operation receipt hash does not verify; recovery_required');
         }
         return $record;
     }
@@ -1985,7 +1985,7 @@ final class Providers {
         try {
             return self::scoped_hash($evidence);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: scoped effect evidence could not be canonically encoded');
+            throw new \RuntimeException('wprism: scoped effect evidence could not be canonically encoded');
         }
     }
 
@@ -1993,21 +1993,21 @@ final class Providers {
     private static function assert_scoped_evidence(mixed $value, int &$bytes, int &$nodes, int $depth): void {
         $nodes++;
         if ($nodes > self::MAX_SCOPED_EVIDENCE_NODES || $depth > self::MAX_SCOPED_EVIDENCE_DEPTH) {
-            throw new \RuntimeException('duo: scoped effect evidence exceeds the bounded receipt grammar');
+            throw new \RuntimeException('wprism: scoped effect evidence exceeds the bounded receipt grammar');
         }
         if (is_array($value)) {
             foreach ($value as $key => $child) {
                 if (!is_int($key) && !is_string($key)) {
-                    throw new \RuntimeException('duo: scoped effect evidence has a non-scalar key');
+                    throw new \RuntimeException('wprism: scoped effect evidence has a non-scalar key');
                 }
                 if (is_string($key)) {
                     $bytes += strlen($key);
                     if (strlen($key) > 128 || preg_match(self::SCOPED_SECRET_KEY_PATTERN, $key) === 1) {
-                        throw new \RuntimeException('duo: scoped effect evidence contains a sensitive or unbounded field name');
+                        throw new \RuntimeException('wprism: scoped effect evidence contains a sensitive or unbounded field name');
                     }
                 }
                 if ($bytes > self::MAX_SCOPED_EVIDENCE_BYTES) {
-                    throw new \RuntimeException('duo: scoped effect evidence exceeds the bounded receipt grammar');
+                    throw new \RuntimeException('wprism: scoped effect evidence exceeds the bounded receipt grammar');
                 }
                 self::assert_scoped_evidence($child, $bytes, $nodes, $depth + 1);
             }
@@ -2016,17 +2016,17 @@ final class Providers {
         if (is_string($value)) {
             $bytes += strlen($value);
             if (CommandRefusalException::containsSensitivePublicDetail($value)) {
-                throw new \RuntimeException('duo: scoped effect evidence contains a secret-shaped value');
+                throw new \RuntimeException('wprism: scoped effect evidence contains a secret-shaped value');
             }
         } elseif (is_int($value) || is_bool($value) || $value === null) {
             $bytes += strlen((string) $value);
         } elseif (is_float($value) && is_finite($value)) {
             $bytes += strlen((string) $value);
         } else {
-            throw new \RuntimeException('duo: scoped effect evidence contains an unsupported value type');
+            throw new \RuntimeException('wprism: scoped effect evidence contains an unsupported value type');
         }
         if ($bytes > self::MAX_SCOPED_EVIDENCE_BYTES) {
-            throw new \RuntimeException('duo: scoped effect evidence exceeds the bounded receipt grammar');
+            throw new \RuntimeException('wprism: scoped effect evidence exceeds the bounded receipt grammar');
         }
     }
 
@@ -2049,7 +2049,7 @@ final class Providers {
     public static function declares_channel(array $capabilityDecl, string $channel): bool {
         if (!in_array($channel, self::CONTEXT_CHANNELS, true)) {
             throw new \RuntimeException(
-                "duo: '$channel' is not an engine batch channel — the closed set is "
+                "wprism: '$channel' is not an engine batch channel — the closed set is "
                 . implode(', ', self::CONTEXT_CHANNELS)
             );
         }
@@ -2088,7 +2088,7 @@ final class Providers {
         if ($channels === []) {
             if ($context !== []) {
                 throw new \RuntimeException(
-                    "duo: provider '$id' capability '$capability' was handed engine batch context ("
+                    "wprism: provider '$id' capability '$capability' was handed engine batch context ("
                     . implode(', ', array_keys($context)) . ') it never declared — a capability receives '
                     . 'only the channels its own declaration names'
                 );
@@ -2098,7 +2098,7 @@ final class Providers {
         $unknown = array_diff(array_keys($context), self::CONTEXT_CHANNELS);
         if ($unknown !== []) {
             throw new \RuntimeException(
-                "duo: provider '$id' capability '$capability' received engine batch context under name(s) the "
+                "wprism: provider '$id' capability '$capability' received engine batch context under name(s) the "
                 . 'engine does not assemble: ' . implode(', ', $unknown) . ' — the closed set is '
                 . implode(', ', self::CONTEXT_CHANNELS)
             );
@@ -2109,7 +2109,7 @@ final class Providers {
             if (!$declared) {
                 if (array_key_exists($channel, $context)) {
                     throw new \RuntimeException(
-                        "duo: provider '$id' capability '$capability' was handed the '$channel' batch channel "
+                        "wprism: provider '$id' capability '$capability' was handed the '$channel' batch channel "
                         . 'it never declared — declared: ' . implode(', ', $channels)
                     );
                 }
@@ -2117,7 +2117,7 @@ final class Providers {
             }
             if (!array_key_exists($channel, $context)) {
                 throw new \RuntimeException(
-                    "duo: provider '$id' capability '$capability' declared the '$channel' batch channel but "
+                    "wprism: provider '$id' capability '$capability' declared the '$channel' batch channel but "
                     . 'the engine assembled none — an absent declared channel would be indistinguishable '
                     . 'from an empty one'
                 );
@@ -2129,7 +2129,7 @@ final class Providers {
                 : is_array($value) && array_is_list($value);
             if (!$wellFormed) {
                 throw new \RuntimeException(
-                    "duo: provider '$id' capability '$capability' batch channel '$channel' was assembled as "
+                    "wprism: provider '$id' capability '$capability' batch channel '$channel' was assembled as "
                     . get_debug_type($value) . ' — ' . ($flag ? 'that channel is a boolean flag'
                         : 'that channel is a list of engine-assembled rows')
                 );
@@ -2151,7 +2151,7 @@ final class Providers {
      * readable methods.
      *
      * The declared id resolves through the declaring adapter package, which
-     * must define \Duo\Providers\<CamelCase(id)>. A missing file is a
+     * must define \WPrism\Providers\<CamelCase(id)>. A missing file is a
      * packaging fault, not an environment fact: the adapter claimed to ship
      * this code, so the engine says so rather than degrading to "capability
      * unavailable here".
@@ -2171,17 +2171,17 @@ final class Providers {
             throw new ProviderPackagingException(
                 $id,
                 $manifest,
-                "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
+                "wprism: manifest '$manifest' declares provider '$id' but $file is missing — "
                     . 'provider code ships with its manifest, not the engine'
             );
         }
         require_once $file;
-        $class = '\\Duo\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
+        $class = '\\WPrism\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
         if (!class_exists($class)) {
             throw new ProviderPackagingException(
                 $id,
                 $manifest,
-                "duo: provider file $file must define $class with identity(): array, "
+                "wprism: provider file $file must define $class with identity(): array, "
                 . 'capabilities(): array, and invoke(string $capability, array $args): array'
             );
         }
@@ -2190,7 +2190,7 @@ final class Providers {
                 throw new ProviderPackagingException(
                     $id,
                     $manifest,
-                    "duo: provider file $file must extend " . ManifestProviderRuntime::class
+                    "wprism: provider file $file must extend " . ManifestProviderRuntime::class
                     . " when manifest '$manifest' declares providers[].contracts"
                 );
             }
@@ -2200,7 +2200,7 @@ final class Providers {
                 throw new ProviderPackagingException(
                     $id,
                     $manifest,
-                    "duo: provider file $file does not satisfy its declarative runtime contract — "
+                    "wprism: provider file $file does not satisfy its declarative runtime contract — "
                     . $failure->getMessage()
                 );
             }
@@ -2222,7 +2222,7 @@ final class Providers {
             return ['available' => true, 'providers' => []];
         }
         try {
-            $supplied = apply_filters('duo_providers', []);
+            $supplied = apply_filters('wprism_providers', []);
         } catch (\Throwable $t) {
             return ['available' => false, 'providers' => []];
         }
@@ -2465,9 +2465,9 @@ final class Providers {
      * The batch `regen_dependency` channel and the channel-declaring provider
      * contract are two dispatchers over the SAME durable bookkeeping: the
      * `regen_pending:`, `regen_delete_context:`, and `regen_reparent_context:`
-     * keyspaces. Sharing them is deliberate (DUO-3342) — one retry vocabulary,
-     * one `duo plan`/`duo status` projection, one meaning for an operator
-     * auditing duo_kv — and it is only coherent while exactly one dispatcher
+     * keyspaces. Sharing them is deliberate (issue #3342) — one retry vocabulary,
+     * one `wprism plan`/`wprism status` projection, one meaning for an operator
+     * auditing wprism_kv — and it is only coherent while exactly one dispatcher
      * OWNS a given post type. Two claimants would each treat the other's
      * markers as theirs to consume and clear: the batch pass would sweep a
      * receipt the provider had not yet been delivered, and a verified provider
@@ -2490,7 +2490,7 @@ final class Providers {
      * already-validated identifier (post types from the action's own
      * SURFACE_PATTERN-checked triggers, the capability name from
      * CAPABILITY_PATTERN, the channels from CONTEXT_CHANNELS — the declaration
-     * was validated before this method is reached). DUO-3314 made a problem row
+     * was validated before this method is reached). issue #3314 made a problem row
      * operator-facing wire data (Policy::provider_readiness_blockers() promotes
      * it into adapter_dispositions), so "no third-party free-form text in a
      * refusal" is a property this row has to keep, not a style preference.
@@ -2554,8 +2554,8 @@ final class Providers {
      * two lists are the negotiation-time summary, not a second effects
      * channel.
      *
-     * `context` (DUO-3369) is the one OPTIONAL key: absent means a capability
-     * declared exactly what DUO-3338 allowed and receives exactly what it
+     * `context` (issue #3369) is the one OPTIONAL key: absent means a capability
+     * declared exactly what issue #3338 allowed and receives exactly what it
      * received then. It is validated here, at negotiation, for the same reason
      * every other axis is — an unhonored channel name in a declaration is a
      * claim the engine would otherwise silently ignore while the operator
@@ -2728,7 +2728,7 @@ final class Providers {
     }
 
     /**
-     * The row-field vocabulary of one `list<object>` argument (DUO-3369).
+     * The row-field vocabulary of one `list<object>` argument (issue #3369).
      *
      * A typed object list exists so a capability can receive STRUCTURED rows —
      * a tombstone's surface, uuid, and prior local id — without the contract
@@ -2736,7 +2736,7 @@ final class Providers {
      * the field vocabulary is as closed as the argument vocabulary above it,
      * which is why an empty `fields` map refuses: a list<object> with no
      * declared fields would accept nothing but empty objects while READING as
-     * a free-form payload channel, the exact shape the DUO-3338 contract
+     * a free-form payload channel, the exact shape the issue #3338 contract
      * exists to keep out of manifests.
      *
      * Exactly one level of nesting, enforced by FIELD_TYPES rather than by a
@@ -2828,7 +2828,7 @@ final class Providers {
 
     /**
      * The rows of one `list<object>` argument value against its declared field
-     * vocabulary (DUO-3369).
+     * vocabulary (issue #3369).
      *
      * Same posture as the argument-level check one frame up, one level down: a
      * field the manifest believes it passed and the capability never declared
@@ -2879,7 +2879,7 @@ final class Providers {
 
     /** @return array<string,mixed> */
     /**
-     * DUO-3317: the closed `requires` grammar, enforced at negotiation before
+     * issue #3317: the closed `requires` grammar, enforced at negotiation before
      * the provider file is loaded or its plugin registry is consulted. Returns
      * ONE aggregated problem naming every unmet requirement at once — the same
      * posture diagnose()'s docblock states for capabilities: an operator

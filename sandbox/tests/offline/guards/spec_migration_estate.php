@@ -6,18 +6,18 @@
  * WHAT A "STATE" IS, AND WHY THIS FILE IS A CHILD PROCESS
  * ------------------------------------------------------
  * The flag day moves exactly two things together: the two `define()` lines in
- * `agent/duo.php` and `platform/adapter-library/capabilities/platform.json`, which restates
+ * `agent/wprism.php` and `platform/adapter-library/capabilities/platform.json`, which restates
  * them (AGENTS.md rule 8; `ManifestDispositions::platform_boundary()` throws
  * "platform version disagrees with the loaded agent" the moment they diverge).
- * `cli/src/Onboarding/Adopt.php:147-150` tars `agent manifests recovery` as ONE
- * archive, so a site never sees half of that pair. A rehearsal state is
+ * `cli/src/Onboarding/Adopt.php:212-226` embeds the manifest library in agent/
+ * and tars `agent recovery` as ONE archive, so a site never sees half of that pair. A rehearsal state is
  * therefore the pair `(defines, manifest library)` — and since a PHP process
- * can define `DUO_AGENT_VERSION` exactly once, each state must be its own
+ * can define `WPRISM_AGENT_VERSION` exactly once, each state must be its own
  * process. That is the whole reason this file exists beside the suite instead
  * of inside it: the suite orchestrates, this file IS the agent-under-test at
  * one state.
  *
- * State A is the tree's own pair, read out of `agent/duo.php` rather than
+ * State A is the tree's own pair, read out of `agent/wprism.php` rather than
  * written here as a literal (the same regex `AdapterCertify::boot()` uses at
  * :1151-1166, for the same reason: a literal drifts). State B is A with the
  * agent version bumped one minor and `platform.json` restating it — the
@@ -36,7 +36,7 @@
  * same driver rehearses them without being rewritten.
  *
  * WHAT IS ON DISK (estate root; `sandbox/tmp/` or a mktemp -d — never under
- * agent/ or manifests/, rule 3, because `sandbox/bin/pair.sh:355` refuses on an
+ * agent/, adapter-packages/, or platform/, rule 3, because `sandbox/bin/pair.sh:355` refuses on an
  * untracked file there and every concurrently running live package would block)
  *
  *   libs/A          the shipped manifest library, byte for byte
@@ -87,7 +87,7 @@ function rehearsal_write(string $path, string $bytes): void {
 
 /** @param mixed $value */
 function rehearsal_write_canon(string $path, $value): void {
-    rehearsal_write($path, \Duo\Canon::encode($value));
+    rehearsal_write($path, \WPrism\Canon::encode($value));
 }
 
 function rehearsal_copy_tree(string $from, string $to): void {
@@ -104,20 +104,20 @@ function rehearsal_copy_tree(string $from, string $to): void {
 
 /** Project the accepted package inventory into the legacy-shaped mutable state fixture. */
 function rehearsal_project_library(string $repoRoot, string $to): array {
-    $library = \Duo\AdapterLibrary::fromSourceTree($repoRoot);
-    foreach (duo_cert_projected_paths($library) as $relative => $source) {
+    $library = \WPrism\AdapterLibrary::fromSourceTree($repoRoot);
+    foreach (wprism_cert_projected_paths($library) as $relative => $source) {
         $destination = rtrim($to, '/') . '/' . $relative;
         rehearsal_mkdir(dirname($destination));
         if (!copy($source, $destination)) {
             throw new RuntimeException("rehearsal estate: cannot project $source");
         }
     }
-    return duo_cert_projected_bytes($library);
+    return wprism_cert_projected_bytes($library);
 }
 
 /** Resolve one deliberately frozen historical-flat state without process-global selection. */
-function rehearsal_library(string $directory): \Duo\AdapterLibrary {
-    return \Duo\AdapterLibrary::fromLegacyFlatDirectory($directory);
+function rehearsal_library(string $directory): \WPrism\AdapterLibrary {
+    return \WPrism\AdapterLibrary::fromLegacyFlatDirectory($directory);
 }
 
 /** Every file of a directory tree, keyed by relative path, valued by sha256. */
@@ -135,14 +135,14 @@ function rehearsal_tree_hashes(string $dir): array {
 }
 
 /**
- * The two defines for a state, resolved from `agent/duo.php`'s own source.
+ * The two defines for a state, resolved from `agent/wprism.php`'s own source.
  *
  * WP-4.12 INVERTED WHICH END OF THE TRANSITION THE TREE IS. Before the flip,
  * state A was the tree and B was a synthetic minor ahead of it, because the
  * flag day had not happened and the only thing available to rehearse was a
  * hypothetical next release. It has now happened, and the tree IS the far end:
  *
- *   B = the tree's own pair — 0.6.0 / 3, THE REAL SHIPPED STATE;
+ *   B = the tree's own pair — 0.7.0 / 3, THE REAL SHIPPED STATE;
  *   A = the release the fleet is coming FROM — one minor and one spec behind.
  *
  * So the estate no longer rehearses a hypothesis. It rehearses THE flag day,
@@ -160,10 +160,10 @@ function rehearsal_tree_hashes(string $dir): array {
  * @return array{agent_version:string,spec_version:int}
  */
 function rehearsal_state_versions(string $repoRoot, string $state): array {
-    $source = (string) file_get_contents($repoRoot . '/agent/duo.php');
-    if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $agent) !== 1
-        || preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $spec) !== 1) {
-        throw new RuntimeException('rehearsal estate: cannot resolve the agent defines from agent/duo.php');
+    $source = (string) file_get_contents($repoRoot . '/agent/wprism.php');
+    if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $agent) !== 1
+        || preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $spec) !== 1) {
+        throw new RuntimeException('rehearsal estate: cannot resolve the agent defines from agent/wprism.php');
     }
     if ($state === 'B') {
         return ['agent_version' => $agent[1], 'spec_version' => (int) $spec[1]];
@@ -175,7 +175,7 @@ function rehearsal_state_versions(string $repoRoot, string $state): array {
     $parts = explode('.', $agent[1]);
     if (count($parts) !== 3 || !ctype_digit($parts[1]) || (int) $parts[1] < 1) {
         throw new RuntimeException(
-            "rehearsal estate: DUO_AGENT_VERSION '{$agent[1]}' is not major.minor.patch with a minor above 0, "
+            "rehearsal estate: WPRISM_AGENT_VERSION '{$agent[1]}' is not major.minor.patch with a minor above 0, "
             . 'so there is no prior release for this estate to come from'
         );
     }
@@ -222,7 +222,7 @@ function rehearsal_cell_moved_library(string $estate, string $state): string
         return $moved;
     }
     rehearsal_copy_tree($estate . '/libs/' . $state, $moved);
-    $document = \Duo\Canon::decode(\Duo\Canon::read_file($moved . '/capabilities/platform.json'));
+    $document = \WPrism\Canon::decode(\WPrism\Canon::read_file($moved . '/capabilities/platform.json'));
     $engines = (array) ($document['platform']['compatibility']['database']['engines'] ?? []);
     $engine = (string) array_key_last($engines);
     if ($engine === '') {
@@ -245,7 +245,7 @@ function rehearsal_cell_moved_library(string $estate, string $state): string
  * digests, § v3.6).
  */
 function rehearsal_platform_document(string $shippedLib, array $versions): array {
-    $document = \Duo\Canon::decode(\Duo\Canon::read_file($shippedLib . '/capabilities/platform.json'));
+    $document = \WPrism\Canon::decode(\WPrism\Canon::read_file($shippedLib . '/capabilities/platform.json'));
     $document['platform']['agent_version'] = $versions['agent_version'];
     $document['platform']['spec_version'] = $versions['spec_version'];
     return $document;
@@ -253,7 +253,7 @@ function rehearsal_platform_document(string $shippedLib, array $versions): array
 
 // ---------------------------------------------------------------------------
 // The estate definition. Pin shapes are the ones real sites carry: bare names
-// (`site.duo.json` "manifests": ["core"]), content pins ({name, digest}), and
+// (`site.wprism.json` "manifests": ["core"]), content pins ({name, digest}), and
 // the `source:"site"` override a certified site adapter needs. The three
 // controls exist so the rehearsal can tell "this gate did not fire because the
 // flag day is neutral" from "this gate cannot fire at all" — a rehearsal with
@@ -350,14 +350,14 @@ function rehearsal_site_plan(): array {
  * the pre-flag source state without weakening that interpreter or omitting
  * Polylang from the digest-pinned multilingual cohort.
  */
-function rehearsal_options_document(\Duo\Policy $policy, string $blogname): string {
+function rehearsal_options_document(\WPrism\Policy $policy, string $blogname): string {
     $rows = [];
     foreach (array_keys($policy->authored_options()) as $name) {
-        $rows[(string) $name] = \Duo\OptionState::absent();
+        $rows[(string) $name] = \WPrism\OptionState::absent();
     }
     foreach (array_keys($policy->sub_keyed_options()) as $name) {
         $rows[(string) $name] = $name === 'polylang'
-            ? \Duo\OptionState::present([
+            ? \WPrism\OptionState::present([
                 'browser' => false,
                 'default_lang' => '',
                 'force_lang' => 1,
@@ -370,16 +370,16 @@ function rehearsal_options_document(\Duo\Policy $policy, string $blogname): stri
                 'sync' => [],
                 'taxonomies' => [],
             ], 'yes')
-            : \Duo\OptionState::absent();
+            : \WPrism\OptionState::absent();
     }
     foreach (['active_plugins', 'template', 'stylesheet'] as $managed) {
         if (($policy->option_rule($managed)['class'] ?? null) === 'managed') {
-            $rows[$managed] = \Duo\OptionState::absent();
+            $rows[$managed] = \WPrism\OptionState::absent();
         }
     }
-    $rows['blogname'] = \Duo\OptionState::present($blogname, 'yes');
+    $rows['blogname'] = \WPrism\OptionState::present($blogname, 'yes');
     ksort($rows, SORT_STRING);
-    return \Duo\Canon::encode(\Duo\OptionState::document($rows));
+    return \WPrism\Canon::encode(\WPrism\OptionState::document($rows));
 }
 
 /** A site adapter manifest: declarative, plugin-blind, and deliberately tiny. */
@@ -388,7 +388,7 @@ function rehearsal_site_adapter(string $name): array {
         'name' => $name,
         'option_autoload' => 'preserve',
         'post_types' => [],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'tables' => [],
     ];
 }
@@ -400,7 +400,7 @@ function rehearsal_site_adapter(string $name): array {
 // ---------------------------------------------------------------------------
 
 function rehearsal_materialize(string $repoRoot, string $estate, array $versions): array {
-    $record = ['format' => 'duo-rehearsal-estate/v1', 'sites' => [], 'keys' => [], 'libraries' => []];
+    $record = ['format' => 'wprism-rehearsal-estate/v1', 'sites' => [], 'keys' => [], 'libraries' => []];
 
     // WP-4.12: libs/B is now the SHIPPED library byte for byte — B is the
     // tree's own state — and libs/A is the one that gets a restated
@@ -447,18 +447,18 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
             rehearsal_write_canon($repo . '/adapters/' . $adapter . '.json', rehearsal_site_adapter($adapter));
             $pins[] = ['name' => $adapter, 'source' => 'site'];
         }
-        rehearsal_write_canon($repo . '/site.duo.json', [
+        rehearsal_write_canon($repo . '/site.wprism.json', [
             'manifests' => $pins,
             'policy' => [
                 'options' => (object) [],
                 'post_types' => ['post', 'page'],
                 'taxonomies' => ['category'],
             ],
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ]);
 
         // Certification runs through the OPERATOR'S OWN command, not through
-        // AdapterCertification::sign_site() directly: `duo adapter certify
+        // AdapterCertification::sign_site() directly: `wprism adapter certify
         // --pin` is what a site actually holds, it registers the key in the
         // site trust root itself, and it emits the pin object — so the estate's
         // pin shapes are the command's, not this fixture's opinion of them.
@@ -476,7 +476,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
             }
             $exit = rehearsal_run_certify($certifyArgs, $library);
             if ($exit !== 0) {
-                throw new RuntimeException("rehearsal estate: `duo adapter certify` failed for $id (exit $exit)");
+                throw new RuntimeException("rehearsal estate: `wprism adapter certify` failed for $id (exit $exit)");
             }
         }
 
@@ -486,30 +486,30 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
         // whose state has to be valid so that its refusal is about the pin.
         rehearsal_write(
             $repo . '/state/options/core.json',
-            rehearsal_options_document(\Duo\Policy::load($repo, null, false, null, $library), 'Estate ' . $id)
+            rehearsal_options_document(\WPrism\Policy::load($repo, null, false, null, $library), 'Estate ' . $id)
         );
 
         // The deliberate drift, applied AFTER a good load so the control is a
         // one-value edit to a working site rather than a differently built one.
         if ($plan['kind'] === 'control' && in_array('digest-drifted', $plan['pins'], true)) {
-            rehearsal_write_canon($repo . '/site.duo.json', [
+            rehearsal_write_canon($repo . '/site.wprism.json', [
                 'manifests' => [['name' => 'core', 'digest' => str_repeat('d', 64)]],
                 'policy' => [
                     'options' => (object) [],
                     'post_types' => ['post', 'page'],
                     'taxonomies' => ['category'],
                 ],
-                'spec_version' => DUO_SPEC_VERSION,
+                'spec_version' => WPRISM_SPEC_VERSION,
             ]);
         }
 
         $siteRecord = ['about' => $plan['about'], 'kind' => $plan['kind'], 'holdings' => []];
         if ($plan['kind'] !== 'control' || !in_array('digest-drifted', $plan['pins'], true)) {
-            $policy = \Duo\Policy::load($repo, null, false, null, $library);
-            $compiled = \Duo\RepositoryCompiler::compile($repo, $policy);
+            $policy = \WPrism\Policy::load($repo, null, false, null, $library);
+            $compiled = \WPrism\RepositoryCompiler::compile($repo, $policy);
 
             // Exact content pins, taken from the same
-            // RepositoryCompiler::resolved_adapters() call `wp duo
+            // RepositoryCompiler::resolved_adapters() call `wp wprism
             // manifest-pin` reads (Cli.php:2920-2923) — which is what makes a
             // moved digest visible at state B as a REFUSAL rather than as a
             // silent difference. Deliberately the SOURCE-LESS `{name, digest}`
@@ -518,14 +518,14 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
             // because WP-1.1's F3 turned on exactly that difference.
             if (in_array('digest', $plan['pins'], true)) {
                 $pinned = [];
-                foreach (\Duo\RepositoryCompiler::resolved_adapters($policy) as $row) {
+                foreach (\WPrism\RepositoryCompiler::resolved_adapters($policy) as $row) {
                     $pinned[] = ['digest' => (string) $row['digest'], 'name' => (string) $row['name']];
                 }
-                $site = \Duo\Canon::decode(\Duo\Canon::read_file($repo . '/site.duo.json'));
+                $site = \WPrism\Canon::decode(\WPrism\Canon::read_file($repo . '/site.wprism.json'));
                 $site['manifests'] = $pinned;
-                rehearsal_write_canon($repo . '/site.duo.json', $site);
-                $policy = \Duo\Policy::load($repo, null, false, null, $library);
-                $compiled = \Duo\RepositoryCompiler::compile($repo, $policy);
+                rehearsal_write_canon($repo . '/site.wprism.json', $site);
+                $policy = \WPrism\Policy::load($repo, null, false, null, $library);
+                $compiled = \WPrism\RepositoryCompiler::compile($repo, $policy);
             }
 
             $compiled->write($holdings . '/artifact.json');
@@ -537,7 +537,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
             if (in_array('scope_contract', $holds, true)) {
                 rehearsal_write_canon(
                     $holdings . '/scope-contract.json',
-                    \Duo\ScopeContract::resolve($compiled, $policy, ['option:blogname'])
+                    \WPrism\ScopeContract::resolve($compiled, $policy, ['option:blogname'])
                 );
                 $siteRecord['holdings'][] = 'scope_contract';
             }
@@ -549,7 +549,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
                 // is holding still bind after the bump", which is a manifest
                 // identity question and needs no database to ask.
                 rehearsal_write_canon($holdings . '/identity-sidecar.json', [
-                    'format' => 'duo-rehearsal-identity-binding/v1',
+                    'format' => 'wprism-rehearsal-identity-binding/v1',
                     'manifest_hash' => $compiled->manifest_hash(),
                     'repository_revision' => $compiled->revision_hash(),
                     'site_hash' => $compiled->site_hash(),
@@ -565,7 +565,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
                 // the move; the two CheckpointBundle validators themselves are
                 // a declared gap in the suite, with the reason.
                 rehearsal_write_canon($holdings . '/checkpoint-inputs.json', [
-                    'format' => 'duo-rehearsal-checkpoint-binding/v1',
+                    'format' => 'wprism-rehearsal-checkpoint-binding/v1',
                     'manifest_inputs_sha256' => $compiled->manifest_hash(),
                     'policy_sha256' => $compiled->site_hash(),
                 ]);
@@ -577,7 +577,7 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
                 // library whose reviewed disposition for `core` carries one
                 // extra sentence. `manifest_rows()` folds the disposition into
                 // the row it hashes (ArtifactPolicyIdentity.php:60-115), so the
-                // adapter digest and `manifest_hash` move while `site.duo.json`
+                // adapter digest and `manifest_hash` move while `site.wprism.json`
                 // — and therefore `site_hash` — does not. That ordering matters:
                 // a foreign PIN SET would move site_hash too and refuse one
                 // check earlier, as `compiled_artifact_policy_mismatch`, which
@@ -588,12 +588,12 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
                 // `core`'s own reviewed entry, which is exactly the row
                 // manifest_rows() folds into that adapter's digest.
                 $coreDocument = $movedLib . '/dispositions/core.json';
-                $coreEntry = \Duo\Canon::decode(\Duo\Canon::read_file($coreDocument));
+                $coreEntry = \WPrism\Canon::decode(\WPrism\Canon::read_file($coreDocument));
                 $coreEntry['reason'] = (string) $coreEntry['reason'] . ' Re-reviewed for the rehearsal estate.';
                 rehearsal_write_canon($coreDocument, $coreEntry);
                 $movedLibrary = rehearsal_library($movedLib);
-                $movedPolicy = \Duo\Policy::load($repo, null, false, null, $movedLibrary);
-                \Duo\RepositoryCompiler::compile($repo, $movedPolicy)->write($holdings . '/artifact.json');
+                $movedPolicy = \WPrism\Policy::load($repo, null, false, null, $movedLibrary);
+                \WPrism\RepositoryCompiler::compile($repo, $movedPolicy)->write($holdings . '/artifact.json');
                 $siteRecord['holdings'] = ['artifact'];
             }
             if (in_array('snapshot_only', $holds, true)) {
@@ -608,21 +608,21 @@ function rehearsal_materialize(string $repoRoot, string $estate, array $versions
 }
 
 /**
- * Run the shipped `duo` executable and return its exit code and both streams.
+ * Run the shipped `wprism` executable and return its exit code and both streams.
  *
  * @param list<string> $args
  */
-function rehearsal_run_duo(string $repoRoot, string $manifestDir, array $args): string {
+function rehearsal_run_wprism(string $repoRoot, string $manifestDir, array $args): string {
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $repoRoot . '/cli/duo'], $args, ['--adapter-library=' . $manifestDir]),
+        array_merge([PHP_BINARY, $repoRoot . '/cli/wprism'], $args, ['--adapter-library=' . $manifestDir]),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         null,
         ['PATH' => getenv('PATH') ?: '/usr/bin:/bin']
     );
     if (!is_resource($process)) {
-        throw new RuntimeException('rehearsal estate: cannot start the duo executable');
+        throw new RuntimeException('rehearsal estate: cannot start the wprism executable');
     }
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
@@ -634,7 +634,7 @@ function rehearsal_run_duo(string $repoRoot, string $manifestDir, array $args): 
 }
 
 /**
- * Run `duo adapter certify` in this process, at THIS state's defines.
+ * Run `wprism adapter certify` in this process, at THIS state's defines.
  *
  * `AdapterCertify::boot()` resolves the two defines only when they are not
  * already defined (:1463-1481), so the command runs under the rehearsal state
@@ -644,11 +644,11 @@ function rehearsal_run_duo(string $repoRoot, string $manifestDir, array $args): 
  *
  * @param list<string> $args
  */
-function rehearsal_run_certify(array $args, \Duo\AdapterLibrary $library): int {
+function rehearsal_run_certify(array $args, \WPrism\AdapterLibrary $library): int {
     $args[] = '--adapter-library=' . $library->root();
     ob_start();
     try {
-        $exit = \Duo\Orchestrator\AdapterCertify::run(array_values($args));
+        $exit = \WPrism\Orchestrator\AdapterCertify::run(array_values($args));
     } finally {
         $output = (string) ob_get_clean();
     }
@@ -667,10 +667,10 @@ function rehearsal_observe(string $estate, string $state): array {
     $library = rehearsal_library($lib);
     $out = [
         'state' => $state,
-        'agent_version' => DUO_AGENT_VERSION,
-        'spec_version' => DUO_SPEC_VERSION,
-        'platform_sha256' => hash('sha256', \Duo\Canon::encode(
-            \Duo\Canon::decode(\Duo\Canon::read_file($lib . '/capabilities/platform.json'))['platform']
+        'agent_version' => WPRISM_AGENT_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
+        'platform_sha256' => hash('sha256', \WPrism\Canon::encode(
+            \WPrism\Canon::decode(\WPrism\Canon::read_file($lib . '/capabilities/platform.json'))['platform']
         )),
         'sites' => [],
     ];
@@ -682,14 +682,14 @@ function rehearsal_observe(string $estate, string $state): array {
 }
 
 /** @return array<string,mixed> */
-function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary $library): array {
+function rehearsal_observe_site(string $estate, string $id, \WPrism\AdapterLibrary $library): array {
     $repo = $estate . '/sites/' . $id;
     $holdings = $estate . '/holdings/' . $id;
     $row = ['load' => 'refused', 'refusal' => '', 'adapters' => []];
 
     $policy = null;
     try {
-        $policy = \Duo\Policy::load($repo, null, false, null, $library);
+        $policy = \WPrism\Policy::load($repo, null, false, null, $library);
         $row['load'] = 'ok';
     } catch (Throwable $t) {
         $row['refusal'] = rehearsal_scrub($t->getMessage(), $estate);
@@ -697,8 +697,8 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
         return $row;
     }
 
-    $row['manifest_hash'] = \Duo\ArtifactPolicyIdentity::manifest_hash($policy);
-    $row['site_hash'] = \Duo\ArtifactPolicyIdentity::site_hash($policy);
+    $row['manifest_hash'] = \WPrism\ArtifactPolicyIdentity::manifest_hash($policy);
+    $row['site_hash'] = \WPrism\ArtifactPolicyIdentity::site_hash($policy);
     // Recompiled from the repository at THIS state, which is what makes the
     // four identity values comparable across states: `manifest_hash` and
     // `site_hash` are what pins and artifacts bind, `revision_hash` is what the
@@ -707,7 +707,7 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
     // carries the platform boundary. They do not move together, and the whole
     // point of recording all four is that the rehearsal can say which did.
     try {
-        $freshlyCompiled = \Duo\RepositoryCompiler::compile($repo, $policy);
+        $freshlyCompiled = \WPrism\RepositoryCompiler::compile($repo, $policy);
         $row['artifact_hash'] = $freshlyCompiled->artifact_hash();
         $row['revision_hash'] = $freshlyCompiled->revision_hash();
     } catch (Throwable $t) {
@@ -715,7 +715,7 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
         $row['revision_hash'] = rehearsal_scrub($t->getMessage(), $estate);
     }
     $sources = $policy->adapter_sources();
-    foreach (\Duo\RepositoryCompiler::resolved_adapters($policy) as $resolved) {
+    foreach (\WPrism\RepositoryCompiler::resolved_adapters($policy) as $resolved) {
         $name = (string) $resolved['name'];
         $provenance = $sources->provenance($name);
         $row['adapters'][] = [
@@ -723,7 +723,7 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
                 ? (string) ($resolved['capability']['status'] ?? '?')
                 : 'none',
             'capability_sha256' => is_array($resolved['capability'] ?? null)
-                ? hash('sha256', \Duo\Canon::encode($resolved['capability']))
+                ? hash('sha256', \WPrism\Canon::encode($resolved['capability']))
                 : null,
             'certificate_held' => $sources->is_certified($name) || $sources->is_signed_unexercised($name),
             'certification' => $sources->certification_word($name),
@@ -738,11 +738,11 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
     // The compiled artifact a promoted site is holding.
     if (is_file($holdings . '/artifact.json')) {
         try {
-            \Duo\CompiledArtifactReader::read_artifact($holdings . '/artifact.json', $policy);
+            \WPrism\CompiledArtifactReader::read_artifact($holdings . '/artifact.json', $policy);
             $row['artifact'] = 'verified';
         } catch (Throwable $t) {
             $row['artifact'] = 'refused';
-            $row['artifact_reason'] = $t instanceof \Duo\CommandRefusalException
+            $row['artifact_reason'] = $t instanceof \WPrism\CommandRefusalException
                 ? $t->reasonCode
                 : rehearsal_scrub($t->getMessage(), $estate);
         }
@@ -752,15 +752,15 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
     // not reopen the mutable repository.
     if (is_file($holdings . '/snapshot.json')) {
         try {
-            $frozen = \Duo\Policy::from_snapshot(
-                \Duo\Canon::decode(\Duo\Canon::read_file($holdings . '/snapshot.json')),
+            $frozen = \WPrism\Policy::from_snapshot(
+                \WPrism\Canon::decode(\WPrism\Canon::read_file($holdings . '/snapshot.json')),
                 $library
             );
             $frozenSources = $frozen->adapter_sources();
             $row['snapshot'] = 'rehydrated';
-            $row['snapshot_manifest_hash'] = \Duo\ArtifactPolicyIdentity::manifest_hash($frozen);
+            $row['snapshot_manifest_hash'] = \WPrism\ArtifactPolicyIdentity::manifest_hash($frozen);
             $row['snapshot_adapters'] = [];
-            foreach (\Duo\RepositoryCompiler::resolved_adapters($frozen) as $resolved) {
+            foreach (\WPrism\RepositoryCompiler::resolved_adapters($frozen) as $resolved) {
                 $row['snapshot_adapters'][] = [
                     'certified' => $frozenSources->is_certified((string) $resolved['name']),
                     'digest' => (string) $resolved['digest'],
@@ -775,12 +775,12 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
 
     if (is_file($holdings . '/scope-contract.json')) {
         try {
-            $contract = \Duo\ScopeContract::from_array(
-                \Duo\Canon::decode(\Duo\Canon::read_file($holdings . '/scope-contract.json'))
+            $contract = \WPrism\ScopeContract::from_array(
+                \WPrism\Canon::decode(\WPrism\Canon::read_file($holdings . '/scope-contract.json'))
             );
-            \Duo\ScopeContract::assert_associated(
+            \WPrism\ScopeContract::assert_associated(
                 $contract,
-                \Duo\RepositoryCompiler::compile($repo, $policy),
+                \WPrism\RepositoryCompiler::compile($repo, $policy),
                 $policy
             );
             $row['scope_contract'] = 'associated';
@@ -791,8 +791,8 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
     }
 
     if (is_file($holdings . '/identity-sidecar.json')) {
-        $sidecar = \Duo\Canon::decode(\Duo\Canon::read_file($holdings . '/identity-sidecar.json'));
-        $compiled = \Duo\RepositoryCompiler::compile($repo, $policy);
+        $sidecar = \WPrism\Canon::decode(\WPrism\Canon::read_file($holdings . '/identity-sidecar.json'));
+        $compiled = \WPrism\RepositoryCompiler::compile($repo, $policy);
         $row['identity_sidecar'] = hash_equals((string) $sidecar['manifest_hash'], $compiled->manifest_hash())
             && hash_equals((string) $sidecar['site_hash'], $compiled->site_hash())
             && hash_equals((string) $sidecar['repository_revision'], $compiled->revision_hash())
@@ -800,10 +800,10 @@ function rehearsal_observe_site(string $estate, string $id, \Duo\AdapterLibrary 
     }
 
     if (is_file($holdings . '/checkpoint-inputs.json')) {
-        $checkpoint = \Duo\Canon::decode(\Duo\Canon::read_file($holdings . '/checkpoint-inputs.json'));
+        $checkpoint = \WPrism\Canon::decode(\WPrism\Canon::read_file($holdings . '/checkpoint-inputs.json'));
         $row['checkpoint'] = hash_equals(
             (string) $checkpoint['manifest_inputs_sha256'],
-            \Duo\ArtifactPolicyIdentity::manifest_hash($policy)
+            \WPrism\ArtifactPolicyIdentity::manifest_hash($policy)
         ) ? 'binds' : 'stale';
     }
 
@@ -893,28 +893,29 @@ function rehearsal_probes(string $estate, string $state): array {
     $certSite = $estate . '/sites/certified-alpha';
     $certName = 'estate-forms';
     $certFile = $certSite . '/adapters/certifications/' . $certName . '.json';
-    $certManifest = \Duo\Canon::decode(\Duo\Canon::read_file($certSite . '/adapters/' . $certName . '.json'));
+    $certManifest = \WPrism\Canon::decode(\WPrism\Canon::read_file($certSite . '/adapters/' . $certName . '.json'));
     $alphaSecret = trim((string) file_get_contents($estate . '/keys/site-key-alpha.key'));
 
     // --- platform axis ----------------------------------------------------
 
-    // The hand-mixed bundle: this state's agent under the OTHER state's
-    // manifests. `Adopt::install()` ships the two as one archive, so this state
-    // is unreachable through the supported path — which is exactly why the
+    // The hand-mixed bundle: this state's agent with the OTHER state's
+    // projected adapter library. `Adopt::install()` embeds the library below
+    // the agent and archives exactly `agent recovery`, so this state is
+    // unreachable through the supported path — which is exactly why the
     // refusal has to be proven rather than assumed, and why a partial rollback
     // is refused instead of survived.
     $probe(
         'agent/src/Policy/ManifestDispositions.php::platform_boundary',
-        'ManifestDispositions::platform_boundary(libs/other) under agent ' . DUO_AGENT_VERSION,
+        'ManifestDispositions::platform_boundary(libs/other) under agent ' . WPRISM_AGENT_VERSION,
         'platform version disagrees with the loaded agent',
-        static fn(): string => \Duo\ManifestDispositions::platform_boundary_library($otherLibrary) === null
+        static fn(): string => \WPrism\ManifestDispositions::platform_boundary_library($otherLibrary) === null
             ? 'no boundary' : 'boundary accepted'
     );
     $probe(
         'agent/src/Adapter/AdapterCertification.php::currentPlatform',
         'AdapterCertification::verifyFile(libs/other, certified-alpha)',
         'agent capability platform boundary disagrees with the loaded agent',
-        static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
+        static fn(): string => (string) (\WPrism\AdapterCertification::verifyFile(
             $otherLibrary, $certSite, $certName, $certManifest, $certFile
         )['disposition']['certification'] ?? '?')
     );
@@ -944,9 +945,9 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::verifyFile(<boundary with a moved database engine range>, certified-alpha)',
         $state === 'A'
             ? "certification binds compatibility axis 'database'"
-            : 'certification was signed under spec version ' . (DUO_SPEC_VERSION - 1)
-                . ', which is not the spec version ' . DUO_SPEC_VERSION,
-        static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
+            : 'certification was signed under spec version ' . (WPRISM_SPEC_VERSION - 1)
+                . ', which is not the spec version ' . WPRISM_SPEC_VERSION,
+        static fn(): string => (string) (\WPrism\AdapterCertification::verifyFile(
             rehearsal_library(rehearsal_cell_moved_library($estate, $state)),
             $certSite,
             $certName,
@@ -965,7 +966,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'platform_boundary_invalid',
         static function (): string {
             try {
-                \Duo\PlatformCompatibility::assert_supported(
+                \WPrism\PlatformCompatibility::assert_supported(
                     ['site_mode' => 'single-site', 'compatibility' => []],
                     [
                         'php' => '8.3.33',
@@ -982,7 +983,7 @@ function rehearsal_probes(string $estate, string $state): array {
                         'site_mode' => 'single-site',
                     ]
                 );
-            } catch (\Duo\CommandRefusalException $refusal) {
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'accepted';
@@ -1008,7 +1009,7 @@ function rehearsal_probes(string $estate, string $state): array {
     // that a future wire change must read as a named refusal rather than as
     // corruption. So on the flag day every certificate in the field withdraws
     // — an operator's own site-rooted signature, degraded to `uncertified`,
-    // adapter still loading — and `duo adapter recertify` is the remedy the
+    // adapter still loading — and `wprism adapter recertify` is the remedy the
     // runbook schedules (docs/guides/flag-day.md step 5). Recording `certified`
     // at B would have been recording the flip's central cost as absent.
     $probe(
@@ -1016,9 +1017,9 @@ function rehearsal_probes(string $estate, string $state): array {
         'AdapterCertification::verifyFile(libs/' . $state . ', certified-alpha)',
         $state === 'A'
             ? 'signed_unexercised'
-            : 'certification was signed under spec version ' . (DUO_SPEC_VERSION - 1)
-                . ', which is not the spec version ' . DUO_SPEC_VERSION,
-        static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
+            : 'certification was signed under spec version ' . (WPRISM_SPEC_VERSION - 1)
+                . ', which is not the spec version ' . WPRISM_SPEC_VERSION,
+        static fn(): string => (string) (\WPrism\AdapterCertification::verifyFile(
             $library, $certSite, $certName, $certManifest, $certFile
         )['disposition']['certification'] ?? '?')
     );
@@ -1031,7 +1032,7 @@ function rehearsal_probes(string $estate, string $state): array {
     // populated root — the state an operator reaches by rotating a key id.
     $unknownKey = $scratch . '/authority-unknown';
     rehearsal_copy_tree($certSite, $unknownKey);
-    $authorities = \Duo\Canon::decode(\Duo\Canon::read_file($unknownKey . '/adapters/authorities.json'));
+    $authorities = \WPrism\Canon::decode(\WPrism\Canon::read_file($unknownKey . '/adapters/authorities.json'));
     $keptKeys = $authorities['keys'];
     $authorities['keys'] = (object) ['site-key-gamma' => $keptKeys['site-key-alpha']];
     rehearsal_write_canon($unknownKey . '/adapters/authorities.json', $authorities);
@@ -1039,7 +1040,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterCertification.php::authority',
         'AdapterCertification::verifyFile(<site whose trust root no longer carries the signing key>)',
         "authority key 'site-key-alpha' is not installed in",
-        static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
+        static fn(): string => (string) (\WPrism\AdapterCertification::verifyFile(
             $library,
             $unknownKey,
             $certName,
@@ -1050,20 +1051,20 @@ function rehearsal_probes(string $estate, string $state): array {
 
     $malformedRoot = $scratch . '/authority-malformed';
     rehearsal_copy_tree($certSite, $malformedRoot);
-    // WP-4.8 made `duo-adapter-authorities/v2` a REAL format (the authority
+    // WP-4.8 made `wprism-adapter-authorities/v2` a REAL format (the authority
     // record v2 grammar), so this probe moved to a version that is still
     // nobody's: what it owns is the unknown-root refusal, not one specific
     // version integer. A v2 document is exercised where its grammar lives,
     // sandbox/tests/offline/adapter/regress_authority_record_v2.php.
     rehearsal_write_canon($malformedRoot . '/adapters/authorities.json', [
-        'format' => 'duo-adapter-authorities/v9',
+        'format' => 'wprism-adapter-authorities/v9',
         'keys' => (object) $keptKeys,
     ]);
     $probe(
         'agent/src/Adapter/AdapterCertification.php::authorityKeys',
         'AdapterCertification::verifyFile(<site whose trust root declares an unknown root format>)',
         'have an unsupported or malformed root',
-        static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
+        static fn(): string => (string) (\WPrism\AdapterCertification::verifyFile(
             $library,
             $malformedRoot,
             $certName,
@@ -1078,7 +1079,7 @@ function rehearsal_probes(string $estate, string $state): array {
     // that runs right after it, and the two refusals say different things.
     $reboundKey = $scratch . '/authority-rebound';
     rehearsal_copy_tree($certSite, $reboundKey);
-    $rebound = \Duo\Canon::decode(\Duo\Canon::read_file($reboundKey . '/adapters/authorities.json'));
+    $rebound = \WPrism\Canon::decode(\WPrism\Canon::read_file($reboundKey . '/adapters/authorities.json'));
     $rebound['keys']['site-key-alpha']['status'] = 'revoked';
     $rebound['keys'] = (object) $rebound['keys'];
     rehearsal_write_canon($reboundKey . '/adapters/authorities.json', $rebound);
@@ -1086,7 +1087,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterCertification.php::assertAuthorityBinding',
         'AdapterCertification::verifyFile(<site whose trust-root record was edited after signing>)',
         'does not match the current site authority record',
-        static fn(): string => (string) (\Duo\AdapterCertification::verifyFile(
+        static fn(): string => (string) (\WPrism\AdapterCertification::verifyFile(
             $library,
             $reboundKey,
             $certName,
@@ -1101,23 +1102,23 @@ function rehearsal_probes(string $estate, string $state): array {
     // that reviews the operator's key id.
     $collidingLib = $scratch . '/colliding-lib';
     rehearsal_copy_tree($lib, $collidingLib);
-    $shippedKeys = \Duo\Canon::decode(
-        \Duo\Canon::read_file($collidingLib . '/capabilities/adapter-authorities.json')
+    $shippedKeys = \WPrism\Canon::decode(
+        \WPrism\Canon::read_file($collidingLib . '/capabilities/adapter-authorities.json')
     );
     $shippedKeys['keys'] = (object) ['site-key-alpha' => $keptKeys['site-key-alpha']];
     rehearsal_write_canon($collidingLib . '/capabilities/adapter-authorities.json', $shippedKeys);
-    $frozenSnapshot = \Duo\Canon::decode(
-        \Duo\Canon::read_file($estate . '/holdings/promoted-frozen/snapshot.json')
+    $frozenSnapshot = \WPrism\Canon::decode(
+        \WPrism\Canon::read_file($estate . '/holdings/promoted-frozen/snapshot.json')
     );
     $frozenEnvelope = (array) ($frozenSnapshot['adapter_sources']['certificates']['estate-catalog'] ?? []);
-    $frozenManifest = \Duo\Canon::decode(
-        \Duo\Canon::read_file($estate . '/sites/promoted-frozen/adapters/estate-catalog.json')
+    $frozenManifest = \WPrism\Canon::decode(
+        \WPrism\Canon::read_file($estate . '/sites/promoted-frozen/adapters/estate-catalog.json')
     );
     $probe(
         'agent/src/Adapter/AdapterCertification.php::assertKeyIdNotPlatformOwned',
         'AdapterCertification::verifyFrozen(<library that reviews the operator key id>)',
         'is reviewed and shipped by this agent, so a site trust root cannot claim it',
-        static fn(): string => (string) (\Duo\AdapterCertification::verifyFrozen(
+        static fn(): string => (string) (\WPrism\AdapterCertification::verifyFrozen(
             rehearsal_library($collidingLib), 'estate-catalog', $frozenManifest, $frozenEnvelope
         )['disposition']['certification'] ?? '?')
     );
@@ -1130,7 +1131,7 @@ function rehearsal_probes(string $estate, string $state): array {
     rehearsal_copy_tree($lib, $revokedLib);
     $platformSecret = trim((string) file_get_contents($estate . '/keys/platform-review-key.key'));
     rehearsal_write_canon($revokedLib . '/capabilities/adapter-authorities.json', [
-        'format' => 'duo-adapter-authorities/v1',
+        'format' => 'wprism-adapter-authorities/v1',
         'keys' => (object) ['platform-review-key' => [
             'adapter_names' => [$certName],
             'algorithm' => 'ed25519',
@@ -1146,7 +1147,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterCertification.php::sign',
         'AdapterCertification::sign(<library whose reviewed key is revoked>)',
         "authority key 'platform-review-key' is revoked and cannot certify adapters",
-        static fn(): string => substr(\Duo\AdapterCertification::sign(
+        static fn(): string => substr(\WPrism\AdapterCertification::sign(
             rehearsal_library($revokedLib),
             $certSite,
             $certName,
@@ -1160,7 +1161,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Adapter/AdapterCertification.php::sign_site',
         'AdapterCertification::sign_site(<empty operator reason>)',
         'must state its basis',
-        static fn(): string => substr(\Duo\AdapterCertification::sign_site(
+        static fn(): string => substr(\WPrism\AdapterCertification::sign_site(
             $library, $certSite, $certName, 'site-key-alpha', $alphaSecret, '   '
         ), 0, 32)
     );
@@ -1175,7 +1176,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'Policy::load(sites/editorial)',
         'loaded',
         static function () use ($estate, $library): string {
-            $policy = \Duo\Policy::load($estate . '/sites/editorial', null, false, null, $library);
+            $policy = \WPrism\Policy::load($estate . '/sites/editorial', null, false, null, $library);
             return 'loaded ' . count($policy->manifests) . ' manifests';
         }
     );
@@ -1183,7 +1184,7 @@ function rehearsal_probes(string $estate, string $state): array {
         'agent/src/Policy/PinResolver.php::validate_manifest_pins',
         'Policy::load(sites/drifted-pin)',
         'digest mismatch',
-        static fn(): string => 'loaded ' . count(\Duo\Policy::load(
+        static fn(): string => 'loaded ' . count(\WPrism\Policy::load(
             $estate . '/sites/drifted-pin', null, false, null, $library
         )->manifests)
     );
@@ -1192,13 +1193,13 @@ function rehearsal_probes(string $estate, string $state): array {
         'CompiledArtifactReader::read_artifact(holdings/artifact-drift)',
         'compiled_artifact_manifest_mismatch',
         static function () use ($estate, $library): string {
-            $policy = \Duo\Policy::load($estate . '/sites/artifact-drift', null, false, null, $library);
+            $policy = \WPrism\Policy::load($estate . '/sites/artifact-drift', null, false, null, $library);
             try {
-                \Duo\CompiledArtifactReader::read_artifact(
+                \WPrism\CompiledArtifactReader::read_artifact(
                     $estate . '/holdings/artifact-drift/artifact.json',
                     $policy
                 );
-            } catch (\Duo\CommandRefusalException $refusal) {
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'verified';
@@ -1209,13 +1210,13 @@ function rehearsal_probes(string $estate, string $state): array {
     $probe(
         'agent/src/Policy/Policy.php::from_snapshot',
         'Policy::from_snapshot(<promoted-frozen snapshot restamped to the retired v4 wire>)',
-        'duo-policy-snapshot/v4 is retired',
+        'wprism-policy-snapshot/v4 is retired',
         static function () use ($estate, $library): string {
-            $snapshot = \Duo\Canon::decode(
-                \Duo\Canon::read_file($estate . '/holdings/promoted-frozen/snapshot.json')
+            $snapshot = \WPrism\Canon::decode(
+                \WPrism\Canon::read_file($estate . '/holdings/promoted-frozen/snapshot.json')
             );
-            $snapshot['format'] = 'duo-policy-snapshot/v4';
-            return 'rehydrated ' . count(\Duo\Policy::from_snapshot($snapshot, $library)->manifests) . ' manifests';
+            $snapshot['format'] = 'wprism-policy-snapshot/v4';
+            return 'rehydrated ' . count(\WPrism\Policy::from_snapshot($snapshot, $library)->manifests) . ' manifests';
         }
     );
 
@@ -1227,9 +1228,9 @@ function rehearsal_probes(string $estate, string $state): array {
         'ScopeContract::from_array(<contract whose source.manifest_hash is not a hash>)',
         'scope contract source.manifest_hash must be a lowercase SHA-256 hash',
         static function () use ($contractPath): string {
-            $contract = \Duo\Canon::decode(\Duo\Canon::read_file($contractPath));
+            $contract = \WPrism\Canon::decode(\WPrism\Canon::read_file($contractPath));
             $contract['source']['manifest_hash'] = 'not-a-hash';
-            \Duo\ScopeContract::from_array($contract);
+            \WPrism\ScopeContract::from_array($contract);
             return 'accepted';
         }
     );
@@ -1238,12 +1239,12 @@ function rehearsal_probes(string $estate, string $state): array {
         'ScopeContract::assert_associated(pinned-shop contract, certified-alpha artifact)',
         'not associated with this exact compiled artifact/policy',
         static function () use ($contractPath, $estate, $library): string {
-            $foreignPolicy = \Duo\Policy::load(
+            $foreignPolicy = \WPrism\Policy::load(
                 $estate . '/sites/certified-alpha', null, false, null, $library
             );
-            \Duo\ScopeContract::assert_associated(
-                \Duo\Canon::decode(\Duo\Canon::read_file($contractPath)),
-                \Duo\RepositoryCompiler::compile($estate . '/sites/certified-alpha', $foreignPolicy),
+            \WPrism\ScopeContract::assert_associated(
+                \WPrism\Canon::decode(\WPrism\Canon::read_file($contractPath)),
+                \WPrism\RepositoryCompiler::compile($estate . '/sites/certified-alpha', $foreignPolicy),
                 $foreignPolicy
             );
             return 'associated';
@@ -1255,10 +1256,10 @@ function rehearsal_probes(string $estate, string $state): array {
         'scoped mutation authority source has an unexpected schema',
         static function (): string {
             $hash = str_repeat('a', 64);
-            \Duo\ScopedApplySession::validate_authority([
+            \WPrism\ScopedApplySession::validate_authority([
                 'authority_hash' => $hash,
                 'code_witness_hash' => $hash,
-                'format' => \Duo\ScopedApplySession::AUTHORITY_FORMAT,
+                'format' => \WPrism\ScopedApplySession::AUTHORITY_FORMAT,
                 'lease' => ['artifact_hash' => $hash, 'owner' => 'rehearsal', 'session_id' => 'rehearsal'],
                 'plan' => [],
                 'scope_hash' => $hash,
@@ -1277,10 +1278,10 @@ function rehearsal_probes(string $estate, string $state): array {
  * The projections and orchestrator-side gates, for one state.
  *
  * These live in `cli/` and `recovery/`, which the flag day ships beside the
- * agent (`Adopt.php:153-155` tars `agent manifests recovery`; `cli/` is the
+ * agent (`Adopt.php:212-226` embeds the library in agent/ and tars `agent recovery`; `cli/` is the
  * operator's own checkout). They are driven in-process at this state's defines
- * rather than through the `duo` executable: that shell resolves the defines
- * from the checkout's `agent/duo.php` (`AdapterCertify::boot()`:1465-1481) and
+ * rather than through the `wprism` executable: that shell resolves the defines
+ * from the checkout's `agent/wprism.php` (`AdapterCertify::boot()`:1465-1481) and
  * therefore always runs at the TREE's state — which since WP-4.12 is state B,
  * the far end of the flip. In-process is the only way a probe can be asked the
  * same question at BOTH ends of the transition, which is what a rehearsal is.
@@ -1299,19 +1300,19 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
 
     // --- the operator's certify command -----------------------------------
     //
-    // These two run the SHIPPED `duo` executable as a child process, and only
+    // These two run the SHIPPED `wprism` executable as a child process, and only
     // at state B. Two facts force both halves. `AdapterCertify::fail()` writes
     // its refusal to STDERR, which an in-process call cannot capture (PHP
     // cannot rebind the STDERR constant), so the message — the evidence — is
     // only reachable through a child. And that child resolves its defines from
-    // the checkout's own `agent/duo.php` (`AdapterCertify::boot()`:1465-1481),
-    // so it is a B-state agent BY CONSTRUCTION — the shipped `duo` is the
+    // the checkout's own `agent/wprism.php` (`AdapterCertify::boot()`:1465-1481),
+    // so it is a B-state agent BY CONSTRUCTION — the shipped `wprism` is the
     // flip's own binary and there is no flag that makes it pretend otherwise.
     //
     // WP-4.12 FLIPPED WHICH STATE THAT IS, and the measurement says so rather
     // than the prose: at state A the same two probes now report
-    // `duo: agent capability platform boundary disagrees with the loaded agent`
-    // (AdapterCertification.php:3559) — a 0.6.0/3 executable reading the
+    // `wprism: agent capability platform boundary disagrees with the loaded agent`
+    // (AdapterCertification.php:3559) — a 0.7.0/3 executable reading the
     // 0.5.0/2 library — which is the mixed-bundle refusal, not the gate under
     // test. Leaving them at A would have kept the `certify` probe green for
     // the WRONG REASON (its expectation is the substring 'does not load', which
@@ -1324,14 +1325,14 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
     if ($state === 'B') {
         $brokenSite = $scratch . '/certify-broken';
         rehearsal_copy_tree($estate . '/sites/certified-beta', $brokenSite);
-        $broken = \Duo\Canon::decode(\Duo\Canon::read_file($brokenSite . '/adapters/estate-shop.json'));
+        $broken = \WPrism\Canon::decode(\WPrism\Canon::read_file($brokenSite . '/adapters/estate-shop.json'));
         unset($broken['spec_version']);
         rehearsal_write_canon($brokenSite . '/adapters/estate-shop.json', $broken);
         $probe(
             'cli/src/Adapter/AdapterCertify.php::certify',
-            'duo adapter certify <site whose adapter no longer loads>',
+            'wprism adapter certify <site whose adapter no longer loads>',
             'does not load',
-            static fn(): string => rehearsal_run_duo($repoRoot, $lib, [
+            static fn(): string => rehearsal_run_wprism($repoRoot, $lib, [
                 'adapter',
                 'certify',
                 $brokenSite,
@@ -1346,9 +1347,9 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         rehearsal_copy_tree($estate . '/sites/certified-alpha', $collidingSite);
         $probe(
             'cli/src/Adapter/AdapterCertify.php::registerAuthority',
-            'duo adapter certify --key-id=<an id the site root already binds to another key>',
+            'wprism adapter certify --key-id=<an id the site root already binds to another key>',
             'is already registered in',
-            static fn(): string => rehearsal_run_duo($repoRoot, $lib, [
+            static fn(): string => rehearsal_run_wprism($repoRoot, $lib, [
                 'adapter',
                 'certify',
                 $collidingSite,
@@ -1363,14 +1364,14 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
     // --- contract attestation: the most operator-visible platform move -----
 
     $contractSite = $estate . '/contract-site';
-    $signed = \Duo\Canon::decode(\Duo\Canon::read_file($estate . '/holdings/_contract/attested.json'));
+    $signed = \WPrism\Canon::decode(\WPrism\Canon::read_file($estate . '/holdings/_contract/attested.json'));
 
     $probe(
         'cli/src/Contract/ContractAttestation.php::currentPlatformDigest',
         'ContractAttestation::currentPlatformDigest(libs/' . $state . ')',
         'platform digest ',
         static fn(): string => 'platform digest '
-            . \Duo\Orchestrator\ContractAttestation::currentPlatformDigest($library)
+            . \WPrism\Orchestrator\ContractAttestation::currentPlatformDigest($library)
     );
     $probe(
         'cli/src/Contract/ContractAttestation.php::verify',
@@ -1378,8 +1379,8 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         $state === 'A' ? 'verified for ' : 'contract_attestation_platform_moved',
         static function () use ($signed, $contractSite, $library): string {
             try {
-                $proof = \Duo\Orchestrator\ContractAttestation::verify($signed, $contractSite, $library);
-            } catch (\Duo\CommandRefusalException $refusal) {
+                $proof = \WPrism\Orchestrator\ContractAttestation::verify($signed, $contractSite, $library);
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'verified for ' . (string) $proof['principal'];
@@ -1390,8 +1391,8 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'ContractAttestation::sign(<contract>, libs/' . $state . ')',
         'attestation binds ',
         static function () use ($estate, $contractSite, $library): string {
-            $document = \Duo\Canon::decode(\Duo\Canon::read_file($estate . '/holdings/_contract/unsigned.json'));
-            $resigned = \Duo\Orchestrator\ContractAttestation::sign(
+            $document = \WPrism\Canon::decode(\WPrism\Canon::read_file($estate . '/holdings/_contract/unsigned.json'));
+            $resigned = \WPrism\Orchestrator\ContractAttestation::sign(
                 $document,
                 $contractSite,
                 'contract-key',
@@ -1413,12 +1414,12 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
             $malformed = $scratch . '/contract-authorities-malformed';
             rehearsal_copy_tree($contractSite, $malformed);
             rehearsal_write(
-                \Duo\Orchestrator\ContractAttestation::authoritiesPath($malformed),
-                '{"format":"duo-contract-authorities/v2","keys":{}}'
+                \WPrism\Orchestrator\ContractAttestation::authoritiesPath($malformed),
+                '{"format":"wprism-contract-authorities/v2","keys":{}}'
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::authorities($malformed);
-            } catch (\Duo\CommandRefusalException $refusal) {
+                \WPrism\Orchestrator\ContractAttestation::authorities($malformed);
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'accepted';
@@ -1432,12 +1433,12 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
             $unreadable = $scratch . '/contract-authorities-unreadable';
             rehearsal_copy_tree($contractSite, $unreadable);
             rehearsal_write(
-                \Duo\Orchestrator\ContractAttestation::authoritiesPath($unreadable),
+                \WPrism\Orchestrator\ContractAttestation::authoritiesPath($unreadable),
                 'this is not a JSON object'
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $unreadable, $library);
-            } catch (\Duo\CommandRefusalException $refusal) {
+                \WPrism\Orchestrator\ContractAttestation::verify($signed, $unreadable, $library);
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode . ": " . $refusal->publicMessage . " — " . $refusal->remediation;
             }
             return 'verified';
@@ -1451,8 +1452,8 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
             $anchorless = $scratch . '/contract-no-anchor';
             rehearsal_mkdir($anchorless);
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $anchorless, $library);
-            } catch (\Duo\CommandRefusalException $refusal) {
+                \WPrism\Orchestrator\ContractAttestation::verify($signed, $anchorless, $library);
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'verified';
@@ -1465,17 +1466,17 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         static function () use ($scratch, $contractSite, $signed, $library): string {
             $stranger = $scratch . '/contract-key-unknown';
             rehearsal_copy_tree($contractSite, $stranger);
-            $document = \Duo\Orchestrator\ContractAttestation::authorities($stranger);
+            $document = \WPrism\Orchestrator\ContractAttestation::authorities($stranger);
             rehearsal_write(
-                \Duo\Orchestrator\ContractAttestation::authoritiesPath($stranger),
-                \Duo\Canon::encode([
-                    'format' => \Duo\Orchestrator\ContractAttestation::AUTHORITIES_FORMAT,
+                \WPrism\Orchestrator\ContractAttestation::authoritiesPath($stranger),
+                \WPrism\Canon::encode([
+                    'format' => \WPrism\Orchestrator\ContractAttestation::AUTHORITIES_FORMAT,
                     'keys' => (object) ['contract-other-key' => $document['contract-key']],
                 ])
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $stranger, $library);
-            } catch (\Duo\CommandRefusalException $refusal) {
+                \WPrism\Orchestrator\ContractAttestation::verify($signed, $stranger, $library);
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'verified';
@@ -1488,18 +1489,18 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         static function () use ($scratch, $contractSite, $signed, $library): string {
             $revoked = $scratch . '/contract-key-revoked';
             rehearsal_copy_tree($contractSite, $revoked);
-            $keys = \Duo\Orchestrator\ContractAttestation::authorities($revoked);
+            $keys = \WPrism\Orchestrator\ContractAttestation::authorities($revoked);
             $keys['contract-key']['status'] = 'revoked';
             rehearsal_write(
-                \Duo\Orchestrator\ContractAttestation::authoritiesPath($revoked),
-                \Duo\Canon::encode([
-                    'format' => \Duo\Orchestrator\ContractAttestation::AUTHORITIES_FORMAT,
+                \WPrism\Orchestrator\ContractAttestation::authoritiesPath($revoked),
+                \WPrism\Canon::encode([
+                    'format' => \WPrism\Orchestrator\ContractAttestation::AUTHORITIES_FORMAT,
                     'keys' => (object) $keys,
                 ])
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::verify($signed, $revoked, $library);
-            } catch (\Duo\CommandRefusalException $refusal) {
+                \WPrism\Orchestrator\ContractAttestation::verify($signed, $revoked, $library);
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'verified';
@@ -1516,8 +1517,8 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
                 sodium_crypto_sign_seed_keypair(str_repeat('Z', SODIUM_CRYPTO_SIGN_SEEDBYTES))
             );
             try {
-                \Duo\Orchestrator\ContractAttestation::registerAuthority($conflict, 'contract-key', $other);
-            } catch (\Duo\CommandRefusalException $refusal) {
+                \WPrism\Orchestrator\ContractAttestation::registerAuthority($conflict, 'contract-key', $other);
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode;
             }
             return 'registered';
@@ -1532,10 +1533,10 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'ApplicationContract::validate(<contract whose manifest pin drops adapter_digest>)',
         'manifest_pins[0]',
         static function () use ($estate): string {
-            $document = \Duo\Canon::decode(\Duo\Canon::read_file($estate . '/holdings/_contract/unsigned.json'));
+            $document = \WPrism\Canon::decode(\WPrism\Canon::read_file($estate . '/holdings/_contract/unsigned.json'));
             $document['declarations']['manifest_pins'] = [['name' => 'core', 'source' => 'shipped']];
-            \Duo\Orchestrator\ApplicationContract::validate(
-                \Duo\Orchestrator\ApplicationContract::withDigest($document)
+            \WPrism\Orchestrator\ApplicationContract::validate(
+                \WPrism\Orchestrator\ApplicationContract::withDigest($document)
             );
             return 'accepted';
         }
@@ -1546,16 +1547,16 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'ContractProjection::generate(<facts with no registry_sha256>)',
         "projection facts are missing 'registry_sha256'",
         static function () use ($estate): string {
-            $document = \Duo\Canon::decode(\Duo\Canon::read_file($estate . '/holdings/_contract/unsigned.json'));
+            $document = \WPrism\Canon::decode(\WPrism\Canon::read_file($estate . '/holdings/_contract/unsigned.json'));
             try {
-                \Duo\Orchestrator\ContractProjection::generate(
+                \WPrism\Orchestrator\ContractProjection::generate(
                     $document,
                     ['operations' => ['apply'], 'surfaces' => []],
                     [],
                     [],
                     '2026-08-24T00:00:00Z'
                 );
-            } catch (\Duo\CommandRefusalException $refusal) {
+            } catch (\WPrism\CommandRefusalException $refusal) {
                 return $refusal->reasonCode . ': ' . $refusal->publicMessage;
             }
             return 'projected';
@@ -1575,18 +1576,18 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
             ? 'The estate operator reviewed this declarative adapter for the rehearsal fleet.'
             : 'no reviewed capability claim is bound to this compiled adapter',
         static function () use ($estate, $library): string {
-            $policy = \Duo\Policy::load(
+            $policy = \WPrism\Policy::load(
                 $estate . '/sites/certified-beta', null, false, null, $library
             );
             $summary = ['resolved_adapters' => []];
-            foreach (\Duo\RepositoryCompiler::resolved_adapters($policy) as $row) {
+            foreach (\WPrism\RepositoryCompiler::resolved_adapters($policy) as $row) {
                 $summary['resolved_adapters'][] = [
                     'name' => $row['name'],
                     'disposition' => is_array($row['disposition'] ?? null) ? $row['disposition'] : ['source' => 'site'],
                     'capability' => $row['capability'] ?? null,
                 ];
             }
-            $blockers = \Duo\Orchestrator\CodeDeploy::dispositionBlockers($summary);
+            $blockers = \WPrism\Orchestrator\CodeDeploy::dispositionBlockers($summary);
             return $blockers === []
                 ? 'no blockers'
                 : implode('; ', array_map(
@@ -1600,9 +1601,9 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         'RefreshFieldDiff::normalizePolicyProjection(<projection whose manifest_hash is not a hash>)',
         'policy projection',
         static function (): string {
-            \Duo\Orchestrator\RefreshFieldDiff::normalizePolicyProjection([
+            \WPrism\Orchestrator\RefreshFieldDiff::normalizePolicyProjection([
                 'derived_post_fields' => [],
-                'format' => 'duo-policy-projection/v1',
+                'format' => 'wprism-policy-projection/v1',
                 'manifest_hash' => 'not-a-hash',
                 'projection_hash' => str_repeat('a', 64),
                 'resolved_adapters_sha256' => str_repeat('b', 64),
@@ -1618,12 +1619,12 @@ function rehearsal_cli_probes(string $repoRoot, string $estate, string $state): 
         static function (): string {
             $hash = str_repeat('a', 64);
             $scopeHash = str_repeat('b', 64);
-            \Duo\Orchestrator\ScopedRollbackProfile::claimFields(
+            \WPrism\Orchestrator\ScopedRollbackProfile::claimFields(
                 [
                     'artifact_hash' => $hash,
-                    'format' => 'duo-scoped-plan/v1',
+                    'format' => 'wprism-scoped-plan/v1',
                     'scope' => [
-                        'format' => 'duo-scope-contract/v1',
+                        'format' => 'wprism-scope-contract/v1',
                         'scope_hash' => $scopeHash,
                         'source_artifact_hash' => $hash,
                     ],
@@ -1666,10 +1667,11 @@ function rehearsal_contract_claim(): array {
  *
  * These are the gates that never throw: a moved disposition or boundary turns
  * an allowed promotion into a blocked one by returning a row, so the evidence
- * here is a row's content rather than a refusal message. `duo-agency-cpt` is
- * the shipped `excluded` fixture (manifests/dispositions.json), which is what
- * lets the blocker projections be driven from the real reviewed library rather
- * than from an invented disposition.
+ * here is a row's content rather than a refusal message. `wprism-agency-cpt` is
+ * the shipped `excluded` fixture whose reviewed source is
+ * `adapter-packages/wprism-agency-cpt/package/disposition.json`; the rehearsal
+ * projects it into its legacy-shaped `dispositions/` library so the blocker
+ * projections use real reviewed evidence rather than an invented disposition.
  *
  * @return list<array<string,mixed>>
  */
@@ -1685,19 +1687,19 @@ function rehearsal_registry_probes(string $estate, string $state): array {
 
     $excluded = $scratch . '/excluded-pin';
     rehearsal_mkdir($excluded . '/state');
-    rehearsal_write_canon($excluded . '/site.duo.json', [
-        'manifests' => ['core', 'duo-agency-cpt'],
+    rehearsal_write_canon($excluded . '/site.wprism.json', [
+        'manifests' => ['core', 'wprism-agency-cpt'],
         'policy' => [
             'options' => (object) [],
             'post_types' => ['post', 'page'],
             'taxonomies' => ['category'],
         ],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     rehearsal_write(
         $excluded . '/state/options/core.json',
         rehearsal_options_document(
-            \Duo\Policy::load($excluded, null, false, null, $library),
+            \WPrism\Policy::load($excluded, null, false, null, $library),
             'Excluded'
         )
     );
@@ -1707,10 +1709,10 @@ function rehearsal_registry_probes(string $estate, string $state): array {
     // version — the reason a claim cannot outlive the boundary it was made on.
     $probe(
         'agent/src/Adapter/AdapterRegistry.php::report',
-        'Policy::capability_report(sites/editorial) rows under agent ' . DUO_AGENT_VERSION,
-        'rows bind agent ' . DUO_AGENT_VERSION,
+        'Policy::capability_report(sites/editorial) rows under agent ' . WPRISM_AGENT_VERSION,
+        'rows bind agent ' . WPRISM_AGENT_VERSION,
         static function () use ($estate, $library): string {
-            $report = \Duo\Policy::load(
+            $report = \WPrism\Policy::load(
                 $estate . '/sites/editorial', null, false, null, $library
             )->capability_report();
             $rows = (array) ($report['manifests'] ?? []);
@@ -1723,7 +1725,7 @@ function rehearsal_registry_probes(string $estate, string $state): array {
         'Policy::capability_report(<site pinning the reviewed-excluded adapter>)',
         'ready=false',
         static function () use ($excluded, $library): string {
-            $report = \Duo\Policy::load($excluded, null, false, null, $library)->capability_report();
+            $report = \WPrism\Policy::load($excluded, null, false, null, $library)->capability_report();
             return 'ready=' . (($report['ready'] ?? null) === true ? 'true' : 'false')
                 . ' blockers=' . count((array) ($report['blockers'] ?? []));
         }
@@ -1731,9 +1733,9 @@ function rehearsal_registry_probes(string $estate, string $state): array {
     $probe(
         'agent/src/Adapter/AdapterRegistry.php::certification_readiness_blockers',
         'Policy::certification_readiness_blockers(<site pinning the reviewed-excluded adapter>)',
-        'duo-agency-cpt',
+        'wprism-agency-cpt',
         static function () use ($excluded, $library): string {
-            $blockers = \Duo\Policy::load(
+            $blockers = \WPrism\Policy::load(
                 $excluded, null, false, null, $library
             )->certification_readiness_blockers();
             return $blockers === []
@@ -1756,8 +1758,8 @@ function rehearsal_registry_probes(string $estate, string $state): array {
         static function () use ($lib, $scratch): string {
             $providerLib = $scratch . '/provider-missing-lib';
             rehearsal_copy_tree($lib, $providerLib);
-            if (DUO_SPEC_VERSION === 2) {
-                $woocommerce = \Duo\Canon::decode(\Duo\Canon::read_file($providerLib . '/woocommerce.json'));
+            if (WPRISM_SPEC_VERSION === 2) {
+                $woocommerce = \WPrism\Canon::decode(\WPrism\Canon::read_file($providerLib . '/woocommerce.json'));
                 $woocommerce['spec_version'] = 2;
                 unset($woocommerce['engine_features']);
                 foreach ((array) ($woocommerce['providers'] ?? []) as $index => $declaration) {
@@ -1772,16 +1774,16 @@ function rehearsal_registry_probes(string $estate, string $state): array {
             @unlink($providerLib . '/providers/woocommerce-cache.php');
             $providerSite = $scratch . '/provider-missing-site';
             rehearsal_mkdir($providerSite . '/state');
-            rehearsal_write_canon($providerSite . '/site.duo.json', [
+            rehearsal_write_canon($providerSite . '/site.wprism.json', [
                 'manifests' => ['core', 'woocommerce'],
                 'policy' => [
                     'options' => (object) [],
                     'post_types' => ['post', 'page'],
                     'taxonomies' => ['category'],
                 ],
-                'spec_version' => DUO_SPEC_VERSION,
+                'spec_version' => WPRISM_SPEC_VERSION,
             ]);
-            $blockers = \Duo\Policy::load(
+            $blockers = \WPrism\Policy::load(
                 $providerSite, null, false, null, $providerLibrary
             )->provider_readiness_blockers([[
                 'kind' => 'provider',
@@ -1842,12 +1844,12 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
     $scratch = $estate . '/scratch/' . $state;
     $site = $estate . '/sites/certified-alpha';
     $name = 'estate-forms';
-    $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($site . '/adapters/' . $name . '.json'));
+    $manifest = \WPrism\Canon::decode(\WPrism\Canon::read_file($site . '/adapters/' . $name . '.json'));
     $certificate = $site . '/adapters/certifications/' . $name . '.json';
 
     $out = ['state' => $state];
     try {
-        \Duo\AdapterCertification::verifyFile($library, $site, $name, $manifest, $certificate);
+        \WPrism\AdapterCertification::verifyFile($library, $site, $name, $manifest, $certificate);
         $out['verify'] = 'accepted';
         $out['verify_class'] = '';
         $out['caught_by_prefix_catch_set'] = false;
@@ -1856,14 +1858,14 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
         $out['verify'] = rehearsal_scrub($t->getMessage(), $estate);
         $out['verify_class'] = get_class($t);
         // The pre-fix catch set, stated as the class it actually was.
-        $out['caught_by_prefix_catch_set'] = $t instanceof \Duo\SupersededSiteAdapterCertificate;
-        $out['typed_withdrawal'] = $t instanceof \Duo\StalePlatformSiteAdapterCertificate;
+        $out['caught_by_prefix_catch_set'] = $t instanceof \WPrism\SupersededSiteAdapterCertificate;
+        $out['typed_withdrawal'] = $t instanceof \WPrism\StalePlatformSiteAdapterCertificate;
     }
 
     // What the site does TODAY under the same condition, through the product
     // path an operator actually runs.
     try {
-        $policy = \Duo\Policy::load($site, null, false, null, $library);
+        $policy = \WPrism\Policy::load($site, null, false, null, $library);
         $sources = $policy->adapter_sources();
         $out['load'] = 'ok';
         $out['certified'] = $sources->is_certified($name);
@@ -1880,11 +1882,11 @@ function rehearsal_prefix_reproduction(string $estate, string $state): array {
     // pre-fix stale boundary took.
     $forgedSite = $scratch . '/prefix-forged';
     rehearsal_copy_tree($site, $forgedSite);
-    $forged = \Duo\Canon::decode(\Duo\Canon::read_file($forgedSite . '/adapters/certifications/' . $name . '.json'));
+    $forged = \WPrism\Canon::decode(\WPrism\Canon::read_file($forgedSite . '/adapters/certifications/' . $name . '.json'));
     $forged['statement']['bundle']['git_revision'] = str_repeat('f', 40);
     rehearsal_write_canon($forgedSite . '/adapters/certifications/' . $name . '.json', $forged);
     try {
-        \Duo\Policy::load($forgedSite, null, false, null, $library);
+        \WPrism\Policy::load($forgedSite, null, false, null, $library);
         $out['forged_source'] = 'loaded';
     } catch (Throwable $t) {
         $out['forged_source'] = 'refused';
@@ -1946,12 +1948,12 @@ function rehearsal_remedy(string $estate, string $state): array {
     }
 
     try {
-        $policy = \Duo\Policy::load($remedied, null, false, null, $library);
+        $policy = \WPrism\Policy::load($remedied, null, false, null, $library);
         $sources = $policy->adapter_sources();
         $out['observed'] = 'loaded';
         $out['certified'] = $sources->is_certified('estate-forms');
         $out['reason'] = rehearsal_scrub((string) ($sources->provenance('estate-forms')['reason'] ?? ''), $estate);
-        foreach (\Duo\RepositoryCompiler::resolved_adapters($policy) as $row) {
+        foreach (\WPrism\RepositoryCompiler::resolved_adapters($policy) as $row) {
             if ((string) $row['name'] === 'estate-forms') {
                 $out['digest'] = (string) $row['digest'];
                 $out['capability'] = (string) ($row['capability']['status'] ?? 'none');
@@ -1980,9 +1982,9 @@ function rehearsal_remedy(string $estate, string $state): array {
             '--pin',
         ], $library);
         try {
-            $rePolicy = \Duo\Policy::load($reRemedied, null, false, null, $library);
+            $rePolicy = \WPrism\Policy::load($reRemedied, null, false, null, $library);
             $out['re_certified'] = $rePolicy->adapter_sources()->is_certified('estate-forms');
-            foreach (\Duo\RepositoryCompiler::resolved_adapters($rePolicy) as $row) {
+            foreach (\WPrism\RepositoryCompiler::resolved_adapters($rePolicy) as $row) {
                 if ((string) $row['name'] === 'estate-forms') {
                     $out['re_capability'] = (string) ($row['capability']['status'] ?? 'none');
                 }
@@ -2005,8 +2007,8 @@ function rehearsal_remedy(string $estate, string $state): array {
  */
 function rehearsal_materialize_contract(string $repoRoot, string $estate): array {
     $site = $estate . '/contract-site';
-    rehearsal_mkdir($site . '/.duo/contract');
-    rehearsal_write($site . '/site.duo.json', \Duo\Canon::encode([
+    rehearsal_mkdir($site . '/.wprism/contract');
+    rehearsal_write($site . '/site.wprism.json', \WPrism\Canon::encode([
         'envs' => ['production' => ['transport' => 'local']],
     ]));
 
@@ -2021,24 +2023,24 @@ function rehearsal_materialize_contract(string $repoRoot, string $estate): array
     // review gate has something to refuse; attestation is a question about a
     // contract that already passed review, so resolve it as a reviewer would.
     foreach (($document['declarations']['external_effects'] ?? []) as $index => $effect) {
-        if (($effect['decided_by'] ?? null) === \Duo\Orchestrator\ApplicationContract::UNREVIEWED_DECIDED_BY) {
+        if (($effect['decided_by'] ?? null) === \WPrism\Orchestrator\ApplicationContract::UNREVIEWED_DECIDED_BY) {
             $document['declarations']['external_effects'][$index]['decided_by'] = 'operator';
         }
     }
-    $document = \Duo\Orchestrator\ApplicationContract::withDigest($document);
-    \Duo\Orchestrator\ApplicationContract::validate($document);
+    $document = \WPrism\Orchestrator\ApplicationContract::withDigest($document);
+    \WPrism\Orchestrator\ApplicationContract::validate($document);
 
     $keypair = sodium_crypto_sign_seed_keypair(str_repeat('C', SODIUM_CRYPTO_SIGN_SEEDBYTES));
     $secret = sodium_crypto_sign_secretkey($keypair);
     rehearsal_write($estate . '/keys/contract-key.key', base64_encode($secret) . "\n");
     chmod($estate . '/keys/contract-key.key', 0600);
-    \Duo\Orchestrator\ContractAttestation::registerAuthority(
+    \WPrism\Orchestrator\ContractAttestation::registerAuthority(
         $site,
         'contract-key',
         sodium_crypto_sign_publickey($keypair)
     );
 
-    $signed = \Duo\Orchestrator\ContractAttestation::sign(
+    $signed = \WPrism\Orchestrator\ContractAttestation::sign(
         $document,
         $site,
         'contract-key',
@@ -2079,12 +2081,12 @@ $rehearsalEstate = (string) realpath(rtrim($argv[1], '/'));
 $rehearsalState = $argv[2];
 $rehearsalMode = $argv[3];
 $rehearsalVersions = rehearsal_state_versions($rehearsalRepoRoot, $rehearsalState);
-define('DUO_AGENT_VERSION', $rehearsalVersions['agent_version']);
-define('DUO_SPEC_VERSION', $rehearsalVersions['spec_version']);
+define('WPRISM_AGENT_VERSION', $rehearsalVersions['agent_version']);
+define('WPRISM_SPEC_VERSION', $rehearsalVersions['spec_version']);
 
-$rehearsalClassmap = require $rehearsalRepoRoot . '/agent/duo-classmap.php';
+$rehearsalClassmap = require $rehearsalRepoRoot . '/agent/wprism-classmap.php';
 if (!is_array($rehearsalClassmap)) {
-    fwrite(STDERR, "spec_migration_estate.php: agent/duo-classmap.php did not return a map\n");
+    fwrite(STDERR, "spec_migration_estate.php: agent/wprism-classmap.php did not return a map\n");
     exit(2);
 }
 $rehearsalFiles = [];
@@ -2106,7 +2108,7 @@ foreach ([
 ] as $rehearsalClass) {
     $rehearsalFile = $rehearsalFiles[$rehearsalClass] ?? null;
     if (!is_string($rehearsalFile)) {
-        fwrite(STDERR, "spec_migration_estate.php: $rehearsalClass.php is absent from agent/duo-classmap.php\n");
+        fwrite(STDERR, "spec_migration_estate.php: $rehearsalClass.php is absent from agent/wprism-classmap.php\n");
         exit(2);
     }
     require_once $rehearsalRepoRoot . '/agent/' . $rehearsalFile;
@@ -2170,5 +2172,5 @@ try {
     exit(1);
 }
 
-fwrite(STDOUT, \Duo\Canon::encode($document) . "\n");
+fwrite(STDOUT, \WPrism\Canon::encode($document) . "\n");
 exit(0);

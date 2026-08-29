@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Code/Code.php';
@@ -13,9 +13,9 @@ final class InitCodeInventory {
     public static function probe(array $activePlugins, string $template, string $stylesheet): array {
         $roots = [
             'content' => defined('WP_CONTENT_DIR') ? WP_CONTENT_DIR : null,
-            'mu_plugins' => defined('DUO_CONTROL_PLANE') && DUO_CONTROL_PLANE === true
-                && defined('DUO_CONTROL_WPMU_PLUGIN_DIR')
-                ? DUO_CONTROL_WPMU_PLUGIN_DIR
+            'mu_plugins' => defined('WPRISM_CONTROL_PLANE') && WPRISM_CONTROL_PLANE === true
+                && defined('WPRISM_CONTROL_WPMU_PLUGIN_DIR')
+                ? WPRISM_CONTROL_WPMU_PLUGIN_DIR
                 : (defined('WPMU_PLUGIN_DIR') ? WPMU_PLUGIN_DIR : null),
             'plugins' => defined('WP_PLUGIN_DIR') ? WP_PLUGIN_DIR : null,
             'themes' => function_exists('get_theme_root') ? get_theme_root() : null,
@@ -83,7 +83,7 @@ final class InitCodeInventory {
     }
 
     /**
-     * Per-component identity for the DUO-3499 code-half split.
+     * Per-component identity for the issue #3499 code-half split.
      *
      * This is READ-ONLY reporting and nothing more. The agent states what each
      * active component is and what its bytes hash to; deciding whether a
@@ -174,10 +174,10 @@ final class InitCodeInventory {
     public static function inventory(array $roots, array $components, array &$blockers, ?array &$advisories = null): array {
         $files = [];
         $bytes = 0;
-        // DUO-3499: per-component byte totals, accumulated from the ONE walk
+        // issue #3499: per-component byte totals, accumulated from the ONE walk
         // this method already performs. Summing filesize() again per component
         // would be a second full stat pass over a payload measured at 8,918
-        // files -- the exact cost DUO-3421/DUO-3425 removed from this path.
+        // files -- the exact cost issue #3421/issue #3425 removed from this path.
         $componentBytes = [];
         foreach ($components as $rootName => $names) {
             $root = $roots[$rootName] ?? null;
@@ -321,7 +321,7 @@ final class InitCodeInventory {
             // A complete JWT inside SHIPPED code is, far more often than not, a
             // public artifact rather than a live credential — Yoast SEO's
             // OIDC software statement (`issuer-config.php`), id-token fixtures
-            // in test trees — and a hard block here refused `duo init` on
+            // in test trees — and a hard block here refused `wprism init` on
             // every site running that plugin (T7 grind A4). It is still named,
             // redacted, on its own advisory line, so an in-house plugin that
             // really did hard-code a bearer token is not passed over in

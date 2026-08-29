@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     /** Rollback-only transaction double used by the real metadata generator. */
     final class Db {
         public static int $starts = 0;
@@ -41,7 +41,7 @@ namespace Duo {
         public static function insert_id(string $purpose): int { return 41; }
         public static function query(string $sql, string $purpose): int {
             global $wpdb;
-            if (preg_match("/INSERT INTO wp_duo_kv \(k, v\) VALUES \('((?:''|[^'])*)', '((?:''|[^'])*)'\)/", $sql, $match) === 1) {
+            if (preg_match("/INSERT INTO wp_wprism_kv \(k, v\) VALUES \('((?:''|[^'])*)', '((?:''|[^'])*)'\)/", $sql, $match) === 1) {
                 $key = str_replace("''", "'", $match[1]);
                 $value = str_replace("''", "'", $match[2]);
                 foreach ($wpdb->kvRows as &$row) {
@@ -54,7 +54,7 @@ namespace Duo {
                 unset($row);
                 $wpdb->kvRows[] = ['k' => $key, 'v' => $value];
             }
-            if (preg_match("/DELETE FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/", $sql, $deleteMatch) === 1) {
+            if (preg_match("/DELETE FROM wp_wprism_kv WHERE k = '((?:''|[^'])*)'/", $sql, $deleteMatch) === 1) {
                 $key = str_replace("''", "'", $deleteMatch[1]);
                 $wpdb->kvRows = array_values(array_filter(
                     $wpdb->kvRows,
@@ -77,7 +77,7 @@ namespace Duo {
 namespace Elementor\Modules\PageTemplates {
     final class Module {
         public function filter_update_meta(mixed $check, mixed $id, mixed $key): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('Elementor page-template callback must be quarantined');
         }
     }
@@ -86,7 +86,7 @@ namespace Elementor\Modules\PageTemplates {
 namespace Elementor\Core\Files\File_Types {
     final class Svg {
         public function set_svg_meta_data(mixed $metadata, mixed $id): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('Elementor SVG callback must be quarantined');
         }
     }
@@ -95,7 +95,7 @@ namespace Elementor\Core\Files\File_Types {
 namespace TEC\Common\Integrations\Harbor {
     final class PUE {
         public function filter_pre_get_option(mixed $value, mixed $option, mixed $default): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('TEC Harbor callback must never enter the supported free-plugin topology');
         }
     }
@@ -131,7 +131,7 @@ namespace {
 
     final class PLL_Sync_Post_Metas {
         public function can_synchronize_metadata(mixed $check, mixed $id, mixed $key): mixed {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('Polylang post-meta guard must be quarantined');
         }
 
@@ -142,27 +142,27 @@ namespace {
             mixed $value,
             mixed $prior
         ): mixed {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('Polylang post-meta witness must be quarantined');
         }
     }
 }
 
 namespace {
-    final class DuoTestPolylangModel {
+    final class WPrismTestPolylangModel {
         public function has_languages(): bool {
-            return (bool) ($GLOBALS['duo_polylang_has_languages'] ?? false);
+            return (bool) ($GLOBALS['wprism_polylang_has_languages'] ?? false);
         }
     }
-    final class DuoTestPolylangRuntime {
+    final class WPrismTestPolylangRuntime {
         public object $model;
         public function __construct() {
-            $this->model = new DuoTestPolylangModel();
+            $this->model = new WPrismTestPolylangModel();
         }
     }
-    $GLOBALS['duo_polylang_runtime'] = new DuoTestPolylangRuntime();
+    $GLOBALS['wprism_polylang_runtime'] = new WPrismTestPolylangRuntime();
     function PLL(): object {
-        return $GLOBALS['duo_polylang_runtime'];
+        return $GLOBALS['wprism_polylang_runtime'];
     }
 
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
@@ -180,7 +180,7 @@ namespace {
     final class WP_Image_Editor_GD {}
     final class WC_Regenerate_Images {
         public static function add_uncropped_metadata(mixed $metadata): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('WooCommerce metadata callback must be quarantined');
         }
     }
@@ -192,17 +192,17 @@ namespace {
             mixed $value,
             mixed $prior
         ): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('WooCommerce post-meta callback must be quarantined');
         }
     }
     final class WC_Admin_Upload_Downloadable_Product {
         public function upload_dir(mixed $uploads): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('WooCommerce download upload-dir callback must be quarantined');
         }
         public function update_filename(mixed $name, mixed $extension, mixed $directory): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('WooCommerce download filename callback must be quarantined');
         }
     }
@@ -214,7 +214,7 @@ namespace {
             mixed $value,
             mixed $prior
         ): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('Yoast post-meta callback must be quarantined');
         }
     }
@@ -226,7 +226,7 @@ namespace {
             mixed $value,
             mixed $prior
         ): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('TEC tracker callback must be quarantined');
         }
     }
@@ -237,7 +237,7 @@ namespace {
             mixed $key,
             mixed $value
         ): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('TEC request-local chunker callback must never enter the supported topology');
         }
     }
@@ -276,13 +276,13 @@ namespace {
             $this->queries[] = $sql;
             if (trim($sql) === 'SELECT @@in_transaction') return '1';
             if (preg_match('/^SELECT 1 FROM `[^`]+` LIMIT 1$/D', trim($sql)) === 1) return '1';
-            if (preg_match("/^SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D", trim($sql), $match) === 1) {
+            if (preg_match("/^SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D", trim($sql), $match) === 1) {
                 foreach ($this->kvRows as $row) {
                     if ($row['k'] === 'ledger:' . $match[2] . ':' . $match[1]) return $row['v'];
                 }
                 return null;
             }
-            if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/D", $sql, $match) === 1) {
+            if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '((?:''|[^'])*)'/D", $sql, $match) === 1) {
                 $wanted = str_replace("''", "'", $match[1]);
                 foreach ($this->kvRows as $row) {
                     if (hash_equals($wanted, $row['k'])) return $row['v'];
@@ -294,11 +294,11 @@ namespace {
 
         public function query(string $sql): int|false {
             $this->queries[] = $sql;
-            if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+            if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
                 $this->savepointExists = true;
                 return 1;
             }
-            if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+            if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
                 if (!$this->savepointExists) return false;
                 $this->savepointExists = false;
                 return 1;
@@ -308,7 +308,7 @@ namespace {
 
         public function get_results(string $sql, mixed $mode): mixed {
             $this->queries[] = $sql;
-            if (str_contains($sql, 'FROM `wp_duo_kv`')) {
+            if (str_contains($sql, 'FROM `wp_wprism_kv`')) {
                 if ($this->failMarkerInventory) {
                     $this->last_error = 'SECRET marker inventory failure payload';
                     return false;
@@ -353,7 +353,7 @@ namespace {
                         'Index_type' => 'BTREE',
                     ]];
                 }
-                if (str_contains($sql, '`wp_duo_map`')) {
+                if (str_contains($sql, '`wp_wprism_map`')) {
                     return [[
                         'Key_name' => 'PRIMARY',
                         'Seq_in_index' => '1',
@@ -390,7 +390,7 @@ namespace {
                 ], $matches[1] ?? []);
             }
             if (str_contains($sql, 'SELECT option_name')) return [];
-            if (str_contains($sql, 'SELECT k, v FROM wp_duo_kv')) return [];
+            if (str_contains($sql, 'SELECT k, v FROM wp_wprism_kv')) return [];
             if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
                 preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
                 $owner = (int) ($ownerMatch[1] ?? 0);
@@ -435,7 +435,7 @@ namespace {
                     'post_mime_type' => 'image/png',
                 ]];
             }
-            if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM `wp_duo_map`')) {
+            if (str_contains($sql, 'SELECT uuid, entity_type, id_kind, local_id FROM `wp_wprism_map`')) {
                 preg_match("/WHERE uuid = '([^']+)'/", $sql, $uuidMatch);
                 return [[
                     'uuid' => $uuidMatch[1] ?? '01a0341e-2067-7fe3-9402-530b5a0f6b34',
@@ -487,28 +487,28 @@ namespace {
     }
     final class PLL_Links_Domain {
         public function upload_dir(mixed $uploads): never {
-            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            ++$GLOBALS['wprism_attachment_adapter_callback_calls'];
             throw new \RuntimeException('Polylang domain callback must never enter the supported topology');
         }
     }
 
     $GLOBALS['wp_filter'] = [];
-    $GLOBALS['duo_attachment_upload_root'] = '';
-    $GLOBALS['duo_attachment_size_calls'] = 0;
-    $GLOBALS['duo_attachment_mutate_size_call'] = 0;
-    $GLOBALS['duo_attachment_size_roster'] = [
+    $GLOBALS['wprism_attachment_upload_root'] = '';
+    $GLOBALS['wprism_attachment_size_calls'] = 0;
+    $GLOBALS['wprism_attachment_mutate_size_call'] = 0;
+    $GLOBALS['wprism_attachment_size_roster'] = [
         'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
     ];
-    $GLOBALS['duo_attachment_bad_filesize'] = false;
-    $GLOBALS['duo_attachment_editor_warning'] = false;
-    $GLOBALS['duo_attachment_editor_output'] = false;
-    $GLOBALS['duo_attachment_big_guard_seen'] = false;
-    $GLOBALS['duo_attachment_generate_calls'] = 0;
-    $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
-    $GLOBALS['duo_polylang_has_languages'] = false;
+    $GLOBALS['wprism_attachment_bad_filesize'] = false;
+    $GLOBALS['wprism_attachment_editor_warning'] = false;
+    $GLOBALS['wprism_attachment_editor_output'] = false;
+    $GLOBALS['wprism_attachment_big_guard_seen'] = false;
+    $GLOBALS['wprism_attachment_generate_calls'] = 0;
+    $GLOBALS['wprism_attachment_adapter_callback_calls'] = 0;
+    $GLOBALS['wprism_polylang_has_languages'] = false;
     $GLOBALS['wpdb'] = new AttachmentAuthorityWpdb();
 
-    function duo_attachment_filter_id(callable $callback): string {
+    function wprism_attachment_filter_id(callable $callback): string {
         return $callback instanceof \Closure
             ? spl_object_hash($callback)
             : hash('sha256', serialize($callback));
@@ -518,7 +518,7 @@ namespace {
         global $wp_filter;
         $node = $wp_filter[$hook] ??= new WP_Hook();
         if (!$node instanceof WP_Hook) return false;
-        $node->callbacks[$priority][duo_attachment_filter_id($callback)] = [
+        $node->callbacks[$priority][wprism_attachment_filter_id($callback)] = [
             'function' => $callback,
             'accepted_args' => $acceptedArgs,
         ];
@@ -532,7 +532,7 @@ namespace {
     function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
         global $wp_filter;
         $node = $wp_filter[$hook] ?? null;
-        $id = duo_attachment_filter_id($callback);
+        $id = wprism_attachment_filter_id($callback);
         if (!$node instanceof WP_Hook || !isset($node->callbacks[$priority][$id])) return false;
         unset($node->callbacks[$priority][$id]);
         if (($node->callbacks[$priority] ?? []) === []) unset($node->callbacks[$priority]);
@@ -556,16 +556,16 @@ namespace {
 
     function wp_upload_dir(mixed $time = null, bool $create = true): array {
         return [
-            'basedir' => $GLOBALS['duo_attachment_upload_root'],
+            'basedir' => $GLOBALS['wprism_attachment_upload_root'],
             'baseurl' => 'https://example.test/wp-content/uploads',
             'error' => false,
         ];
     }
 
     function wp_get_registered_image_subsizes(): array {
-        ++$GLOBALS['duo_attachment_size_calls'];
-        $roster = $GLOBALS['duo_attachment_size_roster'];
-        if ($GLOBALS['duo_attachment_mutate_size_call'] === $GLOBALS['duo_attachment_size_calls']) {
+        ++$GLOBALS['wprism_attachment_size_calls'];
+        $roster = $GLOBALS['wprism_attachment_size_roster'];
+        if ($GLOBALS['wprism_attachment_mutate_size_call'] === $GLOBALS['wprism_attachment_size_calls']) {
             $roster['thumbnail']['width'] += 1;
         }
         return $roster;
@@ -578,20 +578,20 @@ namespace {
     function file_is_displayable_image(string $file): bool { return true; }
 
     function wp_get_image_editor(string $file): WP_Image_Editor_GD {
-        if ($GLOBALS['duo_attachment_editor_warning']) {
+        if ($GLOBALS['wprism_attachment_editor_warning']) {
             trigger_error('hostile-editor-warning-secret', E_USER_WARNING);
         }
-        if ($GLOBALS['duo_attachment_editor_output']) echo 'hostile-editor-output-secret';
+        if ($GLOBALS['wprism_attachment_editor_output']) echo 'hostile-editor-output-secret';
         return new WP_Image_Editor_GD();
     }
 
     function wp_generate_attachment_metadata(int $attachmentId, string $file): array {
-        ++$GLOBALS['duo_attachment_generate_calls'];
+        ++$GLOBALS['wprism_attachment_generate_calls'];
         $threshold = apply_filters('big_image_size_threshold', 2560, [4000, 3000], $file, $attachmentId);
         if ($threshold !== false) {
-            throw new \RuntimeException('test core did not observe Duo\'s identity-preserving big-image guard');
+            throw new \RuntimeException('test core did not observe WPrism\'s identity-preserving big-image guard');
         }
-        $GLOBALS['duo_attachment_big_guard_seen'] = true;
+        $GLOBALS['wprism_attachment_big_guard_seen'] = true;
         $bytes = file_get_contents($file);
         if (!is_string($bytes)) throw new \RuntimeException('test core could not read its staging original');
         $extension = pathinfo($file, PATHINFO_EXTENSION);
@@ -599,7 +599,7 @@ namespace {
         if (file_put_contents($derivative, $bytes) !== strlen($bytes)) {
             throw new \RuntimeException('test core could not write its staged derivative');
         }
-        $size = strlen($bytes) + ($GLOBALS['duo_attachment_bad_filesize'] ? 1 : 0);
+        $size = strlen($bytes) + ($GLOBALS['wprism_attachment_bad_filesize'] ? 1 : 0);
         $metadata = [
             'file' => $file,
             'filesize' => strlen($bytes),
@@ -615,7 +615,7 @@ namespace {
             ],
             'width' => 1,
         ];
-        if (isset($GLOBALS['duo_attachment_size_roster']['woocommerce_thumbnail'])) {
+        if (isset($GLOBALS['wprism_attachment_size_roster']['woocommerce_thumbnail'])) {
             $metadata['sizes']['woocommerce_thumbnail'] = $metadata['sizes']['thumbnail'];
         }
         $guard = apply_filters(
@@ -649,20 +649,20 @@ namespace {
     require_once $root . '/agent/src/Rebuild/RebuildSelection.php';
     require_once $root . '/agent/src/Apply/ApplyRebuildCoordinator.php';
 
-    use Duo\ApplyFieldMaterializer;
-    use Duo\AttachmentFilesystemTransaction;
-    use Duo\AttachmentMaterializer;
-    use Duo\AttachmentNativeMetadataAuthority;
-    use Duo\AttachmentNativeMetadataGenerator;
-    use Duo\ApplyRebuildCoordinator;
-    use Duo\ApplyServiceCallbacks;
-    use Duo\ApplyServices;
-    use Duo\CompiledRepository;
-    use Duo\Db;
-    use Duo\DeleteGuardEvaluator;
-    use Duo\PlainData;
-    use Duo\Policy;
-    use Duo\Tokens;
+    use WPrism\ApplyFieldMaterializer;
+    use WPrism\AttachmentFilesystemTransaction;
+    use WPrism\AttachmentMaterializer;
+    use WPrism\AttachmentNativeMetadataAuthority;
+    use WPrism\AttachmentNativeMetadataGenerator;
+    use WPrism\ApplyRebuildCoordinator;
+    use WPrism\ApplyServiceCallbacks;
+    use WPrism\ApplyServices;
+    use WPrism\CompiledRepository;
+    use WPrism\Db;
+    use WPrism\DeleteGuardEvaluator;
+    use WPrism\PlainData;
+    use WPrism\Policy;
+    use WPrism\Tokens;
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -715,13 +715,13 @@ namespace {
         @rmdir($path);
     };
 
-    $temporary = $root . '/sandbox/tmp/duo-attachment-regress-' . bin2hex(random_bytes(8));
+    $temporary = $root . '/sandbox/tmp/wprism-attachment-regress-' . bin2hex(random_bytes(8));
     $repository = $temporary . '/repository';
     $uploads = $temporary . '/wordpress/wp-content/uploads';
     if (!mkdir($repository, 0700, true) || !mkdir($uploads . '/2026/08', 0700, true)) {
         throw new \RuntimeException('could not create attachment regression roots');
     }
-    $GLOBALS['duo_attachment_upload_root'] = $uploads;
+    $GLOBALS['wprism_attachment_upload_root'] = $uploads;
 
     try {
         $png = base64_decode(
@@ -774,7 +774,7 @@ namespace {
         $filesystem = new AttachmentFilesystemTransaction($compiled, $repository);
         $filesystem->load_pending();
         $check($filesystem->phase() === null, 'an empty private control root has no pending attachment transaction');
-        $check(!is_dir($repository . '/.duo'), 'a read-only pending probe does not create private control state');
+        $check(!is_dir($repository . '/.wprism'), 'a read-only pending probe does not create private control state');
         $preflightGenerator = $makeGenerator(
             static function (int $id): string {
                 DeleteGuardEvaluator::assert_transaction_isolation(
@@ -788,11 +788,11 @@ namespace {
         );
         $filesystem->prepare($work, $tree, $preflightGenerator);
         $check(
-            is_file($repository . '/.duo/attachment-filesystem/current/journal.json'),
-            'journal, staged bytes and before-images live under the repository-private .duo control root'
+            is_file($repository . '/.wprism/attachment-filesystem/current/journal.json'),
+            'journal, staged bytes and before-images live under the repository-private .wprism control root'
         );
         $check(
-            !is_dir($uploads . '/.duo-attachment-apply') && !is_dir($uploads . '/.duo'),
+            !is_dir($uploads . '/.wprism-attachment-apply') && !is_dir($uploads . '/.wprism'),
             'no durable journal or before-image is published beneath the web-served uploads root'
         );
         $filesystem->register_attachment(41, $front, [
@@ -852,10 +852,10 @@ namespace {
             'valid Core metadata with zero generated derivatives normalizes to an exact empty sizes map'
         );
 
-        $GLOBALS['duo_attachment_size_calls'] = 0;
-        $GLOBALS['duo_attachment_mutate_size_call'] = 0;
-        $GLOBALS['duo_attachment_big_guard_seen'] = false;
-        $GLOBALS['duo_attachment_generate_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_mutate_size_call'] = 0;
+        $GLOBALS['wprism_attachment_big_guard_seen'] = false;
+        $GLOBALS['wprism_attachment_generate_calls'] = 0;
         $filesystem->generate_metadata($preflightGenerator);
         $throws(
             static fn() => $preflightGenerator->generate(41, $stageOriginal),
@@ -869,10 +869,10 @@ namespace {
             'native generator establishes target-lock continuity and settles its rollback-only metadata transaction'
         );
         $check(
-            $GLOBALS['duo_attachment_generate_calls'] === 1,
+            $GLOBALS['wprism_attachment_generate_calls'] === 1,
             'one durable metadata phase invokes wp_generate_attachment_metadata exactly once'
         );
-        $check($GLOBALS['duo_attachment_big_guard_seen'], 'large-image replacement is disabled while ordinary registered sizes still generate');
+        $check($GLOBALS['wprism_attachment_big_guard_seen'], 'large-image replacement is disabled while ordinary registered sizes still generate');
         $check(
             hash_equals($authored['value'], $filesystem->pending_marker_identity()['value']),
             'generation evidence does not mutate the stable authored marker authority'
@@ -937,7 +937,7 @@ namespace {
         $check(is_file($derivative), 'sealed native derivative bytes publish at the exact target path');
         $filesystem->cleanup_complete(null);
         $filesystem->end();
-        $check(!is_dir($repository . '/.duo/attachment-filesystem/current'), 'terminal marker-free cleanup removes the reusable current slot');
+        $check(!is_dir($repository . '/.wprism/attachment-filesystem/current'), 'terminal marker-free cleanup removes the reusable current slot');
 
         $secondUuid = '1a2b3c4d-5e6f-4789-8abc-def012345678';
         $secondFront = $front;
@@ -956,7 +956,7 @@ namespace {
             umask($priorUmask);
         }
         $check($second->phase() === 'prepared', 'a different attachment transaction can start after terminal cleanup');
-        $journalMode = fileperms($repository . '/.duo/attachment-filesystem/current/journal.json');
+        $journalMode = fileperms($repository . '/.wprism/attachment-filesystem/current/journal.json');
         $check(
             is_int($journalMode) && ($journalMode & 0077) === 0,
             'private durable files remain owner-only under a deliberately permissive process umask'
@@ -966,7 +966,7 @@ namespace {
         $lockFiles = array_map(
             static fn(\SplFileInfo $entry): string => $entry->getFilename(),
             iterator_to_array(new \FilesystemIterator(
-                $repository . '/.duo/attachment-filesystem/locks',
+                $repository . '/.wprism/attachment-filesystem/locks',
                 \FilesystemIterator::SKIP_DOTS
             ), false)
         );
@@ -1113,7 +1113,7 @@ namespace {
             'directory/name move publishes the new original but retains old owned bytes until metadata commits'
         );
         $renameGenerator = $makeGenerator(static fn(int $id): string => 'image/png');
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $rename->generate_metadata($renameGenerator);
         $rename->publish_derivatives();
         $renameMetadata = $rename->seal_metadata_transaction();
@@ -1153,7 +1153,7 @@ namespace {
         $standalone = $repository . '/standalone.png';
         file_put_contents($standalone, $png);
         $generator = $makeGenerator(static fn(int $id): string => 'image/png');
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $generator->generate(41, $standalone);
         $probe = static fn(): bool => true;
         $priorHandler = set_error_handler($probe);
@@ -1162,28 +1162,28 @@ namespace {
 
         $preexisting = static fn(): bool => true;
         set_error_handler($preexisting);
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $generator->generate(41, $standalone);
         $observed = set_error_handler($probe);
         $check($observed === $preexisting, 'generator restores an exact preexisting error handler after native work');
         restore_error_handler();
         restore_error_handler();
 
-        $GLOBALS['duo_attachment_editor_output'] = true;
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_editor_output'] = true;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         ob_start();
         $generator->generate(41, $standalone);
         $escaped = ob_get_clean();
-        $GLOBALS['duo_attachment_editor_output'] = false;
+        $GLOBALS['wprism_attachment_editor_output'] = false;
         $check($escaped === '', 'editor-preflight output is captured before it can corrupt canonical command output');
 
-        $GLOBALS['duo_attachment_editor_warning'] = true;
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_editor_warning'] = true;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         ob_start();
         $warning = null;
         try { $generator->generate(41, $standalone); } catch (\Throwable $failure) { $warning = $failure; }
         $escaped = ob_get_clean();
-        $GLOBALS['duo_attachment_editor_warning'] = false;
+        $GLOBALS['wprism_attachment_editor_warning'] = false;
         $check(
             $warning instanceof \Throwable
                 && $escaped === ''
@@ -1232,14 +1232,14 @@ namespace {
         foreach ($certifiedCallbacks as [$hook]) {
             $certifiedTopology[$hook] = $GLOBALS['wp_filter'][$hook]->callbacks;
         }
-        $GLOBALS['duo_attachment_size_roster'] = [
+        $GLOBALS['wprism_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
             'woocommerce_thumbnail' => ['width' => 300, 'height' => 0, 'crop' => false],
         ];
-        $GLOBALS['duo_attachment_size_calls'] = 0;
-        $GLOBALS['duo_attachment_generate_calls'] = 0;
-        $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
-        $GLOBALS['duo_polylang_has_languages'] = true;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_generate_calls'] = 0;
+        $GLOBALS['wprism_attachment_adapter_callback_calls'] = 0;
+        $GLOBALS['wprism_polylang_has_languages'] = true;
         $certifiedGenerator = $makeGenerator(
             static fn(int $id): string => 'image/png',
             [
@@ -1257,8 +1257,8 @@ namespace {
                 && (($GLOBALS['wp_filter'][$hook]->callbacks ?? null) === $expectedCallbacks);
         }
         $check(
-            $GLOBALS['duo_attachment_generate_calls'] === 1
-                && $GLOBALS['duo_attachment_adapter_callback_calls'] === 0
+            $GLOBALS['wprism_attachment_generate_calls'] === 1
+                && $GLOBALS['wprism_attachment_adapter_callback_calls'] === 0
                 && ($certifiedMetadata['sizes']['woocommerce_thumbnail']['uncropped'] ?? null) === true
                 && $topologyRestored,
             'all normal pinned-adapter media callbacks are quarantined, projected where needed, and restored exactly around one Core generation'
@@ -1268,8 +1268,8 @@ namespace {
                 throw new \RuntimeException('could not remove certified-adapter callback fixture');
             }
         }
-        $GLOBALS['duo_polylang_has_languages'] = false;
-        $GLOBALS['duo_attachment_size_roster'] = [
+        $GLOBALS['wprism_polylang_has_languages'] = false;
+        $GLOBALS['wprism_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
         ];
 
@@ -1310,7 +1310,7 @@ namespace {
             'not sealed to a post-commit attachment attempt',
             'an unsealed markerless witness cannot cross into post-commit metadata generation'
         );
-        $GLOBALS['duo_polylang_has_languages'] = true;
+        $GLOBALS['wprism_polylang_has_languages'] = true;
         $throws(
             static fn() => $polylangTransition->generate(41, $standalone),
             'not sealed to a post-commit attachment attempt',
@@ -1321,7 +1321,7 @@ namespace {
                 static fn(int $id): string => 'image/png',
                 ['polylang']
             ),
-            'private Duo\\AttachmentNativeMetadataGenerator::__construct',
+            'private WPrism\\AttachmentNativeMetadataGenerator::__construct',
             'direct generator construction cannot bypass the materializer-owned Polylang capability'
         );
         $throws(
@@ -1334,7 +1334,7 @@ namespace {
             'cannot be serialized',
             'a markerless Polylang handoff cannot be replayed through serialization'
         );
-        $GLOBALS['duo_polylang_has_languages'] = false;
+        $GLOBALS['wprism_polylang_has_languages'] = false;
         $polylangPartial = new PLL_Sync_Post_Metas();
         add_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1, 3);
         $throws(
@@ -1347,7 +1347,7 @@ namespace {
             'one Polylang sync callback without its paired witness is refused'
         );
         remove_filter('update_post_metadata', [$polylangPartial, 'can_synchronize_metadata'], 1);
-        $GLOBALS['duo_polylang_has_languages'] = true;
+        $GLOBALS['wprism_polylang_has_languages'] = true;
         $throws(
             static fn() => ($makeGenerator(
             static fn(int $id): string => 'image/png',
@@ -1357,7 +1357,7 @@ namespace {
             'languages are present',
             'an absent Polylang sync pair is refused when the native model proves languages are present'
         );
-        $GLOBALS['duo_polylang_has_languages'] = false;
+        $GLOBALS['wprism_polylang_has_languages'] = false;
 
         $throws(
             static fn() => ($makeGenerator(
@@ -1479,34 +1479,34 @@ namespace {
         );
         remove_filter('upload_dir', $tecQrUpload, 10);
 
-        $GLOBALS['duo_attachment_size_calls'] = 0;
-        $GLOBALS['duo_attachment_mutate_size_call'] = 2;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_mutate_size_call'] = 2;
         $throws(
             static fn() => $generator->generate(41, $standalone),
             'roster changed at its transaction boundary',
             'registered-size TOCTOU drift refuses inside the same rollback-only transaction Core will use'
         );
-        $GLOBALS['duo_attachment_mutate_size_call'] = 0;
+        $GLOBALS['wprism_attachment_mutate_size_call'] = 0;
 
-        $GLOBALS['duo_attachment_size_roster'] = [
+        $GLOBALS['wprism_attachment_size_roster'] = [
             'one' => ['width' => 16384, 'height' => 16384, 'crop' => true],
         ];
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $generator->generate(41, $standalone),
             'aggregate pixel-work bound',
             'a syntactically valid registered-size roster cannot exceed the bounded output-pixel work authority'
         );
-        $GLOBALS['duo_attachment_size_roster'] = [
+        $GLOBALS['wprism_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => ['middle', 'everywhere']],
         ];
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $generator->generate(41, $standalone),
             'registered image-size row is malformed',
             'crop coordinates use the exact bounded WordPress enum rather than arbitrary strings'
         );
-        $GLOBALS['duo_attachment_size_roster'] = [
+        $GLOBALS['wprism_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
         ];
 
@@ -1523,22 +1523,22 @@ namespace {
         }
         $widePath = $repository . '/wide.png';
         file_put_contents($widePath, $wide);
-        $GLOBALS['duo_attachment_size_roster'] = [
+        $GLOBALS['wprism_attachment_size_roster'] = [
             'inferred-width' => ['width' => 0, 'height' => 16384, 'crop' => false],
         ];
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $generator->preflight('image/png', $widePath),
             'aggregate pixel-work bound',
             'a zero registered width is charged at Core\'s source-aspect-ratio output bound rather than zero pixels'
         );
-        $GLOBALS['duo_attachment_size_roster'] = [
+        $GLOBALS['wprism_attachment_size_roster'] = [
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
         ];
 
         $polyglot = $repository . '/polyglot.png';
         file_put_contents($polyglot, $png . '<?php secret');
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $generator->generate(41, $polyglot),
             'carries trailing bytes',
@@ -1559,22 +1559,22 @@ namespace {
         file_put_contents($gifPath, $gif);
         $jpegGenerator = $makeGenerator(static fn(int $id): string => 'image/jpeg');
         $gifGenerator = $makeGenerator(static fn(int $id): string => 'image/gif');
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $jpegGenerator->preflight('image/jpeg', $jpePath);
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $gifGenerator->preflight('image/gif', $gifPath);
         $check(true, 'exact JPEG .jpe and GIF containers remain admitted at the markerless media boundary');
         $jpegTrailing = $repository . '/jpeg-trailing.jpe';
         $gifTrailing = $repository . '/gif-trailing.gif';
         file_put_contents($jpegTrailing, $jpeg . 'hidden' . "\xFF\xD9");
         file_put_contents($gifTrailing, $gif . 'hidden' . "\x3B");
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $jpegGenerator->preflight('image/jpeg', $jpegTrailing),
             'carries trailing bytes',
             'JPEG authority ends at the first parsed EOI rather than a forged final EOI byte pair'
         );
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $gifGenerator->preflight('image/gif', $gifTrailing),
             'carries trailing bytes',
@@ -1582,7 +1582,7 @@ namespace {
         );
         $wrongExtension = $repository . '/mismatch.jpg';
         file_put_contents($wrongExtension, $png);
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $generator->generate(41, $wrongExtension),
             'MIME/extension-mismatched',
@@ -1591,7 +1591,7 @@ namespace {
         $pdf = $repository . '/document.pdf';
         file_put_contents($pdf, "%PDF-1.4\n%%EOF\n");
         $pdfGenerator = $makeGenerator(static fn(int $id): string => 'application/pdf');
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $pdfGenerator->preflight('application/pdf', $pdf);
         $pdfMetadata = $pdfGenerator->generate(41, $pdf);
         $check(
@@ -1605,7 +1605,7 @@ namespace {
             . $chunk('IEND', '');
         $bombPath = $repository . '/pixel-bomb.png';
         file_put_contents($bombPath, $bomb);
-        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['wprism_attachment_size_calls'] = 0;
         $throws(
             static fn() => $generator->generate(41, $bombPath),
             'source dimensions exceed',
@@ -1651,7 +1651,7 @@ namespace {
             'a repository/control root beneath uploads refuses rather than exposing durable bytes'
         );
         $unsafeRepo = $temporary . '/unsafe-repository';
-        mkdir($unsafeRepo . '/.duo/attachment-filesystem', 0755, true);
+        mkdir($unsafeRepo . '/.wprism/attachment-filesystem', 0755, true);
         $throws(
             static fn() => (new AttachmentFilesystemTransaction($compiled, $unsafeRepo))->load_pending(),
             'permits group/other access',
@@ -1687,30 +1687,30 @@ namespace {
         $GLOBALS['wpdb']->rows[] = [
             'meta_id' => '11',
             'post_id' => '41',
-            'meta_key' => '_duo_uuid',
+            'meta_key' => '_wprism_uuid',
             'meta_value' => $uuid,
         ];
-        \Duo\Db::$nextMetaId = 12;
+        \WPrism\Db::$nextMetaId = 12;
         @unlink($uploads . '/2026/08/photo-300x300.png');
         $attachmentMaterializer->prepare_filesystem($work, $tree);
         $services->field_materializer()->begin_authored_transaction();
         DeleteGuardEvaluator::begin_authored_transaction();
-        \Duo\CacheInvalidationTransaction::begin();
+        \WPrism\CacheInvalidationTransaction::begin();
         $attachmentMaterializer->place_attachment(41, $front);
         $attachmentMaterializer->seal_authored_transaction();
         $attachmentMaterializer->commit_authored_transaction();
         $attachmentMaterializer->end_authored_transaction(true);
-        \Duo\CacheInvalidationTransaction::finish();
-        \Duo\CacheInvalidationTransaction::end();
+        \WPrism\CacheInvalidationTransaction::finish();
+        \WPrism\CacheInvalidationTransaction::end();
         $check(
             is_file($original) && file_get_contents($original) === $png,
             'the public AttachmentMaterializer entry performs markerless preflight and authored publication for non-empty work'
         );
-        $selection = new \Duo\RebuildSelection($policy);
+        $selection = new \WPrism\RebuildSelection($policy);
         $rebuild = new ApplyRebuildCoordinator($services, $selection);
         $actionReceipts = [];
         $throws(
-            static fn() => new \Duo\RebuildRequest(
+            static fn() => new \WPrism\RebuildRequest(
                 attachmentIds: 'injected pre-rebuild construction failure',
                 work: [],
                 tree: [],
@@ -1731,7 +1731,7 @@ namespace {
         );
         $attachmentMaterializer->discard_native_rebuild_authority();
         $rebuild->rebuild(
-            new \Duo\RebuildRequest(
+            new \WPrism\RebuildRequest(
                 attachmentIds: [41],
                 work: [],
                 tree: [],
@@ -1751,7 +1751,7 @@ namespace {
             $actionReceipts
         );
         $check(
-            !is_file($repository . '/.duo/attachment-filesystem/current/journal.json'),
+            !is_file($repository . '/.wprism/attachment-filesystem/current/journal.json'),
             'retry after the injected pre-rebuild failure enters NativeRebuildExecutor and consumes the discarded handoff'
         );
 
@@ -1859,7 +1859,7 @@ namespace {
 
         $orphanIntent = str_repeat('1', 32);
         $orphanKey = 'attachment_fs:' . $orphanIntent;
-        $orphanValue = 'duo-attachment-filesystem-transaction/v1:' . $orphanIntent
+        $orphanValue = 'wprism-attachment-filesystem-transaction/v1:' . $orphanIntent
             . ':' . str_repeat('a', 64);
         $authorityWpdb->kvRows = [['k' => $orphanKey, 'v' => $orphanValue]];
         $throws(
@@ -1871,7 +1871,7 @@ namespace {
         $secondIntent = str_repeat('2', 32);
         $authorityWpdb->kvRows[] = [
             'k' => 'attachment_fs:' . $secondIntent,
-            'v' => 'duo-attachment-filesystem-transaction/v1:' . $secondIntent
+            'v' => 'wprism-attachment-filesystem-transaction/v1:' . $secondIntent
                 . ':' . str_repeat('b', 64),
         ];
         $throws(
@@ -1882,7 +1882,7 @@ namespace {
         $check(
             count(array_filter(
                 $authorityWpdb->queries,
-                static fn(string $query): bool => str_contains($query, 'FROM `wp_duo_kv`')
+                static fn(string $query): bool => str_contains($query, 'FROM `wp_wprism_kv`')
                     && str_contains($query, 'CASE WHEN v IS NOT NULL')
                     && str_contains($query, 'LIMIT 2')
             )) >= 1,
@@ -1973,7 +1973,7 @@ namespace {
         );
         $retryMaterializer->recover_pending_filesystem();
         $check(
-            !is_dir($pendingRepository . '/.duo/attachment-filesystem/current'),
+            !is_dir($pendingRepository . '/.wprism/attachment-filesystem/current'),
             'markerless pending preparation rolls back through the public recovery path before the retry proceeds'
         );
 

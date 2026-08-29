@@ -1,20 +1,20 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 // The per-class option completions this file prompts for are the same closed
 // vocabulary the batch artifact validates against; one statement of it, read
-// from there (DUO-3496).
+// from there (issue #3496).
 require_once __DIR__ . '/ClassificationBatch.php';
 
 /**
- * Interactive triage engine behind `duo classify <env>`. Pure decision
+ * Interactive triage engine behind `wprism classify <env>`. Pure decision
  * logic: reads prompts/responses through injected in/out streams (STDIN/
  * STDOUT in real use) rather than opening /dev/tty directly, so the whole
- * flow is pipe-testable — `printf 'r\n' | duo classify e1` drives it exactly
- * like a real keypress would. Never talks to a Transport itself; `duo
- * classify` batches the returned decisions into one `wp duo classify
+ * flow is pipe-testable — `printf 'r\n' | wprism classify e1` drives it exactly
+ * like a real keypress would. Never talks to a Transport itself; `wprism
+ * classify` batches the returned decisions into one `wp wprism classify
  * --set=...` invocation and streams that separately, so partial/aborted
  * triage never leaves a half-applied external call.
  *
@@ -129,10 +129,10 @@ final class Triage {
             $eof = false;
 
             // The site grammar completes an options rule before it will load
-            // it (DUO-3496): authored/managed needs a storage flag, env needs
+            // it (issue #3496): authored/managed needs a storage flag, env needs
             // the provisioning boolean. Asked here, in the same pass, because
             // the alternative is the target refusing the batched write
-            // half-way through — `wp duo classify` writes each --set spec in
+            // half-way through — `wp wprism classify` writes each --set spec in
             // order, so a refusal on spec 7 leaves 1-6 already written.
             if ($section === 'options'
                 && in_array($class, ClassificationBatch::CLASSES_NEEDING_AUTOLOAD, true)) {
@@ -210,13 +210,13 @@ final class Triage {
     }
 
     /**
-     * Pure filtering for `duo classify --accept-proposals` (non-interactive):
+     * Pure filtering for `wprism classify --accept-proposals` (non-interactive):
      * accept every item that has a proposal, EXCEPT a secret-flagged item
      * proposed "authored" — that always needs a human, so it comes back
      * separately as secretSkipped rather than silently folded into
      * decisions. No ref-hints are attached (see cli/README.md: attaching a
      * ref is the interactive y/N prompt's judgment call, not an automated
-     * one). No I/O here — `duo classify` does the batching/streaming/exit
+     * one). No I/O here — `wprism classify` does the batching/streaming/exit
      * code around this.
      *
      * @param list<array<string, mixed>> $items
@@ -245,7 +245,7 @@ final class Triage {
             // environment. Accepting one for an options row that the site
             // grammar will not load without that second field would mean
             // inventing the field — the silent default this command has never
-            // taken for secrets either, reported the same way (DUO-3496).
+            // taken for secrets either, reported the same way (issue #3496).
             if ($section === 'options'
                 && (in_array($proposal, ClassificationBatch::CLASSES_NEEDING_AUTOLOAD, true) || $proposal === 'env')) {
                 $storageSkipped[] = "$section:$key (proposed $proposal; needs "

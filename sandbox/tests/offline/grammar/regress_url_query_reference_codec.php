@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: URL query post-reference rewriting is a structural codec seam.
+ * issue #3354: URL query post-reference rewriting is a structural codec seam.
  * This drives it without WordPress, Ledger, Capture, or policy; Tokens keeps
  * those stateful compatibility responsibilities through supplied callbacks.
  */
@@ -16,9 +16,9 @@ function check(bool $condition, string $message): void {
 
 require __DIR__ . '/../../../../agent/src/Kernel/UrlQueryReferenceCodec.php';
 
-use Duo\UrlQueryReferenceCodec;
+use WPrism\UrlQueryReferenceCodec;
 
-check(!class_exists(\Duo\Ledger::class, false), 'codec standalone load does not load Ledger');
+check(!class_exists(\WPrism\Ledger::class, false), 'codec standalone load does not load Ledger');
 check(!function_exists('get_option'), 'codec standalone load does not need WordPress');
 
 const UUID = '11111111-1111-1111-1111-111111111111';

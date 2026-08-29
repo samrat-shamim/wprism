@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/EnvironmentCommandOptions.php';
 
-use Duo\Orchestrator\EnvironmentCommandOptions;
+use WPrism\Orchestrator\EnvironmentCommandOptions;
 
 function fail_env_options(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");

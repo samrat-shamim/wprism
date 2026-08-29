@@ -1,15 +1,15 @@
 <?php
-// DUO-3324: offline provider/journal safety contract for branch environments.
+// issue #3324: offline provider/journal safety contract for branch environments.
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Environment/Registry.php';
 require_once __DIR__ . '/../../../../cli/src/Environment/EnvironmentLifecycle.php';
 
-use Duo\Orchestrator\CommandEnvironmentProvider;
-use Duo\Orchestrator\EnvironmentLifecycleCanon;
-use Duo\Orchestrator\EnvironmentLifecycleJournal;
-use Duo\Orchestrator\EnvironmentProviderCapability;
-use Duo\Orchestrator\Registry;
+use WPrism\Orchestrator\CommandEnvironmentProvider;
+use WPrism\Orchestrator\EnvironmentLifecycleCanon;
+use WPrism\Orchestrator\EnvironmentLifecycleJournal;
+use WPrism\Orchestrator\EnvironmentProviderCapability;
+use WPrism\Orchestrator\Registry;
 
 function el_fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -74,10 +74,10 @@ function el_process(array $argv, ?string $cwd = null): array {
 
 /** @return array{exit:int,stdout:string,stderr:string} */
 function el_cli(array $args, ?string $cwd = null): array {
-    return el_process(array_merge([PHP_BINARY, __DIR__ . '/../../../../cli/duo'], $args), $cwd);
+    return el_process(array_merge([PHP_BINARY, __DIR__ . '/../../../../cli/wprism'], $args), $cwd);
 }
 
-$tmp = sys_get_temp_dir() . '/duo-environment-lifecycle-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-environment-lifecycle-' . bin2hex(random_bytes(8));
 if (!mkdir($tmp, 0700, true) && !is_dir($tmp)) el_fail('could not create fixture root');
 
 try {
@@ -224,7 +224,7 @@ if ($mode === 'bad-capability' && $action === 'capabilities') $result['capabilit
 $response = [
     'action' => $mode === 'mismatch' ? 'destroy' : $action,
     'environment' => $mode === 'wrong-environment' ? 'foreign-environment' : (string) ($request['environment'] ?? ''),
-    'format' => 'duo-branch-environment-provider-response/v1',
+    'format' => 'wprism-branch-environment-provider-response/v1',
     'operation_id' => (string) ($request['operation_id'] ?? ''),
     'provider' => [
         'id' => $mode === 'switch-provider' && $action !== 'capabilities' ? 'foreign-provider' : 'fixture-provider',
@@ -263,7 +263,7 @@ PHP;
             '_machine_local' => false,
             'environment_provider' => ['command' => [PHP_BINARY, $providerScript, 'ok'], 'timeout_seconds' => 5],
         ]),
-        'allowed only in .duo-envs.json',
+        'allowed only in .wprism-envs.json',
         'checked-in provider configuration is never privileged'
     );
     el_throws(
@@ -287,7 +287,7 @@ PHP;
     $provider = CommandEnvironmentProvider::fromEnvironment('branch', $config('ok', $log));
     $report = $provider->capabilities($operation);
     $body = $report->toArray();
-    el_ok($body['format'] === 'duo-branch-environment-capabilities/v1', 'capability evidence is versioned');
+    el_ok($body['format'] === 'wprism-branch-environment-capabilities/v1', 'capability evidence is versioned');
     el_ok(preg_match('/^sha256:[a-f0-9]{64}$/D', $report->digest()) === 1, 'capability evidence is digest-bound');
     $report->require([
         EnvironmentProviderCapability::ENVIRONMENT_ATTACH,
@@ -380,8 +380,8 @@ PHP;
     mkdir($publicRoot, 0700, true);
     file_put_contents($publicRoot . '/README.md', "public URL refusal fixture\n");
     el_ok(el_process(['git', 'init', '--quiet', '--initial-branch=feature-secret-url'], $publicRoot)['exit'] === 0
-        && el_process(['git', 'config', 'user.name', 'DUO environment lifecycle fixture'], $publicRoot)['exit'] === 0
-        && el_process(['git', 'config', 'user.email', 'duo-environment@example.invalid'], $publicRoot)['exit'] === 0
+        && el_process(['git', 'config', 'user.name', 'WPRISM environment lifecycle fixture'], $publicRoot)['exit'] === 0
+        && el_process(['git', 'config', 'user.email', 'wprism-environment@example.invalid'], $publicRoot)['exit'] === 0
         && el_process(['git', 'add', '--', 'README.md'], $publicRoot)['exit'] === 0
         && el_process(['git', 'commit', '--quiet', '-m', 'fixture'], $publicRoot)['exit'] === 0,
         'public secret-URL fixture has a clean attached branch');
@@ -408,8 +408,8 @@ PHP;
         && str_contains($publicRefusal['stderr'], 'credential-free HTTP(S) base URL')
         && !str_contains($publicOutput, 'provider-token')
         && !str_contains($publicOutput, 'X-Amz-Signature')
-        && !el_tree_contains($publicRoot . '/.git/duo-environments', 'provider-token')
-        && !el_tree_contains($publicRoot . '/.git/duo-environments', 'X-Amz-Signature'),
+        && !el_tree_contains($publicRoot . '/.git/wprism-environments', 'provider-token')
+        && !el_tree_contains($publicRoot . '/.git/wprism-environments', 'X-Amz-Signature'),
         'public materialize refuses a signed provider URL before journal or CLI receipt disclosure');
 
     $journal = new EnvironmentLifecycleJournal($tmp . '/journal');
@@ -445,7 +445,7 @@ PHP;
 
     $registryRoot = $tmp . '/registry';
     mkdir($registryRoot, 0700, true);
-    file_put_contents($registryRoot . '/site.duo.json', json_encode(['envs' => [
+    file_put_contents($registryRoot . '/site.wprism.json', json_encode(['envs' => [
         'checked' => ['transport' => 'local', 'wp_path' => '/wp', 'repo_path' => '/repo', '_machine_local' => true],
     ]]));
     file_put_contents($registryRoot . '/overlay.json', json_encode(['envs' => [
@@ -467,20 +467,20 @@ PHP;
             'timeout_seconds' => 5,
         ],
     ];
-    file_put_contents($trackedRoot . '/.duo-envs.json', json_encode([
+    file_put_contents($trackedRoot . '/.wprism-envs.json', json_encode([
         'envs' => ['production' => $trackedEntry, 'branch' => $trackedEntry],
     ], JSON_THROW_ON_ERROR));
     el_ok(el_process(['git', 'init', '--quiet'], $trackedRoot)['exit'] === 0
-        && el_process(['git', 'add', '--', '.duo-envs.json'], $trackedRoot)['exit'] === 0,
+        && el_process(['git', 'add', '--', '.wprism-envs.json'], $trackedRoot)['exit'] === 0,
         'tracked-overlay fixture is indexed by Git');
     $trackedOverlay = el_cli([
         'env', 'materialize', 'branch', '--from', 'production', '--branch', 'feature/tracked-overlay',
     ], $trackedRoot);
     el_ok($trackedOverlay['exit'] !== 0
-        && str_contains($trackedOverlay['stderr'], 'refusing a Git-tracked .duo-envs.json')
+        && str_contains($trackedOverlay['stderr'], 'refusing a Git-tracked .wprism-envs.json')
         && !is_file($providerLaunchLog),
         'auto-discovery cannot grant provider execution authority to a tracked overlay');
-    $explicitlyTrusted = Registry::load($trackedRoot . '/.duo-envs.json', $trackedRoot);
+    $explicitlyTrusted = Registry::load($trackedRoot . '/.wprism-envs.json', $trackedRoot);
     el_ok(($explicitlyTrusted['branch']['_machine_local'] ?? false) === true,
         'explicit --envs-file equivalent remains an operator-selected trust input');
 
@@ -488,13 +488,13 @@ PHP;
     mkdir($nestedRegistryRoot . '/code/wp-content/plugins/acme', 0700, true);
     el_ok(el_process(['git', 'init', '--quiet'], $nestedRegistryRoot)['exit'] === 0,
         'nested-registry authority fixture has an actual Git worktree root');
-    file_put_contents($nestedRegistryRoot . '/site.duo.json', json_encode(['envs' => [
+    file_put_contents($nestedRegistryRoot . '/site.wprism.json', json_encode(['envs' => [
         'production' => ['transport' => 'ssh', 'host' => 'trusted.example', 'wp_path' => '/wp', 'repo_path' => '/repo'],
     ]], JSON_THROW_ON_ERROR));
-    file_put_contents($nestedRegistryRoot . '/.duo-envs.json', json_encode(['envs' => [
+    file_put_contents($nestedRegistryRoot . '/.wprism-envs.json', json_encode(['envs' => [
         'production' => ['transport' => 'ssh', 'host' => 'trusted-local.example', 'wp_path' => '/wp', 'repo_path' => '/repo'],
     ]], JSON_THROW_ON_ERROR));
-    $nestedOverlay = $nestedRegistryRoot . '/code/wp-content/plugins/acme/.duo-envs.json';
+    $nestedOverlay = $nestedRegistryRoot . '/code/wp-content/plugins/acme/.wprism-envs.json';
     file_put_contents($nestedOverlay, json_encode(['envs' => [
         'production' => ['transport' => 'ssh', 'host' => 'attacker.invalid', 'wp_path' => '/wp', 'repo_path' => '/repo'],
     ]], JSON_THROW_ON_ERROR));
@@ -507,22 +507,22 @@ PHP;
     el_ok(($rootRegistry['production']['host'] ?? null) === 'trusted-local.example',
         'the co-located machine-local overlay still replaces the checked-in environment entry');
     unlink($nestedOverlay);
-    file_put_contents(dirname($nestedOverlay) . '/site.duo.json', json_encode(['envs' => [
+    file_put_contents(dirname($nestedOverlay) . '/site.wprism.json', json_encode(['envs' => [
         'production' => ['transport' => 'ssh', 'host' => 'attacker.invalid', 'wp_path' => '/wp', 'repo_path' => '/repo'],
     ]], JSON_THROW_ON_ERROR));
     el_throws(
         static fn() => Registry::load(null, dirname($nestedOverlay)),
-        'refusing a nested site.duo.json',
-        'vendored code cannot shadow the Git-root site registry with a nearer site.duo.json'
+        'refusing a nested site.wprism.json',
+        'vendored code cannot shadow the Git-root site registry with a nearer site.wprism.json'
     );
-    // DUO-3490: every other refusal in this product carries a remedy; this
+    // issue #3490: every other refusal in this product carries a remedy; this
     // one didn't until now. Pin the actionable clause itself (not just the
     // diagnosis) so a future edit cannot quietly drop it back to a dead end.
     el_throws(
         static fn() => Registry::load(null, dirname($nestedOverlay)),
-        'make the site repo its own Git worktree root (git init inside it) or move site.duo.json '
+        'make the site repo its own Git worktree root (git init inside it) or move site.wprism.json '
             . 'to the enclosing worktree root and run this command from there',
-        'nested site.duo.json refusal must name a concrete remedy'
+        'nested site.wprism.json refusal must name a concrete remedy'
     );
 
     $missing = el_cli(['env', 'materialize', 'branch', '--from', 'production']);
@@ -537,9 +537,9 @@ PHP;
     $reapFlags = el_cli(['env', 'reap', 'branch', '--force']);
     el_ok($reapFlags['exit'] !== 0 && str_contains($reapFlags['stderr'], 'accepts only optional --format=json'), 'public reap has no force or name-only destruction escape hatch');
     $help = el_cli(['--help']);
-    el_ok($help['exit'] === 0 && str_contains($help['stdout'], 'duo env materialize') && str_contains($help['stdout'], 'duo env reap'), 'public help documents materialize and exact reap');
+    el_ok($help['exit'] === 0 && str_contains($help['stdout'], 'wprism env materialize') && str_contains($help['stdout'], 'wprism env reap'), 'public help documents materialize and exact reap');
     el_ok(
-        str_contains($help['stdout'], 'auto-discovered .duo-envs.json must sit beside it')
+        str_contains($help['stdout'], 'auto-discovered .wprism-envs.json must sit beside it')
             && str_contains($help['stdout'], 'nested registry/overlay is refused')
             && !str_contains($help['stdout'], 'Both registry files are found by walking upward'),
         'public help matches the root-bound automatic registry discovery contract'

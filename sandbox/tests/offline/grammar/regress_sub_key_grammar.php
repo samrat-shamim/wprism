@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for SubKeyGrammar (DUO-3348 slice 8: the "named
+ * Offline regression for SubKeyGrammar (issue #3348 slice 8: the "named
  * sub-key of an otherwise-atomic manifest value" declaration grammar
  * extracted from Policy.php).
  *
@@ -8,7 +8,7 @@
  * the real Policy::load()/from_snapshot() flow in
  * regress_dynamic_options_policy.php (unchanged by this move, still green);
  * the shared assert_sub_key_parent_has_no_value_fields() helper already has
- * coverage through regress_duo3316_contract.php. validate_sub_keys()'s own
+ * coverage through regress_reference_contract.php. validate_sub_keys()'s own
  * two refusals ("not a non-empty object", "class=authored and sub_keys are
  * mutually exclusive") have no dedicated test matching their exact text
  * anywhere in the repo before this file (grep-verified), so this suite is
@@ -25,8 +25,8 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Grammar/SubKeyGrammar.php';
 
-use Duo\Policy;
-use Duo\SubKeyGrammar;
+use WPrism\Policy;
+use WPrism\SubKeyGrammar;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -254,7 +254,7 @@ $assertThrows(
         ]],
     ]),
     'carries no top-level',
-    'dynamic_options: a dead top-level class field is refused (DUO-3375)'
+    'dynamic_options: a dead top-level class field is refused (issue #3375)'
 );
 
 // ------------------------------------------------------------------ dynamic_option_resolvers()

@@ -1,5 +1,5 @@
 {
-    "assess_digest": "sha256:7d772fb1532161227b2527b86728e60d8c935dfc50f6842eff0426817460a7ff",
+    "assess_digest": "sha256:4b04748c269d939a72c9b6fdf332d4a72a1e6f294d88d6b64b074e957e3ba635",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
@@ -18,7 +18,7 @@
         },
         "registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },
-    "format": "duo-assess-report/v1",
+    "format": "wprism-assess-report/v1",
     "generated_at": "2026-08-17T09:14:02Z",
     "surfaces": [
         {
@@ -27,7 +27,7 @@
             "id": "post_type:product",
             "kind": "post_type",
             "label": "post_type:product",
-            "meaning": "authored catalog content Duo manages end to end",
+            "meaning": "authored catalog content WPrism manages end to end",
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
@@ -43,7 +43,7 @@
                         "MariaDB 11.x"
                     ],
                     "handling": "manage",
-                    "meaning": "authored catalog content Duo manages end to end",
+                    "meaning": "authored catalog content WPrism manages end to end",
                     "readiness": "Requalification required",
                     "remediation": null,
                     "state_class": "authored"

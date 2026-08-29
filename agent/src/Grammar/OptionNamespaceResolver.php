@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure discovery ownership lookup for manifest-declared option namespaces.
@@ -27,7 +27,7 @@ final class OptionNamespaceResolver {
         }
         if (count($matches) > 1) {
             throw new \RuntimeException(
-                "duo: option '$name' is claimed by overlapping namespaces from "
+                "wprism: option '$name' is claimed by overlapping namespaces from "
                 . implode(', ', array_map(fn($match) => $match['owner'], $matches))
                 . ' — discovery ownership must not depend on manifest load order'
             );

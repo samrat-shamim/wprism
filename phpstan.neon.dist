@@ -1,9 +1,9 @@
-# PHPStan configuration for the Duo dev toolchain.
+# PHPStan configuration for the WPrism dev toolchain.
 #
 # Two facts drive every choice here.
 #
-# 1. The product has no autoloader. agent/duo.php require_once's 92 files and
-#    agent/src holds 224 flat `namespace Duo;` files that require their own
+# 1. The product has no autoloader. agent/wprism.php explicitly requires 105
+#    files and agent/src holds 260 `namespace WPrism;` files that require their own
 #    dependencies; recovery/ and cli/ do the same. There is therefore no
 #    composer autoload section to point PHPStan at, and adding one would be a
 #    lie about how the drop-in loads. `scanDirectories`/`scanFiles` is the
@@ -33,10 +33,10 @@ parameters:
 
     paths:
         - agent/src
-        - agent/duo.php
-        - agent/duo-loader.php
+        - agent/wprism.php
+        - agent/wprism-loader.php
         - cli/src
-        - cli/duo
+        - cli/wprism
         - recovery
         - scripts
         - tools
@@ -59,7 +59,7 @@ parameters:
         - sandbox/tests/lib
 
     scanFiles:
-        - cli/duo
+        - cli/wprism
         - recovery/rollback-control.php
         # php-stubs/wordpress-stubs and php-stubs/wp-cli-stubs both document
         # `scanFiles` as the intended wiring: the stub files declare functions
@@ -73,7 +73,7 @@ parameters:
     bootstrapFiles:
         - tests/phpstan-bootstrap.php
 
-    # `cli/duo` has no .php extension (it is a `#!/usr/bin/env php` executable).
+    # `cli/wprism` has no .php extension (it is a `#!/usr/bin/env php` executable).
     # Explicitly-listed paths are analysed regardless of extension, but adding
     # the bare name here keeps directory traversal of cli/ consistent with the
     # explicit entry above.

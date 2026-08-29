@@ -57,7 +57,7 @@
  * not be certified by anybody — which closed deploy and apply behind it. WP-6.6
  * (spec/repo-format.md § v3.21) moved the arm into each feature's own
  * `IMPLEMENTED_FEATURES` row, so E4 now asserts the four reviewed arms and group
- * F drives `duo adapter certify` in a child process through BOTH profiles —
+ * F drives `wprism adapter certify` in a child process through BOTH profiles —
  * derived and `--ratification-file` — over these exact committed bytes, pinning
  * the certificate's `surfaces` list whole. The failing-before is not
  * hypothetical: every invocation in group F exited non-zero on the prior engine,
@@ -69,7 +69,7 @@
  * first recorded outcome — 2.0.0.5 green, certify -> capture -> deploy -> apply
  * -> byte-identical recapture — and it exists at all because § v3.21 unblocked
  * the step the chain used to stop at. Group G reads it through the shipped
- * `AdapterBoundary::readOutcomeTable()` and drives the real `duo adapter
+ * `AdapterBoundary::readOutcomeTable()` and drives the real `wprism adapter
  * boundary` over it, so the record is an input the product consumes rather than
  * a claim in a commit message. Three of the four recorded releases remain
  * unprobed and the command still exits `probe-required`; G1 and G4 pin that,
@@ -83,7 +83,7 @@ require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../lib/agent_version.php';
 
 $root = dirname(__DIR__, 4);
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Policy/Policy.php';
@@ -97,16 +97,16 @@ require_once $root . '/agent/src/Grammar/Blocks.php';
 require_once $root . '/agent/src/Adapter/AdapterCertification.php';
 require_once $root . '/agent/src/Adapter/AdapterContractGrammar.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterContractGrammar;
-use Duo\AdapterLibrary;
-use Duo\Blocks;
-use Duo\BodyRefGrammar;
-use Duo\Canon;
-use Duo\Policy;
-use Duo\Tokens;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\AdapterCertification;
+use WPrism\AdapterContractGrammar;
+use WPrism\AdapterLibrary;
+use WPrism\Blocks;
+use WPrism\BodyRefGrammar;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 // ---------------------------------------------------------------------------
 // The artifact under test, and the captures it was authored from.
@@ -139,7 +139,7 @@ $confirmationPath = '$.settings.confirmations.*.page';
  */
 $sourceLibrary = AdapterLibrary::fromSourceTree($root);
 $loadSite = static function (array $manifest) use ($sourceLibrary): Policy {
-    $dir = sys_get_temp_dir() . '/duo_wpforms_site_' . bin2hex(random_bytes(8));
+    $dir = sys_get_temp_dir() . '/wprism_wpforms_site_' . bin2hex(random_bytes(8));
     if (!mkdir($dir . '/adapters', 0700, true) && !is_dir($dir . '/adapters')) {
         throw new RuntimeException("could not create scratch site repository $dir");
     }
@@ -147,15 +147,15 @@ $loadSite = static function (array $manifest) use ($sourceLibrary): Policy {
         foreach (glob($dir . '/adapters/*.json') ?: [] as $file) {
             @unlink($file);
         }
-        @unlink($dir . '/site.duo.json');
+        @unlink($dir . '/site.wprism.json');
         @rmdir($dir . '/adapters');
         @rmdir($dir);
     });
     Canon::write_file($dir . '/adapters/wpforms-lite.json', Canon::encode($manifest));
-    Canon::write_file($dir . '/site.duo.json', Canon::encode([
+    Canon::write_file($dir . '/site.wprism.json', Canon::encode([
         'manifests' => [['name' => 'wpforms-lite', 'source' => 'site']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     // The shipped package inventory stays explicit: a site adapter loads
     // beside it, never through process-global directory selection.
@@ -186,30 +186,30 @@ $withoutFeature = static function (string $feature) use ($adapter): array {
 // A. INSTALLATION — the committed file, loaded as a site adapter
 // ===========================================================================
 
-duo_check_same(
+wprism_check_same(
     $adapterBytes,
     Canon::encode($adapter),
-    'A1: the committed adapter is already CANONICAL on disk — `duo adapter certify` rewrites a non-canonical '
+    'A1: the committed adapter is already CANONICAL on disk — `wprism adapter certify` rewrites a non-canonical '
         . 'file before signing it, so a file it would rewrite is one the author has not finished'
 );
-duo_check_same(
+wprism_check_same(
     ['wpforms-lite', 3, 'wpforms-lite/wpforms.php'],
     [$adapter['name'], $adapter['spec_version'], $adapter['plugin']],
     'A1: and it declares the identity the fixture package is named for, at spec_version 3'
 );
-duo_check_same(
+wprism_check_same(
     ['attr-id-codecs/v1', 'spec-window/v1', 'structured-body-refs/v1', 'structured-evidence/v1'],
     $adapter['engine_features'],
     'A1: with exactly the four engine features every section below rides on'
 );
 
 $policy = $loadSite($adapter);
-duo_check_same(
+wprism_check_same(
     ['wpforms-lite'],
     array_column($policy->manifests, 'name'),
     'A2: the real loader accepts it through the SITE source, with no shipped namesake and no certificate'
 );
-duo_check_same(
+wprism_check_same(
     'site',
     $policy->adapter_sources()->source('wpforms-lite'),
     'A2: and resolves it as source=site — the out-of-tree contract and the vendor-namespace rule both ran'
@@ -218,31 +218,31 @@ duo_check_same(
 // A3 — the projections every consumer below reads. Asserted here, once, so a
 // later group's failure is about the CODEC and never about the declaration
 // having quietly stopped reaching the engine.
-duo_check_same('json', $policy->body_mode('wpforms'), 'A3: post_types.wpforms.body reaches the policy as the json mode');
-duo_check_same(
+wprism_check_same('json', $policy->body_mode('wpforms'), 'A3: post_types.wpforms.body reaches the policy as the json mode');
+wprism_check_same(
     [
         'json_refs' => [['cast' => 'string', 'kind' => 'post', 'path' => $confirmationPath]],
         'sentinels' => [$confirmationPath => ['previous_page']],
     ],
-    duo_check_ksort_recursive($policy->body_ref_rule('wpforms')),
+    wprism_check_ksort_recursive($policy->body_ref_rule('wpforms')),
     'A3: and the one declared body reference path, with the one sentinel over it'
 );
-duo_check_same(
+wprism_check_same(
     ['wpforms/form-selector' => [['kind' => 'post', 'path' => 'formId', 'type' => 'int']]],
-    duo_check_ksort_recursive($policy->block_attr_rules()),
+    wprism_check_ksort_recursive($policy->block_attr_rules()),
     'A3: the block attribute rule is the one the recon measured unadapted'
 );
-duo_check_same(
+wprism_check_same(
     ['wpforms/form-selector' => ['formId' => ['id_type' => 'string']]],
-    duo_check_ksort_recursive($policy->attr_id_codec_rules()),
+    wprism_check_ksort_recursive($policy->attr_id_codec_rules()),
     'A3: refined by the string id codec, so a resolved id is written back quoted'
 );
-duo_check_same(
+wprism_check_same(
     'derived',
     $policy->post_meta_rule('wpforms_form_locations')['class'] ?? null,
     'A3: wpforms_form_locations is derived — the plugin regenerates it, so capture must not carry its page id'
 );
-duo_check_same(
+wprism_check_same(
     ['authored', null],
     [
         $policy->option_rule('wpforms_settings')['class'] ?? null,
@@ -253,7 +253,7 @@ duo_check_same(
         . 'on options.wpforms_settings[modern-markup] (bare_id), where the "1" is a boolean flag and not an id) '
         . 'is now closed at the engine (group F, FRICTION 7) rather than papered over on the declaration'
 );
-duo_check_same(
+wprism_check_same(
     ['runtime', 'runtime', 'runtime', 'runtime', 'runtime', 'runtime', 'runtime', 'runtime'],
     array_map(
         static fn(string $name): ?string => $policy->option_rule($name)['class'] ?? null,
@@ -276,26 +276,26 @@ duo_check_same(
 // removes ONE name from the real file's own list and shows the § v3.3 closed
 // key set refusing the section that name admits. § v3.2's three verdicts in
 // their third form: at v3 an undeclared feature makes its key a misspelling.
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadSite($variant(['engine_features' => $withoutFeature('structured-body-refs/v1')])),
     RuntimeException::class,
     'A4: drop structured-body-refs/v1 and the manifest does not degrade to `verbatim` — it refuses BY KEY',
     "the top-level key 'body_refs', which this engine does not recognise"
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadSite($variant(['engine_features' => $withoutFeature('attr-id-codecs/v1')])),
     RuntimeException::class,
     'A5: drop attr-id-codecs/v1 and the string-id codec is refused BY KEY, not silently ignored',
     "the top-level key 'attr_id_codecs', which this engine does not recognise"
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadSite($variant(['engine_features' => $withoutFeature('structured-evidence/v1')])),
     RuntimeException::class,
     'A6: drop structured-evidence/v1 and the measured-evidence section is refused BY KEY — evidence a checker '
         . 'cannot read is what this section exists to replace',
     "the top-level key 'declaration_evidence', which this engine does not recognise"
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $loadSite($variant(['engine_features' => null, 'spec_version' => 2])),
     RuntimeException::class,
     'A7: and at spec_version 2 the same document refuses BY SECTION, naming the version that has it — the first '
@@ -315,7 +315,7 @@ $formBUuid = '019200cc-0000-7000-8000-0000000000b6';
 $formCUuid = '019200cc-0000-7000-8000-0000000000ce';
 
 /**
- * Seed duo_map with one row per entity this environment holds.
+ * Seed wprism_map with one row per entity this environment holds.
  *
  * @param array<string,int> $rows uuid => local id
  */
@@ -331,7 +331,7 @@ $seedMap = static function (array $rows) use ($wpdb): void {
             'local_id' => $localId,
         ];
     }
-    $wpdb->seedTable('wp_duo_map', $seeded);
+    $wpdb->seedTable('wp_wprism_map', $seeded);
 };
 $tokensFor = static function () use ($policy): Tokens {
     $tokens = new Tokens('https://source.example', 'https://source.example/wp-content/uploads');
@@ -370,12 +370,12 @@ $seedMap([$pageUuid => 4, $formBUuid => 6, $formCUuid => 14]);
 foreach (['form-a', 'form-pathb', 'form-pathc'] as $name) {
     $raw = $capture($name . '.post_content.raw.json');
     $warnings = [];
-    duo_check_same(
+    wprism_check_same(
         $raw,
         $captureBody($raw, $warnings),
         "B1: $name has no declared reference in it, and capture reproduces its bytes exactly"
     );
-    duo_check_same([], $warnings, 'B1: and warns about nothing, because nothing was dropped');
+    wprism_check_same([], $warnings, 'B1: and warns about nothing, because nothing was dropped');
 }
 
 // B2 — THE TYPE-VARIANT `$.id` THIS ADAPTER DELIBERATELY DOES NOT DECLARE.
@@ -385,12 +385,12 @@ foreach (['form-a', 'form-pathb', 'form-pathc'] as $name) {
 $decodedA = json_decode($capture('form-a.post_content.raw.json'), true);
 $decodedB = json_decode($capture('form-pathb.post_content.raw.json'), true);
 $decodedC = json_decode($capture('form-pathc.post_content.raw.json'), true);
-duo_check_same(
+wprism_check_same(
     [false, true, true],
     [array_key_exists('id', $decodedA), array_key_exists('id', $decodedB), array_key_exists('id', $decodedC)],
     'B2: the template create path writes no top-level `id` key at all; the other two do'
 );
-duo_check_same(
+wprism_check_same(
     ['int', 'string'],
     [get_debug_type($decodedB['id']), get_debug_type($decodedC['id'])],
     'B2: and they disagree about its TYPE — int on the builder=false path, string on the real builder save'
@@ -401,21 +401,21 @@ duo_check_same(
 $formB = $capture('form-b.post_content.raw.json');
 $warnings = [];
 $capturedB = $captureBody($formB, $warnings);
-duo_check_same([], $warnings, 'B3: the page reference resolves in this environment, so nothing is dropped');
-duo_check(
+wprism_check_same([], $warnings, 'B3: the page reference resolves in this environment, so nothing is dropped');
+wprism_check(
     str_contains($capturedB, '"page":"{{post:' . $pageUuid . '}}"'),
     'B3: the confirmation page id — a JSON STRING on the wire — tokenises and stays a STRING'
 );
-duo_check(
+wprism_check(
     !str_contains($capturedB, '"page":"4"'),
     'B3: and no source-local page id survives into canonical state'
 );
-duo_check(
+wprism_check(
     str_contains($capturedB, '"page":"previous_page"'),
     'B3: the declared sentinel on the SAME key passes through untouched — coercing it would repoint the '
         . 'confirmation at post 0 (includes/class-process.php:1553-1562 compares it identically)'
 );
-duo_check(
+wprism_check(
     str_contains($capturedB, '"redirect":"http:\/\/localhost:9620\/recon-thank-you\/"'),
     'B3: and the sibling `redirect` — the source site\'s absolute home URL — crosses UNCHANGED, because this '
         . 'mode rewrites declared paths and nothing else. The adapter states that in notes rather than implying '
@@ -423,22 +423,22 @@ duo_check(
 );
 
 // B4/B5 — APPLY, on this environment and on one where the page moved.
-duo_check_same(
+wprism_check_same(
     $formB,
     $applyBody($capturedB),
     'B4: apply on the SAME environment reproduces the post body byte for byte'
 );
 $seedMap([$pageUuid => 3456, $formBUuid => 6, $formCUuid => 14]);
 $onTarget = $applyBody($capturedB);
-duo_check(
+wprism_check(
     str_contains($onTarget, '"page":"3456"'),
     'B5: on a target where the page is row 3456 the reference is rewritten — as a STRING of the new length'
 );
-duo_check(
+wprism_check(
     !str_contains($onTarget, '"page":3456'),
     'B5: and never as the bare integer the generic json_refs default would have written'
 );
-duo_check(
+wprism_check(
     str_contains($onTarget, '"page":"previous_page"'),
     'B5: the sentinel is still the sentinel on the target'
 );
@@ -447,12 +447,12 @@ duo_check(
 // (docs/guides/adapter-authoring.md § 6): capture -> apply -> recapture returns
 // the same canonical bytes, so the repository does not churn per environment.
 $warnings = [];
-duo_check_same(
+wprism_check_same(
     $capturedB,
     $captureBody($onTarget, $warnings),
     'B6: recapturing the applied body on the TARGET yields the same canonical bytes as the source capture'
 );
-duo_check_same([], $warnings, 'B6: with nothing dropped on the target either');
+wprism_check_same([], $warnings, 'B6: with nothing dropped on the target either');
 
 // ===========================================================================
 // C. THE BLOCK — the measured embedding page, through the same adapter
@@ -462,23 +462,23 @@ $seedMap([$pageUuid => 4, $formBUuid => 6, $formCUuid => 14]);
 $page = $capture('contact-page.post_content.html');
 $capturedPage = Blocks::capture_rewrite($page, $policy, $tokensFor(), false, "page 'recon-contact-page'");
 
-duo_check(
+wprism_check(
     str_contains($capturedPage, '"formId":"{{post:' . $formBUuid . '}}"')
         && str_contains($capturedPage, '"formId":"{{post:' . $formCUuid . '}}"'),
-    'C1: both embedded form ids tokenise, and both stay STRINGS — the recon measured `wp duo lint` reporting '
+    'C1: both embedded form ids tokenise, and both stay STRINGS — the recon measured `wp wprism lint` reporting '
         . 'exactly these two as unregistered_block_attr before this declaration existed'
 );
-duo_check(
+wprism_check(
     str_contains($capturedPage, '"copyPasteJsonValue":"{u0022fieldSizeu0022:u0022mediumu0022}"'),
     'C1: and the one non-id attribute beside them survives byte for byte, backslash damage included — a codec '
         . 'that tidied it would be rewriting content it was never declared over'
 );
-duo_check(
+wprism_check(
     str_contains($capturedPage, '<p>Get in touch.</p>'),
     'C1: the page\'s ordinary block content is untouched as well'
 );
 
-duo_check_same(
+wprism_check_same(
     $page,
     Blocks::apply_rewrite($capturedPage, $policy, $tokensFor()),
     'C2: apply on the SAME environment reproduces the page byte for byte — the round trip that wrote '
@@ -487,15 +487,15 @@ duo_check_same(
 
 $seedMap([$pageUuid => 4, $formBUuid => 91, $formCUuid => 92]);
 $pageOnTarget = Blocks::apply_rewrite($capturedPage, $policy, $tokensFor());
-duo_check(
+wprism_check(
     str_contains($pageOnTarget, '{"formId":"91"}'),
     'C3: on a target whose forms are rows 91 and 92 the first embed renders the TARGET\'s form id, quoted'
 );
-duo_check(
+wprism_check(
     str_contains($pageOnTarget, '"formId":"92"') && !str_contains($pageOnTarget, '"formId":92'),
     'C3: and so does the second — neither is written as a bare integer'
 );
-duo_check_same(
+wprism_check_same(
     $capturedPage,
     Blocks::capture_rewrite($pageOnTarget, $policy, $tokensFor(), false, "page 'recon-contact-page'"),
     'C4: recapturing the applied page on the target yields the same canonical bytes'
@@ -516,21 +516,21 @@ $seedMap([$pageUuid => 77, $formBUuid => 91, $formCUuid => 92]);
 $bodyOnTarget = $applyBody($capturedB);
 $pageOnTarget = Blocks::apply_rewrite($capturedPage, $policy, $tokensFor());
 
-duo_check(
+wprism_check(
     str_contains($bodyOnTarget, '"page":"77"'),
     'D1: after apply the form\'s confirmation points at the TARGET\'s own page id, not the source\'s 4'
 );
-duo_check(
+wprism_check(
     str_contains($pageOnTarget, '"formId":"91"') && str_contains($pageOnTarget, '"formId":"92"'),
     'D2: and the embedding page renders the TARGET\'s own form ids, not the source\'s 6 and 14'
 );
 foreach (['"page":"4"' => 'the source page id', '"formId":"6"' => 'the source form id'] as $needle => $what) {
-    duo_check(
+    wprism_check(
         !str_contains($bodyOnTarget . $pageOnTarget, $needle),
         "D3: no trace of $what survives anywhere in the applied pair"
     );
 }
-duo_check(
+wprism_check(
     !str_contains($capturedB . $capturedPage, '"page":"4"')
     && !str_contains($capturedB . $capturedPage, '"formId":"6"'),
     'D3: and canonical state carries no source-local id either — which is what makes the repository portable '
@@ -544,7 +544,7 @@ duo_check(
 // E1 — the OPEN ledger coordinate. `derived` represents the capture side
 // completely; the apply side is a bounded postcondition this engine has no
 // primitive for, so the adapter declares no regenerator and no provider.
-duo_check(
+wprism_check(
     !array_key_exists('regenerators', $adapter)
     && !array_key_exists('providers', $adapter)
     && !array_key_exists('actions', $adapter)
@@ -557,14 +557,14 @@ duo_check(
 // E2 — deletion: one selector advertised, one deliberately absent, and the
 // feasibility measurement behind each is in declaration_evidence.
 $termDeletion = $policy->deletion_capability('term:wpforms_form_tag');
-duo_check_same(
+wprism_check_same(
     // Sorted, because the resolver sorts: the cascade set is a SET, and the
     // manifest's own spelling order is not a declaration about anything.
     ['term_relationships', 'term_taxonomy', 'termmeta'],
     $termDeletion['cascades'] ?? null,
     'E2: term:wpforms_form_tag declares the complete term cascade set the engine requires'
 );
-duo_check_same(
+wprism_check_same(
     [['column' => 'term_taxonomy_id', 'table' => 'term_relationships']],
     array_map(
         static fn(array $g): array => ['column' => $g['column'], 'table' => $g['table']],
@@ -573,7 +573,7 @@ duo_check_same(
     'E2: guarded on the ONE reverse reference whose index leads — the deletion-feasibility report returned '
         . 'reason:null for it, which is the necessary condition for the guard to lock'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $policy->deletion_capability('post:wpforms'),
     'E2: and post:wpforms is NOT advertised — both of its reverse-reference guards (postmeta.meta_value for '
@@ -587,7 +587,7 @@ $tableClasses = [];
 foreach (array_keys($adapter['tables']) as $table) {
     $tableClasses[$table] = $policy->table_rule((string) $table)['class'] ?? null;
 }
-duo_check_same(
+wprism_check_same(
     [
         'wpforms_analytics_forms' => 'runtime',
         'wpforms_analytics_snapshots' => 'runtime',
@@ -601,7 +601,7 @@ duo_check_same(
         . 'nature, and every one held 0 rows on the measured install, so no identity or natural-key claim could '
         . 'have been measured and none is made'
 );
-duo_check(
+wprism_check(
     !str_contains(Canon::encode($adapter['tables']), 'actionscheduler'),
     'E3: and the four live Action Scheduler tables WPForms Lite also creates are declared by NOTHING here — '
         . 'they belong to a bundled shared library, so a per-plugin adapter claiming them would be the first of '
@@ -609,7 +609,7 @@ duo_check(
 );
 
 // E4 — THE PRICE OF THE FEATURE CHANNEL, PAID OFF. This group's two assertions
-// used to measure the wall: "`duo adapter certify` refuses this manifest — every
+// used to measure the wall: "`wprism adapter certify` refuses this manifest — every
 // feature-claimed key is in no arm of the signer's top-level partition". That
 // was the headline find of the exercise, and WP-6.6 (spec/repo-format.md
 // § v3.21) closed it by construction — each `IMPLEMENTED_FEATURES` row now
@@ -624,13 +624,13 @@ try {
 } catch (\Throwable $e) {
     $signerVerdict = $e->getMessage();
 }
-duo_check_same(
+wprism_check_same(
     null,
     $signerVerdict,
     'E4: the signer classifies every key this adapter declares — the four feature-claimed sections included, '
         . 'through the roster rather than through a partition patch per key'
 );
-duo_check_same(
+wprism_check_same(
     [
         'attr_id_codecs' => 'field',
         'body_refs' => 'field',
@@ -653,7 +653,7 @@ try {
 } catch (\Throwable $e) {
     $strippedVerdict = $e->getMessage();
 }
-duo_check(
+wprism_check(
     is_string($strippedVerdict)
     && str_contains($strippedVerdict, "declares 'body_refs'")
     && str_contains($strippedVerdict, 'which this signer cannot classify as an entity or field surface')
@@ -673,7 +673,7 @@ try {
 } catch (\Throwable $e) {
     $inventedVerdict = $e->getMessage();
 }
-duo_check(
+wprism_check(
     is_string($inventedVerdict)
     && str_contains($inventedVerdict, "declares 'acme_invented_section'")
     && str_contains($inventedVerdict, 'which this signer cannot classify as an entity or field surface')
@@ -681,7 +681,7 @@ duo_check(
     'E4: a section NO implemented feature claims meets the unclassifiable verdict verbatim — the roster '
         . 'classified the four that came through the channel, not everything'
 );
-duo_check_detail('E4 control refusal: ' . (string) $inventedVerdict);
+wprism_check_detail('E4 control refusal: ' . (string) $inventedVerdict);
 
 // E5 — the evidence section is not decoration: every record addresses a
 // declaration this manifest still makes. `StructuredEvidence::assert_target()`
@@ -689,7 +689,7 @@ duo_check_detail('E4 control refusal: ' . (string) $inventedVerdict);
 // the one row that would satisfy the grammar.
 $targets = array_keys($adapter['declaration_evidence']);
 sort($targets, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     [
         'attr_id_codecs.wpforms/form-selector',
         'body_refs.wpforms',
@@ -711,7 +711,7 @@ $rowCount = 0;
 foreach ($adapter['declaration_evidence'] as $record) {
     $rowCount += count($record['evidence']);
 }
-duo_check(
+wprism_check(
     $rowCount >= 20,
     "E5: carrying $rowCount {source, locator, observation} rows — the measured half of the authoring loop, "
         . 'surviving the ratification that used to delete it with `_draft`'
@@ -722,20 +722,20 @@ duo_check(
 // declaration in this manifest that nothing else in the corpus can falsify:
 // a grammar check proves it well-formed and says nothing about whether the
 // evidence covers it. The release list beside the adapter is that evidence —
-// four fetched-and-hashed releases, the document `duo adapter boundary`
+// four fetched-and-hashed releases, the document `wprism adapter boundary`
 // accepts — so the two are compared, in the only two directions that can be
 // wrong.
 require_once $root . '/cli/src/Adapter/AdapterBoundary.php';
-$releases = \Duo\Orchestrator\AdapterBoundary::readReleaseList(
+$releases = \WPrism\Orchestrator\AdapterBoundary::readReleaseList(
     $root . '/sandbox/fixtures/wpforms-lite/wpforms-lite.releases.json'
 );
 $versions = array_column($releases['releases'], 'version');
-duo_check_same(
+wprism_check_same(
     ['1.9.9.4', '2.0.0.3', '2.0.0.4', '2.0.0.5'],
     $versions,
     'E6: the committed release list is the four digest-pinned releases the boundary planner reads, in release order'
 );
-duo_check(
+wprism_check(
     in_array($adapter['version_range']['min'], $versions, true),
     'E6: the range FLOOR is a release the list actually records — 2.0.0.4, the older of the two the engine-gap '
         . 'ledger probed. A floor no recorded release names would be a claim with nothing behind it'
@@ -744,7 +744,7 @@ $aboveCeiling = array_values(array_filter(
     $versions,
     static fn(string $v): bool => version_compare($v, (string) $adapter['version_range']['max'], '>=')
 ));
-duo_check_same(
+wprism_check_same(
     [],
     $aboveCeiling,
     'E6: and the CEILING is exclusive of every recorded release, so the window admits exactly the measured '
@@ -756,7 +756,7 @@ duo_check_same(
 //
 // THE DEFERRED HALF OF THIS ADAPTER'S PROOF. Groups A-E measure what the engine
 // does with the declarations; this one measures what a CERTIFICATE says about
-// them, through `duo adapter certify` in a child process rather than through
+// them, through `wprism adapter certify` in a child process rather than through
 // `siteRatification()` in this one — because the sentence an operator meets and
 // the plumbing that writes the file are both part of the claim. It exists at all
 // because § v3.21 made it possible: before WP-6.6 every invocation below exited
@@ -767,12 +767,12 @@ duo_check_same(
 $certifyCli = static function (array $args) use ($root): array {
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $root . '/cli/duo', 'adapter'], $args),
+        array_merge([PHP_BINARY, $root . '/cli/wprism', 'adapter'], $args),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
     if (!is_resource($process)) {
-        return ['exit' => -1, 'out' => '', 'err' => 'cannot start duo'];
+        return ['exit' => -1, 'out' => '', 'err' => 'cannot start wprism'];
     }
     fclose($pipes[0]);
     $out = (string) stream_get_contents($pipes[1]);
@@ -795,7 +795,7 @@ $rmtree = static function (string $path) use (&$rmtree): void {
     }
     @rmdir($path);
 };
-$certRoot = sys_get_temp_dir() . '/duo_wpforms_certify_' . bin2hex(random_bytes(6));
+$certRoot = sys_get_temp_dir() . '/wprism_wpforms_certify_' . bin2hex(random_bytes(6));
 mkdir($certRoot, 0755, true);
 register_shutdown_function(static fn() => $rmtree($certRoot));
 
@@ -808,12 +808,12 @@ $certRepo = static function (string $label, array $manifest) use ($certRoot): st
     $repo = $certRoot . '/' . $label;
     mkdir($repo . '/adapters', 0755, true);
     Canon::write_file($repo . '/adapters/wpforms-lite.json', Canon::encode($manifest));
-    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode([
         'manifests' => ['core'],
         // An empty JSON OBJECT: PHP erases {} vs [] on an associative round
         // trip and the engine refuses the list form.
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
 
     return $repo;
@@ -833,14 +833,14 @@ $derivedRun = $certifyCli([
     'certify', $derivedRepo, '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $certReason,
 ]);
-duo_check_same(
+wprism_check_same(
     0,
     $derivedRun['exit'],
-    'F1: `duo adapter certify` signs the committed adapter — the verb that exited non-zero on '
+    'F1: `wprism adapter certify` signs the committed adapter — the verb that exited non-zero on '
         . '"declares \'attr_id_codecs\', which this signer cannot classify" before § v3.21'
         . ' (stderr: ' . trim($derivedRun['err']) . ')'
 );
-duo_check(
+wprism_check(
     str_contains($derivedRun['out'], 'claim basis: DERIVED'),
     'F1: through the DERIVED profile, which is the floor an author gets without writing a document'
 );
@@ -851,7 +851,7 @@ $derivedVerified = AdapterCertification::verifyFile(
     $adapter,
     AdapterCertification::certificatePath($derivedRepo, 'wpforms-lite')
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     $derivedVerified['claim']['status'] ?? null,
     'F1: the LIVE verifier accepts the signature and bindings without treating grammar approval as certification'
@@ -869,18 +869,18 @@ $derivedRatification = json_decode(
     true
 );
 $derivedEntry = $derivedRatification['statement']['ratification']['manifests']['wpforms-lite'] ?? [];
-duo_check_same(
+wprism_check_same(
     ['post_types', 'tables', 'taxonomies'],
     $derivedEntry['capabilities']['entity_sections'] ?? null,
     'F2: the certificate\'s entity arm is the three state-bearing sections, unchanged by the feature channel'
 );
-duo_check_same(
+wprism_check_same(
     ['attr_id_codecs', 'block_attrs', 'body_refs', 'options', 'post_meta'],
     $derivedEntry['capabilities']['field_sections'] ?? null,
     'F2: and the FIELD arm now carries `attr_id_codecs` and `body_refs` beside `block_attrs` — the whole point '
         . 'of § v3.21, in the one place it is observable to a certificate holder'
 );
-duo_check_same(
+wprism_check_same(
     [
         'attr_id_codecs',
         'attr_id_codecs.wpforms/form-selector',
@@ -966,16 +966,16 @@ $authoredRun = $certifyCli([
     'certify', $authoredRepo, '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $certReason, '--ratification-file=' . $authoredPath,
 ]);
-duo_check_same(
+wprism_check_same(
     0,
     $authoredRun['exit'],
     'F3: `--ratification-file` signs it too — the profile that shares siteSurfaceSections() with the '
         . 'derivation, so an author could not have named these sections into a certificate before § v3.21'
         . ' (stderr: ' . trim($authoredRun['err']) . ')'
 );
-duo_check(
+wprism_check(
     str_contains($authoredRun['out'], 'claim basis: AUTHORED (--ratification-file)'),
-    'F3: and reports the AUTHORED basis, which `duo adapter recertify` reads to refuse re-deriving over it'
+    'F3: and reports the AUTHORED basis, which `wprism adapter recertify` reads to refuse re-deriving over it'
 );
 $authoredVerified = AdapterCertification::verifyFile(
     $sourceLibrary,
@@ -991,7 +991,7 @@ $authoredVerified = AdapterCertification::verifyFile(
 // derivation structurally cannot make (`deletion_semantics.supported: []`,
 // because a validator run reviews no deletion semantics) — so the authored
 // certificate covers exactly one surface more, and that surface is the review.
-duo_check_same(
+wprism_check_same(
     array_values(array_diff(
         (array) ($authoredVerified['claim']['surfaces'] ?? []),
         (array) ($derivedVerified['claim']['surfaces'] ?? [])
@@ -1000,7 +1000,7 @@ duo_check_same(
     'F3: over the derivation\'s surfaces plus exactly one — the reviewed term cascade, which a grammar verdict '
         . 'cannot claim. Every SECTION surface is identical, because both profiles read siteSurfaceSections()'
 );
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_diff(
         (array) ($derivedVerified['claim']['surfaces'] ?? []),
@@ -1023,15 +1023,15 @@ $wrongArmRun = $certifyCli([
     'certify', $certRepo('wrongarm', $adapter), '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $certReason, '--ratification-file=' . $wrongArmPath,
 ]);
-duo_check_same(2, $wrongArmRun['exit'], 'F4: naming `body_refs` as an ENTITY section refuses');
-duo_check(
+wprism_check_same(2, $wrongArmRun['exit'], 'F4: naming `body_refs` as an ENTITY section refuses');
+wprism_check(
     str_contains($wrongArmRun['err'], "names 'body_refs' as an entity section")
         && str_contains($wrongArmRun['err'], "this manifest's vocabulary classifies as a field section"),
     'F4: ...naming the arm the roster gives it, so the author is told which of the two lists it belongs in'
 );
 
 // F5 — THE ENVELOPE, NAMED. Handing `--ratification-file` the
-// `duo-manifest-dispositions/v1` document instead of the bare entry used to
+// `wprism-manifest-dispositions/v1` document instead of the bare entry used to
 // meet "has a malformed required field", which is true of the envelope and says
 // nothing about the two documents being confused.
 $envelopePath = $certRoot . '/envelope.json';
@@ -1044,8 +1044,8 @@ $envelopeRun = $certifyCli([
     'certify', $certRepo('envelope', $adapter), '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $certReason, '--ratification-file=' . $envelopePath,
 ]);
-duo_check_same(2, $envelopeRun['exit'], 'F5: an ENVELOPE-shaped ratification file refuses');
-duo_check(
+wprism_check_same(2, $envelopeRun['exit'], 'F5: an ENVELOPE-shaped ratification file refuses');
+wprism_check(
     str_contains($envelopeRun['err'], 'ENVELOPE — --ratification-file takes the BARE entry')
         && str_contains($envelopeRun['err'], 'pass the value at manifests.wpforms-lite from that file instead'),
     'F5: ...saying which document it wanted and where in this one to find it, instead of reporting a missing '
@@ -1059,8 +1059,8 @@ $inventedRun = $certifyCli([
     'certify', $certRepo('invented', $invented), '--name=wpforms-lite', '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $certReason,
 ]);
-duo_check_same(2, $inventedRun['exit'], 'F6: an adapter carrying an invented top-level section is not certified');
-duo_check(
+wprism_check_same(2, $inventedRun['exit'], 'F6: an adapter carrying an invented top-level section is not certified');
+wprism_check(
     str_contains($inventedRun['err'], "the top-level key 'acme_invented_section', which this engine does not recognise"),
     'F6: ...and the refusal is the closed key set\'s, at LOAD — the roster widened what may be SIGNED, not '
         . 'what may be declared'
@@ -1084,31 +1084,31 @@ duo_check(
 // The point of asserting it here is that a recorded outcome is an INPUT to a
 // shipped reader, not a note in a commit message. It is read below through
 // `AdapterBoundary::readOutcomeTable()` and driven through the real
-// `duo adapter boundary`, so a row that drifted out of the grammar, or out of
+// `wprism adapter boundary`, so a row that drifted out of the grammar, or out of
 // agreement with the release list beside it, fails this suite rather than
 // failing an operator months later.
 // ===========================================================================
 
 $outcomesPath = $root . '/sandbox/fixtures/wpforms-lite/wpforms-lite.outcomes.json';
-$outcomeTable = \Duo\Orchestrator\AdapterBoundary::readOutcomeTable($outcomesPath, 'wpforms-lite');
+$outcomeTable = \WPrism\Orchestrator\AdapterBoundary::readOutcomeTable($outcomesPath, 'wpforms-lite');
 
 // G1 — ONE ROW, AND IT IS THE ANCHOR. The release list records four releases
 // (E6); exactly one of them was actually probed. Asserting the count is not
 // pedantry — an outcomes file that grew rows nobody ran is the precise failure
 // the boundary command's own `evidence_limits` warn about, and the honest state
 // of this evidence is "one release measured, three unprobed".
-duo_check_same(
+wprism_check_same(
     ['2.0.0.5'],
     array_keys($outcomeTable),
     'G1: exactly ONE release has a recorded outcome — the anchor. Three of the four releases in the '
         . 'committed list are unprobed, and silence from them is not evidence for them'
 );
-duo_check_same(
-    \Duo\Orchestrator\AdapterBoundary::OUTCOME_GREEN,
+wprism_check_same(
+    \WPrism\Orchestrator\AdapterBoundary::OUTCOME_GREEN,
     $outcomeTable['2.0.0.5']['outcome'],
     'G1: ...and that outcome is green — the full chain ran, it did not merely fail to refuse'
 );
-duo_check_same(
+wprism_check_same(
     '2.0.0.5',
     $versions[count($versions) - 1],
     'G1: the probed release is the NEWEST in the committed release list, so the evidence anchors at the '
@@ -1117,26 +1117,26 @@ duo_check_same(
 
 // G2 — THE SIGNATURE IS THE EVIDENCE, AND IT IS QUOTED VERBATIM. Per
 // sandbox/conformance/boundary/README.md § "The second reader", a signature is
-// not prose a reviewer skims: `site.duo.json` may carry these same rows under
+// not prose a reviewer skims: `site.wprism.json` may carry these same rows under
 // `adapter_version_evidence` and `LifecyclePlanner::code_mismatch()` quotes the
 // signature into the operator-facing `version_range_graduated` verdict. So it
 // must say what was OBSERVED. These three assertions pin the observations this
 // package specifically unblocked — a signature rewritten into a summary that
 // dropped them would still be well-formed and would still fail here.
 $signature = $outcomeTable['2.0.0.5']['signature'];
-duo_check(
+wprism_check(
     str_contains($signature, 'attr_id_codecs')
         && str_contains($signature, 'body_refs')
         && str_contains($signature, 'field arm'),
     'G2: the signature records that the CERTIFICATE carried the two feature-claimed field-arm surfaces — '
         . 'the § v3.21 roster observed on a live signing, not just in group F\'s child process'
 );
-duo_check(
+wprism_check(
     str_contains($signature, 'previous_page') && str_contains($signature, 'STRING'),
     'G2: ...that the cross-entity confirmation ref rewrote AS A STRING with the `previous_page` sentinel '
         . 'left alone — the two halves of this adapter\'s `body_refs` claim, measured on a target'
 );
-duo_check(
+wprism_check(
     str_contains($signature, 'byte-identical'),
     'G2: ...and that the recapture matched, which is the only observation that makes the row `green` rather '
         . 'than "apply exited zero"'
@@ -1144,7 +1144,7 @@ duo_check(
 
 // G3 — NO FILE HERE MAY STATE ITS OWN FRESHNESS. The boundary README's one
 // prohibition: `last_verified`, `stale`, `releases_behind` and `freshness` are
-// DERIVED by `duo adapter proposals` across the whole directory. A recorded
+// DERIVED by `wprism adapter proposals` across the whole directory. A recorded
 // input allowed to declare itself current would let the adapter nobody probed
 // claim to be the freshest thing in the tree.
 $outcomesRaw = (array) json_decode((string) file_get_contents($outcomesPath), true);
@@ -1152,11 +1152,11 @@ $forbidden = array_values(array_intersect(
     ['last_verified', 'stale', 'releases_behind', 'freshness'],
     array_keys($outcomesRaw)
 ));
-duo_check_same(
+wprism_check_same(
     [],
     $forbidden,
     'G3: the recorded outcome states what was observed and nothing about its own freshness — that is '
-        . '`duo adapter proposals`\' to derive across the directory'
+        . '`wprism adapter proposals`\' to derive across the directory'
 );
 
 // G4 — THE RECORDED ROW MOVES THE REAL SEARCH, through the operator's command
@@ -1174,7 +1174,7 @@ $boundaryArgs = [
 ];
 $withoutOutcomes = $certifyCli($boundaryArgs);
 $withOutcomes = $certifyCli(array_merge($boundaryArgs, ['--outcomes=' . $outcomesPath]));
-duo_check_same(
+wprism_check_same(
     [3, 3],
     [$withoutOutcomes['exit'], $withOutcomes['exit']],
     'G4: both runs exit 3 (probe-required) — recording one green release does not let a four-release '
@@ -1182,19 +1182,19 @@ duo_check_same(
 );
 $before = (array) json_decode($withoutOutcomes['out'], true);
 $after = (array) json_decode($withOutcomes['out'], true);
-duo_check_same(
+wprism_check_same(
     ['arm' => 'anchor', 'version' => '2.0.0.5'],
     $before['next_probe'] ?? null,
     'G4: with no outcomes recorded, the planner\'s next move is to probe the anchor — which is exactly '
         . 'where this adapter stood before the live leg ran'
 );
-duo_check_same(
+wprism_check_same(
     ['arm' => 'floor', 'version' => '2.0.0.3'],
     $after['next_probe'] ?? null,
     'G4: ...and with the row recorded it moves ON, to the floor arm — the recorded input is consumed by '
         . 'the shipped planner, not just stored beside it'
 );
-duo_check_same(
+wprism_check_same(
     [0, 1],
     [$before['probe_count'] ?? null, $after['probe_count'] ?? null],
     'G4: the probe count is the number of releases actually run, and it went 0 -> 1 on the strength of '
@@ -1226,11 +1226,11 @@ duo_check_same(
 require_once $root . '/agent/src/Kernel/OptionState.php';
 require_once $root . '/agent/src/Review/Lint.php';
 
-use Duo\Lint;
-use Duo\LintEnvironment;
-use Duo\OptionState;
+use WPrism\Lint;
+use WPrism\LintEnvironment;
+use WPrism\OptionState;
 
-$lintTmp = sys_get_temp_dir() . '/duo_wpforms_lint_' . bin2hex(random_bytes(8));
+$lintTmp = sys_get_temp_dir() . '/wprism_wpforms_lint_' . bin2hex(random_bytes(8));
 mkdir($lintTmp . '/options', 0700, true);
 register_shutdown_function(static function () use ($lintTmp): void {
     @unlink($lintTmp . '/options/core.json');
@@ -1266,11 +1266,11 @@ $bareIdOnModernMarkup = array_values(array_filter(
     $lintFindings,
     static fn(array $f): bool => $f['class'] === 'bare_id' && $f['locator'] === 'options.wpforms_settings[modern-markup]'
 ));
-duo_check_same(
+wprism_check_same(
     [],
     $bareIdOnModernMarkup,
     'H1: the boolean\'s own "1" produces no bare_id finding — Lint::scan_options_file()\'s bare_id loop now '
-        . 'carries the same wholly-0/1 suppression Pending::ref_hint() has had since DUO-3508, so capture no '
+        . 'carries the same wholly-0/1 suppression Pending::ref_hint() has had since issue #3508, so capture no '
         . 'longer needs `lint_ok: true` on this declaration to get past LintTrustGate'
 );
 
@@ -1295,7 +1295,7 @@ $locators = array_values(array_map(
     static fn(array $f): string => $f['locator'],
     array_filter($scopedFindings, static fn(array $f): bool => $f['class'] === 'bare_id')
 ));
-duo_check_same(
+wprism_check_same(
     ['options.wpforms_settings[unrelated_authored_post_ref]'],
     $locators,
     'H2: a sibling element holding a genuine non-{0,1} id (7) still flags as bare_id, and modern-markup\'s own '
@@ -1309,7 +1309,7 @@ duo_check_same(
 // swallowed by this suppression, on either boolean-flag position. Asserting
 // this is what keeps the fix from silently drifting into a key-name
 // heuristic ("only suppress a key literally called modern-markup") that
-// CAREFUL SCOPE never asked for and DUO-3508 does not do either.
+// CAREFUL SCOPE never asked for and issue #3508 does not do either.
 Canon::write_file($lintTmp . '/options/core.json', Canon::encode(OptionState::document([
     'wpforms_settings' => [
         'autoload' => 'yes',
@@ -1321,11 +1321,11 @@ $costFindings = array_values(array_filter(
     Lint::scan_tree($lintTmp, $policy, LintEnvironment::live()),
     static fn(array $f): bool => $f['class'] === 'bare_id'
 ));
-duo_check_same(
+wprism_check_same(
     [],
     $costFindings,
     'H3: a second element that genuinely IS post #1 stored as bare 1 is also swallowed — the same cost '
         . 'Pending::ref_hint() already accepts for a whole-value \'1\' option, not a new, narrower one'
 );
 
-duo_check_summary('regress_wpforms_lite_adapter');
+wprism_check_summary('regress_wpforms_lite_adapter');

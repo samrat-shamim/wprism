@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 require_once __DIR__ . '/AttrIdCodecGrammar.php';
@@ -41,7 +41,7 @@ require_once __DIR__ . '/AttrIdCodecGrammar.php';
  * ledger row for that id at all — deleted target, or never existed) or
  * UNSCOPED (a real row exists, but its post_type/taxonomy was never added
  * to policy scope, so it was never minted a uuid) — task #73's own
- * distinction for options, ported here in full (DUO-3212): dangling gets
+ * distinction for options, ported here in full (issue #3212): dangling gets
  * the uniform drop-with-warning treatment matching options'/meta's
  * dangling-reference semantics (spec/repo-format.md) — a scalar ref drops
  * the whole attribute key, an int[] ref drops just that element, both with
@@ -85,7 +85,7 @@ final class Blocks {
             }
             if ($codec !== null && !hash_equals($codec, $rule['codec'])) {
                 throw new \RuntimeException(
-                    "duo: block 'core/legacy-widget' has an invalid or mixed whole-block codec registry"
+                    "wprism: block 'core/legacy-widget' has an invalid or mixed whole-block codec registry"
                 );
             }
             $codec = $rule['codec'];
@@ -149,12 +149,12 @@ final class Blocks {
             || !is_array($block['innerContent'] ?? null)
             || ($block['innerContent'] ?? []) !== []) {
             throw new \RuntimeException(
-                'duo: stored legacy widget reference must be one exact self-closing core block'
+                'wprism: stored legacy widget reference must be one exact self-closing core block'
             );
         }
         $attrs = $block['attrs'] ?? null;
         if (!is_array($attrs) || ($attrs !== [] && array_is_list($attrs))) {
-            throw new \RuntimeException('duo: stored legacy widget reference attributes must be one closed object');
+            throw new \RuntimeException('wprism: stored legacy widget reference attributes must be one closed object');
         }
         if (!array_key_exists('id', $attrs)) {
             return;
@@ -162,12 +162,12 @@ final class Blocks {
         $keys = array_keys($attrs);
         sort($keys, SORT_STRING);
         if ($keys !== ['id'] || !is_string($attrs['id'])) {
-            throw new \RuntimeException('duo: stored legacy widget reference has an unknown or malformed field');
+            throw new \RuntimeException('wprism: stored legacy widget reference has an unknown or malformed field');
         }
         foreach (array_keys($foreignWidgetTypes) as $type) {
             if (self::widget_instance_id($attrs['id'], $type) !== null) {
                 throw new \RuntimeException(
-                    'duo: stored legacy widget reference belongs to a different manifest owner'
+                    'wprism: stored legacy widget reference belongs to a different manifest owner'
                 );
             }
         }
@@ -180,7 +180,7 @@ final class Blocks {
         }
         if (count($matches) !== 1) {
             throw new \RuntimeException(
-                'duo: stored legacy widget reference does not bind one declared widget type and canonical instance'
+                'wprism: stored legacy widget reference does not bind one declared widget type and canonical instance'
             );
         }
         $reference = $matches[0];
@@ -287,7 +287,7 @@ final class Blocks {
             }
             if (!is_string($rule['codec']) || $rule['codec'] === ''
                 || ($codec !== null && !hash_equals($codec, $rule['codec']))) {
-                throw new \RuntimeException("duo: block '$name' has an invalid or mixed whole-block codec registry");
+                throw new \RuntimeException("wprism: block '$name' has an invalid or mixed whole-block codec registry");
             }
             $codec = $rule['codec'];
             $codecPaths[(string) $rule['path']] = true;
@@ -295,14 +295,14 @@ final class Blocks {
         if ($codec !== null) {
             if (count($codecPaths) !== count($declaredRules)) {
                 throw new \RuntimeException(
-                    "duo: block '$name' mixes whole-block codec and per-attribute rules at runtime"
+                    "wprism: block '$name' mixes whole-block codec and per-attribute rules at runtime"
                 );
             }
             $interpreter = $policy->interpreters()[$codec] ?? null;
             $method = $capture ? 'capture_block_attributes' : 'apply_block_attributes';
             if (!is_object($interpreter) || !method_exists($interpreter, $method)) {
                 throw new \RuntimeException(
-                    "duo: block '$name' codec '$codec' must implement $method(array, Tokens): array"
+                    "wprism: block '$name' codec '$codec' must implement $method(array, Tokens): array"
                 );
             }
             $rewritten = $capture
@@ -310,13 +310,13 @@ final class Blocks {
                 : $interpreter->$method($block, $tokens);
             if (!is_array($rewritten) || ($rewritten !== [] && array_is_list($rewritten))) {
                 throw new \RuntimeException(
-                    "duo: block '$name' codec '$codec' returned a malformed attribute object"
+                    "wprism: block '$name' codec '$codec' returned a malformed attribute object"
                 );
             }
             foreach (array_keys($rewritten) as $path) {
                 if (!is_string($path) || !isset($codecPaths[$path])) {
                     throw new \RuntimeException(
-                        "duo: block '$name' codec '$codec' returned an undeclared attribute"
+                        "wprism: block '$name' codec '$codec' returned an undeclared attribute"
                     );
                 }
             }
@@ -331,14 +331,14 @@ final class Blocks {
 
             if (!empty($rule['lint_ok'])) {
                 // declared non-ref attribute (e.g. queryId — a query instance
-                // index, not an entity id): exempts it from `wp duo lint`'s
+                // index, not an entity id): exempts it from `wp wprism lint`'s
                 // *Id-name heuristic, and there is nothing to rewrite here
                 continue;
             }
 
             if (array_key_exists('unsupported', $rule)) {
                 throw new \RuntimeException(
-                    "duo: block '$name' attribute '$path' is explicitly unsupported: " . $rule['unsupported']
+                    "wprism: block '$name' attribute '$path' is explicitly unsupported: " . $rule['unsupported']
                 );
             }
 
@@ -361,7 +361,7 @@ final class Blocks {
                 // previous `?? (int) $id` here kept the raw id instead of
                 // dropping it — the exact gap Lint::scan_blocks()'s new
                 // unrewritten_registered_ref finding now catches when it
-                // already happened. DUO-3212: the unmapped id is ALSO
+                // already happened. issue #3212: the unmapped id is ALSO
                 // triaged into dangling vs. unscoped (self::queue_unscoped()
                 // below, mirroring Capture::queue_or_warn_unscoped() for
                 // options exactly) — the drop-with-warning below happens
@@ -379,7 +379,7 @@ final class Blocks {
                             : $tokens->id_to_token((int) $id, $kind);
                         if ($tok === null) {
                             // user_id_to_token() owns its env-local warning;
-                            // users never participate in duo_map scope triage.
+                            // users never participate in wprism_map scope triage.
                             if ($kind !== 'user') {
                                 $tokens->warnings[] = "block '$name' attribute '$path" . "[$i]': unmapped $kind id "
                                     . (int) $id . ' dropped (dangling reference)';
@@ -409,7 +409,7 @@ final class Blocks {
                         : $tokens->id_to_token((int) $v, $kind);
                     if ($tok === null) {
                         // user_id_to_token() owns its env-local warning;
-                        // users never participate in duo_map scope triage.
+                        // users never participate in wprism_map scope triage.
                         if ($kind !== 'user') {
                             $tokens->warnings[] = "block '$name' attribute '$path': unmapped $kind id " . (int) $v
                                 . ' dropped (dangling reference)';
@@ -457,7 +457,7 @@ final class Blocks {
             }
             if ($rewriteImageClass) {
                 if ($capture) {
-                    // DUO-3212: this used to fail OPEN on an unmapped id —
+                    // issue #3212: this used to fail OPEN on an unmapped id —
                     // $m[0] (the raw "wp-image-999" text) returned unchanged,
                     // leaking the raw env-local id into canonical state
                     // (harness case B4) — the one place in this class that
@@ -494,7 +494,7 @@ final class Blocks {
                     }, $s);
                 }
             }
-            // DUO-3259: shortcode-attribute ref rewriting, threaded
+            // issue #3259: shortcode-attribute ref rewriting, threaded
             // through the SAME per-chunk closure wp-image-N/URL
             // tokenization already runs on -- a shortcode instance is
             // just more raw text sitting in innerContent, whether it's
@@ -510,7 +510,7 @@ final class Blocks {
             // a correctness requirement.
             if ($capture) {
                 $s = Shortcodes::capture_rewrite_text($s, $policy, $tokens, $forceUnresolvedRefs, $postLabel);
-                // DUO-3260: $postLabel already in scope for Shortcodes'
+                // issue #3260: $postLabel already in scope for Shortcodes'
                 // own call above -- passed through as tokenize_text()'s
                 // own optional $contextLabel too, so a url-query-ref
                 // violation from THIS call site names its post, the same
@@ -530,7 +530,7 @@ final class Blocks {
                 $block['innerContent']
             );
         }
-        // DUO-3212: deliberately NOT also rewriting $block['innerHTML'] here
+        // issue #3212: deliberately NOT also rewriting $block['innerHTML'] here
         // (the previous code did). serialize_block() (parse_blocks()'s own
         // counterpart, verified by reading it directly) exclusively walks
         // innerContent to reconstruct output — innerHTML is WordPress's own
@@ -568,7 +568,7 @@ final class Blocks {
     }
 
     /**
-     * DUO-3212 (task #73's own unscoped-vs-dangling triage, ported): queues
+     * issue #3212 (task #73's own unscoped-vs-dangling triage, ported): queues
      * an UNSCOPED violation onto $tokens->unscopedBlockRefs for Capture::
      * build()'s batched abort, or no-ops for any of the three reasons
      * Capture::queue_or_warn_unscoped() no-ops for options (see that
@@ -623,6 +623,6 @@ final class Blocks {
         if (isset($rule['kind'])) {
             return $rule['kind'];
         }
-        throw new \RuntimeException("duo: block_attrs rule for path '{$rule['path']}' needs 'kind' or 'kind_from'");
+        throw new \RuntimeException("wprism: block_attrs rule for path '{$rule['path']}' needs 'kind' or 'kind_from'");
     }
 }

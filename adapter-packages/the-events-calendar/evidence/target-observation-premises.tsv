@@ -1,7 +1,7 @@
-# format duo-target-observation-premises/v1
+# format wprism-target-observation-premises/v1
 # expected observations=4 fixtures=0
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty "$side The Events Calendar native observation"
 observation	tests/conformance/check.sh	require_observed_nonempty "TEC lifecycle physical baseline"
-observation	tests/certify/version-matrix.sh	require_duo_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human
-observation	tests/certify/version-matrix.sh	require_duo_answered "TEC 6.17.2 to 6.17.3 target plan" json
+observation	tests/certify/version-matrix.sh	require_wprism_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human
+observation	tests/certify/version-matrix.sh	require_wprism_answered "TEC 6.17.2 to 6.17.3 target plan" json

@@ -249,8 +249,8 @@ namespace Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories {
 }
 
 namespace {
-    if (!defined('DUO_SPEC_VERSION')) {
-        define('DUO_SPEC_VERSION', 2);
+    if (!defined('WPRISM_SPEC_VERSION')) {
+        define('WPRISM_SPEC_VERSION', 2);
     }
     if (!defined('ARRAY_A')) {
         define('ARRAY_A', 'ARRAY_A');
@@ -932,10 +932,10 @@ namespace {
                     . "'",
                 $query
             );
-            // DUO-3342 value verification. The adapter asks the DATABASE
+            // issue #3342 value verification. The adapter asks the DATABASE
             // whether the stored row equals WooCommerce's own published
             // derivation — one NULL-safe predicate per column — so that the
-            // column's type does the normalizing instead of a Duo-authored
+            // column's type does the normalizing instead of a WPrism-authored
             // tolerance table. Model that with the explicit column-type map
             // below: the same coercion $wpdb->replace() applied on the way in.
             // Must be tested before the bare cardinality branch, which this
@@ -978,7 +978,7 @@ namespace {
             if (preg_match('/COUNT\\(\\*\\) FROM `?wp_wc_product_meta_lookup`? WHERE product_id = (\\d+)/', $query, $m)) {
                 return isset($fakeMetaLookup[(int) $m[1]]) ? 1 : 0;
             }
-            // DUO-3342 receipt observation, batched (independent review F7):
+            // issue #3342 receipt observation, batched (independent review F7):
             // one COUNT per chunk per table instead of two per id. Modeled as
             // DISTINCT rows touching any id in the set, which is what the SQL
             // does — deliberately not a per-id sum, since that is the
@@ -2224,7 +2224,7 @@ namespace {
     if (!is_array($productProviderDeclaration)) {
         throw new \RuntimeException('WooCommerce product lookup provider declaration is absent');
     }
-    $adapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+    $adapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
     // These are the real WordPress/WooCommerce filter seams. Keep the args
     // filters identity-preserving so the registration assertions below pin
     // Woo's exact defaults; make the public object filter visibly change its
@@ -4265,7 +4265,7 @@ namespace {
         && !str_contains($lookupOversizeMessage, $lookupSecret),
         'oversized lookup scalars refuse without entering receipts or diagnostics');
 
-    $schemaAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+    $schemaAdapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
     $schemaObserver = new \ReflectionMethod($schemaAdapter, 'observe_lookup_state');
     $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS + [
         'extension_secret' => 'longtext',
@@ -4282,7 +4282,7 @@ namespace {
         && !array_filter(
             $extensionReceiptQueries,
             static fn(string $query): bool => str_contains($query, 'extension_secret')
-        ), 'unknown extension lookup columns remain target-owned and are never selected into Duo receipt memory');
+        ), 'unknown extension lookup columns remain target-owned and are never selected into WPrism receipt memory');
 
     $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
     $badTypeDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
@@ -4290,7 +4290,7 @@ namespace {
     $wpdb->lookupColumnDeclarations = $badTypeDeclarations;
     $badTypeMessage = '';
     try {
-        $badTypeAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+        $badTypeAdapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($badTypeAdapter, 'observe_lookup_state'))->invoke($badTypeAdapter, [13]);
     } catch (\Throwable $failure) {
         $badTypeMessage = $failure->getMessage();
@@ -4302,7 +4302,7 @@ namespace {
     unset($wpdb->lookupColumnDeclarations['tax_class']);
     $missingCoreMessage = '';
     try {
-        $missingCoreAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+        $missingCoreAdapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($missingCoreAdapter, 'observe_lookup_state'))->invoke($missingCoreAdapter, [13]);
     } catch (\Throwable $failure) {
         $missingCoreMessage = $failure->getMessage();
@@ -4319,7 +4319,7 @@ namespace {
     $wpdb->lookupSchemaRowsOverride[] = ['Field' => 'product_id', 'Type' => 'bigint(20)'];
     $duplicateSchemaMessage = '';
     try {
-        $duplicateSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+        $duplicateSchemaAdapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($duplicateSchemaAdapter, 'observe_lookup_state'))->invoke($duplicateSchemaAdapter, [13]);
     } catch (\Throwable $failure) {
         $duplicateSchemaMessage = $failure->getMessage();
@@ -4336,7 +4336,7 @@ namespace {
     $fakeVisibilityQueries = [];
     $oversizedSchemaMessage = '';
     try {
-        $oversizedSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+        $oversizedSchemaAdapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($oversizedSchemaAdapter, 'observe_lookup_state'))->invoke($oversizedSchemaAdapter, [13]);
     } catch (\Throwable $failure) {
         $oversizedSchemaMessage = $failure->getMessage();
@@ -4353,7 +4353,7 @@ namespace {
     $wpdb->failReadContaining = 'information_schema.COLUMNS';
     $schemaReadMessage = '';
     try {
-        $schemaReadAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+        $schemaReadAdapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($schemaReadAdapter, 'observe_lookup_state'))->invoke($schemaReadAdapter, [13]);
     } catch (\Throwable $failure) {
         $schemaReadMessage = $failure->getMessage();
@@ -4367,7 +4367,7 @@ namespace {
     $wpdb->prefix = 'wp_bad`identifier_';
     $badTableMessage = '';
     try {
-        $badTableAdapter = new \Duo\Providers\WoocommerceProductLookups($productProviderDeclaration);
+        $badTableAdapter = new \WPrism\Providers\WoocommerceProductLookups($productProviderDeclaration);
         (new \ReflectionMethod($badTableAdapter, 'observe_lookup_state'))->invoke($badTableAdapter, [13]);
     } catch (\Throwable $failure) {
         $badTableMessage = $failure->getMessage();
@@ -4572,7 +4572,7 @@ namespace {
         $groupedDiscovery->invoke($adapter, 11);
     } catch (\Throwable $failure) {
         $message = $failure->getMessage();
-        $groupedReadFailedClosed = str_contains($message, 'duo: provider checked read failed: grouped parent discovery')
+        $groupedReadFailedClosed = str_contains($message, 'wprism: provider checked read failed: grouped parent discovery')
             && !str_contains($message, 'meta_key =')
             && !str_contains($message, 'simulated read failure')
             && !str_contains($message, 'WooCommerce');
@@ -4619,7 +4619,7 @@ namespace {
         $message = $failure->getMessage();
         $deletionReadFailedClosed = str_contains(
             $message,
-            'duo: provider checked read failed: product lookup deletion verification for product 999'
+            'wprism: provider checked read failed: product lookup deletion verification for product 999'
         )
             && !str_contains($message, 'wc_product_meta_lookup')
             && !str_contains($message, 'simulated read failure')
@@ -4664,7 +4664,7 @@ namespace {
     $check(in_array('woocommerce_permalinks', $fakeOptionReads, true),
         'attribute rewrite derivation reads the Woo permalink setting without the mutating Woo helper');
 
-    // DUO-3368: refresh_attribute_taxonomy_registry() is a post-init repair,
+    // issue #3368: refresh_attribute_taxonomy_registry() is a post-init repair,
     // not permission to invent a new taxonomy contract. Its registration
     // args must remain byte-for-byte equivalent to WooCommerce's own
     // class-wc-post-types.php branch for both attribute_public values, and
@@ -5433,7 +5433,7 @@ namespace {
     $check($fakeProducts[70]->get_type() === 'variable',
         'fresh-target classification is bound to the authored variable product_type identity');
 
-    // DUO-3342: wc_product_meta_lookup verification no longer rebuilds Woo's
+    // issue #3342: wc_product_meta_lookup verification no longer rebuilds Woo's
     // column rules. It brackets one forced re-derivation with two reads — the
     // row the apply left (before) and the row Woo rewrote (after) — and
     // compares both, plus Woo's published derivation, in the database.
@@ -5448,9 +5448,9 @@ namespace {
         && !method_exists($adapter, 'is_on_sale_from_meta')
         && !method_exists($adapter, 'cogs_lookup_enabled')
         && !method_exists($adapter, 'stock_quantity_from_meta'),
-        'no Duo-authored copy of WooCommerce lookup column rules remains in the adapter');
+        'no WPrism-authored copy of WooCommerce lookup column rules remains in the adapter');
 
-    // DUO-3373 decision: a variation-path write expands only the finite child
+    // issue #3373 decision: a variation-path write expands only the finite child
     // list of its loaded variable root. That is bounded by the same public
     // child set the root sync and verification already consume, and avoids a
     // deterministic refuse-then-retry when a sibling's derived inputs or
@@ -5526,7 +5526,7 @@ namespace {
     // derives as PHP null (unmanaged stock), and SQL NULL is a different row
     // from 0 to every consumer. The retired comparison rejected this too; what
     // is new is that the null comes from Woo's own derivation rather than from
-    // a Duo reimplementation of when Woo produces one.
+    // a WPrism reimplementation of when Woo produces one.
     $fakeMeta[13]['_manage_stock'] = ['no'];
     $fakeLookupWriteFaults[13] = ['stock_quantity' => '0'];
     $nullStockMessage = '';
@@ -5587,7 +5587,7 @@ namespace {
         'the batch converges again once WooCommerce publishes its derivation');
 
     // ------------------------------------------------------------------
-    // DUO-3342: invoke() is the only NEW adapter code — the mapping from the
+    // issue #3342: invoke() is the only NEW adapter code — the mapping from the
     // engine batch envelope onto the two arguments everything above drives
     // directly. Everything it must not lose is asserted here against the same
     // fixture: the entity ids, the captured deletion inventory, and (the

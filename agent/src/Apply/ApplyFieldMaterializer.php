@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 
@@ -108,7 +108,7 @@ final class ApplyFieldMaterializer {
     }
 
     /**
-     * DUO-3266: authored postmeta reconciliation for one owner ($id) —
+     * issue #3266: authored postmeta reconciliation for one owner ($id) —
      * factored out of finalize_post() so a second postmeta owner (menu
      * items, finalize_menu() below) gets the SAME ownership discipline
      * instead of a second, drift-prone copy. "We own exactly the
@@ -174,7 +174,7 @@ final class ApplyFieldMaterializer {
             $values = $repeated ? $value : [$value];
             if ($repeated && (!is_array($values) || !array_is_list($values) || $values === [])) {
                 throw new \RuntimeException(
-                    "duo: repeated-row authored $ownerLabel meta '$key' must be a non-empty canonical list"
+                    "wprism: repeated-row authored $ownerLabel meta '$key' must be a non-empty canonical list"
                 );
             }
             $wireValues = [];
@@ -182,19 +182,19 @@ final class ApplyFieldMaterializer {
             foreach ($values as $one) {
                 if ($repeated && !is_scalar($one)) {
                     throw new \RuntimeException(
-                        "duo: repeated-row authored $ownerLabel meta '$key' requires one scalar value per row"
+                        "wprism: repeated-row authored $ownerLabel meta '$key' requires one scalar value per row"
                     );
                 }
                 if ($repeated && is_string($one)
                     && PlainData::decode($one, "$ownerLabel meta $key") !== $one) {
                     throw new \RuntimeException(
-                        "duo: repeated-row authored $ownerLabel meta '$key' requires canonical decoded scalar values"
+                        "wprism: repeated-row authored $ownerLabel meta '$key' requires canonical decoded scalar values"
                     );
                 }
                 $canonicalFingerprint = "v\0" . serialize($one);
                 if ($repeated && isset($seenCanonical[$canonicalFingerprint])) {
                     throw new \RuntimeException(
-                        "duo: repeated-row authored $ownerLabel meta '$key' contains a duplicate value"
+                        "wprism: repeated-row authored $ownerLabel meta '$key' contains a duplicate value"
                     );
                 }
                 $seenCanonical[$canonicalFingerprint] = true;
@@ -207,7 +207,7 @@ final class ApplyFieldMaterializer {
                 $wireFingerprint = "v\0" . serialize($wire);
                 if ($repeated && isset($seenWire[$wireFingerprint])) {
                     throw new \RuntimeException(
-                        "duo: repeated-row authored $ownerLabel meta '$key' resolves to a duplicate target wire value"
+                        "wprism: repeated-row authored $ownerLabel meta '$key' resolves to a duplicate target wire value"
                     );
                 }
                 $seenWire[$wireFingerprint] = true;
@@ -239,7 +239,7 @@ final class ApplyFieldMaterializer {
         // keys whose siblings this same roster supplies: a post an apply is
         // about to create holds no rows at all. `VMATRIX_MANIFEST=acf bash
         // sandbox/tests/certify/certify_version_matrix.sh` died there on the
-        // acf 6.0.0 target apply — "duo: authored post meta '_duo_related'
+        // acf 6.0.0 target apply — "wprism: authored post meta '_wprism_related'
         // disagrees with the locked target context" — as did the independent
         // bisector probe (sandbox/bin/adapter-boundary.sh:44-69). The terminal
         // repeated-row readback below already classifies against the
@@ -264,7 +264,7 @@ final class ApplyFieldMaterializer {
             if (($rule['class'] ?? null) !== 'authored'
                 || array_key_exists('repeated_rows', (array) $rule) !== $declaration['repeated']) {
                 throw new \RuntimeException(
-                    "duo: authored $ownerLabel meta '$key' disagrees with the locked target context"
+                    "wprism: authored $ownerLabel meta '$key' disagrees with the locked target context"
                 );
             }
         }
@@ -359,7 +359,7 @@ final class ApplyFieldMaterializer {
                     && array_key_exists('repeated_rows', (array) $rule)
                     && !array_key_exists($key, $expectedRepeated)) {
                     throw new \RuntimeException(
-                        "duo: omitted repeated-row authored $ownerLabel meta '$key' survived exact locked readback"
+                        "wprism: omitted repeated-row authored $ownerLabel meta '$key' survived exact locked readback"
                     );
                 }
                 if (array_key_exists($key, $expectedRepeated)) {
@@ -369,7 +369,7 @@ final class ApplyFieldMaterializer {
             foreach ($expectedRepeated as $key => $expectedValues) {
                 if (($finalByKey[$key] ?? []) !== $expectedValues) {
                     throw new \RuntimeException(
-                        "duo: repeated-row authored $ownerLabel meta '$key' failed exact locked readback"
+                        "wprism: repeated-row authored $ownerLabel meta '$key' failed exact locked readback"
                     );
                 }
             }

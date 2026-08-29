@@ -4,7 +4,7 @@
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Promotion/Deploy.php';
 
-use Duo\Deploy;
+use WPrism\Deploy;
 
 $check = static function (bool $ok, string $message): void {
     if (!$ok) {
@@ -79,21 +79,21 @@ $throws(
 // validation as CodeCompatibility: uppercase and slash-containing values
 // are ignored, while a lowercase valid token orders the provider first for
 // activation and the dependent first for retirement.
-$tmp = sys_get_temp_dir() . '/duo-plugin-dependency-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-plugin-dependency-' . bin2hex(random_bytes(6));
 define('WP_PLUGIN_DIR', $tmp . '/plugins');
 mkdir(WP_PLUGIN_DIR . '/dependent', 0777, true);
 mkdir(WP_PLUGIN_DIR . '/provider', 0777, true);
 file_put_contents(WP_PLUGIN_DIR . '/dependent/dependent.php', "<?php\n");
 file_put_contents(WP_PLUGIN_DIR . '/provider/provider.php', "<?php\n");
 file_put_contents(WP_PLUGIN_DIR . '/foo.php-bar.php', "<?php\n");
-$GLOBALS['duo_dependency_headers'] = [
+$GLOBALS['wprism_dependency_headers'] = [
     WP_PLUGIN_DIR . '/dependent/dependent.php' => ['RequiresPlugins' => ' Provider, not/a-slug '],
     WP_PLUGIN_DIR . '/provider/provider.php' => ['RequiresPlugins' => ''],
     WP_PLUGIN_DIR . '/foo.php-bar.php' => ['RequiresPlugins' => ''],
 ];
 if (!function_exists('get_plugin_data')) {
     function get_plugin_data(string $file, bool $markup = true, bool $translate = true): array {
-        return $GLOBALS['duo_dependency_headers'][$file] ?? ['RequiresPlugins' => ''];
+        return $GLOBALS['wprism_dependency_headers'][$file] ?? ['RequiresPlugins' => ''];
     }
 }
 $retire = new ReflectionMethod(Deploy::class, 'dependency_ordered_deactivations');
@@ -105,7 +105,7 @@ $check(
     $retired === ['provider/provider.php', 'dependent/dependent.php'],
     'uppercase dependency token was not ignored during retirement ordering'
 );
-$GLOBALS['duo_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
+$GLOBALS['wprism_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
     'RequiresPlugins' => 'provider',
 ];
 $retiredLowercase = $retire->invoke(null, [
@@ -117,7 +117,7 @@ $check(
     'lowercase dependency token did not order the provider after its dependent'
 );
 $activate = new ReflectionMethod(Deploy::class, 'dependency_ordered_activations');
-$GLOBALS['duo_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
+$GLOBALS['wprism_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
     'RequiresPlugins' => 'provider',
 ];
 $nativeDesired = [
@@ -141,7 +141,7 @@ $check(
     $nativeDesired === ['dependent/dependent.php', 'provider/provider.php'],
     'native/alphabetical desired active_plugins order fixture was unexpectedly rewritten'
 );
-$GLOBALS['duo_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
+$GLOBALS['wprism_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
     'RequiresPlugins' => 'not/a-slug',
 ];
 $retiredInvalid = $retire->invoke(null, [
@@ -152,7 +152,7 @@ $check(
     $retiredInvalid === ['provider/provider.php', 'dependent/dependent.php'],
     'invalid slash dependency token was not ignored during retirement ordering'
 );
-$GLOBALS['duo_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
+$GLOBALS['wprism_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
     'RequiresPlugins' => 'foo-bar',
 ];
 $retiredStrange = $retire->invoke(null, [

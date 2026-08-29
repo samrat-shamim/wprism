@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * Host-side half of code deployment.
@@ -17,7 +17,7 @@ namespace Duo\Orchestrator;
  */
 final class CodeDeploy {
     /**
-     * Load only the out-of-band Duo agent for control-plane commands. A
+     * Load only the out-of-band WPrism agent for control-plane commands. A
      * newly staged regular plugin, theme, or user MU plugin may fatal during
      * WordPress bootstrap; compile/stage/finalize and exact lease cleanup
      * must remain available so the next reviewed artifact can repair it.
@@ -26,60 +26,60 @@ final class CodeDeploy {
      * an after_wp_config_load hook instead of guessing the configured layout.
      * That hook first proves the effective content/MU roots are standard, then
      * shadows the MU root with a fresh nonexistent directory so user MU code
-     * is never included. DUO_CONTROL_WPMU_PLUGIN_DIR preserves the proven real
+     * is never included. WPRISM_CONTROL_WPMU_PLUGIN_DIR preserves the proven real
      * materialization target for Code.php, and the protected agent is required
      * explicitly from that standard installation path.
      */
     private const CONTROL_BOOTSTRAP = <<<'PHP'
-$duoWpRoot = (string) (\WP_CLI::get_runner()->config['path'] ?? '');
-if ($duoWpRoot === '') {
-    $duoWpRoot = (string) getcwd();
+$wprismWpRoot = (string) (\WP_CLI::get_runner()->config['path'] ?? '');
+if ($wprismWpRoot === '') {
+    $wprismWpRoot = (string) getcwd();
 }
-$duoResolvedRoot = realpath($duoWpRoot);
-if ($duoResolvedRoot === false) {
-    throw new \RuntimeException('duo: control-plane bootstrap could not resolve the WordPress root');
+$wprismResolvedRoot = realpath($wprismWpRoot);
+if ($wprismResolvedRoot === false) {
+    throw new \RuntimeException('wprism: control-plane bootstrap could not resolve the WordPress root');
 }
-$duoWpRoot = rtrim($duoResolvedRoot, '/');
-$duoAgent = $duoWpRoot . '/wp-content/mu-plugins/duo/duo.php';
+$wprismWpRoot = rtrim($wprismResolvedRoot, '/');
+$wprismAgent = $wprismWpRoot . '/wp-content/mu-plugins/wprism/wprism.php';
 if (defined('WPMU_PLUGIN_DIR')) {
-    throw new \RuntimeException('duo: control-plane bootstrap started with WPMU_PLUGIN_DIR already defined');
+    throw new \RuntimeException('wprism: control-plane bootstrap started with WPMU_PLUGIN_DIR already defined');
 }
-\WP_CLI::add_hook('after_wp_config_load', static function () use ($duoWpRoot, $duoAgent): void {
-    $duoNormalize = static function (string $path): string {
+\WP_CLI::add_hook('after_wp_config_load', static function () use ($wprismWpRoot, $wprismAgent): void {
+    $wprismNormalize = static function (string $path): string {
         $resolved = realpath($path);
         $path = $resolved === false ? $path : $resolved;
         return rtrim(str_replace('\\', '/', $path), '/');
     };
-    $duoStandardContent = $duoWpRoot . '/wp-content';
-    $duoConfiguredContent = defined('WP_CONTENT_DIR')
+    $wprismStandardContent = $wprismWpRoot . '/wp-content';
+    $wprismConfiguredContent = defined('WP_CONTENT_DIR')
         ? (string) constant('WP_CONTENT_DIR')
-        : $duoStandardContent;
-    $duoConfiguredMu = defined('WPMU_PLUGIN_DIR')
+        : $wprismStandardContent;
+    $wprismConfiguredMu = defined('WPMU_PLUGIN_DIR')
         ? (string) constant('WPMU_PLUGIN_DIR')
-        : rtrim($duoConfiguredContent, '/\\') . '/mu-plugins';
-    $duoStandardMu = $duoStandardContent . '/mu-plugins';
+        : rtrim($wprismConfiguredContent, '/\\') . '/mu-plugins';
+    $wprismStandardMu = $wprismStandardContent . '/mu-plugins';
     if (defined('SUNRISE')) {
         throw new \RuntimeException(
-            'duo: control-plane bootstrap cannot safely isolate a configured SUNRISE loader'
+            'wprism: control-plane bootstrap cannot safely isolate a configured SUNRISE loader'
         );
     }
-    if ($duoNormalize($duoConfiguredContent) !== $duoNormalize($duoStandardContent)
-        || $duoNormalize($duoConfiguredMu) !== $duoNormalize($duoStandardMu)) {
+    if ($wprismNormalize($wprismConfiguredContent) !== $wprismNormalize($wprismStandardContent)
+        || $wprismNormalize($wprismConfiguredMu) !== $wprismNormalize($wprismStandardMu)) {
         throw new \RuntimeException(
-            "duo: control-plane bootstrap requires standard wp-content/mu-plugins; wp-config.php resolves '$duoConfiguredMu'"
+            "wprism: control-plane bootstrap requires standard wp-content/mu-plugins; wp-config.php resolves '$wprismConfiguredMu'"
         );
     }
     if (defined('WPMU_PLUGIN_DIR')) {
         throw new \RuntimeException(
-            'duo: control-plane bootstrap cannot safely isolate an explicit WPMU_PLUGIN_DIR; remove the redundant standard definition or use a supported target layout'
+            'wprism: control-plane bootstrap cannot safely isolate an explicit WPMU_PLUGIN_DIR; remove the redundant standard definition or use a supported target layout'
         );
     }
-    if (!is_file($duoAgent)) {
-        throw new \RuntimeException("duo: control-plane bootstrap could not find the protected agent at '$duoAgent'");
+    if (!is_file($wprismAgent)) {
+        throw new \RuntimeException("wprism: control-plane bootstrap could not find the protected agent at '$wprismAgent'");
     }
-    define('DUO_CONTROL_PLANE', true);
-    define('DUO_CONTROL_WPMU_PLUGIN_DIR', $duoStandardMu);
-    define('WPMU_PLUGIN_DIR', $duoWpRoot . '/wp-content/.duo-control-mu-' . bin2hex(random_bytes(16)));
+    define('WPRISM_CONTROL_PLANE', true);
+    define('WPRISM_CONTROL_WPMU_PLUGIN_DIR', $wprismStandardMu);
+    define('WPMU_PLUGIN_DIR', $wprismWpRoot . '/wp-content/.wprism-control-mu-' . bin2hex(random_bytes(16)));
     /* A control-plane command observes or drives the target; it must not
        spawn the target's cron. WordPress core hooks wp_cron() on `init`, and
        spawn_cron() rewrites the doing_cron transient (a database write) and
@@ -91,13 +91,13 @@ if (defined('WPMU_PLUGIN_DIR')) {
     if (!defined('DISABLE_WP_CRON')) {
         define('DISABLE_WP_CRON', true);
     }
-    require_once $duoAgent;
+    require_once $wprismAgent;
 });
 PHP;
 
     /**
      * Compile into a target-visible artifact and decode the agent's JSON
-     * response.  `wp duo compile --format=json` is the sole source of truth
+     * response.  `wp wprism compile --format=json` is the sole source of truth
      * for whether code exists in this revision; do not inspect a mutable
      * checkout on the host after compilation.
      *
@@ -105,7 +105,7 @@ PHP;
      */
     public static function compile(EnvironmentDriver $transport, string $repo, string $artifact): array {
         $result = $transport->captureWp(self::controlArgs([
-            'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
+            'wprism', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
         ]));
         if ($result['exit'] !== 0) {
             return $result + ['summary' => null];
@@ -139,7 +139,7 @@ PHP;
         }
         $summary = json_decode(trim($result['stdout']), true);
         if (!is_array($summary)
-            || ($summary['format'] ?? null) !== 'duo-code-runtime/v1'
+            || ($summary['format'] ?? null) !== 'wprism-code-runtime/v1'
             || ($summary['enabled'] ?? null) !== true
             || !is_bool($summary['change_required'] ?? null)
             || ($summary['compatible'] ?? null) !== true
@@ -235,7 +235,7 @@ PHP;
      */
     public static function beginArgs(string $owner, string $artifactHash): array {
         return self::controlArgs([
-            'duo', 'promotion-begin', '--promotion-owner=' . $owner,
+            'wprism', 'promotion-begin', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
         ]);
     }
@@ -253,7 +253,7 @@ PHP;
         string $scopeHash
     ): array {
         return self::controlArgs([
-            'duo', 'promotion-begin-scoped', '--promotion-owner=' . $owner,
+            'wprism', 'promotion-begin-scoped', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
             '--scoped-promotion-receipt=' . $receiptHash,
             '--scope-hash=' . $scopeHash,
@@ -269,7 +269,7 @@ PHP;
         string $scopeHash
     ): array {
         return self::controlArgs([
-            'duo', 'promotion-complete-scoped', '--promotion-owner=' . $owner,
+            'wprism', 'promotion-complete-scoped', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
             '--scoped-promotion-receipt=' . $receiptHash,
             '--scope-hash=' . $scopeHash,
@@ -285,19 +285,19 @@ PHP;
      */
     public static function abortArgs(string $owner, string $artifactHash): array {
         return self::controlArgs([
-            'duo', 'promotion-abort', '--promotion-owner=' . $owner,
+            'wprism', 'promotion-abort', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
         ]);
     }
 
     /**
-     * The same two lease commands, asked in MACHINE mode, for `duo recover`
-     * only (DUO-3506).
+     * The same two lease commands, asked in MACHINE mode, for `wprism recover`
+     * only (issue #3506).
      *
      * `abortArgs()`/`beginArgs()` stay human deliberately: promote and deploy
      * run them as compensating cleanup and render the target's own stdout and
      * stderr straight back to the operator who is standing there
-     * (cli/duo:3094-3103), so a `--format=json` on those two would change
+     * (cli/wprism:3094-3103), so a `--format=json` on those two would change
      * that output for every caller of those verbs.
      *
      * `RecoverCommand` has the opposite need. It drives the four ordered
@@ -305,7 +305,7 @@ PHP;
      * human mode `promotion_abort()` falls through to
      * `WP_CLI::error($t->getMessage())` (agent/src/Command/Cli.php:645-657)
      * and the reason exists only as prose on a stream nothing reads. Asked in
-     * JSON, the agent answers a refusal with `duo-command-refusal/v1`
+     * JSON, the agent answers a refusal with `wprism-command-refusal/v1`
      * carrying a stable reason code — `promotion_abort_session_superseded`
      * for the case that produced this issue — which `RecoverCommand::step()`
      * surfaces. Same command, same identity, same order; only the reply
@@ -355,7 +355,7 @@ PHP;
 
         return $transport->captureWpPipeline(
             ['db', 'export', '-'],
-            self::controlArgs(['duo', 'checkpoint-seal', '--repo=' . $repo, '--output=' . $checkpoint])
+            self::controlArgs(['wprism', 'checkpoint-seal', '--repo=' . $repo, '--output=' . $checkpoint])
         );
     }
 
@@ -379,7 +379,7 @@ PHP;
         }
 
         return $transport->captureWpPipeline(
-            self::controlArgs(['duo', 'checkpoint-open', '--repo=' . $repo, '--input=' . $checkpoint]),
+            self::controlArgs(['wprism', 'checkpoint-open', '--repo=' . $repo, '--input=' . $checkpoint]),
             self::controlArgs(['db', 'import', '-'])
         );
     }
@@ -387,7 +387,7 @@ PHP;
     /** @return array<int,string> */
     public static function stageArgs(string $repo, string $artifact, string $owner, string $artifactHash): array {
         return self::controlArgs([
-            'duo', 'code-stage', '--repo=' . $repo, '--compiled=' . $artifact,
+            'wprism', 'code-stage', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
         ]);
     }
@@ -395,7 +395,7 @@ PHP;
     /** @return array<int,string> */
     public static function preflightArgs(string $repo, string $artifact, string $artifactHash): array {
         return self::controlArgs([
-            'duo', 'code-preflight', '--repo=' . $repo, '--compiled=' . $artifact,
+            'wprism', 'code-preflight', '--repo=' . $repo, '--compiled=' . $artifact,
             '--artifact-hash=' . $artifactHash, '--format=json',
         ]);
     }
@@ -409,7 +409,7 @@ PHP;
         bool $hold
     ): array {
         $args = [
-            'duo', 'code-finalize', '--repo=' . $repo, '--compiled=' . $artifact,
+            'wprism', 'code-finalize', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
         ];
         if ($hold) {
@@ -428,7 +428,7 @@ PHP;
         // Deliberately not controlArgs(): settlement runs the newly activated
         // plugin and its native queue provider in a fresh ordinary process.
         return [
-            'duo', 'lifecycle-settle', '--repo=' . $repo,
+            'wprism', 'lifecycle-settle', '--repo=' . $repo,
             '--compiled=' . $artifact, '--artifact-hash=' . $artifactHash,
             '--promotion-owner=' . $owner,
         ];
@@ -450,7 +450,7 @@ PHP;
             throw new \InvalidArgumentException("unsupported lifecycle phase '$lifecyclePhase'");
         }
         $args = [
-            'duo', 'deploy', '--repo=' . $repo, '--compiled=' . $artifact,
+            'wprism', 'deploy', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
             '--lifecycle-phase=' . $lifecyclePhase,
         ];

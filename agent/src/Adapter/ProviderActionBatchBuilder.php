@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContext.php';
@@ -63,7 +63,7 @@ final class ProviderActionBatchBuilder {
                 $id = $this->entity_local_id($entity, $uuid);
                 if ($id === null) {
                     throw new \RuntimeException(
-                        "duo: entity-scoped provider capability '{$action['provider']}/{$action['capability']}' "
+                        "wprism: entity-scoped provider capability '{$action['provider']}/{$action['capability']}' "
                         . "selected canonical surface '$surface', but $uuid has no resolvable target-local id; "
                         . 'declare triggers naming only surfaces whose entities carry one'
                     );

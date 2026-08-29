@@ -1,21 +1,21 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
-use Duo\WpCliChildProcess;
+use WPrism\ManifestProviderRuntime;
+use WPrism\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    $duoLayoutRoot = dirname(__DIR__, 5);
-    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
-        ? $duoLayoutRoot . '/agent'
-        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
-    if ($duoAgentRoot === null) {
-        throw new \RuntimeException('duo: WooCommerce lifecycle provider cannot resolve the explicit source or embedded agent layout');
+    $wprismLayoutRoot = dirname(__DIR__, 5);
+    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
+        ? $wprismLayoutRoot . '/agent'
+        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
+    if ($wprismAgentRoot === null) {
+        throw new \RuntimeException('wprism: WooCommerce lifecycle provider cannot resolve the explicit source or embedded agent layout');
     }
-    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($duoLayoutRoot, $duoAgentRoot);
+    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($wprismLayoutRoot, $wprismAgentRoot);
 }
 
 /** Bounded completion gate for WooCommerce's Action Scheduler DB updates. */
@@ -28,7 +28,7 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
     protected function invoke_settle_lifecycle_migrations(array $args): array {
         if ($args !== []) {
-            throw new \RuntimeException('duo: WooCommerce lifecycle settlement accepts no arguments');
+            throw new \RuntimeException('wprism: WooCommerce lifecycle settlement accepts no arguments');
         }
         $before = self::snapshot();
         if (!self::settled($before)) {
@@ -42,21 +42,21 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
                 );
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce migration queue could not be run in a bounded fresh process; recovery_required',
+                    'wprism: WooCommerce migration queue could not be run in a bounded fresh process; recovery_required',
                     0,
                     $failure
                 );
             }
             if ($result['return_code'] !== 0 || trim($result['stderr']) !== '') {
                 throw new \RuntimeException(
-                    'duo: WooCommerce migration queue did not complete cleanly in the bounded fresh process; recovery_required'
+                    'wprism: WooCommerce migration queue did not complete cleanly in the bounded fresh process; recovery_required'
                 );
             }
         }
         $after = self::snapshot();
         if (!self::settled($after)) {
             throw new \RuntimeException(
-                'duo: WooCommerce lifecycle migrations remain pending, running, failed, or version-incomplete; recovery_required'
+                'wprism: WooCommerce lifecycle migrations remain pending, running, failed, or version-incomplete; recovery_required'
             );
         }
         return ['before' => $before, 'after' => $after, 'verified' => true];
@@ -69,11 +69,11 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
             || preg_match('/^[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9.-]+)?$/D', WC_VERSION) !== 1
             || !is_object($wpdb) || !is_string($wpdb->prefix ?? null)
             || preg_match('/^[A-Za-z0-9_]{0,48}$/D', $wpdb->prefix) !== 1) {
-            throw new \RuntimeException('duo: WooCommerce lifecycle settlement requires the exact active plugin/database identity');
+            throw new \RuntimeException('wprism: WooCommerce lifecycle settlement requires the exact active plugin/database identity');
         }
         $table = $wpdb->prefix . 'actionscheduler_actions';
         if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
-            throw new \RuntimeException('duo: WooCommerce lifecycle settlement derived an invalid scheduler table identity');
+            throw new \RuntimeException('wprism: WooCommerce lifecycle settlement derived an invalid scheduler table identity');
         }
         $placeholders = implode(',', array_fill(0, count(self::UPDATE_HOOKS), '%s'));
         $sql = $wpdb->prepare(
@@ -83,7 +83,7 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '' || count($rows) > 5) {
-            throw new \RuntimeException('duo: WooCommerce lifecycle settlement could not read its bounded queue projection');
+            throw new \RuntimeException('wprism: WooCommerce lifecycle settlement could not read its bounded queue projection');
         }
         $counts = ['canceled' => 0, 'complete' => 0, 'failed' => 0, 'in-progress' => 0, 'pending' => 0];
         foreach ($rows as $row) {
@@ -91,7 +91,7 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
             $count = is_array($row) ? ($row['n'] ?? null) : null;
             if (!is_string($status) || !array_key_exists($status, $counts)
                 || !is_string($count) || preg_match('/^(?:0|[1-9][0-9]{0,9})$/D', $count) !== 1) {
-                throw new \RuntimeException('duo: WooCommerce lifecycle settlement read a malformed queue projection');
+                throw new \RuntimeException('wprism: WooCommerce lifecycle settlement read a malformed queue projection');
             }
             $counts[$status] = (int) $count;
         }
@@ -99,7 +99,7 @@ final class WoocommerceLifecycleMigrations extends ManifestProviderRuntime {
         $pluginVersion = get_option('woocommerce_version', null);
         if (!is_string($dbVersion) || strlen($dbVersion) > 64
             || !is_string($pluginVersion) || strlen($pluginVersion) > 64) {
-            throw new \RuntimeException('duo: WooCommerce lifecycle version markers are absent or malformed');
+            throw new \RuntimeException('wprism: WooCommerce lifecycle version markers are absent or malformed');
         }
         return [
             'active_version' => WC_VERSION,

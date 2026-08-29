@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-use Duo\Tooling\AdapterPackageTestsCommand;
+use WPrism\Tooling\AdapterPackageTestsCommand;
 
 require_once __DIR__ . '/src/AdapterPackageTestsCommand.php';
 

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/TableGraph.php';
 
@@ -12,7 +12,7 @@ final class CoreCaptureSchemaException extends \RuntimeException {
 }
 
 /**
- * Live schema boundary for authored typed tables (DUO-3349).
+ * Live schema boundary for authored typed tables (issue #3349).
  *
  * TableSchema owns only live column introspection, write-format derivation,
  * ledger-width checks, and declared/live column reconciliation. It does not
@@ -23,7 +23,7 @@ final class CoreCaptureSchemaException extends \RuntimeException {
  * point used by capture and materialization.
  */
 final class TableSchema {
-    /** duo_map.entity_type/duo_state.entity_type are VARCHAR(64). */
+    /** wprism_map.entity_type/wprism_state.entity_type are VARCHAR(64). */
     private const MAX_ENTITY_TYPE_LEN = 64;
 
     /**
@@ -70,7 +70,7 @@ final class TableSchema {
             if ($table === '') {
                 throw new CoreCaptureSchemaException(
                     [['table' => $property, 'column' => null]],
-                    "duo: core capture schema is unavailable — wpdb has no '$property' table binding"
+                    "wprism: core capture schema is unavailable — wpdb has no '$property' table binding"
                 );
             }
             $requiredByTable[$table] = $columns;
@@ -87,7 +87,7 @@ final class TableSchema {
         ), ARRAY_A);
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
             throw new \RuntimeException(
-                'duo: core capture schema inventory could not be read; refusing to infer an empty schema'
+                'wprism: core capture schema inventory could not be read; refusing to infer an empty schema'
             );
         }
 
@@ -119,7 +119,7 @@ final class TableSchema {
             sort($missingPhysical, SORT_STRING);
             throw new CoreCaptureSchemaException(
                 $missing,
-                'duo: core capture schema drift — required WordPress table/column(s) are missing or renamed: '
+                'wprism: core capture schema drift — required WordPress table/column(s) are missing or renamed: '
                 . implode(', ', $missingPhysical)
             );
         }
@@ -181,20 +181,20 @@ final class TableSchema {
     public static function assert_entity_type_width(string $table): void {
         if (strlen($table) > self::MAX_ENTITY_TYPE_LEN) {
             throw new \RuntimeException(
-                "duo: table '$table' name is " . strlen($table) . ' chars — a table row entity_type IS the table '
+                "wprism: table '$table' name is " . strlen($table) . ' chars — a table row entity_type IS the table '
                 . 'name itself, which must be 1-' . self::MAX_ENTITY_TYPE_LEN
-                . ' chars (duo_map.entity_type/duo_state.entity_type are VARCHAR(' . self::MAX_ENTITY_TYPE_LEN . '))'
+                . ' chars (wprism_map.entity_type/wprism_state.entity_type are VARCHAR(' . self::MAX_ENTITY_TYPE_LEN . '))'
             );
         }
     }
 
-    /** Assert that the declaration's id_kind fits duo_map.id_kind. */
+    /** Assert that the declaration's id_kind fits wprism_map.id_kind. */
     public static function assert_id_kind_width(string $table, array $decl, int $idKindWidth): void {
         $idKind = (string) ($decl['id_kind'] ?? '');
         if ($idKind === '' || strlen($idKind) > $idKindWidth) {
             throw new \RuntimeException(
-                "duo: table '$table' declares id_kind '$idKind' — must be 1-$idKindWidth"
-                . " chars (duo_map.id_kind is VARCHAR($idKindWidth))"
+                "wprism: table '$table' declares id_kind '$idKind' — must be 1-$idKindWidth"
+                . " chars (wprism_map.id_kind is VARCHAR($idKindWidth))"
             );
         }
     }
@@ -224,7 +224,7 @@ final class TableSchema {
         $live = self::live_columns($table);
         if ($live === null) {
             throw new \RuntimeException(
-                "duo: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
+                "wprism: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
             );
         }
         $accounted = array_merge([$pk], $colKeys, $refCols);
@@ -232,7 +232,7 @@ final class TableSchema {
         if ($undeclared) {
             sort($undeclared);
             throw new \RuntimeException(
-                "duo: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
+                "wprism: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
                 . ' — every real column must be classified in the manifest (as the pk, a ref, or a columns entry'
                 . ' with class authored/runtime/derived/env) before this table can be captured; an FK-shaped or'
                 . ' otherwise unclassified column must never silently reach canonical state'
@@ -242,7 +242,7 @@ final class TableSchema {
         if ($missing) {
             sort($missing);
             throw new \RuntimeException(
-                "duo: table '$table' declares column(s) absent from this environment: " . implode(', ', $missing)
+                "wprism: table '$table' declares column(s) absent from this environment: " . implode(', ', $missing)
                 . ' (plugin schema changed? manifest may be pinned to the wrong version range)'
             );
         }
@@ -264,7 +264,7 @@ final class TableSchema {
         $live = self::live_columns($table);
         if ($live === null) {
             throw new \RuntimeException(
-                "duo: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
+                "wprism: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
             );
         }
         $accounted = array_merge($refCols, $colKeys);
@@ -272,7 +272,7 @@ final class TableSchema {
         if ($undeclared) {
             sort($undeclared);
             throw new \RuntimeException(
-                "duo: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
+                "wprism: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
                 . ' — every real column must be classified (as a composite_ref identity/ref column, or a columns'
                 . ' entry with class authored/runtime/derived/env) before this table can be captured'
             );
@@ -281,7 +281,7 @@ final class TableSchema {
         if ($missing) {
             sort($missing);
             throw new \RuntimeException(
-                "duo: table '$table' declares column(s) absent from this environment: " . implode(', ', $missing)
+                "wprism: table '$table' declares column(s) absent from this environment: " . implode(', ', $missing)
                 . ' (plugin schema changed? manifest may be pinned to the wrong version range)'
             );
         }
@@ -302,12 +302,12 @@ final class TableSchema {
 
         $live = self::live_columns($table);
         if ($live === null) {
-            throw new \RuntimeException("duo: declared attached-meta table '$table' does not exist on this environment");
+            throw new \RuntimeException("wprism: declared attached-meta table '$table' does not exist on this environment");
         }
         sort($live);
         if ($expected !== $live) {
             throw new \RuntimeException(
-                "duo: attached-meta table '$table' schema mismatch — expected columns [" . implode(', ', $expected)
+                "wprism: attached-meta table '$table' schema mismatch — expected columns [" . implode(', ', $expected)
                 . '], found [' . implode(', ', $live) . '] (plugin schema changed? manifest declaration is stale)'
             );
         }

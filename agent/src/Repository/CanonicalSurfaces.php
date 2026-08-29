@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Canonical-surface projection shared by Apply and the read-only scope

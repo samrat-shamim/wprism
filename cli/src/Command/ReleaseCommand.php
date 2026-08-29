@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/Transport.php';
@@ -24,10 +24,10 @@ require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/VerifyCommand.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * `duo release <env>` — the composed release (round-3 MUP §2.3).
+ * `wprism release <env>` — the composed release (round-3 MUP §2.3).
  *
  * The verb boundary, per the module map's rule 9: every engine module this
  * command needs is called from here and its result handed to the next as
@@ -38,11 +38,11 @@ use Duo\CommandRefusalException;
  *
  * ## Release COMPOSES promote; it does not fork it
  *
- * Step 6 calls one injected callable, and `cli/duo`'s `cmd_release()` binds
- * that callable to `cmd_promote()` — the same function `duo promote` itself
+ * Step 6 calls one injected callable, and `cli/wprism`'s `cmd_release()` binds
+ * that callable to `cmd_promote()` — the same function `wprism promote` itself
  * calls, routing through `PromoteCommand` to `cmd_promote_scoped()` /
  * `cmd_promote_internal()`. Deploy-before-apply ordering, the promotion
- * lease, the target fence, the checkpoint, the DUO-3310
+ * lease, the target fence, the checkpoint, the issue #3310
  * `VerifiedRollbackProfile` / `ScopedRollbackProfile` selection and every
  * `promote phase:` output byte therefore come from exactly one implementation.
  * This class adds authorization in front of it and verification behind it; it
@@ -53,10 +53,10 @@ use Duo\CommandRefusalException;
  *  1. **Contract.** A site with no accepted application contract cannot be
  *     released: the projection that decides whether a surface is releasable,
  *     the reviewed live-effect declaration §1.6's consequence demands, and
- *     the journeys `duo verify` reads all live in it. The refusal is a
+ *     the journeys `wprism verify` reads all live in it. The refusal is a
  *     PRE-authorization refusal and therefore carries a §2.1 gap action
  *     (`declare in contract`), never a release next action.
- *  2. **Repository delivery + target facts.** One `wp duo plan --format=json` read, its complete
+ *  2. **Repository delivery + target facts.** One `wp wprism plan --format=json` read, its complete
  *     envelope proved through `PlanContract::requireComplete()`; the same
  *     plan rendered through `PlanSummary::render()` for the drift/readiness
  *     check; the target repository `HEAD` read through the driver; and the
@@ -73,7 +73,7 @@ use Duo\CommandRefusalException;
  *     artifact, not evidence about the target as it is now. Regeneration is
  *     unconditional — the plan rendered at step 5 always reflects current
  *     facts, `--plan-only` included — but persisting the regenerated
- *     document to `.duo/contract/projection.json` is a site-repository
+ *     document to `.wprism/contract/projection.json` is a site-repository
  *     mutation, so it is gated on a release that can actually proceed past
  *     this step: `--plan-only` (step 5) skips the write entirely, matching
  *     the "mutated nothing" promise docs/guides/release.md:122-124,
@@ -86,7 +86,7 @@ use Duo\CommandRefusalException;
  *     `--accept-weaker-recovery` authority to it.
  *  5. **Freeze and confirm.** The plan is rendered, `--plan-only` stops here
  *     having mutated nothing, and otherwise the confirmed plan is written to
- *     `.duo/releases/<plan_digest>.json` in the LOCAL site repository BEFORE
+ *     `.wprism/releases/<plan_digest>.json` in the LOCAL site repository BEFORE
  *     any target mutation — the spec's "durably bind and present".
  *  6. **Execute**, with the mutation gate immediately before the mutating
  *     call and after the operator's confirmation. FOUR facts are re-observed
@@ -137,7 +137,7 @@ final class ReleaseCommand {
      * The lifecycle phases `promote` runs, in its own order.
      *
      * `retire` → `activate` happen on EVERY promotion, code or not
-     * (`cli/duo`'s `cmd_promote_internal()` runs `lifecycle-retire` and
+     * (`cli/wprism`'s `cmd_promote_internal()` runs `lifecycle-retire` and
      * `lifecycle-activate` for a repository with no code descriptor too), and
      * they fire WordPress hooks. That is why the §1.6 containment gate can
      * fire on a state-only release: the honest answer is that the window is
@@ -181,7 +181,7 @@ final class ReleaseCommand {
      * @param string $sourceRoot this checkout's root (the adoption probe the
      *        composed assessment runs needs it, exactly as `cmd_assess()` does)
      * @param callable(EnvironmentDriver,list<string>):int $promote the EXISTING
-     *        promote entry point, injected by `cli/duo`'s `cmd_release()`
+     *        promote entry point, injected by `cli/wprism`'s `cmd_release()`
      * @param ?callable():?string $confirm reads one line of operator intent;
      *        null reads STDIN
      * @param ?callable():string $clock null reads the wall clock
@@ -274,9 +274,9 @@ final class ReleaseCommand {
                 'contract_missing',
                 'this site repository has no accepted application contract, so no reviewed declaration says '
                     . 'what this release is allowed to reach',
-                'run duo assess ' . self::token($driver->name()) . ', review '
+                'run wprism assess ' . self::token($driver->name()) . ', review '
                     . $store->proposalRelativePath($driver->name()) . ', then '
-                    . 'duo contract ' . self::token($driver->name()) . ' accept',
+                    . 'wprism contract ' . self::token($driver->name()) . ' accept',
                 'declare in contract'
             );
         }
@@ -298,8 +298,8 @@ final class ReleaseCommand {
         // Pending deletions are this command's own decision, not an
         // assessment gap: `AuthorizationPlan::refusals()` refuses them by name
         // with `release_deletes_not_authorized` and no gap action
-        // (cli/src/Release/AuthorizationPlan.php:613-625). DUO-3502 made a
-        // pending deletion non-ready for `duo status`, which is right for an
+        // (cli/src/Release/AuthorizationPlan.php:613-625). issue #3502 made a
+        // pending deletion non-ready for `wprism status`, which is right for an
         // ordinary promote and wrong here — it would shadow that reviewed
         // refusal behind the generic one below and send the operator to
         // capture/refresh/rebase a plan that needs a flag. Every other
@@ -335,12 +335,12 @@ final class ReleaseCommand {
             // code mismatch or ordinary drift is not a release candidate.
             // The gap action is `classify` rather than a release next action
             // because nothing has been authorized yet: the fix is upstream,
-            // in capture/merge, which is exactly what `duo status` prints.
+            // in capture/merge, which is exactly what `wprism status` prints.
             throw self::gapRefusal(
                 'release_target_not_clean',
                 'the target plan is not safe to promote, so there is nothing to authorize',
-                'run duo status ' . self::token($driver->name())
-                    . ', resolve every reported condition through capture/refresh/rebase, then re-run duo release',
+                'run wprism status ' . self::token($driver->name())
+                    . ', resolve every reported condition through capture/refresh/rebase, then re-run wprism release',
                 'classify',
                 [['plan' => 'not safe to promote']]
             );
@@ -357,7 +357,7 @@ final class ReleaseCommand {
         // Regeneration above is unconditional (step 3's docblock), but
         // persisting it is a site-repository mutation, so it is gated on a
         // release that can proceed past this step. Without this gate every
-        // `--plan-only` run rewrote `.duo/contract/projection.json` before
+        // `--plan-only` run rewrote `.wprism/contract/projection.json` before
         // ever reaching the plan-only return at :215 — contradicting the
         // "mutated nothing… not the target, not the site repository" promise
         // documented three times (docs/guides/release.md:122-124,
@@ -371,7 +371,7 @@ final class ReleaseCommand {
         // take the rows for the surfaces IN SCOPE. Handing them the whole
         // projection would refuse a release because some surface the plan
         // never touches is Not qualified — which is an assessment finding,
-        // not a fact about this release, and `duo assess` already reports it.
+        // not a fact about this release, and `wprism assess` already reports it.
         $inScope = array_values(array_filter(
             $all,
             static fn (array $row): bool => in_array((string) ($row['id'] ?? ''), $scope['surfaces'], true)
@@ -480,7 +480,7 @@ final class ReleaseCommand {
             $current['target']['code_revision_from'] = self::targetHead($driver);
             $current['target']['head_revision'] = $current['target']['code_revision_from'];
             $current['target']['artifact_hash'] = self::targetArtifactHash($driver);
-            // ONE `wp duo capabilities` read, through the SAME helper the
+            // ONE `wp wprism capabilities` read, through the SAME helper the
             // freeze-time assessment used, so freeze and gate observe through
             // identical argv (`AssessCommand::capabilityReport()` states why
             // that is structural). A targeted re-probe, not a second assess:
@@ -506,8 +506,8 @@ final class ReleaseCommand {
                 'release_evidence_not_current',
                 'the reviewed capability library the target answers from moved after the authorization plan was '
                     . 'frozen, so this release was authorized against claims that are no longer in force',
-                'nothing was written. Re-run duo assess to re-read the reviewed claims, review the plan again, '
-                    . 'then duo release.',
+                'nothing was written. Re-run wprism assess to re-read the reviewed claims, review the plan again, '
+                    . 'then wprism release.',
                 [['changed_fields' => ['registry_sha256']]]
             ));
         }
@@ -552,7 +552,7 @@ final class ReleaseCommand {
             return self::fail($driver, $digest, self::classifyFailure($driver), $json, null);
         }
 
-        // 7. Verify. `duo release` always verifies (MUP §2.3 step 5); an
+        // 7. Verify. `wprism release` always verifies (MUP §2.3 step 5); an
         // unverified success is recorded as `verify: null`, never as an
         // implied pass, because absence of an error is never the proof.
         $report = [];
@@ -681,7 +681,7 @@ final class ReleaseCommand {
 
     /**
      * Report a pre-freeze refusal in whichever channel was asked for, and
-     * record it as a `duo-release-outcome/v1` when JSON was asked for.
+     * record it as a `wprism-release-outcome/v1` when JSON was asked for.
      */
     private static function refuse(EnvironmentDriver $driver, CommandRefusalException $refusal, bool $json): int {
         if (!$json) {
@@ -730,7 +730,7 @@ final class ReleaseCommand {
         throw new CommandRefusalException(
             'release_ref_mismatch',
             'plan-only cannot describe the asserted revision because the target repository is on another commit',
-            'run the same release without --plan-only to let Duo fast-forward the clean named target from its '
+            'run the same release without --plan-only to let WPrism fast-forward the clean named target from its '
                 . 'origin, or deliver ' . substr($resolved, 0, 12) . ' through an approved path and rerun plan-only',
             [[
                 'code' => 'ref_mismatch',
@@ -793,7 +793,7 @@ final class ReleaseCommand {
             ],
             71 => [
                 'the selected release is not a fast-forward of the target repository',
-                'reconcile target history explicitly; Duo release will not reset or overwrite divergent history',
+                'reconcile target history explicitly; WPrism release will not reset or overwrite divergent history',
             ],
             default => [
                 'the target repository did not complete and verify the requested fast-forward delivery',
@@ -860,7 +860,7 @@ final class ReleaseCommand {
             throw new CommandRefusalException(
                 'release_ref_unresolvable',
                 'the local site repository could not be asked to resolve the asserted ref',
-                'run duo release from inside the site repository whose environments this release targets'
+                'run wprism release from inside the site repository whose environments this release targets'
             );
         }
         $stdout = (string) stream_get_contents($pipes[1]);
@@ -872,7 +872,7 @@ final class ReleaseCommand {
             throw new CommandRefusalException(
                 'release_ref_unresolvable',
                 'the asserted ref does not resolve to a commit in the local site repository',
-                'fetch or create the ref locally, then re-run duo release with the same --from value'
+                'fetch or create the ref locally, then re-run wprism release with the same --from value'
             );
         }
 
@@ -889,7 +889,7 @@ final class ReleaseCommand {
             throw new CommandRefusalException(
                 'release_target_revision_unknown',
                 'the target repository did not report a revision, so no ref assertion about it can be checked',
-                'confirm the target repo_path is a Git worktree and this transport can read it, then re-run duo release'
+                'confirm the target repo_path is a Git worktree and this transport can read it, then re-run wprism release'
             );
         }
 
@@ -899,9 +899,9 @@ final class ReleaseCommand {
     /**
      * The target's own content address for this revision.
      *
-     * `wp duo compile` is the sole source of truth for the artifact hash and
+     * `wp wprism compile` is the sole source of truth for the artifact hash and
      * is explicitly target-read-free: it "compiles a canonical revision into
-     * Duo's immutable, content-addressed apply artifact without reading or
+     * WPrism's immutable, content-addressed apply artifact without reading or
      * mutating the target environment" (`agent/src/Command/Cli.php`). It is
      * invoked here WITHOUT `--out`, so nothing is written anywhere — which is
      * what lets `--plan-only` name the artifact it would release while still
@@ -909,7 +909,7 @@ final class ReleaseCommand {
      */
     private static function targetArtifactHash(EnvironmentDriver $driver): string {
         $result = $driver->captureWp(CodeDeploy::controlArgs([
-            'duo', 'compile', '--repo=' . $driver->repoPath(), '--format=json',
+            'wprism', 'compile', '--repo=' . $driver->repoPath(), '--format=json',
         ]));
         $summary = ($result['exit'] ?? 1) === 0
             ? json_decode(trim((string) ($result['stdout'] ?? '')), true)
@@ -919,8 +919,8 @@ final class ReleaseCommand {
                 'release_artifact_unavailable',
                 'the target could not compile this revision into a content-addressed artifact, so there is no '
                     . 'identity to bind the authorization to',
-                'run duo status ' . self::token($driver->name())
-                    . ' and repair every repository, policy or code diagnostic it reports, then re-run duo release'
+                'run wprism status ' . self::token($driver->name())
+                    . ' and repair every repository, policy or code diagnostic it reports, then re-run wprism release'
             );
         }
 
@@ -928,26 +928,26 @@ final class ReleaseCommand {
     }
 
     /**
-     * One complete `wp duo plan --format=json` read.
+     * One complete `wp wprism plan --format=json` read.
      *
      * @return array<string,mixed>
      */
     private static function targetPlan(EnvironmentDriver $driver): array {
-        $result = $driver->captureWp(['duo', 'plan', '--repo=' . $driver->repoPath(), '--format=json']);
+        $result = $driver->captureWp(['wprism', 'plan', '--repo=' . $driver->repoPath(), '--format=json']);
         if (($result['exit'] ?? 1) !== 0) {
             $refusal = json_decode(trim((string) ($result['stdout'] ?? '')), true);
-            if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+            if (is_array($refusal) && ($refusal['format'] ?? null) === 'wprism-command-refusal/v1') {
                 throw new CommandRefusalException(
                     is_string($refusal['reason_code'] ?? null) ? $refusal['reason_code'] : 'release_plan_unavailable',
                     (string) ($refusal['message'] ?? 'the target refused to produce a plan'),
-                    (string) ($refusal['remediation'] ?? 'repair the target, then re-run duo release'),
+                    (string) ($refusal['remediation'] ?? 'repair the target, then re-run wprism release'),
                     array_values(array_filter((array) ($refusal['diagnostics'] ?? []), 'is_array'))
                 );
             }
             throw new CommandRefusalException(
                 'release_plan_unavailable',
                 'the target could not produce a plan, so there is nothing to authorize',
-                'run duo status ' . self::token($driver->name()) . ', repair the target, then re-run duo release'
+                'run wprism status ' . self::token($driver->name()) . ', repair the target, then re-run wprism release'
             );
         }
         $decoded = json_decode(trim((string) ($result['stdout'] ?? '')), true);
@@ -955,17 +955,17 @@ final class ReleaseCommand {
             throw new CommandRefusalException(
                 'release_plan_unavailable',
                 'the target returned plan output this build could not parse as JSON',
-                'upgrade the target agent, then re-run duo release'
+                'upgrade the target agent, then re-run wprism release'
             );
         }
 
         try {
-            return PlanContract::requireComplete($decoded, 'duo release');
+            return PlanContract::requireComplete($decoded, 'wprism release');
         } catch (\Throwable $incomplete) {
             throw new CommandRefusalException(
                 'release_plan_incomplete',
                 'the target plan envelope is incomplete, so its counts cannot be trusted to describe this release',
-                'upgrade the target agent to a build that emits the complete plan envelope, then re-run duo release',
+                'upgrade the target agent to a build that emits the complete plan envelope, then re-run wprism release',
                 [['detail' => 'plan envelope incomplete']],
                 $incomplete->getMessage()
             );
@@ -978,7 +978,7 @@ final class ReleaseCommand {
      *
      * Surface membership is decided at the ENTITY-KIND level, from the plan's
      * own value-free `category_summary` — the only scope evidence the agent
-     * publishes (`\Duo\PlanCategorySummary`). The host never classifies a
+     * publishes (`\WPrism\PlanCategorySummary`). The host never classifies a
      * detailed plan row; that rule is `PlanView`'s and it is not relaxed
      * here just because the caller is a release.
      *
@@ -1136,7 +1136,7 @@ final class ReleaseCommand {
                 'certification_provenance' => (string) ($operation['certification_provenance'] ?? ''),
                 // STRUCTURED rows, not the projection's prose. The projection
                 // keeps the prose (SurfaceCatalog::registryFacts()), which is
-                // what `duo assess`, `projection.json` and MUP §1.3's
+                // what `wprism assess`, `projection.json` and MUP §1.3's
                 // readiness word read and what makes those bytes unmoved by
                 // this. The frozen plan needs the machine facts instead: a
                 // prose sentence re-hashes to its own frozen value at the
@@ -1214,7 +1214,7 @@ final class ReleaseCommand {
      * Only an SSH target has a rollback authority runtime, so only an SSH
      * target can prove `verified-automatic`. Every other transport proves
      * `operator-directed`: `promote` takes a real database checkpoint on it
-     * (`cli/duo`'s `promote phase: checkpoint`), which is exactly the one
+     * (`cli/wprism`'s `promote phase: checkpoint`), which is exactly the one
      * resource `RecoveryClaim::RESTORES[operator-directed]` names. Claiming
      * more would put a code, upload and effect restore in the frozen plan
      * that no provider on that transport can honour.
@@ -1244,8 +1244,8 @@ final class ReleaseCommand {
             'requested_profile' => $flags['profile'],
         ];
         // The claim in the frozen authorization plan and the profile
-        // `duo promote` selects must be one answer: promote's dispatch tests
-        // exactly this pair (cli/duo), so testing SshTransport here would let
+        // `wprism promote` selects must be one answer: promote's dispatch tests
+        // exactly this pair (cli/wprism), so testing SshTransport here would let
         // a configured local target read `operator-directed` in the document
         // it authorizes and then run the verified path.
         if ($driver instanceof RecoveryTransport && $driver->carriesRollbackAuthority()) {
@@ -1337,7 +1337,7 @@ final class ReleaseCommand {
         throw new CommandRefusalException(
             'release_not_authorized',
             'the authorization plan was not confirmed, so nothing was written and nothing was frozen',
-            're-run duo release and answer yes to the authorization question, or pass --yes to confirm the '
+            're-run wprism release and answer yes to the authorization question, or pass --yes to confirm the '
                 . 'displayed plan non-interactively'
         );
     }
@@ -1413,7 +1413,7 @@ final class ReleaseCommand {
         return new CommandRefusalException(
             'invalid_arguments',
             $message,
-            'duo release <env> accepts ' . implode(', ', self::FLAGS)
+            'wprism release <env> accepts ' . implode(', ', self::FLAGS)
                 . ' (--from=<ref>, --profile=<p>, --limit=<1..200>, --format=json)'
         );
     }

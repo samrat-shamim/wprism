@@ -18,7 +18,7 @@
 #
 # - No per-pair MariaDB. Every pair's two databases (wp_<name>1/wp_<name>2)
 #   live on the ONE server sandbox/db.yml brings up (its own compose
-#   project, duo-db). A clean-room reset is DROP DATABASE + CREATE DATABASE
+#   project, wprism-db). A clean-room reset is DROP DATABASE + CREATE DATABASE
 #   against an already-warm server — no InnoDB re-init from an empty
 #   datadir, which is what made the old per-pair-volume reset slow.
 #
@@ -32,22 +32,22 @@
 #   that pair's own cli container — the same dependency chain a real
 #   `core install` is about to exercise.
 #
-# - Every pair is its own compose project (`duo-<name>`, via `-p`), so any
+# - Every pair is its own compose project (`wprism-<name>`, via `-p`), so any
 #   number of pairs can come and go independently. They all attach to one
-#   external network (duo-shared, owned/created by sandbox/db.yml) to reach
-#   the shared db by its container name (duo-shared-db) — `depends_on`
+#   external network (wprism-shared, owned/created by sandbox/db.yml) to reach
+#   the shared db by its container name (wprism-shared-db) — `depends_on`
 #   can't cross compose-project boundaries, which is exactly why this
 #   script's own readiness waits exist instead.
 #
 # - `up` performs the host-budget check before creating any pair database or
 #   site-repo state. A new pair over the dynamic CPU/RAM budget is refused;
-#   `DUO_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
+#   `WPRISM_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
 #   the same budget warning for pairs already up.
 #
 # - `up`/`reset`/`start` print the agent/adapter-packages/platform bind-mount source they
 #   will actually use (path + HEAD) before doing anything, and refuse if
-#   `DUO_EXPECTED_SOURCE_SHA` is set and that source is not exactly that
-#   commit, clean — DUO-3377's exact-source gate, see
+#   `WPRISM_EXPECTED_SOURCE_SHA` is set and that source is not exactly that
+#   commit, clean — issue #3377's exact-source gate, see
 #   assert_candidate_source() below.
 #
 # - `reset` DROPs both databases, so it also RECORDS that fact per side
@@ -56,7 +56,7 @@
 #   side installed?" from a single `wp core is-installed` probe against that
 #   same database. `up` then refuses loudly if a side it just bootstrapped is
 #   still not installed, instead of handing a caller a "ready" pair with no
-#   WordPress in it — DUO-3412, see
+#   WordPress in it — issue #3412, see
 #   pair_bootstrap_needs_install_marker() in lib/pair_bootstrap.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # sandbox/bin/pair.sh -> sandbox/
@@ -108,7 +108,7 @@ source "lib/pair_bootstrap.sh"
 source "lib/pair_siterepo.sh"
 
 
-# DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
+# issue #3277: the repo's CANONICAL checkout -- where a persistent pair's
 # bind-mounted agent/adapter-packages/platform sources must always live, regardless of
 # which worktree's own copy of THIS SCRIPT actually ran `up`. Per-issue
 # worktrees are always removed at close-gate; a pair whose agent/adapter-packages/platform
@@ -126,14 +126,14 @@ source "lib/pair_siterepo.sh"
 # worktree itself, it's simply its own .git. The identical one-liner
 # resolves correctly either way -- no special-casing "am I in a worktree"
 # at all, and no assumption about what the canonical checkout is NAMED
-# (this repo's own primary checkout is "duo-wp" in one clone on this host,
-# "duo-wp-main" in another -- a hardcoded name would only ever match one
+# (this repo's own primary checkout is "wprism" in one clone on this host,
+# "wprism-main" in another -- a hardcoded name would only ever match one
 # of them, exactly the fragility this function exists to avoid).
 canonical_root() {
   pair_identity_canonical_root
 }
 
-# DUO-3277: `start` (unlike `up`) never touches container config -- compose
+# issue #3277: `start` (unlike `up`) never touches container config -- compose
 # start just resumes whatever bind-mount sources were baked in when the
 # container was CREATED, so a pair created before this fix shipped (or a
 # pair whose agent/adapter-packages/platform source directory was deleted out from under
@@ -147,7 +147,7 @@ canonical_root() {
 # never have a stopped container of their own to check or resume.
 check_dead_mounts() { # check_dead_mounts <name>
   local name="$1" container dead=()
-  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
+  for container in "wprism-${name}-wp1-1" "wprism-${name}-wp2-1"; do
     docker inspect "$container" >/dev/null 2>&1 || continue   # not created yet -- nothing to check
     local sources src
     sources=$(docker inspect "$container" \
@@ -157,22 +157,22 @@ check_dead_mounts() { # check_dead_mounts <name>
     done <<< "$sources"
   done
   if [ "${#dead[@]}" -gt 0 ]; then
-    fail "pair '$name' has a dead bind-mount source -- the checkout its containers were created against no longer exists on disk (DUO-3277's own worktree-bind-mount hazard: a pair started with 'up' before that fix shipped, or from a worktree since removed, still has the OLD source baked in):
+    fail "pair '$name' has a dead bind-mount source -- the checkout its containers were created against no longer exists on disk (issue #3277's own worktree-bind-mount hazard: a pair started with 'up' before that fix shipped, or from a worktree since removed, still has the OLD source baked in):
 $(printf '  %s\n' "${dead[@]}")
 recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used]\" from ANY checkout of this repo (worktree or canonical, doesn't matter now) -- this recreates the container against the canonical checkout's own agent/adapter-packages/platform (docker compose detects the config drift and recreates automatically); this pair's own database and webroot volumes are untouched either way"
   fi
 }
 
-# DUO-3377: the container-side destination pair.yml mounts DUO_AGENT_SRC to.
-# Matched exactly, never by prefix: the sibling duo-loader.php mount lives in
+# issue #3377: the container-side destination pair.yml mounts WPRISM_AGENT_SRC to.
+# Matched exactly, never by prefix: the sibling wprism-loader.php mount lives in
 # the same directory, and pair.codebind.yml adds its own mounts one tree over
 # (wp-content/plugins/, see pair_siterepo_refuse_codebind_reset).
-AGENT_MOUNT_DEST=/var/www/html/wp-content/mu-plugins/duo
+AGENT_MOUNT_DEST=/var/www/html/wp-content/mu-plugins/wprism
 
-# DUO-3377: the agent bind source BAKED INTO an existing pair's containers,
+# issue #3377: the agent bind source BAKED INTO an existing pair's containers,
 # which is not necessarily what canonical_root() resolves today -- compose
 # start reuses whatever a container was CREATED with (the same fact
-# check_dead_mounts above exists for), so a pair created before DUO-3277
+# check_dead_mounts above exists for), so a pair created before issue #3277
 # shipped can still carry a different source path.
 #
 # BOTH web containers are read, not just the first one that answers -- the
@@ -194,7 +194,7 @@ PAIR_BAKED_AGENT_SRC=""
 mounted_agent_source() { # mounted_agent_source <name>
   local name="$1" container mounts source destination found="" seen=()
   PAIR_BAKED_AGENT_SRC=""
-  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
+  for container in "wprism-${name}-wp1-1" "wprism-${name}-wp2-1"; do
     docker inspect "$container" >/dev/null 2>&1 || continue
     mounts=$(docker inspect "$container" \
       --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\t"}}{{.Destination}}{{"\n"}}{{end}}{{end}}' \
@@ -216,19 +216,19 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
   [ -n "$found" ]
 }
 
-# DUO-3377: the exact-source gate. DUO-3277 made every pair's agent/adapter-packages/platform
+# issue #3377: the exact-source gate. issue #3277 made every pair's agent/adapter-packages/platform
 # bind mounts resolve to the CANONICAL checkout (canonical_root() above) no
 # matter which checkout ran this script -- exactly right for a pair that must
 # outlive a per-issue worktree, and silently wrong for EVIDENCE: a live
 # regression or conformance sweep launched from an issue worktree mounts the
 # canonical checkout's bytes, not the candidate branch's, and the verdict it
 # produces (green OR red) is about code that was never under test. Observed
-# live during DUO-3316: worktree at 3ae1ea5, pair mounted canonical b69fdf,
+# live during issue #3316: worktree at 3ae1ea5, pair mounted canonical b69fdf,
 # and the resulting stale-code warnings read as a candidate regression for a
 # full day before the mount was suspected.
 #
-# Opt-in via DUO_EXPECTED_SOURCE_SHA, because the persistent-pair workflows
-# DUO-3277 exists for are deliberately NOT candidate-bound: unset, every path
+# Opt-in via WPRISM_EXPECTED_SOURCE_SHA, because the persistent-pair workflows
+# issue #3277 exists for are deliberately NOT candidate-bound: unset, every path
 # below behaves exactly as it did before this gate (it only PRINTS what is
 # being mounted, which every live evidence run wants recorded anyway). Set, a
 # run declares "the mounted agent/adapter-packages/platform bytes must be commit <sha>, with
@@ -243,7 +243,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
 # (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh) invoke pair.sh
 # as a subprocess. One exported variable reaches every subcommand from every
 # caller with no argv plumbing anywhere -- the same reasoning that put
-# DUO_AGENT_SRC/DUO_ADAPTER_PACKAGES_SRC/DUO_PLATFORM_SRC into sandbox/.env in pair_compose_configure().
+# WPRISM_AGENT_SRC/WPRISM_ADAPTER_PACKAGES_SRC/WPRISM_PLATFORM_SRC into sandbox/.env in pair_compose_configure().
 #
 # Deliberately NOT applied to stop/destroy/list: those are teardown and
 # inspection, never evidence, and cleanup must never be blocked by a variable
@@ -280,7 +280,7 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   else
     actual=""
   fi
-  expected="${DUO_EXPECTED_SOURCE_SHA:-}"
+  expected="${WPRISM_EXPECTED_SOURCE_SHA:-}"
 
   # On stderr, unlike every other say()/pass() in this file: which bytes
   # produced a piece of evidence is provenance, not progress chatter, and most
@@ -289,7 +289,7 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   # ...). Printing this to stdout would make it invisible in exactly the runs
   # whose evidence most needs to name its source.
   {
-    say "candidate source for '$subcommand' (DUO-3377): agent/adapter-packages/platform bind mounts"
+    say "candidate source for '$subcommand' (issue #3377): agent/adapter-packages/platform bind mounts"
     if [ -n "$source_root" ]; then
       echo "  mounted source: ${source_root}/{agent,adapter-packages,platform}${origin}"
     else
@@ -299,28 +299,28 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
     echo "  invoked from:   $(pwd)"
   } >&2
   if [ -z "$expected" ]; then
-    echo "  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)" >&2
+    echo "  expected SHA:   (WPRISM_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)" >&2
     return 0
   fi
 
   expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
-  echo "  expected SHA:   $expected (DUO_EXPECTED_SOURCE_SHA)" >&2
+  echo "  expected SHA:   $expected (WPRISM_EXPECTED_SOURCE_SHA)" >&2
   [[ "$expected" =~ ^[0-9a-f]{7,40}$ ]] \
-    || fail "DUO_EXPECTED_SOURCE_SHA must be a 7-40 character hex commit SHA (got '${DUO_EXPECTED_SOURCE_SHA}') -- take it from \`git rev-parse HEAD\` in the checkout whose bytes this evidence is about; refusing before any pair mutation rather than guessing what was meant"
+    || fail "WPRISM_EXPECTED_SOURCE_SHA must be a 7-40 character hex commit SHA (got '${WPRISM_EXPECTED_SOURCE_SHA}') -- take it from \`git rev-parse HEAD\` in the checkout whose bytes this evidence is about; refusing before any pair mutation rather than guessing what was meant"
   [ -n "$source_root" ] \
-    || fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be the exact physical path of a worktree from this repository; DUO_EXPECTED_SOURCE_SHA=$expected cannot be honored"
+    || fail "could not resolve a safe source checkout via git -- WPRISM_SOURCE_ROOT must be the exact physical path of a worktree from this repository; WPRISM_EXPECTED_SOURCE_SHA=$expected cannot be honored"
   [ -n "$actual" ] \
-    || fail "candidate-source gate is set (DUO_EXPECTED_SOURCE_SHA=$expected) but the mounted source has no resolvable HEAD: $source_root -- refusing before any pair mutation"
+    || fail "candidate-source gate is set (WPRISM_EXPECTED_SOURCE_SHA=$expected) but the mounted source has no resolvable HEAD: $source_root -- refusing before any pair mutation"
   if [ "${actual:0:${#expected}}" != "$expected" ]; then
     fail "candidate-source MISMATCH -- refusing before any pair mutation (no budget reservation, no database drop/create, no site-repo roots, no container create/start):
-  expected (DUO_EXPECTED_SOURCE_SHA): $expected
+  expected (WPRISM_EXPECTED_SOURCE_SHA): $expected
   actual mounted source:              ${source_root}/{agent,adapter-packages,platform}${origin}
   actual mounted source HEAD:         $actual
   this pair.sh copy is running from:  $(pwd)
 By default persistent pairs mount the canonical checkout. For evidence from a
 linked worktree, explicitly select that exact physical worktree:
-  DUO_SOURCE_ROOT=\$(pwd -P) DUO_EXPECTED_SOURCE_SHA=\$(git rev-parse HEAD) bash sandbox/bin/pair.sh $subcommand ...
-Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout genuinely is the intended source."
+  WPRISM_SOURCE_ROOT=\$(pwd -P) WPRISM_EXPECTED_SOURCE_SHA=\$(git rev-parse HEAD) bash sandbox/bin/pair.sh $subcommand ...
+Otherwise set WPRISM_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout genuinely is the intended source."
   fi
   # The right commit says nothing about the two directories being PRESENT:
   # `git status -- <pathspec>` reports nothing at all for a path that does not
@@ -350,7 +350,7 @@ Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout gen
   #   takes index.lock and writes the refreshed index back, which is both an
   #   unwanted write on someone else's checkout and a flaky-refusal risk if it
   #   loses that race.
-  dirt_err="$(mktemp "${TMPDIR:-/tmp}/duo-pair-source-dirt.XXXXXX")" \
+  dirt_err="$(mktemp "${TMPDIR:-/tmp}/wprism-pair-source-dirt.XXXXXX")" \
     || fail "could not create a temporary file to capture git's own diagnostics -- refusing before any pair mutation"
   if ! dirt="$(git -C "$source_root" --no-optional-locks status --porcelain=v1 \
       --untracked-files=all -- agent adapter-packages platform 2>"$dirt_err")"; then
@@ -371,13 +371,13 @@ Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout gen
     done <<< "$dirt"
     fail "candidate source is DIRTY -- refusing before any pair mutation. The agent/adapter-packages/platform bytes about to be mounted from $source_root do not correspond to $actual:
 $(printf '  %s\n' "${dirt_lines[@]}")
-remedy: commit or stash those changes, or produce this evidence from a clean standalone clone at the expected commit (git clone --branch <branch> $canonical /path/to/duo-wp-live-<issue>). Uncommitted mount bytes make the evidence unreproducible -- nothing records what they were"
+remedy: commit or stash those changes, or produce this evidence from a clean standalone clone at the expected commit (git clone --branch <branch> $canonical /path/to/wprism-live-<issue>). Uncommitted mount bytes make the evidence unreproducible -- nothing records what they were"
   fi
   pass "mounted source is exactly $expected, clean — this run's evidence is bound to that commit" >&2
 }
 
 # Which shared database server this invocation talks to. DB_CONTAINER,
-# DB_CLIENT, DB_COMPOSE and DB_LABEL come from DUO_DB_ENGINE via
+# DB_CLIENT, DB_COMPOSE and DB_LABEL come from WPRISM_DB_ENGINE via
 # pair_db_select_engine() (lib/pair_db.sh); its `mariadb` default reproduces
 # the exact values this block hard-coded before the MySQL evidence lane
 # existed, so no default-path byte moves. Called HERE, at load, because fail()
@@ -389,12 +389,12 @@ pair_db_select_engine
 # `up`: pair_compose_configure() REWRITES sandbox/.env on every call (stop,
 # start and destroy each call it too, pair.sh:783/832/855), so exporting this
 # inside cmd_up only would let a later `pair.sh stop <mysql-pair>` overwrite
-# that file's DUO_DB_HOST with pair_compose.sh's duo-shared-db default -- and
+# that file's WPRISM_DB_HOST with pair_compose.sh's wprism-shared-db default -- and
 # the next subprocess `docker compose -f pair.yml up` from conformance/run.sh
 # or a regress_*.sh would then recreate wp1/wp2 against MariaDB while the
 # operator recorded MySQL evidence. Exported at load, beside the selection it
 # derives from, that window does not exist.
-export DUO_DB_HOST="$DB_CONTAINER"
+export WPRISM_DB_HOST="$DB_CONTAINER"
 DB_ROOT_USER=root
 DB_ROOT_PASS=root
 APP_USER=wordpress
@@ -412,7 +412,7 @@ validate_name() { # validate_name <name>
 # discovery are in lib/pair_compose.sh (pair_compose_configure/
 # pair_compose_live_pairs/pair_compose_stopped_pairs) ------------------------
 
-# DUO-3412: the "this side's database was dropped out from under it" record —
+# issue #3412: the "this side's database was dropped out from under it" record —
 # the one piece of state that lets `up` know it must not trust the
 # `is-installed` probe it is about to make.
 #
@@ -428,10 +428,10 @@ validate_name() { # validate_name <name>
 # the reinstall and hand back a "ready" pair with no wp_options in it. The
 # sweep then dies a long way from the cause, at its first seed's `wp_conf1`
 # call, on wp-cli's bare "Error: The site you have requested is not
-# installed" — observed live during DUO-3410's degraded-host era. That the
+# installed" — observed live during issue #3410's degraded-host era. That the
 # probe actually raced is a HYPOTHESIS (that host was failing other ways
 # too); that a harness must not re-derive a premise it just destroyed from a
-# single probe is not — it is DUO-3381/DUO-3391's premise-before-behavior
+# single probe is not — it is issue #3381/issue #3391's premise-before-behavior
 # family applied to bootstrap instead of to a seed hook.
 #
 # So `reset` records what it did and `up` consumes the record: after a DROP
@@ -535,7 +535,7 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
     warn "!! pairs: $(printf '%s' "$live" | tr '\n' ' ')"
     warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
     if [ -n "$candidate" ] && [ "$candidate_admitted" -eq 0 ]; then
-      if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
+      if [ "${WPRISM_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
         # Presence is permission, not evidence of use.  Record only here,
         # after both the in-budget and held-reservation paths have failed to
         # admit the candidate.  A ledger the operator configured and that then
@@ -543,14 +543,14 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
         # forced its way past the budget has to stay distinguishable from one
         # that did not, and that is the ledger's whole remaining job now that
         # nothing projects it anywhere (lib/pair_force_hatch.sh header).
-        if ! pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE; then
+        if ! pair_force_hatch_record WPRISM_PAIR_BUDGET_OVERRIDE; then
           budget_lock_release
-          fail "could not record actual DUO_PAIR_BUDGET_OVERRIDE use in the force-hatch ledger; refusing before pair mutation"
+          fail "could not record actual WPRISM_PAIR_BUDGET_OVERRIDE use in the force-hatch ledger; refusing before pair mutation"
         fi
-        warn "!! DUO_PAIR_BUDGET_OVERRIDE=1 set — bringing up '$candidate' ANYWAY, ${total}/${budget} over budget"
+        warn "!! WPRISM_PAIR_BUDGET_OVERRIDE=1 set — bringing up '$candidate' ANYWAY, ${total}/${budget} over budget"
       else
         budget_lock_release
-        fail "refusing to bring up new pair '$candidate' over budget (${total} > ${budget}); stop/destroy another pair first, or set DUO_PAIR_BUDGET_OVERRIDE=1 to proceed anyway"
+        fail "refusing to bring up new pair '$candidate' over budget (${total} > ${budget}); stop/destroy another pair first, or set WPRISM_PAIR_BUDGET_OVERRIDE=1 to proceed anyway"
       fi
     fi
   fi
@@ -586,7 +586,7 @@ cmd_up() {
   fi
   validate_name "$name"
 
-  # DUO-3377: the exact-source gate runs FIRST -- ahead of the budget
+  # issue #3377: the exact-source gate runs FIRST -- ahead of the budget
   # reservation (which creates the shared lock directory under the canonical
   # checkout), the shared DB, this pair's schemas, its site-repo roots, and
   # every container operation. A refusal here has touched nothing at all.
@@ -618,14 +618,14 @@ cmd_up() {
   PAIR_BOOTSTRAP_ARTIFACTS="$artifacts"
 
   if [ "$git_cli" = 1 ]; then
-    [ -n "${DUO_CLI_IMAGE:-}" ] \
-      || fail "up: --git-cli requires an explicit DUO_CLI_IMAGE tag"
-    # `duo release` reads the managed repository's Git revision inside the
+    [ -n "${WPRISM_CLI_IMAGE:-}" ] \
+      || fail "up: --git-cli requires an explicit WPRISM_CLI_IMAGE tag"
+    # `wprism release` reads the managed repository's Git revision inside the
     # CLI service. The stock wordpress:cli image has no Git; build the repo's
     # reviewed image before pair mutation and make the selected tag persist
     # through the ordinary pair.yml interpolation used by later host verbs.
-    docker build -q -f init-cli.Dockerfile -t "$DUO_CLI_IMAGE" . >/dev/null \
-      || fail "up: could not build the Git-enabled CLI image $DUO_CLI_IMAGE"
+    docker build -q -f init-cli.Dockerfile -t "$WPRISM_CLI_IMAGE" . >/dev/null \
+      || fail "up: could not build the Git-enabled CLI image $WPRISM_CLI_IMAGE"
   fi
 
   # Reserve the host budget before touching the shared DB, creating pair
@@ -647,9 +647,9 @@ cmd_up() {
   [ -n "$codebind" ] && overlays+=(pair.codebind.yml)
   [ "$artifacts" = 1 ] && overlays+=(pair.artifacts.yml)
   [ "$wordpress_offline" = 1 ] && overlays+=(pair.wordpress-offline.yml)
-  export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
-  export DUO_ARTIFACT_OFFLINE="$wordpress_offline"
-  # DUO_DB_HOST is exported at load beside pair_db_select_engine (this file's
+  export WPRISM_PAIR="$name" WPRISM_PORT1="$port1" WPRISM_PORT2="$port2" WPRISM_CODEBIND_PLUGIN="$codebind"
+  export WPRISM_ARTIFACT_OFFLINE="$wordpress_offline"
+  # WPRISM_DB_HOST is exported at load beside pair_db_select_engine (this file's
   # shared-db section) so every subcommand carries it, not just this one;
   # pair.yml renders WORDPRESS_DB_HOST from it and pair_compose_configure()
   # persists it to sandbox/.env for the many subprocess callers that make their
@@ -662,7 +662,7 @@ cmd_up() {
     pair_compose_configure "$name"
   fi
 
-  say "shared infra: $DB_LABEL + duo-shared network"
+  say "shared infra: $DB_LABEL + wprism-shared network"
   pair_db_ensure_up
   pair_db_ensure_app_user
   pass "shared db up, healthy, wordpress user granted on wp\\_%"
@@ -684,15 +684,15 @@ cmd_up() {
   say "pair '$name': web containers up"
   # Persistent callers resolve agent/adapter-packages/platform against the canonical checkout;
   # exact evidence callers may explicitly select their linked worktree with
-  # DUO_SOURCE_ROOT. If that source differs from whatever config an EXISTING pair
+  # WPRISM_SOURCE_ROOT. If that source differs from whatever config an EXISTING pair
   # was created with (e.g. a pair `up`'d from a worktree before this fix,
   # or from a different worktree than last time), compose's own standard
   # config-drift detection recreates it here automatically, on volumes
   # that never move (the r3b recovery this issue's own filing already
   # documented empirically, now happening for the RIGHT reason instead of
   # by accident).
-  if [ "$DUO_AGENT_SRC" != "$(pwd)/agent" ]; then
-    echo "  (bind-mount source: $(dirname "$DUO_AGENT_SRC") -- this pair.sh copy is running from $(pwd))"
+  if [ "$WPRISM_AGENT_SRC" != "$(pwd)/agent" ]; then
+    echo "  (bind-mount source: $(dirname "$WPRISM_AGENT_SRC") -- this pair.sh copy is running from $(pwd))"
   fi
   # Keep the codebind contract's force-recreate scoped to the web services,
   # but never create CLI services until the web containers have established
@@ -725,17 +725,17 @@ cmd_up() {
     # actually resolve for wp-cli to work (most wp-cli commands never make
     # an HTTP round trip to themselves); using a real in-network hostname
     # here would be misleading anyway, since wp1/wp2/cli1/cli2 are the same
-    # literal service names across every pair sharing the duo-shared
+    # literal service names across every pair sharing the wprism-shared
     # network, and Docker's embedded DNS does not scope those bare-name
     # aliases per compose project on a shared external network — the only
-    # cross-pair-safe hostname in this whole design is duo-shared-db's
+    # cross-pair-safe hostname in this whole design is wprism-shared-db's
     # explicit container_name. See docs/sandbox.md.
     url1="http://${name}1.invalid"; url2="http://${name}2.invalid"
   fi
 
   say "pair '$name': generic WordPress bootstrap (idempotent)"
-  pair_bootstrap_install_side "$name" 1 "$url1" "Duo ${name}1"
-  pair_bootstrap_install_side "$name" 2 "$url2" "Duo ${name}2"
+  pair_bootstrap_install_side "$name" 1 "$url1" "WPrism ${name}1"
+  pair_bootstrap_install_side "$name" 2 "$url2" "WPrism ${name}2"
 
   say "pair '$name' ready"
   if [ "$http_mode" = 1 ]; then
@@ -746,18 +746,18 @@ cmd_up() {
     echo "  wp2: $url2 (headless — no host port published)"
   fi
   echo
-  local cli_recipe_env="DUO_PAIR=${name} DUO_PORT1=${port1} DUO_PORT2=${port2} DUO_CLI_IMAGE=${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
-  [ -z "$codebind" ] || cli_recipe_env="${cli_recipe_env} DUO_CODEBIND_PLUGIN=${codebind}"
+  local cli_recipe_env="WPRISM_PAIR=${name} WPRISM_PORT1=${port1} WPRISM_PORT2=${port2} WPRISM_CLI_IMAGE=${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}"
+  [ -z "$codebind" ] || cli_recipe_env="${cli_recipe_env} WPRISM_CODEBIND_PLUGIN=${codebind}"
   echo "  wp-cli invocation pattern for this pair (run from sandbox/):"
-  echo "    ${cli_recipe_env} docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli1 wp <command...>"
-  echo "    ${cli_recipe_env} docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli2 wp <command...>"
-  echo "  (the printed DUO_PAIR/port/image/codebind values are part of the recipe: compose project -p alone does not populate pair.yml's variable interpolation)"
+  echo "    ${cli_recipe_env} docker compose -p wprism-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli1 wp <command...>"
+  echo "    ${cli_recipe_env} docker compose -p wprism-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli2 wp <command...>"
+  echo "  (the printed WPRISM_PAIR/port/image/codebind values are part of the recipe: compose project -p alone does not populate pair.yml's variable interpolation)"
 }
 
 cmd_reset() {
   local name="${1:?usage: pair.sh reset <name>}" lease_locked=0
   validate_name "$name"
-  # DUO-3377: reset is a mutation (DROP/CREATE of both databases, plus the
+  # issue #3377: reset is a mutation (DROP/CREATE of both databases, plus the
   # site-repo clear below) and is what every conformance sweep runs FIRST, so
   # the gate has to sit ahead of pair_siterepo_refuse_codebind_reset's Docker
   # queries too, since the source question is answerable without them.
@@ -777,7 +777,7 @@ cmd_reset() {
   say "pair '$name': reset"
   pair_db_drop "$name"
   pair_db_create "$name"
-  # DUO-3412: record the DROP for `up`, immediately after it and before
+  # issue #3412: record the DROP for `up`, immediately after it and before
   # anything else here can fail. From this line on, both sides of this pair
   # are KNOWN uninstalled, and the next install_side must not re-derive that
   # from a probe it makes against the two databases these lines just emptied
@@ -802,7 +802,7 @@ cmd_reset() {
   echo "  install_env) before using it again."
   echo "  reset also recorded siterepo/.${name}{1,2}.needs-install: that 'up' will"
   echo "  reinstall both sides unconditionally rather than trust an is-installed"
-  echo "  probe against the databases just dropped here (DUO-3412)."
+  echo "  probe against the databases just dropped here (issue #3412)."
 }
 
 cmd_stop() {
@@ -823,7 +823,7 @@ cmd_stop() {
   fi
   say "pair '$name': stop (free RAM/CPU; containers, volumes, databases all kept)"
   pair_compose_configure "$name"
-  export DUO_PAIR="$name"
+  export WPRISM_PAIR="$name"
   "${PAIR_COMPOSE[@]}" stop
   [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
   pass "stopped — resume with: pair.sh start $name"
@@ -835,7 +835,7 @@ cmd_start() {
   # up's flags or port args are needed — and none can be changed here; a
   # config change means destroy + up.
   #
-  # DUO-3412: `start` deliberately neither consumes nor clears a needs-install
+  # issue #3412: `start` deliberately neither consumes nor clears a needs-install
   # marker, and that is a decision, not an omission. It installs nothing, so
   # there is nothing here to consume; and after reset + stop + start the pair
   # genuinely IS uninstalled, so clearing the marker here would silently
@@ -846,11 +846,11 @@ cmd_start() {
   local name="${1:?usage: pair.sh start <name>}" bound_ports
   local -a requested_ports=()
   validate_name "$name"
-  # DUO-3377: `start` resumes containers with the bind-mount sources baked in
+  # issue #3377: `start` resumes containers with the bind-mount sources baked in
   # at CREATE time (see this file's own check_dead_mounts comment), so the
   # source this gate must verify is the BAKED one, not whatever
   # canonical_root() resolves today -- they differ for any pair created before
-  # DUO-3277 shipped. check_dead_mounts below still owns the separate "that
+  # issue #3277 shipped. check_dead_mounts below still owns the separate "that
   # source no longer exists at all" case. Called as a plain statement, never
   # inside `$(...)`: mounted_agent_source can itself refuse (disagreeing
   # containers), and that refusal has to end this run rather than a
@@ -872,7 +872,7 @@ cmd_start() {
   check_dead_mounts "$name"
   say "pair '$name': start (state exactly as it was at stop)"
   pair_compose_configure "$name"
-  export DUO_PAIR="$name"
+  export WPRISM_PAIR="$name"
   "${PAIR_COMPOSE[@]}" start
   pair_readiness_wait_pair_visible "$name"
   disarm_budget_up_cleanup
@@ -895,11 +895,11 @@ cmd_destroy() {
   # container/volume/database mutation. Missing roots remain a no-op.
   pair_siterepo_host "$name" both
   pair_compose_configure "$name"
-  export DUO_PAIR="$name"
+  export WPRISM_PAIR="$name"
   "${PAIR_COMPOSE[@]}" down -v --remove-orphans
   pair_db_ensure_up
   pair_db_drop "$name"
-  # DUO-3412: the needs-install markers are this pair's state, and destroy is
+  # issue #3412: the needs-install markers are this pair's state, and destroy is
   # where this pair's state goes — leaving them would make the next `up` on a
   # recycled pair name act on a record about a pair that no longer exists.
   # Destroy does NOT write markers of its own, even though it drops the same
@@ -915,7 +915,7 @@ cmd_destroy() {
 }
 
 cmd_list() {
-  say "live sandbox pairs (duo-* compose projects, excluding duo-db)"
+  say "live sandbox pairs (wprism-* compose projects, excluding wprism-db)"
   local pairs
   # The reservation performs exactly one live query while holding the shared
   # lock. Reuse that result instead of first enumerating outside the gate.
@@ -938,7 +938,7 @@ cmd_list() {
     printf '%s\n' "$stopped" | sed 's/^/  - /'
   fi
 
-  say "shared db (engine: ${DUO_DB_ENGINE:-mariadb})"
+  say "shared db (engine: ${WPRISM_DB_ENGINE:-mariadb})"
   if docker inspect "$DB_CONTAINER" >/dev/null 2>&1; then
     echo "  ${DB_CONTAINER}: $(docker inspect -f '{{.State.Status}} ({{.State.Health.Status}})' "$DB_CONTAINER")"
   else
@@ -1004,8 +1004,8 @@ usage:
            permalinks, .htaccess) on each side if not already installed —
            unconditionally on a side reset marked needs-install, and
            refusing if a side is still not installed afterwards
-           (DUO-3412) — then prints the wp-cli invocation pattern.
-             --journal          turn on DUO_JOURNAL (pair.journal.yml)
+           (issue #3412) — then prints the wp-cli invocation pattern.
+             --journal          turn on WPRISM_JOURNAL (pair.journal.yml)
              --codebind <dir>   bind wp-content/plugins/<dir> from this
                                  pair's own siterepo/<name>{1,2}/code/ tree
                                  (pair.codebind.yml; spike G's pattern)
@@ -1014,14 +1014,14 @@ usage:
              --wordpress-offline  map WordPress.org catalog hosts to
                                  loopback; requires --artifacts and a warm cache
              --git-cli          build init-cli.Dockerfile into the explicit
-                                DUO_CLI_IMAGE tag before creating pair resources
+                                WPRISM_CLI_IMAGE tag before creating pair resources
              --http             publish wp1/wp2 on <port1>/<port2> (default)
              --headless         don't publish any host port for this pair
 
   reset    DROP/CREATE this pair's two databases + clear ordinary site-repo
            contents in place, and record siterepo/.<name>{1,2}.needs-install
            so the next `up` reinstalls both sides unconditionally instead of
-           probing the databases it just emptied (DUO-3412). Refuses if a
+           probing the databases it just emptied (issue #3412). Refuses if a
            live/stopped codebind mount is detected (destroy + up --codebind
            is the safe clean-room path). Does NOT touch webroot volumes,
            restart containers, or reinstall WordPress.
@@ -1053,37 +1053,37 @@ hyphens/underscores) — used bare as both a MySQL database-name fragment
 and a docker compose project suffix.
 
 Environment:
-  DUO_EXPECTED_SOURCE_SHA=<7-40 hex>
-           DUO-3377's exact-source gate. up/reset/start always PRINT the
+  WPRISM_EXPECTED_SOURCE_SHA=<7-40 hex>
+           issue #3377's exact-source gate. up/reset/start always PRINT the
            agent/adapter-packages/platform bind-mount source they will use (path + HEAD);
            with this set they additionally REFUSE — before any database
            drop/create, site-repo write, or container create/start —
            unless that source is exactly this commit with no uncommitted
            agent/adapter-packages/platform changes. Bind every live evidence run with it
-           (`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`). Without an
+           (`WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`). Without an
            explicit source override, mounts resolve to the canonical checkout.
            Unset = unchanged behavior.
            stop/destroy/list are deliberately ungated (teardown, not
            evidence). sandbox/conformance/run.sh passes it through as
            CONF_EXPECTED_SOURCE_SHA.
-  DUO_SOURCE_ROOT=<absolute physical worktree path>
+  WPRISM_SOURCE_ROOT=<absolute physical worktree path>
            Select this repository worktree as the agent/adapter-packages/platform mount source.
            The path must be the exact top-level physical path and share this
            repository's git common directory. Evidence runners set it together
-           with DUO_EXPECTED_SOURCE_SHA; ordinary persistent pairs leave it unset.
-  DUO_PAIR_BUDGET_OVERRIDE=1
+           with WPRISM_EXPECTED_SOURCE_SHA; ordinary persistent pairs leave it unset.
+  WPRISM_PAIR_BUDGET_OVERRIDE=1
            bring a pair up/start it even when the host budget is exceeded.
-  DUO_DB_ENGINE=mariadb|mysql
+  WPRISM_DB_ENGINE=mariadb|mysql
            which shared database server every subcommand of this invocation
            uses. Default `mariadb` is unchanged behaviour: db.yml's
-           duo-shared-db, the `mariadb` client, project duo-db. `mysql`
+           wprism-shared-db, the `mariadb` client, project wprism-db. `mysql`
            selects the parallel evidence-lane server (db.mysql.yml's
-           duo-shared-mysql, the `mysql` client, project duo-db-mysql) and
-           exports DUO_DB_HOST so pair.yml and every subprocess compose call
+           wprism-shared-mysql, the `mysql` client, project wprism-db-mysql) and
+           exports WPRISM_DB_HOST so pair.yml and every subprocess compose call
            resolve it. Any other value is refused by name, at load, before any
            subcommand. Selecting `mysql` CLAIMS NOTHING: the shipped platform
            contract (platform/adapter-library/capabilities/platform.json) is still
-           MariaDB-only, so `wp duo ...` on such a pair refuses
+           MariaDB-only, so `wp wprism ...` on such a pair refuses
            platform_unsupported / platform_database_engine_unsupported. That
            refusal is the lane's first datum; widening the claim needs live
            evidence and its own commit.

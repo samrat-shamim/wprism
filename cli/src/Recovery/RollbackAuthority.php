@@ -1,12 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/RecoveryTransport.php';
 
-use Duo\Recovery\RollbackControl;
-use Duo\Recovery\CanonicalJson;
+use WPrism\Recovery\RollbackControl;
+use WPrism\Recovery\CanonicalJson;
 
 /**
  * Controller-side client for the adopted rollback authority runtime.
@@ -38,7 +38,7 @@ final class RollbackAuthority {
         $keyId = $transport->rollbackKeyId();
         $keyPath = $transport->rollbackSigningKeyPath();
         if (!is_string($keyId) || !is_string($keyPath)) {
-            throw new \RuntimeException('duo rollback: incomplete controller signing-key configuration');
+            throw new \RuntimeException('wprism rollback: incomplete controller signing-key configuration');
         }
         $this->transport = $transport;
         $this->keyId = $keyId;
@@ -59,7 +59,7 @@ final class RollbackAuthority {
 
     /**
      * Read and cryptographically verify target authority status. Missing
-     * pre-DUO-3293 runtimes are reported as unavailable, not corruption.
+     * pre-issue #3293 runtimes are reported as unavailable, not corruption.
      *
      * @return array<string,mixed>
      */
@@ -87,7 +87,7 @@ final class RollbackAuthority {
         }
         if (($status['active'] ?? false) === true && empty($status['terminal'])
             && ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
-            throw new \RuntimeException('duo rollback: active authority is not a scoped promotion receipt');
+            throw new \RuntimeException('wprism rollback: active authority is not a scoped promotion receipt');
         }
         return $status;
     }
@@ -109,7 +109,7 @@ final class RollbackAuthority {
             || !is_array($evidence['open_operations'] ?? null)
             || !is_array($evidence['completed_operations'] ?? null)
             || !is_array($evidence['completed_operation_history'] ?? null)) {
-            throw new \RuntimeException('duo rollback: scoped authority evidence is malformed');
+            throw new \RuntimeException('wprism rollback: scoped authority evidence is malformed');
         }
         return $evidence;
     }
@@ -168,21 +168,21 @@ final class RollbackAuthority {
             . ' --root=' . escapeshellarg($root);
         $result = $transport->captureRaw($script);
         if ($result['exit'] === 44) {
-            throw new \RuntimeException('duo rollback: target authority runtime is unavailable');
+            throw new \RuntimeException('wprism rollback: target authority runtime is unavailable');
         }
         if ($result['exit'] !== 0) {
             $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
             throw new \RuntimeException(
-                'duo rollback: target authority evidence is unavailable' . ($detail !== '' ? ': ' . $detail : '')
+                'wprism rollback: target authority evidence is unavailable' . ($detail !== '' ? ': ' . $detail : '')
             );
         }
         try {
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $e) {
-            throw new \RuntimeException('duo rollback: malformed authority evidence JSON', 0, $e);
+            throw new \RuntimeException('wprism rollback: malformed authority evidence JSON', 0, $e);
         }
         if (!is_array($decoded) || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']) {
-            throw new \RuntimeException('duo rollback: invalid authority evidence');
+            throw new \RuntimeException('wprism rollback: invalid authority evidence');
         }
         return $decoded;
     }
@@ -198,20 +198,18 @@ final class RollbackAuthority {
     public function claim(array $fields, string $claimant, ?string $timestamp = null): array {
         foreach (['format', 'receipt_id', 'target_id', 'generation', 'signing_key_id'] as $owned) {
             if (array_key_exists($owned, $fields)) {
-                throw new \RuntimeException("duo rollback: claim caller may not set controller-owned '$owned'");
+                throw new \RuntimeException("wprism rollback: claim caller may not set controller-owned '$owned'");
             }
         }
         $checkpointConfigured = $this->transport->checkpointConfigured();
         $codeReleaseConfigured = $this->transport->codeReleaseConfigured();
         $uploadProviderConfigured = $this->transport->uploadProviderConfigured();
         $effectProviderConfigured = $this->transport->effectProviderConfigured();
-        $receiptFormat = $codeReleaseConfigured
-            ? RollbackControl::RECEIPT_FORMAT
-            : 'duo-rollback-receipt/v1';
-        if (!$codeReleaseConfigured) {
-            // V1 remains the truthful schema for manual code recovery. A V2
-            // receipt exists specifically to bind certified release metadata.
-            unset($fields['code_release_metadata_sha256']);
+        $receiptFormat = RollbackControl::RECEIPT_FORMAT;
+        if (!$codeReleaseConfigured && !is_string($fields['code_release_metadata_sha256'] ?? null)) {
+            throw new \RuntimeException(
+                'wprism rollback: no code-release provider requires a caller-supplied code release metadata hash'
+            );
         }
         $desiredCodeRevision = null;
         $desiredDescriptorHash = null;
@@ -220,44 +218,44 @@ final class RollbackAuthority {
         $effectInventory = null;
         if ($uploadProviderConfigured) {
             if (array_key_exists('uploads_inventory_sha256', $fields)) {
-                throw new \RuntimeException('duo rollback: uploads_inventory_sha256 is provider-owned when certified upload recovery is configured');
+                throw new \RuntimeException('wprism rollback: uploads_inventory_sha256 is provider-owned when certified upload recovery is configured');
             }
             if (!is_array($fields['upload_inventory'] ?? null)) {
-                throw new \RuntimeException('duo rollback: certified upload recovery needs the compiled upload_inventory');
+                throw new \RuntimeException('wprism rollback: certified upload recovery needs the compiled upload_inventory');
             }
             $uploadInventory = $fields['upload_inventory'];
             unset($fields['upload_inventory']);
             if (!is_string($fields['retention_until'] ?? null) || $fields['retention_until'] === '') {
-                throw new \RuntimeException('duo rollback: upload recovery claim needs retention_until');
+                throw new \RuntimeException('wprism rollback: upload recovery claim needs retention_until');
             }
         } elseif (array_key_exists('upload_inventory', $fields)) {
-            throw new \RuntimeException('duo rollback: upload_inventory requires a certified upload provider');
+            throw new \RuntimeException('wprism rollback: upload_inventory requires a certified upload provider');
         }
         if ($effectProviderConfigured) {
             if (array_key_exists('lifecycle_receipts_sha256', $fields)) {
-                throw new \RuntimeException('duo rollback: lifecycle_receipts_sha256 is provider-owned when certified effect recovery is configured');
+                throw new \RuntimeException('wprism rollback: lifecycle_receipts_sha256 is provider-owned when certified effect recovery is configured');
             }
             if (!is_array($fields['effect_inventory'] ?? null) || !array_is_list($fields['effect_inventory'])) {
-                throw new \RuntimeException('duo rollback: certified effect recovery needs the compiled effect_inventory');
+                throw new \RuntimeException('wprism rollback: certified effect recovery needs the compiled effect_inventory');
             }
             $effectInventory = $fields['effect_inventory'];
             unset($fields['effect_inventory']);
             if (!is_string($fields['retention_until'] ?? null) || $fields['retention_until'] === '') {
-                throw new \RuntimeException('duo rollback: effect recovery claim needs retention_until');
+                throw new \RuntimeException('wprism rollback: effect recovery claim needs retention_until');
             }
         } elseif (array_key_exists('effect_inventory', $fields)) {
-            throw new \RuntimeException('duo rollback: effect_inventory requires a certified effect provider');
+            throw new \RuntimeException('wprism rollback: effect_inventory requires a certified effect provider');
         }
         if ($codeReleaseConfigured) {
             if (array_key_exists('prior_code_descriptor_sha256', $fields)
                 || array_key_exists('code_release_metadata_sha256', $fields)) {
                 throw new \RuntimeException(
-                    'duo rollback: code release receipt hashes are provider-owned when certified code recovery is configured'
+                    'wprism rollback: code release receipt hashes are provider-owned when certified code recovery is configured'
                 );
             }
             if (!is_string($fields['desired_code_revision'] ?? null)
                 || preg_match('/^[a-f0-9]{64}$/', (string) $fields['desired_code_revision']) !== 1) {
-                throw new \RuntimeException('duo rollback: code release claim needs sha256 desired_code_revision');
+                throw new \RuntimeException('wprism rollback: code release claim needs sha256 desired_code_revision');
             }
             $hasDescriptor = is_string($fields['desired_descriptor_sha256'] ?? null)
                 && preg_match('/^[a-f0-9]{64}$/', (string) $fields['desired_descriptor_sha256']) === 1;
@@ -265,7 +263,7 @@ final class RollbackAuthority {
                 && !array_is_list($fields['desired_code_inventory']);
             if ($hasDescriptor === $hasInventory) {
                 throw new \RuntimeException(
-                    'duo rollback: code release claim needs exactly one desired descriptor hash or compiled code inventory'
+                    'wprism rollback: code release claim needs exactly one desired descriptor hash or compiled code inventory'
                 );
             }
             $desiredCodeRevision = (string) $fields['desired_code_revision'];
@@ -277,7 +275,7 @@ final class RollbackAuthority {
                 $fields['desired_code_inventory']
             );
             if (!is_string($fields['retention_until'] ?? null) || $fields['retention_until'] === '') {
-                throw new \RuntimeException('duo rollback: code release claim needs retention_until');
+                throw new \RuntimeException('wprism rollback: code release claim needs retention_until');
             }
         }
         if ($checkpointConfigured) {
@@ -287,23 +285,23 @@ final class RollbackAuthority {
             ] as $owned) {
                 if (array_key_exists($owned, $fields)) {
                     throw new \RuntimeException(
-                        "duo rollback: $owned is checkpoint-provider-owned when checkpoint recovery is configured"
+                        "wprism rollback: $owned is checkpoint-provider-owned when checkpoint recovery is configured"
                     );
                 }
             }
             foreach (['encryption_key_id', 'retention_until'] as $required) {
                 if (!is_string($fields[$required] ?? null) || $fields[$required] === '') {
-                    throw new \RuntimeException("duo rollback: checkpoint claim needs $required");
+                    throw new \RuntimeException("wprism rollback: checkpoint claim needs $required");
                 }
             }
         }
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true) {
-            throw new \RuntimeException('duo rollback: target authority runtime is unavailable or invalid');
+            throw new \RuntimeException('wprism rollback: target authority runtime is unavailable or invalid');
         }
         if (($status['active'] ?? false) === true && empty($status['terminal'])) {
             throw new \RuntimeException(
-                "duo rollback: target generation {$status['generation']} is still {$status['state']}"
+                "wprism rollback: target generation {$status['generation']} is still {$status['state']}"
             );
         }
         $now = $timestamp ?? self::timestamp();
@@ -311,10 +309,10 @@ final class RollbackAuthority {
         $receiptId = bin2hex(random_bytes(24));
         if ($this->transport->recoveryConfigured()) {
             if (array_key_exists('exclusion_token_sha256', $fields)) {
-                throw new \RuntimeException('duo rollback: exclusion_token_sha256 is provider-owned when recovery is configured');
+                throw new \RuntimeException('wprism rollback: exclusion_token_sha256 is provider-owned when recovery is configured');
             }
             if (($status['recovery_ready'] ?? false) !== true) {
-                throw new \RuntimeException('duo rollback: recovery provider and adapters did not pass preflight');
+                throw new \RuntimeException('wprism rollback: recovery provider and adapters did not pass preflight');
             }
             $reservation = $status['exclusion_reservation'] ?? null;
             if (($status['exclusion_state'] ?? '') === 'held' && is_array($reservation)) {
@@ -325,7 +323,7 @@ final class RollbackAuthority {
                     'owner' => (string) ($fields['owner'] ?? ''),
                 ] as $key => $expected) {
                     if ((string) ($reservation[$key] ?? '') !== (string) $expected) {
-                        throw new \RuntimeException("duo rollback: held exclusion reservation $key does not match this claim");
+                        throw new \RuntimeException("wprism rollback: held exclusion reservation $key does not match this claim");
                     }
                 }
                 $receiptId = (string) ($reservation['receipt_id'] ?? '');
@@ -335,7 +333,7 @@ final class RollbackAuthority {
                 'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
                 'claim_epoch' => 1,
                 'claimant' => $claimant,
-                'format' => 'duo-exclusion-request/v1',
+                'format' => 'wprism-exclusion-request/v1',
                 'generation' => $generation,
                 'owner' => (string) ($fields['owner'] ?? ''),
                 'receipt_id' => $receiptId,
@@ -350,7 +348,7 @@ final class RollbackAuthority {
                     'claim_epoch' => 1,
                     'claimant' => $claimant,
                     'encryption_key_id' => (string) $fields['encryption_key_id'],
-                    'format' => 'duo-checkpoint-request/v1',
+                    'format' => 'wprism-checkpoint-request/v1',
                     'generation' => $generation,
                     'owner' => (string) ($fields['owner'] ?? ''),
                     'receipt_id' => $receiptId,
@@ -381,10 +379,10 @@ final class RollbackAuthority {
                 ];
                 if ($desiredCodeInventory !== null) {
                     $releaseRequest['desired_code_inventory'] = $desiredCodeInventory;
-                    $releaseRequest['format'] = 'duo-code-release-request/v2';
+                    $releaseRequest['format'] = 'wprism-code-release-request/v2';
                 } else {
                     $releaseRequest['desired_descriptor_sha256'] = $desiredDescriptorHash;
-                    $releaseRequest['format'] = 'duo-code-release-request/v1';
+                    $releaseRequest['format'] = 'wprism-code-release-request/v1';
                 }
                 $release = $this->sendCodeRelease($releaseRequest);
                 $fields['prior_code_descriptor_sha256'] = (string) ($release['prior_code_descriptor_sha256'] ?? '');
@@ -396,7 +394,7 @@ final class RollbackAuthority {
                     'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
                     'claim_epoch' => 1,
                     'claimant' => $claimant,
-                    'format' => 'duo-upload-bundle-request/v1',
+                    'format' => 'wprism-upload-bundle-request/v1',
                     'generation' => $generation,
                     'inventory' => $uploadInventory,
                     'owner' => (string) ($fields['owner'] ?? ''),
@@ -413,7 +411,7 @@ final class RollbackAuthority {
                     'artifact_hash' => (string) ($fields['artifact_hash'] ?? ''),
                     'claim_epoch' => 1,
                     'claimant' => $claimant,
-                    'format' => 'duo-effect-bundle-request/v1',
+                    'format' => 'wprism-effect-bundle-request/v1',
                     'generation' => $generation,
                     'inventory' => $effectInventory,
                     'owner' => (string) ($fields['owner'] ?? ''),
@@ -434,7 +432,7 @@ final class RollbackAuthority {
         ];
         $ttl = $receipt['claim_ttl_seconds'] ?? null;
         if (!is_int($ttl)) {
-            throw new \RuntimeException('duo rollback: claim needs integer claim_ttl_seconds');
+            throw new \RuntimeException('wprism rollback: claim needs integer claim_ttl_seconds');
         }
         $signedReceipt = RollbackControl::sign($receipt, $this->keyId, $this->secretKey);
         $event = $this->eventPayload(
@@ -485,24 +483,24 @@ final class RollbackAuthority {
         self::validateScopedClaimIntent($fields, $claimant);
         if (!$this->transport->recoveryConfigured() || !$this->transport->checkpointConfigured()) {
             throw new \RuntimeException(
-                'duo rollback: scoped promotion requires configured exclusion and checkpoint recovery'
+                'wprism rollback: scoped promotion requires configured exclusion and checkpoint recovery'
             );
         }
 
         $status = self::authorityStatus($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true) {
-            throw new \RuntimeException('duo rollback: target authority runtime is unavailable or invalid');
+            throw new \RuntimeException('wprism rollback: target authority runtime is unavailable or invalid');
         }
         $fullClaim = self::isFullScopedClaimFields($fields);
         if (($status['active'] ?? false) === true) {
             if (($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
                 if (!empty($status['terminal'])) {
                     if (!$fullClaim) {
-                        throw new \RuntimeException('duo rollback: a fresh scoped claim needs complete claim fields');
+                        throw new \RuntimeException('wprism rollback: a fresh scoped claim needs complete claim fields');
                     }
                 } else {
                     throw new \RuntimeException(
-                        "duo rollback: target generation {$status['generation']} is still {$status['state']}"
+                        "wprism rollback: target generation {$status['generation']} is still {$status['state']}"
                     );
                 }
             } else {
@@ -521,22 +519,22 @@ final class RollbackAuthority {
                     || ($terminal['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
                     || ($terminal['receipt_id'] ?? null) !== ($status['receipt_id'] ?? null)
                     || ($terminal['generation'] ?? null) !== ($status['generation'] ?? null)) {
-                    throw new \RuntimeException('duo rollback: scoped terminal exclusion status is unavailable or inconsistent');
+                    throw new \RuntimeException('wprism rollback: scoped terminal exclusion status is unavailable or inconsistent');
                 }
                 if (($terminal['exclusion_state'] ?? null) === 'held') {
                     self::assertScopedClaimMatchesActive($receipt, $terminal, $fields, $claimant);
                     return ['receipt' => $receipt, 'status' => $terminal];
                 }
                 if (($terminal['exclusion_state'] ?? null) !== 'released') {
-                    throw new \RuntimeException('duo rollback: scoped terminal exclusion has an unknown state');
+                    throw new \RuntimeException('wprism rollback: scoped terminal exclusion has an unknown state');
                 }
                 if (!$fullClaim) {
-                    throw new \RuntimeException('duo rollback: a fresh scoped claim needs complete claim fields');
+                    throw new \RuntimeException('wprism rollback: a fresh scoped claim needs complete claim fields');
                 }
             }
         }
         if (!$fullClaim) {
-            throw new \RuntimeException('duo rollback: a fresh scoped claim needs complete claim fields');
+            throw new \RuntimeException('wprism rollback: a fresh scoped claim needs complete claim fields');
         }
         self::validateScopedClaimFields($fields, $claimant);
 
@@ -559,7 +557,7 @@ final class RollbackAuthority {
             'artifact_hash' => (string) $fields['artifact_hash'],
             'claim_epoch' => 1,
             'claimant' => $claimant,
-            'format' => 'duo-exclusion-request/v1',
+            'format' => 'wprism-exclusion-request/v1',
             'generation' => $generation,
             'owner' => (string) $fields['owner'],
             'receipt_id' => $receiptId,
@@ -576,7 +574,7 @@ final class RollbackAuthority {
         if (($reserved['available'] ?? false) !== true || ($reserved['ok'] ?? false) !== true
             || ($reserved['exclusion_state'] ?? null) !== 'held' || !is_array($reservation)
             || ($reserved['recovery_ready'] ?? false) !== true) {
-            throw new \RuntimeException('duo rollback: scoped promotion exclusion reservation is unavailable');
+            throw new \RuntimeException('wprism rollback: scoped promotion exclusion reservation is unavailable');
         }
         foreach ([
             'artifact_hash' => (string) $fields['artifact_hash'],
@@ -586,7 +584,7 @@ final class RollbackAuthority {
             'receipt_id' => $receiptId,
         ] as $key => $expected) {
             if ((string) ($reservation[$key] ?? '') !== (string) $expected) {
-                throw new \RuntimeException("duo rollback: scoped exclusion reservation $key does not match this claim");
+                throw new \RuntimeException("wprism rollback: scoped exclusion reservation $key does not match this claim");
             }
         }
         $createdAt = (string) ($reservation['reserved_at'] ?? '');
@@ -601,7 +599,7 @@ final class RollbackAuthority {
             'claim_epoch' => 1,
             'claimant' => $claimant,
             'encryption_key_id' => (string) $fields['encryption_key_id'],
-            'format' => 'duo-checkpoint-request/v1',
+            'format' => 'wprism-checkpoint-request/v1',
             'generation' => $generation,
             'owner' => (string) $fields['owner'],
             'receipt_id' => $receiptId,
@@ -614,13 +612,13 @@ final class RollbackAuthority {
             'prior_verifier_inputs_sha256', 'runtime_fingerprints_sha256',
         ] as $key) {
             if (!is_string($checkpoint[$key] ?? null) || $checkpoint[$key] === '') {
-                throw new \RuntimeException("duo rollback: checkpoint provider omitted scoped $key");
+                throw new \RuntimeException("wprism rollback: checkpoint provider omitted scoped $key");
             }
         }
         $checkpointCreated = (string) $checkpoint['created_at'];
         self::assertCanonicalTimestamp($checkpointCreated, 'scoped checkpoint creation timestamp');
         if (!hash_equals($createdAt, $checkpointCreated)) {
-            throw new \RuntimeException('duo rollback: scoped checkpoint creation time diverged from exclusion reservation');
+            throw new \RuntimeException('wprism rollback: scoped checkpoint creation time diverged from exclusion reservation');
         }
 
         $receipt = [
@@ -790,7 +788,7 @@ final class RollbackAuthority {
     public function keepalive(?string $timestamp = null): array {
         $status = $this->requiredActiveStatus();
         if (!$this->transport->recoveryConfigured()) {
-            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+            throw new \RuntimeException('wprism rollback: no recovery exclusion provider is configured');
         }
         return $this->sendExclusion($this->exclusionPayload('keepalive', $status, $timestamp ?? self::timestamp()));
     }
@@ -799,7 +797,7 @@ final class RollbackAuthority {
     public function keepaliveScoped(?string $timestamp = null): array {
         $status = $this->requiredScopedActiveStatus();
         if (!$this->transport->recoveryConfigured()) {
-            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+            throw new \RuntimeException('wprism rollback: no recovery exclusion provider is configured');
         }
         return $this->sendExclusion($this->exclusionPayload('keepalive', $status, $timestamp ?? self::timestamp()));
     }
@@ -824,7 +822,7 @@ final class RollbackAuthority {
         self::assertOperationIdentity($adapter, $attempt);
         if ((string) $status['state'] !== $state) {
             throw new \RuntimeException(
-                "duo rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
+                "wprism rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
             );
         }
         $inputHash = hash('sha256', CanonicalJson::encode($input) . "\n");
@@ -860,7 +858,7 @@ final class RollbackAuthority {
         self::assertOperationIdentity($adapter, $attempt);
         if ((string) $status['state'] !== $state) {
             throw new \RuntimeException(
-                "duo rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
+                "wprism rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
             );
         }
         $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
@@ -889,9 +887,9 @@ final class RollbackAuthority {
     public function executeOperation(string $adapter, int $attempt, array $input): array {
         $status = $this->requiredActiveStatus();
         self::assertOperationIdentity($adapter, $attempt);
-        $local = tempnam(sys_get_temp_dir(), 'duo-rollback-input-');
+        $local = tempnam(sys_get_temp_dir(), 'wprism-rollback-input-');
         if ($local === false) {
-            throw new \RuntimeException('duo rollback: could not allocate operation handoff');
+            throw new \RuntimeException('wprism rollback: could not allocate operation handoff');
         }
         // The transport names its own handoff path (SSH: the target's /tmp,
         // as before) and the name is taken BEFORE any write, so the finally
@@ -902,11 +900,11 @@ final class RollbackAuthority {
             @chmod($local, 0600);
             $bytes = CanonicalJson::encode($input) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
-                throw new \RuntimeException('duo rollback: could not write operation handoff');
+                throw new \RuntimeException('wprism rollback: could not write operation handoff');
             }
             $upload = $this->transport->putControlInput($local, $remote);
             if ($upload['exit'] !== 0) {
-                throw new \RuntimeException('duo rollback: operation upload failed: ' . trim($upload['stderr']));
+                throw new \RuntimeException('wprism rollback: operation upload failed: ' . trim($upload['stderr']));
             }
             $runtime = self::runtimePath($this->transport);
             $root = self::controlRoot($this->transport);
@@ -924,7 +922,7 @@ final class RollbackAuthority {
             if ($result['exit'] !== 0) {
                 $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
                 throw new \RuntimeException(
-                    'duo rollback: target operation refused' . ($detail !== '' ? ': ' . $detail : '')
+                    'wprism rollback: target operation refused' . ($detail !== '' ? ': ' . $detail : '')
                 );
             }
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
@@ -935,7 +933,7 @@ final class RollbackAuthority {
                 || ($decoded['adapter'] ?? null) !== $adapter
                 || !hash_equals($inputHash, (string) ($decoded['input_sha256'] ?? ''))
                 || preg_match('/^[a-f0-9]{64}$/', (string) ($decoded['result_sha256'] ?? '')) !== 1) {
-                throw new \RuntimeException('duo rollback: target returned invalid operation evidence');
+                throw new \RuntimeException('wprism rollback: target returned invalid operation evidence');
             }
             return $decoded;
         } finally {
@@ -956,20 +954,20 @@ final class RollbackAuthority {
     public function executeScopedOperation(string $adapter, int $attempt, array $input): array {
         $status = $this->requiredScopedActiveStatus();
         self::assertOperationIdentity($adapter, $attempt);
-        $local = tempnam(sys_get_temp_dir(), 'duo-rollback-input-');
+        $local = tempnam(sys_get_temp_dir(), 'wprism-rollback-input-');
         if ($local === false) {
-            throw new \RuntimeException('duo rollback: could not allocate operation handoff');
+            throw new \RuntimeException('wprism rollback: could not allocate operation handoff');
         }
         $remote = $this->transport->allocateControlInput('input');
         try {
             @chmod($local, 0600);
             $bytes = RollbackControl::canonical($input) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
-                throw new \RuntimeException('duo rollback: could not write operation handoff');
+                throw new \RuntimeException('wprism rollback: could not write operation handoff');
             }
             $upload = $this->transport->putControlInput($local, $remote);
             if ($upload['exit'] !== 0) {
-                throw new \RuntimeException('duo rollback: operation upload failed: ' . trim($upload['stderr']));
+                throw new \RuntimeException('wprism rollback: operation upload failed: ' . trim($upload['stderr']));
             }
             $runtime = self::runtimePath($this->transport);
             $root = self::controlRoot($this->transport);
@@ -987,7 +985,7 @@ final class RollbackAuthority {
             if ($result['exit'] !== 0) {
                 $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
                 throw new \RuntimeException(
-                    'duo rollback: target operation refused' . ($detail !== '' ? ': ' . $detail : '')
+                    'wprism rollback: target operation refused' . ($detail !== '' ? ': ' . $detail : '')
                 );
             }
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
@@ -998,7 +996,7 @@ final class RollbackAuthority {
                 || ($decoded['adapter'] ?? null) !== $adapter
                 || !hash_equals($inputHash, (string) ($decoded['input_sha256'] ?? ''))
                 || preg_match('/^[a-f0-9]{64}$/', (string) ($decoded['result_sha256'] ?? '')) !== 1) {
-                throw new \RuntimeException('duo rollback: target returned invalid operation evidence');
+                throw new \RuntimeException('wprism rollback: target returned invalid operation evidence');
             }
             return $decoded;
         } finally {
@@ -1022,7 +1020,7 @@ final class RollbackAuthority {
         if (($execution['adapter'] ?? null) !== $adapter
             || !hash_equals($inputHash, (string) ($execution['input_sha256'] ?? ''))
             || preg_match('/^[a-f0-9]{64}$/', (string) ($execution['result_sha256'] ?? '')) !== 1) {
-            throw new \RuntimeException('duo rollback: operation completion evidence does not match its input');
+            throw new \RuntimeException('wprism rollback: operation completion evidence does not match its input');
         }
         return $this->append(
             $state,
@@ -1051,7 +1049,7 @@ final class RollbackAuthority {
         if (($execution['adapter'] ?? null) !== $adapter
             || !hash_equals($inputHash, (string) ($execution['input_sha256'] ?? ''))
             || preg_match('/^[a-f0-9]{64}$/', (string) ($execution['result_sha256'] ?? '')) !== 1) {
-            throw new \RuntimeException('duo rollback: operation completion evidence does not match its input');
+            throw new \RuntimeException('wprism rollback: operation completion evidence does not match its input');
         }
         return $this->appendScoped(
             $state,
@@ -1083,15 +1081,15 @@ final class RollbackAuthority {
     /** Finish provider adoption after a takeover response/SSH disconnect gap. */
     public function adoptExclusion(?string $expectedClaimant = null, ?string $timestamp = null): array {
         if (!$this->transport->recoveryConfigured()) {
-            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+            throw new \RuntimeException('wprism rollback: no recovery exclusion provider is configured');
         }
         $status = self::authorityStatus($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true || !empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: exclusion adoption requires valid nonterminal authority');
+            throw new \RuntimeException('wprism rollback: exclusion adoption requires valid nonterminal authority');
         }
         if ($expectedClaimant !== null && !hash_equals($expectedClaimant, (string) $status['claimant'])) {
-            throw new \RuntimeException('duo rollback: authority claimant does not match requested exclusion adopter');
+            throw new \RuntimeException('wprism rollback: authority claimant does not match requested exclusion adopter');
         }
         return $this->sendExclusion($this->exclusionPayload('adopt', $status, $timestamp ?? self::timestamp()));
     }
@@ -1101,10 +1099,10 @@ final class RollbackAuthority {
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: exclusion release requires valid committed or rolled_back authority');
+            throw new \RuntimeException('wprism rollback: exclusion release requires valid committed or rolled_back authority');
         }
         if (!$this->transport->recoveryConfigured()) {
-            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+            throw new \RuntimeException('wprism rollback: no recovery exclusion provider is configured');
         }
         return $this->sendExclusion($this->exclusionPayload('release', $status, $timestamp ?? self::timestamp()));
     }
@@ -1121,7 +1119,7 @@ final class RollbackAuthority {
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true || empty($status['terminal'])
             || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
-            throw new \RuntimeException('duo rollback: scoped exclusion release requires valid terminal scoped authority');
+            throw new \RuntimeException('wprism rollback: scoped exclusion release requires valid terminal scoped authority');
         }
         if (($status['exclusion_state'] ?? null) === 'released') {
             return [
@@ -1132,7 +1130,7 @@ final class RollbackAuthority {
             ];
         }
         if (($status['exclusion_state'] ?? null) !== 'held') {
-            throw new \RuntimeException('duo rollback: scoped terminal authority has no held exclusion to release');
+            throw new \RuntimeException('wprism rollback: scoped terminal authority has no held exclusion to release');
         }
         return $this->sendExclusion($this->exclusionPayload('release', $status, $timestamp ?? self::timestamp()));
     }
@@ -1140,12 +1138,12 @@ final class RollbackAuthority {
     /** Delete an elapsed checkpoint only after verified terminal authority. */
     public function deleteCheckpoint(?string $timestamp = null): array {
         if (!$this->transport->checkpointConfigured()) {
-            throw new \RuntimeException('duo rollback: no checkpoint provider is configured');
+            throw new \RuntimeException('wprism rollback: no checkpoint provider is configured');
         }
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: checkpoint deletion requires valid terminal authority');
+            throw new \RuntimeException('wprism rollback: checkpoint deletion requires valid terminal authority');
         }
         return $this->sendCheckpoint([
             'action' => 'delete',
@@ -1153,7 +1151,7 @@ final class RollbackAuthority {
             'claim_epoch' => (int) $status['claim_epoch'],
             'claimant' => (string) $status['claimant'],
             'encryption_key_id' => (string) $status['encryption_key_id'],
-            'format' => 'duo-checkpoint-request/v1',
+            'format' => 'wprism-checkpoint-request/v1',
             'generation' => (int) $status['generation'],
             'owner' => (string) $status['owner'],
             'receipt_id' => (string) $status['receipt_id'],
@@ -1166,16 +1164,16 @@ final class RollbackAuthority {
     /** Delete a retained prior code release only after its rollback window. */
     public function deleteCodeRelease(?string $timestamp = null): array {
         if (!$this->transport->codeReleaseConfigured()) {
-            throw new \RuntimeException('duo rollback: no certified code release provider is configured');
+            throw new \RuntimeException('wprism rollback: no certified code release provider is configured');
         }
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: code release deletion requires valid terminal authority');
+            throw new \RuntimeException('wprism rollback: code release deletion requires valid terminal authority');
         }
         $release = $status['code_release'] ?? null;
         if (!is_array($release)) {
-            throw new \RuntimeException('duo rollback: target omitted immutable code release evidence');
+            throw new \RuntimeException('wprism rollback: target omitted immutable code release evidence');
         }
         return $this->sendCodeRelease([
             'action' => 'delete',
@@ -1184,7 +1182,7 @@ final class RollbackAuthority {
             'claimant' => (string) $status['claimant'],
             'desired_code_revision' => (string) ($release['desired_code_revision'] ?? ''),
             'desired_descriptor_sha256' => (string) ($release['desired_descriptor_sha256'] ?? ''),
-            'format' => 'duo-code-release-request/v1',
+            'format' => 'wprism-code-release-request/v1',
             'generation' => (int) $status['generation'],
             'owner' => (string) $status['owner'],
             'receipt_id' => (string) $status['receipt_id'],
@@ -1197,17 +1195,17 @@ final class RollbackAuthority {
     /** Delete retained upload before-images after terminal authority and retention. */
     public function deleteUploadBundle(?string $timestamp = null): array {
         if (!$this->transport->uploadProviderConfigured()) {
-            throw new \RuntimeException('duo rollback: no certified upload provider is configured');
+            throw new \RuntimeException('wprism rollback: no certified upload provider is configured');
         }
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true || empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: upload bundle deletion requires valid terminal authority');
+            throw new \RuntimeException('wprism rollback: upload bundle deletion requires valid terminal authority');
         }
         return $this->sendUploadBundle([
             'action' => 'delete', 'artifact_hash' => (string) $status['artifact_hash'],
             'claim_epoch' => (int) $status['claim_epoch'], 'claimant' => (string) $status['claimant'],
-            'format' => 'duo-upload-bundle-request/v1', 'generation' => (int) $status['generation'],
+            'format' => 'wprism-upload-bundle-request/v1', 'generation' => (int) $status['generation'],
             'inventory' => null, 'owner' => (string) $status['owner'],
             'receipt_id' => (string) $status['receipt_id'], 'retention_until' => (string) $status['retention_until'],
             'target_id' => (string) $status['target_id'], 'timestamp' => $timestamp ?? self::timestamp(),
@@ -1219,10 +1217,10 @@ final class RollbackAuthority {
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true) {
-            throw new \RuntimeException('duo rollback: no valid active target receipt exists');
+            throw new \RuntimeException('wprism rollback: no valid active target receipt exists');
         }
         if (!empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: terminal receipt cannot accept another event');
+            throw new \RuntimeException('wprism rollback: terminal receipt cannot accept another event');
         }
         return $status;
     }
@@ -1232,10 +1230,10 @@ final class RollbackAuthority {
         $status = self::scopedStatus($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true) {
-            throw new \RuntimeException('duo rollback: no valid active scoped target receipt exists');
+            throw new \RuntimeException('wprism rollback: no valid active scoped target receipt exists');
         }
         if (!empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: terminal scoped receipt cannot accept another event');
+            throw new \RuntimeException('wprism rollback: terminal scoped receipt cannot accept another event');
         }
         return $status;
     }
@@ -1258,7 +1256,7 @@ final class RollbackAuthority {
             'artifact_hash' => (string) $status['artifact_hash'],
             'claim_epoch' => (int) $status['claim_epoch'],
             'claimant' => (string) $status['claimant'],
-            'format' => 'duo-exclusion-request/v1',
+            'format' => 'wprism-exclusion-request/v1',
             'generation' => (int) $status['generation'],
             'owner' => (string) $status['owner'],
             'receipt_id' => (string) $status['receipt_id'],
@@ -1285,7 +1283,7 @@ final class RollbackAuthority {
     ): array {
         $time = \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $timestamp, new \DateTimeZone('UTC'));
         if (!$time || $time->format('Y-m-d\TH:i:s\Z') !== $timestamp) {
-            throw new \RuntimeException('duo rollback: event timestamp must be canonical UTC seconds');
+            throw new \RuntimeException('wprism rollback: event timestamp must be canonical UTC seconds');
         }
         return [
             'artifact_hash' => (string) $receipt['artifact_hash'],
@@ -1357,20 +1355,20 @@ final class RollbackAuthority {
 
     /** @return array<string,mixed> */
     private function sendRemote(array $request, string $action): array {
-        $local = tempnam(sys_get_temp_dir(), 'duo-rollback-request-');
+        $local = tempnam(sys_get_temp_dir(), 'wprism-rollback-request-');
         if ($local === false) {
-            throw new \RuntimeException('duo rollback: could not allocate request handoff');
+            throw new \RuntimeException('wprism rollback: could not allocate request handoff');
         }
         $remote = $this->transport->allocateControlInput('request');
         try {
             @chmod($local, 0600);
             $bytes = CanonicalJson::encode($request) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
-                throw new \RuntimeException('duo rollback: could not write request handoff');
+                throw new \RuntimeException('wprism rollback: could not write request handoff');
             }
             $upload = $this->transport->putControlInput($local, $remote);
             if ($upload['exit'] !== 0) {
-                throw new \RuntimeException('duo rollback: request upload failed: ' . trim($upload['stderr']));
+                throw new \RuntimeException('wprism rollback: request upload failed: ' . trim($upload['stderr']));
             }
             $runtime = self::runtimePath($this->transport);
             $root = self::controlRoot($this->transport);
@@ -1382,13 +1380,13 @@ final class RollbackAuthority {
             $result = $this->transport->captureRaw($script);
             if ($result['exit'] !== 0) {
                 $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
-                throw new \RuntimeException('duo rollback: target request refused' . ($detail !== '' ? ': ' . $detail : ''));
+                throw new \RuntimeException('wprism rollback: target request refused' . ($detail !== '' ? ': ' . $detail : ''));
             }
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
             if (!is_array($decoded)
                 || CanonicalJson::encode($decoded) . "\n" !== $result['stdout']
                 || ($decoded['ok'] ?? null) !== true) {
-                throw new \RuntimeException('duo rollback: target returned invalid request evidence');
+                throw new \RuntimeException('wprism rollback: target returned invalid request evidence');
             }
             return $decoded;
         } finally {
@@ -1416,13 +1414,13 @@ final class RollbackAuthority {
         sort($resume, SORT_STRING);
         sort($full, SORT_STRING);
         if ($keys !== $resume && $keys !== $full) {
-            throw new \RuntimeException('duo rollback: scoped claim has missing or unknown fields');
+            throw new \RuntimeException('wprism rollback: scoped claim has missing or unknown fields');
         }
         foreach (['artifact_hash', 'scope_hash'] as $key) {
             self::assertSha256((string) $fields[$key], "scoped claim $key");
         }
         if (!is_bool($fields['allow_deletes'] ?? null)) {
-            throw new \RuntimeException('duo rollback: scoped claim allow_deletes must be boolean');
+            throw new \RuntimeException('wprism rollback: scoped claim allow_deletes must be boolean');
         }
         self::assertActor((string) $fields['owner'], 'scoped promotion owner');
         self::assertActor($claimant, 'scoped claimant');
@@ -1450,7 +1448,7 @@ final class RollbackAuthority {
     /** @param array<string,mixed> $fields */
     private static function validateScopedClaimFields(array $fields, string $claimant): void {
         if (!self::isFullScopedClaimFields($fields)) {
-            throw new \RuntimeException('duo rollback: scoped claim has missing or unknown fields');
+            throw new \RuntimeException('wprism rollback: scoped claim has missing or unknown fields');
         }
         foreach ([
             'adapter_versions_sha256', 'artifact_hash', 'resources_inventory_sha256', 'scope_hash',
@@ -1458,15 +1456,15 @@ final class RollbackAuthority {
             self::assertSha256((string) $fields[$key], "scoped claim $key");
         }
         if (!is_bool($fields['allow_deletes'] ?? null)) {
-            throw new \RuntimeException('duo rollback: scoped claim allow_deletes must be boolean');
+            throw new \RuntimeException('wprism rollback: scoped claim allow_deletes must be boolean');
         }
         if (!is_int($fields['claim_ttl_seconds'])
             || $fields['claim_ttl_seconds'] < 30 || $fields['claim_ttl_seconds'] > 3600) {
-            throw new \RuntimeException('duo rollback: scoped claim TTL must be 30..3600 seconds');
+            throw new \RuntimeException('wprism rollback: scoped claim TTL must be 30..3600 seconds');
         }
         if (!is_int($fields['retention_seconds'])
             || $fields['retention_seconds'] < 60 || $fields['retention_seconds'] > 31536000) {
-            throw new \RuntimeException('duo rollback: scoped claim retention must be 60..31536000 seconds');
+            throw new \RuntimeException('wprism rollback: scoped claim retention must be 60..31536000 seconds');
         }
         self::assertActor((string) $fields['encryption_key_id'], 'scoped encryption key id');
         self::assertActor((string) $fields['owner'], 'scoped promotion owner');
@@ -1476,7 +1474,7 @@ final class RollbackAuthority {
     /** @param array<string,mixed> $fields */
     private static function scopedReceiptId(array $fields, string $claimant, string $targetId, int $generation): string {
         if (preg_match('/^[a-f0-9]{32}$/', $targetId) !== 1 || $generation < 1) {
-            throw new \RuntimeException('duo rollback: scoped claim target generation is malformed');
+            throw new \RuntimeException('wprism rollback: scoped claim target generation is malformed');
         }
         return hash('sha256', RollbackControl::canonical([
             'allow_deletes' => (bool) $fields['allow_deletes'],
@@ -1501,11 +1499,11 @@ final class RollbackAuthority {
         ];
         foreach ($required as $key) {
             if (!array_key_exists($key, $status)) {
-                throw new \RuntimeException("duo rollback: scoped authority status omitted $key");
+                throw new \RuntimeException("wprism rollback: scoped authority status omitted $key");
             }
         }
         if (!is_bool($status['allow_deletes'])) {
-            throw new \RuntimeException('duo rollback: scoped authority status allow_deletes is malformed');
+            throw new \RuntimeException('wprism rollback: scoped authority status allow_deletes is malformed');
         }
         $receipt = [
             'adapter_versions_sha256' => (string) $status['adapter_versions_sha256'],
@@ -1532,7 +1530,7 @@ final class RollbackAuthority {
         $reported = $status['receipt_payload_sha256'] ?? null;
         $actual = hash('sha256', RollbackControl::canonical($receipt));
         if (!is_string($reported) || !hash_equals($actual, $reported)) {
-            throw new \RuntimeException('duo rollback: scoped authority status receipt hash does not verify');
+            throw new \RuntimeException('wprism rollback: scoped authority status receipt hash does not verify');
         }
         return $receipt;
     }
@@ -1546,14 +1544,14 @@ final class RollbackAuthority {
     ): void {
         foreach (['artifact_hash', 'owner', 'scope_hash'] as $key) {
             if ((string) $receipt[$key] !== (string) $fields[$key]) {
-                throw new \RuntimeException("duo rollback: active scoped receipt $key does not match this claim");
+                throw new \RuntimeException("wprism rollback: active scoped receipt $key does not match this claim");
             }
         }
         if (($receipt['allow_deletes'] ?? null) !== ($fields['allow_deletes'] ?? null)) {
-            throw new \RuntimeException('duo rollback: active scoped receipt allow_deletes does not match this claim');
+            throw new \RuntimeException('wprism rollback: active scoped receipt allow_deletes does not match this claim');
         }
         if (!hash_equals($claimant, (string) ($status['claimant'] ?? ''))) {
-            throw new \RuntimeException('duo rollback: active scoped authority claimant does not match this claim');
+            throw new \RuntimeException('wprism rollback: active scoped authority claimant does not match this claim');
         }
         // The receipt was already signed and hash-verified by target status.
         // Do not recompute its id/retention from a current plan/policy: those
@@ -1563,14 +1561,14 @@ final class RollbackAuthority {
 
     private static function assertSha256(string $value, string $label): void {
         if (preg_match('/^[a-f0-9]{64}$/', $value) !== 1) {
-            throw new \RuntimeException("duo rollback: $label must be a sha256 digest");
+            throw new \RuntimeException("wprism rollback: $label must be a sha256 digest");
         }
     }
 
     private static function assertActor(string $value, string $label): void {
         if (strlen($value) < 1 || strlen($value) > 200
             || preg_match('/^[A-Za-z0-9._:@+\\/-]+$/', $value) !== 1) {
-            throw new \RuntimeException("duo rollback: $label is malformed");
+            throw new \RuntimeException("wprism rollback: $label is malformed");
         }
     }
 
@@ -1585,7 +1583,7 @@ final class RollbackAuthority {
             new \DateTimeZone('UTC')
         );
         if (!$time || $time->format('Y-m-d\\TH:i:s\\Z') !== $value) {
-            throw new \RuntimeException("duo rollback: $label must be canonical UTC seconds");
+            throw new \RuntimeException("wprism rollback: $label must be canonical UTC seconds");
         }
         return $time->getTimestamp();
     }
@@ -1603,29 +1601,29 @@ final class RollbackAuthority {
 
     private static function readSecretKey(string $path): string {
         if (is_link($path) || !is_file($path)) {
-            throw new \RuntimeException("duo rollback: signing key '$path' is missing or not a regular file");
+            throw new \RuntimeException("wprism rollback: signing key '$path' is missing or not a regular file");
         }
         $mode = fileperms($path);
         if (is_int($mode) && (($mode & 0077) !== 0)) {
-            throw new \RuntimeException("duo rollback: signing key '$path' must not be group/world accessible");
+            throw new \RuntimeException("wprism rollback: signing key '$path' must not be group/world accessible");
         }
         $raw = file_get_contents($path);
         $secret = is_string($raw) ? base64_decode(trim($raw), true) : false;
         if (!is_string($secret) || strlen($secret) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES
             || trim((string) $raw) !== base64_encode($secret)) {
-            throw new \RuntimeException('duo rollback: signing key must be canonical base64 Ed25519 secret bytes');
+            throw new \RuntimeException('wprism rollback: signing key must be canonical base64 Ed25519 secret bytes');
         }
         return $secret;
     }
 
     private static function assertOperationIdentity(string $adapter, int $attempt): void {
         if ($attempt < 1 || preg_match('/^[a-z][a-z0-9_]{0,63}$/', $adapter) !== 1) {
-            throw new \RuntimeException('duo rollback: operation adapter/attempt is malformed');
+            throw new \RuntimeException('wprism rollback: operation adapter/attempt is malformed');
         }
     }
 
     private static function controlRoot(RecoveryTransport $transport): string {
-        return rtrim($transport->repoPath(), '/') . '/.duo/control';
+        return rtrim($transport->repoPath(), '/') . '/.wprism/control';
     }
 
     private static function runtimePath(RecoveryTransport $transport): string {

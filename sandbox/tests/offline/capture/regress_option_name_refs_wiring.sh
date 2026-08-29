@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Regression — DUO-3285: closes a real, historical aliveness gap discovered
+# Regression — issue #3285: closes a real, historical aliveness gap discovered
 # building this issue's own regress-offline-all bundle, not invented ahead
 # of a need. OptionsCapture's option_name_refs (task #93)
-# discovery loop shipped a real defect twice: DUO-3205's refactor
+# discovery loop shipped a real defect twice: issue #3205's refactor
 # (0f28ef8) introduced `$allOptionValues = $this->all_options_map()` as
 # the new complete option-name/value source but left the option_name_refs
 # consumer loop iterating the removed/never-defined `$liveOptionNames` --
-# an undefined-variable PHP WARNING, not a fatal error, so `wp duo capture`
+# an undefined-variable PHP WARNING, not a fatal error, so `wp wprism capture`
 # kept exiting 0 while silently skipping every option_name_refs rule (see
 # manifests/woocommerce.json's own woocommerce_<method>_<instance>_settings
-# rows, which this exact mechanism exists to discover). Filed as DUO-3286,
-# fixed incidentally as a one-line change inside 713fc56 (DUO-3223,
-# unrelated WooCommerce-adapter-boundary work) -- but DUO-3286 itself was
+# rows, which this exact mechanism exists to discover). Filed as issue #3286,
+# fixed incidentally as a one-line change inside 713fc56 (issue #3223,
+# unrelated WooCommerce-adapter-boundary work) -- but issue #3286 itself was
 # never closed, and no offline test exists that would have caught either
 # the original break OR a future regression of the same shape, because
 # OptionsCapture needs live WordPress/$wpdb to actually RUN
@@ -63,7 +63,7 @@ $window" >&2; return 1; }
   return 0
 }
 
-say "self-test: a synthetic copy carrying the EXACT historical defect (DUO-3286's own \$liveOptionNames) must fail this check"
+say "self-test: a synthetic copy carrying the EXACT historical defect (issue #3286's own \$liveOptionNames) must fail this check"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 # Corrupts ONLY the specific option_name_refs consumer loop this check
@@ -92,15 +92,15 @@ else:
 open(dst, 'w', encoding='utf-8').writelines(lines)
 PYEOF
 if check_wiring "$TMP/Capture_broken.php" "synthetic-broken"; then
-  fail "self-test failed: the synthetic copy carrying DUO-3286's exact historical defect (\$liveOptionNames) was NOT flagged -- this check's own detection logic is broken, do not trust the real-file result below"
+  fail "self-test failed: the synthetic copy carrying issue #3286's exact historical defect (\$liveOptionNames) was NOT flagged -- this check's own detection logic is broken, do not trust the real-file result below"
 fi
 pass "self-test: synthetic copy carrying the historical \$liveOptionNames defect correctly FAILS this check"
 
 say "real check: agent/src/Capture/OptionsCapture.php's option_name_refs (task #93) discovery loop"
 if check_wiring "$CAPTURE_SRC" "real"; then
-  pass "OptionsCapture correctly iterates array_keys(\$allOptionValues) for option_name_ref_match_details() -- the DUO-3286 class of defect is not present"
+  pass "OptionsCapture correctly iterates array_keys(\$allOptionValues) for option_name_ref_match_details() -- the issue #3286 class of defect is not present"
 else
-  fail "agent/src/Capture/OptionsCapture.php's option_name_refs consumer loop does not iterate array_keys(\$allOptionValues) -- see output above; this is the exact DUO-3286/713fc56 defect shape, real this time"
+  fail "agent/src/Capture/OptionsCapture.php's option_name_refs consumer loop does not iterate array_keys(\$allOptionValues) -- see output above; this is the exact issue #3286/713fc56 defect shape, real this time"
 fi
 
 printf '\n\033[1;32m✔ REGRESS_OPTION_NAME_REFS_WIRING PASSED\033[0m\n'

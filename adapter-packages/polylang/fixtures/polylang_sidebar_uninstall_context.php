@@ -15,7 +15,7 @@ namespace {
     require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {
         public function widget_types(): array {
             return [
@@ -76,7 +76,7 @@ namespace {
     require_once $root . '/agent/src/Repository/SidebarState.php';
     require_once $root . '/agent/src/Repository/Identity.php';
 
-    $wpdb = \DuoTest\FakeWpdb::install();
+    $wpdb = \WPrismTest\FakeWpdb::install();
     $wpdb->seedTable('options', [
         [
             'option_id' => 1,
@@ -89,11 +89,11 @@ namespace {
         ],
     ]);
 
-    $policy = new \Duo\Policy();
-    $tokens = new \Duo\Tokens();
+    $policy = new \WPrism\Policy();
+    $tokens = new \WPrism\Tokens();
     $canonicalTree = [
         'sidebar/sidebar-1' => [
-            'type' => \Duo\SidebarState::ENTITY_TYPE,
+            'type' => \WPrism\SidebarState::ENTITY_TYPE,
             'path' => 'sidebars/sidebar-1.json',
             'data' => [
                 'widgets' => [[
@@ -105,12 +105,12 @@ namespace {
         ],
     ];
 
-    $recovered = \Duo\SidebarState::capture($policy, $tokens, false, false, false, null, $canonicalTree);
+    $recovered = \WPrism\SidebarState::capture($policy, $tokens, false, false, false, null, $canonicalTree);
     $content = json_decode((string) ($recovered['entities'][0]['content'] ?? ''), true);
 
     $captureRefusal = '';
     try {
-        \Duo\SidebarState::capture($policy, $tokens, false);
+        \WPrism\SidebarState::capture($policy, $tokens, false);
     } catch (\Throwable $failure) {
         $captureRefusal = $failure->getMessage();
     }
@@ -119,7 +119,7 @@ namespace {
     try {
         $wrongTree = $canonicalTree;
         $wrongTree['sidebar/sidebar-1']['path'] = 'sidebars/different.json';
-        \Duo\SidebarState::capture($policy, $tokens, false, false, false, null, $wrongTree);
+        \WPrism\SidebarState::capture($policy, $tokens, false, false, false, null, $wrongTree);
     } catch (\Throwable $failure) {
         $unownedRefusal = $failure->getMessage();
     }
@@ -131,12 +131,12 @@ namespace {
         ['term_id' => 19, 'name' => 'Replacement language', 'slug' => 'fr'],
     ]);
     $wpdb->seedTable('termmeta', [
-        ['meta_id' => 1, 'term_id' => 5, 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid],
-        ['meta_id' => 2, 'term_id' => 19, 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid],
+        ['meta_id' => 1, 'term_id' => 5, 'meta_key' => '_wprism_uuid', 'meta_value' => $identityUuid],
+        ['meta_id' => 2, 'term_id' => 19, 'meta_key' => '_wprism_uuid', 'meta_value' => $identityUuid],
     ]);
     $orphanIgnored = true;
     try {
-        \Duo\Identity::assert_embedded_unique();
+        \WPrism\Identity::assert_embedded_unique();
     } catch (\Throwable) {
         $orphanIgnored = false;
     }
@@ -146,13 +146,13 @@ namespace {
         ['term_id' => 20, 'name' => 'Copied live language', 'slug' => 'fr-copy'],
     ]);
     $wpdb->seedTable('termmeta', [
-        ['meta_id' => 1, 'term_id' => 5, 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid],
-        ['meta_id' => 2, 'term_id' => 19, 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid],
-        ['meta_id' => 3, 'term_id' => 20, 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid],
+        ['meta_id' => 1, 'term_id' => 5, 'meta_key' => '_wprism_uuid', 'meta_value' => $identityUuid],
+        ['meta_id' => 2, 'term_id' => 19, 'meta_key' => '_wprism_uuid', 'meta_value' => $identityUuid],
+        ['meta_id' => 3, 'term_id' => 20, 'meta_key' => '_wprism_uuid', 'meta_value' => $identityUuid],
     ]);
     $liveDuplicateRefusal = '';
     try {
-        \Duo\Identity::assert_embedded_unique();
+        \WPrism\Identity::assert_embedded_unique();
     } catch (\Throwable $failure) {
         $liveDuplicateRefusal = $failure->getMessage();
     }

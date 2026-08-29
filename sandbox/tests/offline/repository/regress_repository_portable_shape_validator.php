@@ -1,13 +1,13 @@
 <?php
 /**
- * Offline characterization for RepositoryPortableShapeValidator (DUO-3348
+ * Offline characterization for RepositoryPortableShapeValidator (issue #3348
  * slice 42). The validator proves declared canonical-reference field shapes
  * through the compiler's aggregate sink; it neither traverses files nor
  * proves graph target existence.
  */
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Policy {
         /** @var array<string,array<string,mixed>> */
         public array $postRules = [];
@@ -80,7 +80,7 @@ namespace {
     };
 
     $child = proc_open(
-        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Canon::class, false) && class_exists(\\Duo\\Policy::class, false) && class_exists(\\Duo\\Snapshot::class, false) && class_exists(\\Duo\\OptionState::class, false) && class_exists(\\Duo\\SidebarState::class, false) && class_exists(\\Duo\\ReferenceRules::class, false) && class_exists(\\Duo\\JsonRefs::class, false) && class_exists(\\Duo\\RepositoryPortableShapeValidator::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !class_exists(\\Duo\\ReferenceGraph::class, false) && !class_exists(\\Duo\\RepositoryIdentityRegistry::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $validatorPath],
+        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\Canon::class, false) && class_exists(\\WPrism\\Policy::class, false) && class_exists(\\WPrism\\Snapshot::class, false) && class_exists(\\WPrism\\OptionState::class, false) && class_exists(\\WPrism\\SidebarState::class, false) && class_exists(\\WPrism\\ReferenceRules::class, false) && class_exists(\\WPrism\\JsonRefs::class, false) && class_exists(\\WPrism\\RepositoryPortableShapeValidator::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !class_exists(\\WPrism\\ReferenceGraph::class, false) && !class_exists(\\WPrism\\RepositoryIdentityRegistry::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $validatorPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
@@ -100,9 +100,9 @@ namespace {
 
     require_once $validatorPath;
 
-    use Duo\Policy;
-    use Duo\RepositoryPortableShapeValidator;
-    use Duo\Snapshot;
+    use WPrism\Policy;
+    use WPrism\RepositoryPortableShapeValidator;
+    use WPrism\Snapshot;
 
     $uuid = static fn(int $n): string => sprintf('00000000-0000-4000-8000-%012d', $n);
     $post = $uuid(1);

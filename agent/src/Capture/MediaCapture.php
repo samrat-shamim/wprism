@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
@@ -27,7 +27,7 @@ final class MediaCapture {
         bool $strictReadOnly = false
     ): array {
         if (!$attachedFile) {
-            throw new \RuntimeException("duo: attachment $attachmentId has no _wp_attached_file");
+            throw new \RuntimeException("wprism: attachment $attachmentId has no _wp_attached_file");
         }
         // Core routes MIME branches case-sensitively (notably its historic
         // camel-case macro-enabled Office spellings), so retain the raw
@@ -44,7 +44,7 @@ final class MediaCapture {
          */
         if (!$strictReadOnly) {
             $source = apply_filters(
-                'duo_attachment_capture_source',
+                'wprism_attachment_capture_source',
                 $source,
                 $attachmentId,
                 $attachedFile,
@@ -53,26 +53,26 @@ final class MediaCapture {
         } elseif ($source === null) {
             throw CommandRefusalException::explainObservationPrecondition(
                 new \RuntimeException(
-                    'duo: strict attachment observation has no local media source; '
+                    'wprism: strict attachment observation has no local media source; '
                     . 'the external offload hook is deliberately not invoked by explain'
                 )
             );
         }
         if ($source === null) {
             throw new \RuntimeException(
-                "duo: attachment $attachmentId file '$attachedFile' is not present locally and no offload provider"
-                . ' supplied bytes via duo_attachment_capture_source; capture cannot proceed for this attachment'
+                "wprism: attachment $attachmentId file '$attachedFile' is not present locally and no offload provider"
+                . ' supplied bytes via wprism_attachment_capture_source; capture cannot proceed for this attachment'
             );
         }
         if (!is_array($source)) {
             throw new \RuntimeException(
-                "duo: attachment $attachmentId offload provider returned an invalid duo_attachment_capture_source value;"
+                "wprism: attachment $attachmentId offload provider returned an invalid wprism_attachment_capture_source value;"
                 . " expected exactly ['path' => <readable path>] or ['bytes' => <raw bytes>]"
             );
         }
         if (count($source) !== 1) {
             throw new \RuntimeException(
-                "duo: attachment $attachmentId offload provider returned an invalid duo_attachment_capture_source value;"
+                "wprism: attachment $attachmentId offload provider returned an invalid wprism_attachment_capture_source value;"
                 . " expected exactly one of 'path' or 'bytes'"
             );
         }
@@ -80,14 +80,14 @@ final class MediaCapture {
         $hasBytes = array_key_exists('bytes', $source);
         if ($hasPath === $hasBytes) {
             throw new \RuntimeException(
-                "duo: attachment $attachmentId offload provider returned an invalid duo_attachment_capture_source value;"
+                "wprism: attachment $attachmentId offload provider returned an invalid wprism_attachment_capture_source value;"
                 . " expected exactly one of 'path' or 'bytes'"
             );
         }
         if ($hasPath) {
             if (!is_string($source['path']) || $source['path'] === '') {
                 throw new \RuntimeException(
-                    "duo: attachment $attachmentId offload provider path is not a readable file"
+                    "wprism: attachment $attachmentId offload provider path is not a readable file"
                 );
             }
             try {
@@ -97,7 +97,7 @@ final class MediaCapture {
                 // topology proof. Keep it byte-stable while the previous
                 // exception remains available to the caller's error chain.
                 throw new \RuntimeException(
-                    "duo: attachment $attachmentId offload provider path is not a readable file",
+                    "wprism: attachment $attachmentId offload provider path is not a readable file",
                     0,
                     $error
                 );
@@ -106,14 +106,14 @@ final class MediaCapture {
         } else {
             if (!is_string($source['bytes'])) {
                 throw new \RuntimeException(
-                    "duo: attachment $attachmentId offload provider bytes must be a string"
+                    "wprism: attachment $attachmentId offload provider bytes must be a string"
                 );
             }
             $witness = MediaPayloadAuthority::observeBytes($source['bytes'], $attachedFile, $mime);
         }
         if ($this->uploadsRoot() !== $uploads) {
             throw new \RuntimeException(
-                "duo: attachment $attachmentId uploads root changed during its bounded media observation"
+                "wprism: attachment $attachmentId uploads root changed during its bounded media observation"
             );
         }
         $mediaFile = MediaPayloadAuthority::mediaName($witness);
@@ -139,7 +139,7 @@ final class MediaCapture {
             || !str_starts_with($path, '/')
             || ($error !== false && $error !== '')
             || str_contains($path, "\0")) {
-            throw new \RuntimeException('duo: attachment media could not resolve a healthy absolute uploads root');
+            throw new \RuntimeException('wprism: attachment media could not resolve a healthy absolute uploads root');
         }
         $configured = rtrim($path, '/');
         clearstatcache(true, $configured);
@@ -149,7 +149,7 @@ final class MediaCapture {
             || (((int) ($stat['mode'] ?? 0)) & 0170000) !== 0040000
             || !is_string($real)
             || !isset($stat['dev'], $stat['ino'])) {
-            throw new \RuntimeException('duo: attachment media uploads root is missing, special, or lacks a physical identity');
+            throw new \RuntimeException('wprism: attachment media uploads root is missing, special, or lacks a physical identity');
         }
         return [
             'configured' => $configured,

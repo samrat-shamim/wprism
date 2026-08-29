@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline (no docker, no WordPress bootstrap) regression for DUO-3422:
+ * Offline (no docker, no WordPress bootstrap) regression for issue #3422:
  * capture record readback must survive a STALE filesystem stat.
  *
  * The bug: a clean Contact Form 7 certification run failed its second
@@ -44,12 +44,12 @@ declare(strict_types=1);
 $repoRoot = dirname(__DIR__, 4);
 require "$repoRoot/agent/src/Kernel/Canon.php";
 require "$repoRoot/agent/src/Publication/Publish.php";
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
-use Duo\Canon;
-use Duo\Publish;
+use WPrism\Canon;
+use WPrism\Publish;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -68,7 +68,7 @@ function check(bool $cond, string $msg): void {
  * shutdown handlers) from rrmdir()-ing the parent's live test data on exit.
  */
 function fresh_root(string $label): string {
-    $root = sys_get_temp_dir() . '/duo_regress_record_readback_' . $label . '_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_record_readback_' . $label . '_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     $owner = getmypid();
     register_shutdown_function(static function () use ($root, $owner): void {
@@ -161,8 +161,8 @@ function mark_commit_ready_locked(string $stateDir, array $intent): array {
 
 /** Run one lock-held publication primitive with a one-shot missing-read seam. */
 function run_readback_miss(string $scope, callable $operation): array {
-    putenv('DUO_TEST_MODE=1');
-    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE=' . $scope);
+    putenv('WPRISM_TEST_MODE=1');
+    putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE=' . $scope);
     $result = null;
     $error = null;
     try {
@@ -170,9 +170,9 @@ function run_readback_miss(string $scope, callable $operation): array {
     } catch (Throwable $t) {
         $error = $t;
     }
-    $consumed = getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
-    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
-    putenv('DUO_TEST_MODE');
+    $consumed = getenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
+    putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE');
+    putenv('WPRISM_TEST_MODE');
     return [$result, $error, $consumed];
 }
 
@@ -323,7 +323,7 @@ if ($pcntl) {
     if (is_int($bodyOffset) && is_int($handleOffset)) {
         $legacyPrelude = <<<'PHP'
         if (is_link($path)) {
-            throw new \RuntimeException("duo: refusing to operate on symlinked $label record root $path");
+            throw new \RuntimeException("wprism: refusing to operate on symlinked $label record root $path");
         }
         if (!file_exists($path) && !is_link($path)) {
             return null;
@@ -351,8 +351,8 @@ error_reporting(E_ALL & ~E_DEPRECATED);
 // argv[1] = a Publish.php facade to load (its dir must hold the engine,
 //           CommandRefusal.php, and Canon.php); argv[2] = a fresh work dir.
 require $argv[1];
-use Duo\Canon;
-use Duo\Publish;
+use WPrism\Canon;
+use WPrism\Publish;
 
 if (!function_exists('pcntl_fork')) { fwrite(STDOUT, "RESULT:NO_PCNTL\n"); exit(0); }
 
@@ -562,16 +562,16 @@ echo "\n== R6..R8: write_record temp cleanup + its fresh-stat invariant ==\n";
     mkdir($staging, 0777, true);
     Canon::write_file("$staging/revision.txt", "candidate\n");
     $intentPath = Publish::intent_path($stateDir);
-    putenv('DUO_TEST_MODE=1');
-    putenv('DUO_TEST_PUBLISH_FAIL_PHASE=record-create-temp');
+    putenv('WPRISM_TEST_MODE=1');
+    putenv('WPRISM_TEST_PUBLISH_FAIL_PHASE=record-create-temp');
     $err = null;
     try {
         Publish::begin_intent($stateDir, $staging);
     } catch (\Throwable $t) {
         $err = $t;
     }
-    putenv('DUO_TEST_PUBLISH_FAIL_PHASE');
-    putenv('DUO_TEST_MODE');
+    putenv('WPRISM_TEST_PUBLISH_FAIL_PHASE');
+    putenv('WPRISM_TEST_MODE');
     check($err instanceof \Throwable && str_contains($err->getMessage(), 'record-create-temp'),
         'R7a: the injected fault right after the temp is created propagates');
     check(glob($intentPath . '.tmp.*') === [],
@@ -628,19 +628,19 @@ echo "\n== R9: bounded publication readback retry remains exact and fail-closed 
 {
     $root = fresh_root('phase_retry_ready');
     [$stateDir, $intent] = build_swapped_intent($root);
-    putenv('DUO_TEST_MODE=1');
-    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE=mark-commit-ready');
+    putenv('WPRISM_TEST_MODE=1');
+    putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE=mark-commit-ready');
     $err = null;
     $ready = null;
     $seamConsumed = false;
     try {
         $ready = mark_commit_ready_locked($stateDir, $intent);
-        $seamConsumed = getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
+        $seamConsumed = getenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
     } catch (\Throwable $t) {
         $err = $t;
     } finally {
-        putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
-        putenv('DUO_TEST_MODE');
+        putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE');
+        putenv('WPRISM_TEST_MODE');
     }
     $readyOnDisk = Publish::intent_record($stateDir);
     $intentPath = Publish::intent_path($stateDir);
@@ -662,19 +662,19 @@ echo "\n== R9: bounded publication readback retry remains exact and fail-closed 
 {
     $root = fresh_root('phase_retry_commit');
     [$stateDir, $intent] = build_swapped_intent($root);
-    putenv('DUO_TEST_MODE=1');
-    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE=mark-commit-ready-transition');
+    putenv('WPRISM_TEST_MODE=1');
+    putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE=mark-commit-ready-transition');
     $err = null;
     $ready = null;
     $seamConsumed = false;
     try {
         $ready = mark_commit_ready_locked($stateDir, $intent);
-        $seamConsumed = getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
+        $seamConsumed = getenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
     } catch (\Throwable $t) {
         $err = $t;
     } finally {
-        putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
-        putenv('DUO_TEST_MODE');
+        putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE');
+        putenv('WPRISM_TEST_MODE');
     }
     $readyOnDisk = Publish::intent_record($stateDir);
     $intentPath = Publish::intent_path($stateDir);

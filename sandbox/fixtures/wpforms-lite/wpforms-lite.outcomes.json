@@ -1,5 +1,5 @@
 {
-    "format": "duo-adapter-boundary-outcomes/v1",
+    "format": "wprism-adapter-boundary-outcomes/v1",
     "slug": "wpforms-lite",
     "recorded_at": "2026-08-26",
     "source": "CERTIFY-CHANNEL live leg on sandbox pair 'wpfcert' (WordPress 7.1, PHP 8.3, MariaDB), source SHA 8fda5ad7 on branch wpforms-exercise. The ONE recorded outcome is the anchor, and it is a measurement rather than a belief: WPForms Lite 2.0.0.5 was installed from the digest-verified ZIP on BOTH sides (sha256 b7c424a96481a68d43ab03b6dcad2657675e42cddaa31844eb8ddc20ba08733c, re-verified inside each container), side one was seeded entirely through the plugin's own write paths, and the committed adapter was driven certify -> capture -> deploy -> apply -> recapture end to end. No other release was probed on this run, so no other release has a row here — the bisection reports `probe_required` for the rest, which is the honest state of the evidence.",

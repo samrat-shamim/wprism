@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * Binds The Events Calendar's optional rewrite side effects in the fresh
@@ -14,7 +14,7 @@ namespace Duo;
  * Those callbacks persist three tribe_last_* options and set a request-local
  * shutdown flag. The rows are covered by the action's database checkpoint;
  * the flag is not. Binding the exact service/hook topology and restoring the
- * flag before child shutdown prevents a failed or successful Duo flush from
+ * flag before child shutdown prevents a failed or successful WPrism flush from
  * turning that local flag into an unreceipted site-wide transient purge.
  *
  * WooCommerce 11.0.1 normally adds four updated_option callbacks plus one
@@ -209,7 +209,7 @@ final class NativeRewriteEffects {
                 || ($wpseo['sitemaps_cache'] ?? null) !== $this->wpseoSitemapsCache
                 || $rewriteTopology !== $this->rewriteTopology) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found The Events Calendar cache-listener service drift'
+                    'wprism: native rewrite found The Events Calendar cache-listener service drift'
                 );
             }
         } catch (\Throwable $failure) {
@@ -229,7 +229,7 @@ final class NativeRewriteEffects {
                     || $present !== $this->purgePresent
                     || ($present && self::call_function('tribe_get_var', self::PURGE_FLAG) !== $this->purgeValue)) {
                     throw new \RuntimeException(
-                        'duo: native rewrite could not restore The Events Calendar purge-flag preimage'
+                        'wprism: native rewrite could not restore The Events Calendar purge-flag preimage'
                     );
                 }
             } catch (\Throwable $failure) {
@@ -239,7 +239,7 @@ final class NativeRewriteEffects {
 
         if ($topologyFailure !== null && $flagFailure !== null) {
             throw new \RuntimeException(
-                'duo: native rewrite cleanup found topology drift and purge-flag restoration failure; topology='
+                'wprism: native rewrite cleanup found topology drift and purge-flag restoration failure; topology='
                 . get_class($topologyFailure) . ':' . substr(hash('sha256', $topologyFailure->getMessage()), 0, 16)
                 . '; flag=' . get_class($flagFailure) . ':'
                 . substr(hash('sha256', $flagFailure->getMessage()), 0, 16),
@@ -269,7 +269,7 @@ final class NativeRewriteEffects {
         if (!is_array($yoast)
             || !is_array($yoast['top'] ?? null)
             || !is_array($yoast['bottom'] ?? null)) {
-            throw new \LogicException('duo: native rewrite lost its proven Yoast projection');
+            throw new \LogicException('wprism: native rewrite lost its proven Yoast projection');
         }
         return array_merge($yoast['top'], $stored, $yoast['bottom']);
     }
@@ -284,18 +284,18 @@ final class NativeRewriteEffects {
         if (!is_object($hook)
             || get_class($hook) !== 'WP_Hook'
             || !is_array($hook->callbacks ?? null)) {
-            throw new \RuntimeException('duo: native rewrite found malformed WordPress hook topology');
+            throw new \RuntimeException('wprism: native rewrite found malformed WordPress hook topology');
         }
         $records = [];
         foreach ($hook->callbacks as $priority => $atPriority) {
             if (!is_int($priority) || !is_array($atPriority)) {
-                throw new \RuntimeException('duo: native rewrite found malformed WordPress hook topology');
+                throw new \RuntimeException('wprism: native rewrite found malformed WordPress hook topology');
             }
             foreach ($atPriority as $record) {
                 if (!is_array($record)
                     || array_keys($record) !== ['function', 'accepted_args']
                     || !is_int($record['accepted_args'] ?? null)) {
-                    throw new \RuntimeException('duo: native rewrite found malformed WordPress hook topology');
+                    throw new \RuntimeException('wprism: native rewrite found malformed WordPress hook topology');
                 }
                 $records[] = [$priority, $record];
             }
@@ -337,7 +337,7 @@ final class NativeRewriteEffects {
             return [];
         }
         if (count($wp_filter) > 16384) {
-            throw new \RuntimeException('duo: native rewrite found an oversized WordPress hook topology');
+            throw new \RuntimeException('wprism: native rewrite found an oversized WordPress hook topology');
         }
         $hooks = [];
         foreach (array_keys($wp_filter) as $hookName) {
@@ -374,14 +374,14 @@ final class NativeRewriteEffects {
         foreach (['tribe', 'tribe_cache', 'tribe_isset_var', 'tribe_get_var', 'tribe_set_var', 'tribe_unset_var'] as $function) {
             if (!function_exists($function)) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found an incomplete The Events Calendar cache-listener runtime'
+                    'wprism: native rewrite found an incomplete The Events Calendar cache-listener runtime'
                 );
             }
         }
         if (!class_exists('Tribe__Cache_Listener', false)
             || !is_callable(['Tribe__Cache_Listener', 'instance'])) {
             throw new \RuntimeException(
-                'duo: native rewrite found an incomplete The Events Calendar cache-listener runtime'
+                'wprism: native rewrite found an incomplete The Events Calendar cache-listener runtime'
             );
         }
 
@@ -394,7 +394,7 @@ final class NativeRewriteEffects {
             $listenerCache = $cacheProperty->getValue($listener);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: native rewrite could not resolve The Events Calendar cache-listener services',
+                'wprism: native rewrite could not resolve The Events Calendar cache-listener services',
                 0,
                 $failure
             );
@@ -409,13 +409,13 @@ final class NativeRewriteEffects {
             || get_class($listenerCache) !== 'Tribe__Cache'
             || $listenerCache === $globalCache) {
             throw new \RuntimeException(
-                'duo: native rewrite found substituted The Events Calendar cache-listener services'
+                'wprism: native rewrite found substituted The Events Calendar cache-listener services'
             );
         }
         $purgePresent = self::call_function('tribe_isset_var', self::PURGE_FLAG);
         if (!is_bool($purgePresent)) {
             throw new \RuntimeException(
-                'duo: native rewrite found malformed The Events Calendar purge-flag presence'
+                'wprism: native rewrite found malformed The Events Calendar purge-flag presence'
             );
         }
         return [
@@ -443,7 +443,7 @@ final class NativeRewriteEffects {
         }
         if (count($listeners) !== 1) {
             throw new \RuntimeException(
-                'duo: native rewrite found incomplete or substituted The Events Calendar listener callbacks'
+                'wprism: native rewrite found incomplete or substituted The Events Calendar listener callbacks'
             );
         }
         return reset($listeners);
@@ -461,7 +461,7 @@ final class NativeRewriteEffects {
                     || $record['accepted_args'] !== 1
                     || $callback !== [$listener, 'generate_rewrite_rules']) {
                     throw new \RuntimeException(
-                        'duo: native rewrite found a substituted The Events Calendar generation callback'
+                        'wprism: native rewrite found a substituted The Events Calendar generation callback'
                     );
                 }
                 $matches++;
@@ -469,7 +469,7 @@ final class NativeRewriteEffects {
         }
         if ($matches !== 1) {
             throw new \RuntimeException(
-                'duo: native rewrite found incomplete The Events Calendar generation callbacks'
+                'wprism: native rewrite found incomplete The Events Calendar generation callbacks'
             );
         }
     }
@@ -482,7 +482,7 @@ final class NativeRewriteEffects {
     private static function rewrite_topology(?object $listener, ?array $woo, ?array $wpseo): array {
         global $wp_rewrite;
         if (!is_object($wp_rewrite)) {
-            throw new \RuntimeException('duo: native rewrite found a malformed WordPress rewrite runtime');
+            throw new \RuntimeException('wprism: native rewrite found a malformed WordPress rewrite runtime');
         }
 
         $tecRewrite = null;
@@ -558,7 +558,7 @@ final class NativeRewriteEffects {
         if ($woo !== null) {
             if (!function_exists('wc_fix_rewrite_rules')) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found an incomplete WooCommerce rewrite runtime'
+                    'wprism: native rewrite found an incomplete WooCommerce rewrite runtime'
                 );
             }
             $rewriteArrayExpected[] = ['wc_fix_rewrite_rules', null, 10, 1];
@@ -662,7 +662,7 @@ final class NativeRewriteEffects {
                 } catch (\RuntimeException $failure) {
                     if (str_contains($failure->getMessage(), 'extended or substituted normal ')) {
                         throw new \RuntimeException(
-                            'duo: native rewrite found extended rewrite_rules option topology',
+                            'wprism: native rewrite found extended rewrite_rules option topology',
                             0,
                             $failure
                         );
@@ -697,7 +697,7 @@ final class NativeRewriteEffects {
                 continue;
             }
             throw new \RuntimeException(
-                'duo: native rewrite found extended rewrite_rules option topology'
+                'wprism: native rewrite found extended rewrite_rules option topology'
             );
         }
     }
@@ -710,15 +710,15 @@ final class NativeRewriteEffects {
     ): object {
         $service = self::one_exact_class_callback($hookName, $class, $method);
         if (!class_exists($class, false) || !is_callable([$class, $factory])) {
-            throw new \RuntimeException('duo: native rewrite found an incomplete plugin rewrite service');
+            throw new \RuntimeException('wprism: native rewrite found an incomplete plugin rewrite service');
         }
         try {
             $resolved = self::call_static($class, $factory);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not resolve a plugin rewrite service', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not resolve a plugin rewrite service', 0, $failure);
         }
         if (!is_object($resolved) || get_class($resolved) !== $class || $resolved !== $service) {
-            throw new \RuntimeException('duo: native rewrite found a substituted plugin rewrite service');
+            throw new \RuntimeException('wprism: native rewrite found a substituted plugin rewrite service');
         }
         return $service;
     }
@@ -726,32 +726,32 @@ final class NativeRewriteEffects {
     private static function exact_container_service(string $class, string $hookName, string $method): object {
         $service = self::one_exact_class_callback($hookName, $class, $method);
         if (!class_exists($class, false)) {
-            throw new \RuntimeException('duo: native rewrite found an incomplete TEC rewrite service');
+            throw new \RuntimeException('wprism: native rewrite found an incomplete TEC rewrite service');
         }
         try {
             $resolved = self::call_function('tribe', $class);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not resolve a TEC rewrite service', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not resolve a TEC rewrite service', 0, $failure);
         }
         if (!is_object($resolved) || get_class($resolved) !== $class || $resolved !== $service) {
-            throw new \RuntimeException('duo: native rewrite found a substituted TEC rewrite service');
+            throw new \RuntimeException('wprism: native rewrite found a substituted TEC rewrite service');
         }
         return $service;
     }
 
     private static function exact_container_value_service(string $class, string $method): object {
         if (!class_exists($class, false)) {
-            throw new \RuntimeException('duo: native rewrite found an incomplete TEC rewrite service');
+            throw new \RuntimeException('wprism: native rewrite found an incomplete TEC rewrite service');
         }
         try {
             $resolved = self::call_function('tribe', $class);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not resolve a TEC rewrite service', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not resolve a TEC rewrite service', 0, $failure);
         }
         if (!is_object($resolved)
             || get_class($resolved) !== $class
             || !is_callable([$resolved, $method])) {
-            throw new \RuntimeException('duo: native rewrite found a substituted TEC rewrite service');
+            throw new \RuntimeException('wprism: native rewrite found a substituted TEC rewrite service');
         }
         return $resolved;
     }
@@ -767,13 +767,13 @@ final class NativeRewriteEffects {
         try {
             $resolved = self::call_function('tribe', $class);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not resolve a lazy TEC rewrite service', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not resolve a lazy TEC rewrite service', 0, $failure);
         }
         self::assert_stateless_lazy_container_value($resolved, $class, $method, false);
         try {
             $reresolved = self::call_function('tribe', $class);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not re-resolve a lazy TEC rewrite service', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not re-resolve a lazy TEC rewrite service', 0, $failure);
         }
         self::assert_stateless_lazy_container_value($reresolved, $class, $method, true);
         return $resolved;
@@ -790,16 +790,16 @@ final class NativeRewriteEffects {
             || !is_object($resolved)
             || get_class($resolved) !== $class
             || !is_callable([$resolved, $method])) {
-            throw new \RuntimeException('duo: native rewrite found a substituted lazy TEC rewrite service' . $phase);
+            throw new \RuntimeException('wprism: native rewrite found a substituted lazy TEC rewrite service' . $phase);
         }
         try {
             $properties = (new \ReflectionClass($resolved))->getProperties();
             $dynamicState = get_object_vars($resolved);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not inspect a lazy TEC rewrite service' . $phase, 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not inspect a lazy TEC rewrite service' . $phase, 0, $failure);
         }
         if ($properties !== [] || $dynamicState !== []) {
-            throw new \RuntimeException('duo: native rewrite found a stateful lazy TEC rewrite service' . $phase);
+            throw new \RuntimeException('wprism: native rewrite found a stateful lazy TEC rewrite service' . $phase);
         }
     }
 
@@ -827,10 +827,10 @@ final class NativeRewriteEffects {
             $base = (new \ReflectionProperty('TEC\\Events\\QR\\Routes', 'route_base'))->getValue($qrRoutes);
             $prefix = (new \ReflectionProperty('TEC\\Events\\QR\\Routes', 'route_prefix'))->getValue($qrRoutes);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not inspect the TEC QR route state', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not inspect the TEC QR route state', 0, $failure);
         }
         if (($base !== null && $base !== 'events') || ($prefix !== null && $prefix !== 'qr')) {
-            throw new \RuntimeException('duo: native rewrite found substituted TEC QR route state');
+            throw new \RuntimeException('wprism: native rewrite found substituted TEC QR route state');
         }
     }
 
@@ -852,14 +852,14 @@ final class NativeRewriteEffects {
         if (!property_exists($wpRewrite, 'extra_permastructs')
             || !is_array($wpRewrite->extra_permastructs)
             || count($wpRewrite->extra_permastructs) > 256) {
-            throw new \RuntimeException('duo: native rewrite found a malformed permastruct roster');
+            throw new \RuntimeException('wprism: native rewrite found a malformed permastruct roster');
         }
         $reachable = array_fill_keys([
             'post', 'date', 'root', 'comments', 'search', 'author', 'page',
         ], true);
         foreach ($wpRewrite->extra_permastructs as $name => $_value) {
             if (!is_string($name) || preg_match('/\A[a-z0-9_-]{1,64}\z/D', $name) !== 1) {
-                throw new \RuntimeException('duo: native rewrite found a malformed permastruct roster');
+                throw new \RuntimeException('wprism: native rewrite found a malformed permastruct roster');
             }
             $reachable[$name] = true;
         }
@@ -891,16 +891,16 @@ final class NativeRewriteEffects {
         $bytes = 0;
         foreach ($permastructs as $name => $definition) {
             if (!is_array($definition) || count($definition) > 16) {
-                throw new \RuntimeException('duo: native rewrite found a malformed permastruct roster');
+                throw new \RuntimeException('wprism: native rewrite found a malformed permastruct roster');
             }
             foreach ($definition as $key => $value) {
                 if ((!is_int($key) && !is_string($key))
                     || (!is_string($value) && !is_int($value) && !is_bool($value))) {
-                    throw new \RuntimeException('duo: native rewrite found a malformed permastruct roster');
+                    throw new \RuntimeException('wprism: native rewrite found a malformed permastruct roster');
                 }
                 $bytes += (is_string($key) ? strlen($key) : 8) + (is_string($value) ? strlen($value) : 8);
                 if ($bytes > 1048576 || (is_string($value) && strlen($value) > 65536)) {
-                    throw new \RuntimeException('duo: native rewrite found an oversized permastruct roster');
+                    throw new \RuntimeException('wprism: native rewrite found an oversized permastruct roster');
                 }
             }
             $bytes += strlen($name);
@@ -908,7 +908,7 @@ final class NativeRewriteEffects {
         try {
             return hash('sha256', json_encode($permastructs, JSON_THROW_ON_ERROR));
         } catch (\JsonException $failure) {
-            throw new \RuntimeException('duo: native rewrite found a malformed permastruct roster', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite found a malformed permastruct roster', 0, $failure);
         }
     }
 
@@ -924,7 +924,7 @@ final class NativeRewriteEffects {
             }
         }
         if (count($services) !== 1) {
-            throw new \RuntimeException('duo: native rewrite found incomplete or substituted plugin callbacks');
+            throw new \RuntimeException('wprism: native rewrite found incomplete or substituted plugin callbacks');
         }
         return reset($services);
     }
@@ -932,17 +932,17 @@ final class NativeRewriteEffects {
     private static function resolve_view_manager(): object {
         $class = 'Tribe\\Events\\Views\\V2\\Manager';
         if (!class_exists($class, false)) {
-            throw new \RuntimeException('duo: native rewrite found an incomplete TEC view registry');
+            throw new \RuntimeException('wprism: native rewrite found an incomplete TEC view registry');
         }
         try {
             $manager = self::call_function('tribe', $class);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not resolve the TEC view registry', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not resolve the TEC view registry', 0, $failure);
         }
         if (!is_object($manager)
             || get_class($manager) !== $class
             || !is_callable([$manager, 'get_view_registration_objects'])) {
-            throw new \RuntimeException('duo: native rewrite found a substituted TEC view registry');
+            throw new \RuntimeException('wprism: native rewrite found a substituted TEC view registry');
         }
         return $manager;
     }
@@ -952,10 +952,10 @@ final class NativeRewriteEffects {
         try {
             $raw = self::call_object($manager, 'get_view_registration_objects');
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not read the TEC view registry', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not read the TEC view registry', 0, $failure);
         }
         if (!is_array($raw) || $raw !== []) {
-            throw new \RuntimeException('duo: native rewrite found an extended TEC view registry');
+            throw new \RuntimeException('wprism: native rewrite found an extended TEC view registry');
         }
         return [];
     }
@@ -975,7 +975,7 @@ final class NativeRewriteEffects {
             return null;
         }
         if (!$dynamicVisible || !$categoryVisible) {
-            throw new \RuntimeException('duo: native rewrite found incomplete Yoast rewrite services');
+            throw new \RuntimeException('wprism: native rewrite found incomplete Yoast rewrite services');
         }
         $service = self::one_exact_class_callback(
             'option_rewrite_rules',
@@ -988,7 +988,7 @@ final class NativeRewriteEffects {
             'sanitize_rewrite_rules_option'
         );
         if ($sanitizeService !== $service || !is_callable(['Yoast_Dynamic_Rewrites', 'instance'])) {
-            throw new \RuntimeException('duo: native rewrite found substituted Yoast rewrite services');
+            throw new \RuntimeException('wprism: native rewrite found substituted Yoast rewrite services');
         }
         $categoryService = self::one_exact_class_callback(
             'category_rewrite_rules',
@@ -1001,13 +1001,13 @@ final class NativeRewriteEffects {
             $categoryProperties = (new \ReflectionClass($categoryService))->getProperties();
             $categoryDynamicState = get_object_vars($categoryService);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not resolve the Yoast rewrite service', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not resolve the Yoast rewrite service', 0, $failure);
         }
         if ($resolved !== $service
             || get_class($service) !== 'Yoast_Dynamic_Rewrites'
             || !property_exists($service, 'wp_rewrite')
             || $service->wp_rewrite !== $wpRewrite) {
-            throw new \RuntimeException('duo: native rewrite found substituted Yoast rewrite services');
+            throw new \RuntimeException('wprism: native rewrite found substituted Yoast rewrite services');
         }
         if (!is_object($categoryGlobal)
             || get_class($categoryGlobal) !== self::WPSEO_REWRITE
@@ -1015,7 +1015,7 @@ final class NativeRewriteEffects {
             || !is_callable([$categoryService, 'category_rewrite_rules_wrapper'])
             || $categoryProperties !== []
             || $categoryDynamicState !== []) {
-            throw new \RuntimeException('duo: native rewrite found substituted Yoast category rewrite service');
+            throw new \RuntimeException('wprism: native rewrite found substituted Yoast category rewrite service');
         }
         self::assert_inert_yoast_category_policy();
         $state = self::yoast_state($service);
@@ -1039,7 +1039,7 @@ final class NativeRewriteEffects {
             $values = (new \ReflectionProperty('WPSEO_Options', 'option_values'))->getValue();
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: native rewrite could not inspect the Yoast category rewrite policy',
+                'wprism: native rewrite could not inspect the Yoast category rewrite policy',
                 0,
                 $failure
             );
@@ -1047,10 +1047,10 @@ final class NativeRewriteEffects {
         if (!is_array($values)
             || !array_key_exists('stripcategorybase', $values)
             || !is_bool($values['stripcategorybase'])) {
-            throw new \RuntimeException('duo: native rewrite found an unprimed Yoast category rewrite policy');
+            throw new \RuntimeException('wprism: native rewrite found an unprimed Yoast category rewrite policy');
         }
         if ($values['stripcategorybase']) {
-            throw new \RuntimeException('duo: native rewrite does not support enabled Yoast category-base removal');
+            throw new \RuntimeException('wprism: native rewrite does not support enabled Yoast category-base removal');
         }
     }
 
@@ -1063,21 +1063,21 @@ final class NativeRewriteEffects {
                 $property = new \ReflectionProperty('Yoast_Dynamic_Rewrites', $propertyName);
                 $value = $property->getValue($service);
             } catch (\Throwable $failure) {
-                throw new \RuntimeException('duo: native rewrite could not inspect Yoast rewrite state', 0, $failure);
+                throw new \RuntimeException('wprism: native rewrite could not inspect Yoast rewrite state', 0, $failure);
             }
             if (!is_array($value) || count($value) > 2048) {
-                throw new \RuntimeException('duo: native rewrite found malformed Yoast rewrite state');
+                throw new \RuntimeException('wprism: native rewrite found malformed Yoast rewrite state');
             }
             foreach ($value as $pattern => $query) {
                 if (!is_string($pattern)
                     || !is_string($query)
                     || strlen($pattern) > 16384
                     || strlen($query) > 16384) {
-                    throw new \RuntimeException('duo: native rewrite found malformed Yoast rewrite state');
+                    throw new \RuntimeException('wprism: native rewrite found malformed Yoast rewrite state');
                 }
                 $bytes += strlen($pattern) + strlen($query);
                 if ($bytes > 4194304) {
-                    throw new \RuntimeException('duo: native rewrite found oversized Yoast rewrite state');
+                    throw new \RuntimeException('wprism: native rewrite found oversized Yoast rewrite state');
                 }
             }
             $maps[$propertyName] = $value;
@@ -1100,13 +1100,13 @@ final class NativeRewriteEffects {
             return null;
         }
         if (!$runtimeVisible) {
-            throw new \RuntimeException('duo: native rewrite found an incomplete Polylang rewrite runtime');
+            throw new \RuntimeException('wprism: native rewrite found an incomplete Polylang rewrite runtime');
         }
         try {
             $runtime = $GLOBALS['polylang'];
             $resolved = self::call_function('PLL');
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not resolve the Polylang runtime', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not resolve the Polylang runtime', 0, $failure);
         }
         // rewrite.flush is deliberately executed by a fresh WP-CLI process;
         // Polylang 3.8.6 boots that exact runtime as PLL_Admin (the pinned
@@ -1118,29 +1118,29 @@ final class NativeRewriteEffects {
             || $resolved !== $runtime
             || !property_exists($runtime, 'links_model')
             || !is_object($runtime->links_model)) {
-            throw new \RuntimeException('duo: native rewrite found a substituted Polylang runtime');
+            throw new \RuntimeException('wprism: native rewrite found a substituted Polylang runtime');
         }
         $links = $runtime->links_model;
         if (get_class($links) !== 'PLL_Links_Directory') {
             if ($callbackVisible) {
-                throw new \RuntimeException('duo: native rewrite found a substituted Polylang links model');
+                throw new \RuntimeException('wprism: native rewrite found a substituted Polylang links model');
             }
             return null;
         }
         $sitemaps = null;
         if (property_exists($runtime, 'sitemaps')) {
             if (!is_object($runtime->sitemaps) || get_class($runtime->sitemaps) !== 'PLL_Sitemaps') {
-                throw new \RuntimeException('duo: native rewrite found a substituted Polylang sitemap service');
+                throw new \RuntimeException('wprism: native rewrite found a substituted Polylang sitemap service');
             }
             $sitemaps = $runtime->sitemaps;
         }
         if (!is_callable([$links, 'get_rewrite_rules_filters'])) {
-            throw new \RuntimeException('duo: native rewrite found an incomplete Polylang rewrite runtime');
+            throw new \RuntimeException('wprism: native rewrite found an incomplete Polylang rewrite runtime');
         }
         foreach (['pll_rewrite_rules', 'pll_modify_rewrite_rule'] as $openHook) {
             if (self::hook_records($openHook) !== []) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found an unsupported open Polylang rewrite filter'
+                    'wprism: native rewrite found an unsupported open Polylang rewrite filter'
                 );
             }
         }
@@ -1152,28 +1152,28 @@ final class NativeRewriteEffects {
             // language gate. Exact whole-batch absence is therefore an inert
             // pre-provider phase; any fragment is partial boot or substitution.
             if ($sitemaps !== null || $sitemapsCallbackVisible || $dynamicHooks !== []) {
-                throw new \RuntimeException('duo: native rewrite found an incomplete Polylang rewrite runtime');
+                throw new \RuntimeException('wprism: native rewrite found an incomplete Polylang rewrite runtime');
             }
             return null;
         }
         if ($sitemaps === null || !$sitemapsCallbackVisible) {
-            throw new \RuntimeException('duo: native rewrite found an incomplete Polylang sitemap runtime');
+            throw new \RuntimeException('wprism: native rewrite found an incomplete Polylang sitemap runtime');
         }
         try {
             $rawTypes = self::call_object($links, 'get_rewrite_rules_filters');
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: native rewrite could not read Polylang rewrite types', 0, $failure);
+            throw new \RuntimeException('wprism: native rewrite could not read Polylang rewrite types', 0, $failure);
         }
         if (!is_array($rawTypes) || count($rawTypes) > 128) {
-            throw new \RuntimeException('duo: native rewrite found a malformed Polylang rewrite type roster');
+            throw new \RuntimeException('wprism: native rewrite found a malformed Polylang rewrite type roster');
         }
         $types = [];
         foreach ($rawTypes as $type) {
             if (!is_string($type) || preg_match('/\A[a-z0-9_-]{1,64}\z/D', $type) !== 1) {
-                throw new \RuntimeException('duo: native rewrite found a malformed Polylang rewrite type roster');
+                throw new \RuntimeException('wprism: native rewrite found a malformed Polylang rewrite type roster');
             }
             if (isset($types[$type])) {
-                throw new \RuntimeException('duo: native rewrite found a duplicate Polylang rewrite type');
+                throw new \RuntimeException('wprism: native rewrite found a duplicate Polylang rewrite type');
             }
             $types[$type] = $type;
         }
@@ -1183,7 +1183,7 @@ final class NativeRewriteEffects {
         );
         sort($expectedDynamicHooks, SORT_STRING);
         if (array_diff($dynamicHooks, $expectedDynamicHooks) !== []) {
-            throw new \RuntimeException('duo: native rewrite found extended Polylang rewrite callbacks');
+            throw new \RuntimeException('wprism: native rewrite found extended Polylang rewrite callbacks');
         }
         return [
             'runtime' => $runtime,
@@ -1212,13 +1212,13 @@ final class NativeRewriteEffects {
             }
             if ($matched === null) {
                 throw new \RuntimeException(
-                    "duo: native rewrite found extended or substituted '$hookName' callbacks"
+                    "wprism: native rewrite found extended or substituted '$hookName' callbacks"
                 );
             }
             unset($expected[$matched]);
         }
         if ($expected !== []) {
-            throw new \RuntimeException("duo: native rewrite found incomplete '$hookName' callbacks");
+            throw new \RuntimeException("wprism: native rewrite found incomplete '$hookName' callbacks");
         }
     }
 
@@ -1239,7 +1239,7 @@ final class NativeRewriteEffects {
                 || !is_callable(['Tribe__Events__Aggregator', 'instance'])
                 || !class_exists('Tribe\\Events\\Views\\V2\\Hooks', false)) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found incomplete The Events Calendar updated-option services'
+                    'wprism: native rewrite found incomplete The Events Calendar updated-option services'
                 );
             }
             try {
@@ -1248,7 +1248,7 @@ final class NativeRewriteEffects {
                 $views = self::call_function('tribe', 'Tribe\\Events\\Views\\V2\\Hooks');
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    'duo: native rewrite could not resolve The Events Calendar updated-option services',
+                    'wprism: native rewrite could not resolve The Events Calendar updated-option services',
                     0,
                     $failure
                 );
@@ -1260,7 +1260,7 @@ final class NativeRewriteEffects {
             ] as [$service, $class]) {
                 if (!is_object($service) || get_class($service) !== $class) {
                     throw new \RuntimeException(
-                        'duo: native rewrite found substituted The Events Calendar updated-option services'
+                        'wprism: native rewrite found substituted The Events Calendar updated-option services'
                     );
                 }
             }
@@ -1292,14 +1292,14 @@ final class NativeRewriteEffects {
             }
             if ($matched === null) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found extended or substituted updated-option callbacks'
+                    'wprism: native rewrite found extended or substituted updated-option callbacks'
                 );
             }
             unset($expected[$matched]);
         }
         if ($expected !== []) {
             throw new \RuntimeException(
-                'duo: native rewrite found incomplete The Events Calendar updated-option callbacks'
+                'wprism: native rewrite found incomplete The Events Calendar updated-option callbacks'
             );
         }
     }
@@ -1312,7 +1312,7 @@ final class NativeRewriteEffects {
         ] as $name) {
             if (self::hook_records($name) !== []) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found extended The Events Calendar cache-listener trigger filters'
+                    'wprism: native rewrite found extended The Events Calendar cache-listener trigger filters'
                 );
             }
         }
@@ -1360,7 +1360,7 @@ final class NativeRewriteEffects {
                 } catch (\RuntimeException $failure) {
                     if (str_contains($failure->getMessage(), 'extended or substituted normal ')) {
                         throw new \RuntimeException(
-                            "duo: native rewrite found extended marker option topology for '$name'",
+                            "wprism: native rewrite found extended marker option topology for '$name'",
                             0,
                             $failure
                         );
@@ -1383,7 +1383,7 @@ final class NativeRewriteEffects {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: native rewrite found extended marker option topology for '$name'"
+                "wprism: native rewrite found extended marker option topology for '$name'"
             );
         }
     }
@@ -1402,14 +1402,14 @@ final class NativeRewriteEffects {
         if (!$visible) {
             if ($records !== []) {
                 throw new \RuntimeException(
-                    'duo: native option topology found extended or substituted pre_option callbacks'
+                    'wprism: native option topology found extended or substituted pre_option callbacks'
                 );
             }
             return null;
         }
         if (count($records) !== 1) {
             throw new \RuntimeException(
-                'duo: native option topology found extended or substituted pre_option callbacks'
+                'wprism: native option topology found extended or substituted pre_option callbacks'
             );
         }
         [$priority, $record] = $records[0];
@@ -1426,7 +1426,7 @@ final class NativeRewriteEffects {
             || !class_exists(self::TEC_DI_VALUE_BUILDER, false)
             || !class_exists(self::TEC_DI_SERVICE_PROVIDER, false)) {
             throw new \RuntimeException(
-                'duo: native option topology found extended or substituted pre_option callbacks'
+                'wprism: native option topology found extended or substituted pre_option callbacks'
             );
         }
         try {
@@ -1443,7 +1443,7 @@ final class NativeRewriteEffects {
                 : null;
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: native option topology could not inspect the resolved TEC Harbor service',
+                'wprism: native option topology could not inspect the resolved TEC Harbor service',
                 0,
                 $failure
             );
@@ -1455,7 +1455,7 @@ final class NativeRewriteEffects {
             || get_class($resolver) !== self::TEC_DI_RESOLVER
             || $bound !== $owner) {
             throw new \RuntimeException(
-                'duo: native option topology found a substituted TEC Harbor pre_option service'
+                'wprism: native option topology found a substituted TEC Harbor pre_option service'
             );
         }
         return $owner;
@@ -1484,7 +1484,7 @@ final class NativeRewriteEffects {
             || !class_exists(self::WOO_RUNTIME_CONTAINER, false)
             || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
             throw new \RuntimeException(
-                'duo: native option topology found an incomplete WooCommerce pre_update_option runtime'
+                'wprism: native option topology found an incomplete WooCommerce pre_update_option runtime'
             );
         }
         try {
@@ -1499,7 +1499,7 @@ final class NativeRewriteEffects {
             $publicContainer = self::call_function('wc_get_container');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: native option topology could not inspect WooCommerce pre_update_option services',
+                'wprism: native option topology could not inspect WooCommerce pre_update_option services',
                 0,
                 $failure
             );
@@ -1512,7 +1512,7 @@ final class NativeRewriteEffects {
             || !is_object($customOrders)
             || get_class($customOrders) !== self::WOO_CUSTOM_ORDERS) {
             throw new \RuntimeException(
-                'duo: native option topology found incomplete or substituted WooCommerce pre_update_option services'
+                'wprism: native option topology found incomplete or substituted WooCommerce pre_update_option services'
             );
         }
         return $customOrders;
@@ -1559,7 +1559,7 @@ final class NativeRewriteEffects {
                     }
                 }
                 throw new \RuntimeException(
-                    "duo: native option topology found extended or substituted $family pre_update_option callbacks"
+                    "wprism: native option topology found extended or substituted $family pre_update_option callbacks"
                 );
             }
             unset($expected[$matched]);
@@ -1573,7 +1573,7 @@ final class NativeRewriteEffects {
             }
             $family = $yoast ? 'Yoast SEO' : ($wooMissing ? 'WooCommerce' : 'normal');
             throw new \RuntimeException(
-                "duo: native option topology found incomplete $family pre_update_option callbacks"
+                "wprism: native option topology found incomplete $family pre_update_option callbacks"
             );
         }
     }
@@ -1609,19 +1609,19 @@ final class NativeRewriteEffects {
             || !class_exists(self::WOO_SYNCHRONIZER, false)
             || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
             throw new \RuntimeException(
-                'duo: native rewrite found an incomplete WooCommerce option-callback runtime'
+                'wprism: native rewrite found an incomplete WooCommerce option-callback runtime'
             );
         }
         try {
             $container = $GLOBALS['wc_container'];
             if (!is_object($container) || get_class($container) !== self::WOO_CONTAINER) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found substituted WooCommerce option-callback services'
+                    'wprism: native rewrite found substituted WooCommerce option-callback services'
                 );
             }
             if (self::call_function('wc_get_container') !== $container) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found substituted WooCommerce option-callback services'
+                    'wprism: native rewrite found substituted WooCommerce option-callback services'
                 );
             }
             $features = self::call_object($container, 'get', self::WOO_FEATURES);
@@ -1629,7 +1629,7 @@ final class NativeRewriteEffects {
             $customOrders = self::call_object($container, 'get', self::WOO_CUSTOM_ORDERS);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: native rewrite could not resolve WooCommerce option-callback services',
+                'wprism: native rewrite could not resolve WooCommerce option-callback services',
                 0,
                 $failure
             );
@@ -1642,7 +1642,7 @@ final class NativeRewriteEffects {
         ] as [$service, $class]) {
             if (!is_object($service) || get_class($service) !== $class) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found substituted WooCommerce option-callback services'
+                    'wprism: native rewrite found substituted WooCommerce option-callback services'
                 );
             }
         }
@@ -1696,7 +1696,7 @@ final class NativeRewriteEffects {
             || $sitemapCallbacks[0][1]['function']
                 !== [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update']) {
             throw new \RuntimeException(
-                'duo: native rewrite found incomplete or substituted Yoast SEO sitemap cache topology'
+                'wprism: native rewrite found incomplete or substituted Yoast SEO sitemap cache topology'
             );
         }
         $sitemaps = $GLOBALS['wpseo_sitemaps'];
@@ -1708,7 +1708,7 @@ final class NativeRewriteEffects {
             || !class_exists(self::WPSEO_SITEMAPS_CACHE, false)
             || !is_callable([self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update'])) {
             throw new \RuntimeException(
-                'duo: native rewrite found incomplete or substituted Yoast SEO sitemap cache service'
+                'wprism: native rewrite found incomplete or substituted Yoast SEO sitemap cache service'
             );
         }
         return [
@@ -1735,7 +1735,7 @@ final class NativeRewriteEffects {
         if (!class_exists('WPSEO_Options', false)
             || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
             throw new \RuntimeException(
-                'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
+                'wprism: native rewrite found incomplete or substituted Yoast SEO option singletons'
             );
         }
         $options = [];
@@ -1746,14 +1746,14 @@ final class NativeRewriteEffects {
                 $service = self::call_static('WPSEO_Options', 'get_option_instance', $optionName);
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    'duo: native rewrite could not resolve Yoast option-callback services',
+                    'wprism: native rewrite could not resolve Yoast option-callback services',
                     0,
                     $failure
                 );
             }
             if (!is_object($service) || get_class($service) !== $class) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found incomplete or substituted Yoast SEO option singletons'
+                    'wprism: native rewrite found incomplete or substituted Yoast SEO option singletons'
                 );
             }
             $options[$optionName] = $service;
@@ -1769,20 +1769,20 @@ final class NativeRewriteEffects {
             ))->getValue();
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: native rewrite could not inspect the Yoast SEO sitemap cache registration map',
+                'wprism: native rewrite could not inspect the Yoast SEO sitemap cache registration map',
                 0,
                 $failure
             );
         }
         if (!is_array($cacheClear)) {
             throw new \RuntimeException(
-                'duo: native rewrite found a malformed Yoast SEO sitemap cache registration map'
+                'wprism: native rewrite found a malformed Yoast SEO sitemap cache registration map'
             );
         }
         foreach (self::MARKER_OPTIONS as $marker) {
             if (array_key_exists($marker, $cacheClear)) {
                 throw new \RuntimeException(
-                    'duo: native rewrite found a TEC marker registered for Yoast SEO sitemap cache invalidation'
+                    'wprism: native rewrite found a TEC marker registered for Yoast SEO sitemap cache invalidation'
                 );
             }
         }
@@ -1810,7 +1810,7 @@ final class NativeRewriteEffects {
                     [$woo['synchronizer'], 'process_added_option', 999, 2],
                 ],
                 'update_option', 'add_option' => [],
-                default => throw new \LogicException('duo: unknown normal option callback family'),
+                default => throw new \LogicException('wprism: unknown normal option callback family'),
             };
         }
         if ($wpseo !== null) {
@@ -1821,7 +1821,7 @@ final class NativeRewriteEffects {
                 } elseif ($hookName === 'update_option' || $hookName === 'add_option') {
                     $yoastExpected[] = [$service, 'add_default_filters_if_same_option', 10, 1];
                 } elseif ($hookName !== 'added_option') {
-                    throw new \LogicException('duo: unknown normal option callback family');
+                    throw new \LogicException('wprism: unknown normal option callback family');
                 }
             }
             if ($hookName === 'update_option' && $wpseo['sitemaps_cache'] !== null) {
@@ -1866,7 +1866,7 @@ final class NativeRewriteEffects {
                     }
                 }
                 throw new \RuntimeException(
-                    "duo: native rewrite found extended or substituted $family $hookName callbacks"
+                    "wprism: native rewrite found extended or substituted $family $hookName callbacks"
                 );
             }
             unset($expected[$matched]);
@@ -1886,7 +1886,7 @@ final class NativeRewriteEffects {
             }
             $family = $yoastMissing ? 'Yoast SEO' : ($wooMissing ? 'WooCommerce' : 'normal');
             throw new \RuntimeException(
-                "duo: native rewrite found incomplete $family $hookName callbacks"
+                "wprism: native rewrite found incomplete $family $hookName callbacks"
             );
         }
     }
@@ -1921,21 +1921,21 @@ final class NativeRewriteEffects {
 
     private static function call_function(string $name, mixed ...$args): mixed {
         if (!function_exists($name)) {
-            throw new \RuntimeException('duo: native rewrite lost a proven runtime function');
+            throw new \RuntimeException('wprism: native rewrite lost a proven runtime function');
         }
         return \Closure::fromCallable($name)(...$args);
     }
 
     private static function call_static(string $class, string $method, mixed ...$args): mixed {
         if (!is_callable([$class, $method])) {
-            throw new \RuntimeException('duo: native rewrite lost a proven runtime service');
+            throw new \RuntimeException('wprism: native rewrite lost a proven runtime service');
         }
         return \Closure::fromCallable([$class, $method])(...$args);
     }
 
     private static function call_object(mixed $object, string $method, mixed ...$args): mixed {
         if (!is_object($object) || !is_callable([$object, $method])) {
-            throw new \RuntimeException('duo: native rewrite lost a proven runtime service');
+            throw new \RuntimeException('wprism: native rewrite lost a proven runtime service');
         }
         return \Closure::fromCallable([$object, $method])(...$args);
     }

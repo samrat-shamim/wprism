@@ -2,7 +2,7 @@
     "disclosures": [
         "the rollback authority holds one generation at a time: this is the active receipt, not a history"
     ],
-    "format": "duo-checkpoint-catalog/v1",
+    "format": "wprism-checkpoint-catalog/v1",
     "rows": [
         {
             "age_seconds": 62,

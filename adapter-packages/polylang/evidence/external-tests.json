@@ -1,5 +1,5 @@
 {
-    "format": "duo-adapter-external-evidence/v1",
+    "format": "wprism-adapter-external-evidence/v1",
     "tests": {
         "regress-polylang-tec-rewrite-coinstall": "integration-scenarios/polylang-tec-rewrite-coinstall/tests/live/regress_polylang_tec_rewrite_coinstall.sh"
     }

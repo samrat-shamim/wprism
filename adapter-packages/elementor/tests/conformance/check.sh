@@ -24,15 +24,15 @@ $post = static function (string $slug, string|array $type): ?WP_Post {
     $found = get_page_by_path($slug, OBJECT, $type);
     return $found instanceof WP_Post ? $found : null;
 };
-$classic = $post('duo-conformance-elementor-page', 'page');
-$deletion = $post('duo-elementor-deletion-page', 'page');
-$target = $post('duo-elementor-target', 'page');
-$template = $post('duo-portable-section', 'elementor_library');
-$atomic = $post('duo-atomic-elementor-page', 'page');
-$hero = $post('duo-conformance-elementor-hero', 'attachment');
-$galleryA = $post('duo-conformance-elementor-gallery-a', 'attachment');
-$galleryB = $post('duo-conformance-elementor-gallery-b', 'attachment');
-$background = $post('duo-conformance-elementor-bg', 'attachment');
+$classic = $post('wprism-conformance-elementor-page', 'page');
+$deletion = $post('wprism-elementor-deletion-page', 'page');
+$target = $post('wprism-elementor-target', 'page');
+$template = $post('wprism-portable-section', 'elementor_library');
+$atomic = $post('wprism-atomic-elementor-page', 'page');
+$hero = $post('wprism-conformance-elementor-hero', 'attachment');
+$galleryA = $post('wprism-conformance-elementor-gallery-a', 'attachment');
+$galleryB = $post('wprism-conformance-elementor-gallery-b', 'attachment');
+$background = $post('wprism-conformance-elementor-bg', 'attachment');
 $kitId = (int) get_option('elementor_active_kit');
 $kitPost = $kitId > 0 ? get_post($kitId) : null;
 if (!$classic || !$target || !$template || !$hero || !$galleryA || !$galleryB || !$background
@@ -240,14 +240,14 @@ jq -e --arg version "$ELEMENTOR_EXPECTED_VERSION" '
   .ids.deletion > 0 and
   .classic.hero == .ids.hero and .classic.background == .ids.background and
   .classic.gallery == [.ids.gallery_a,.ids.gallery_b] and
-  .classic.link == ("http://localhost:'"$CONF2_PORT"'/duo-elementor-target/?from=elementor&encoded=a%2Fb") and
+  .classic.link == ("http://localhost:'"$CONF2_PORT"'/wprism-elementor-target/?from=elementor&encoded=a%2Fb") and
   .template.type == "section" and .template.library_type == "section" and .template.image == .ids.gallery_a and
   .kit.site_logo == .ids.hero and .kit.site_favicon == .ids.gallery_a and
   .kit.background == .ids.background and .kit.gallery == [.ids.gallery_a,.ids.gallery_b] and
   .kit.fonts == "Inter, Arial, sans-serif" and
   (.kit.system_colors | map(select(._id == "primary" and .color == "#123456")) | length) == 1 and
   (.kit.system_colors | map(select(._id == "secondary" and .color == "#654321")) | length) == 1 and
-  (.kit.custom_colors | map(select(._id == "duocustom" and .title == "Duo Custom 東京 🚀" and .color == "#abcdef")) | length) == 1 and
+  (.kit.custom_colors | map(select(._id == "wprismcustom" and .title == "WPrism Custom 東京 🚀" and .color == "#abcdef")) | length) == 1 and
   (.media_exist | to_entries | all(.value == true)) and
   .derived.invalid_receipts == 0 and .derived.missing == [] and
   .derived.unexpected_empty == [] and .derived.orphan == [] and .derived.render_caches == 0 and
@@ -304,23 +304,23 @@ fi
 pass 'Elementor documents, media, template and kit references rebound across divergent adopted identities'
 pass 'Elementor provider 2.0.0 removed stale/orphan CSS and render caches with a closed readback receipt'
 
-FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/duo-conformance-elementor-page/") \
+FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/wprism-conformance-elementor-page/") \
   || fail 'conf2 classic Elementor page did not return 200'
 require_observed_nonempty "conf2 Elementor rendered response" "$FRONT"
 [ "${#FRONT}" -ge 20000 ] || fail "conf2 classic Elementor response was suspiciously short (${#FRONT} bytes)"
 grep -qiE 'fatal error|uncaught' <<<"$FRONT" && fail 'conf2 classic Elementor response contains a fatal marker'
 grep -Fq "http://localhost:${CONF1_PORT}" <<<"$FRONT" && fail 'conf2 classic Elementor response leaked the source host'
-grep -q 'src="http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-hero[^"?]*' <<<"$FRONT" \
+grep -q 'src="http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/wprism-conf-elementor-hero[^"?]*' <<<"$FRONT" \
   || fail 'classic Image widget did not consume the target attachment reference'
-grep -q 'duo-conf-elementor-gallery-a' <<<"$FRONT" && grep -q 'duo-conf-elementor-gallery-b' <<<"$FRONT" \
+grep -q 'wprism-conf-elementor-gallery-a' <<<"$FRONT" && grep -q 'wprism-conf-elementor-gallery-b' <<<"$FRONT" \
   || fail 'classic gallery did not consume both target attachment references'
-grep -Fq "href=\"http://localhost:${CONF2_PORT}/duo-elementor-target/?from=elementor" <<<"$FRONT" \
+grep -Fq "href=\"http://localhost:${CONF2_PORT}/wprism-elementor-target/?from=elementor" <<<"$FRONT" \
   || fail 'classic plain-URL internal link did not rebind to the target host'
 grep -Fq 'Portable nested heading 000 東京 🚀' <<<"$FRONT" \
   && grep -Fq 'Portable nested heading 127 東京 🚀' <<<"$FRONT" \
   || fail 'large nested UTF-8 Elementor document did not render both boundaries'
 
-PAGE_ID=$(wp_conf2 post list --post_type=page --name=duo-conformance-elementor-page --field=ID)
+PAGE_ID=$(wp_conf2 post list --post_type=page --name=wprism-conformance-elementor-page --field=ID)
 require_fixture_ids PAGE_ID
 [ "$PAGE_ID" = "$(jq -r '.ids.classic' <<<"$TARGET")" ] \
   || fail 'Elementor rendered-page id read disagrees with the native observation'
@@ -328,28 +328,28 @@ CSS=$(curl -fsSL "http://localhost:${CONF2_PORT}/wp-content/uploads/elementor/cs
   || fail "could not fetch conf2 regenerated Elementor CSS for $PAGE_ID"
 require_observed_nonempty "conf2 Elementor regenerated CSS" "$CSS"
 grep -Fq "http://localhost:${CONF1_PORT}" <<<"$CSS" && fail 'regenerated Elementor CSS leaked the source host'
-grep -q 'background-image:url("http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/duo-conf-elementor-bg' <<<"$CSS" \
+grep -q 'background-image:url("http://localhost:'"$CONF2_PORT"'/wp-content/uploads/[0-9]\{4\}/[0-9]\{2\}/wprism-conf-elementor-bg' <<<"$CSS" \
   || fail 'classic background image did not regenerate from the target attachment'
 
 if [ "$ATOMIC_SUPPORTED" = true ]; then
-  ATOMIC_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/duo-atomic-elementor-page/") \
+  ATOMIC_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/wprism-atomic-elementor-page/") \
     || fail 'conf2 Atomic Elementor page did not return 200'
   require_observed_nonempty 'conf2 Atomic Elementor rendered response' "$ATOMIC_FRONT"
   grep -Fq 'Atomic portable heading 東京 🚀' <<<"$ATOMIC_FRONT" \
     || fail 'Atomic Heading did not consume its generated html-v3/string envelope'
-  grep -q 'duo-conf-elementor-hero' <<<"$ATOMIC_FRONT" \
+  grep -q 'wprism-conf-elementor-hero' <<<"$ATOMIC_FRONT" \
     || fail 'Atomic Image did not consume its generated attachment-id envelope'
   grep -Fq "http://localhost:${CONF1_PORT}" <<<"$ATOMIC_FRONT" \
     && fail 'conf2 Atomic Elementor response leaked the source host'
 fi
 pass 'classic and Atomic frontend rendering consumes target-local URLs, media, large UTF-8 data, and regenerated CSS'
 
-ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor zero-change plan' json "$ZERO_PLAN"
+ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor zero-change plan' json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null \
   || fail "Elementor retry retained work: $ZERO_PLAN"
-ZERO_APPLY=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor zero-change apply' json "$ZERO_APPLY"
+ZERO_APPLY=$($COMPOSE run --rm -T cli2 wp wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "Elementor no-op apply was not clean and idempotent: $ZERO_APPLY"
 pass 'Elementor zero-change plan/apply is mutation-free and does not rerun the provider'
@@ -360,9 +360,9 @@ if [ "${ELEMENTOR_BOUNDARY_ONLY:-0}" = 1 ]; then
 fi
 
 commit_elementor_source() { # <message>
-  wp_conf1 duo capture --repo=/siterepo >/dev/null
+  wp_conf1 wprism capture --repo=/siterepo >/dev/null
   git -C "$CONF_REPO1" add -A
-  git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm "$1"
+  git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "$1"
   git -C "$CONF_REPO1" push -q origin main
   git -C "$CONF_REPO2" pull -q origin main
 }
@@ -383,8 +383,8 @@ require_fixture_ids SOURCE_CLASSIC SOURCE_KIT SOURCE_TEMPLATE
 CLASSIC_DATA=$(wp_conf1 post meta get "$SOURCE_CLASSIC" _elementor_data)
 wp_conf1 post meta update "$SOURCE_CLASSIC" _elementor_data '{malformed-elementor-json' >/dev/null
 MALFORMED_RC=0
-MALFORMED_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
-require_duo_answered 'Elementor malformed document capture' human "$MALFORMED_OUT"
+MALFORMED_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
+require_wprism_answered 'Elementor malformed document capture' human "$MALFORMED_OUT"
 [ "$MALFORMED_RC" -ne 0 ] && grep -Eqi 'json|structured|elementor_data|decode' <<<"$MALFORMED_OUT" \
   || fail "Elementor malformed document did not refuse: $MALFORMED_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
@@ -401,8 +401,8 @@ wp_conf1 eval '
   update_post_meta($kit,"_elementor_page_settings",$settings);
 ' >/dev/null
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
-require_duo_answered 'Elementor credential-shaped kit capture' human "$SECRET_OUT"
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || SECRET_RC=$?
+require_wprism_answered 'Elementor credential-shaped kit capture' human "$SECRET_OUT"
 [ "$SECRET_RC" -ne 0 ] && grep -q 'secret guard tripped' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
   || fail "Elementor credential-shaped kit setting did not refuse and redact: $SECRET_OUT"
@@ -421,8 +421,8 @@ wp_conf1 eval '
   clean_post_cache('"$SOURCE_TEMPLATE"');
 ' >/dev/null
 DELETE_RC=0
-DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || DELETE_RC=$?
-require_duo_answered 'Elementor unsupported library-template deletion capture' human "$DELETE_OUT"
+DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || DELETE_RC=$?
+require_wprism_answered 'Elementor unsupported library-template deletion capture' human "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && grep -Eqi 'deletion|tombstone|elementor_library|unsupported' <<<"$DELETE_OUT" \
   || fail "Elementor library-template deletion did not refuse: $DELETE_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
@@ -434,7 +434,7 @@ wp_conf1 eval '
   }
   clean_post_cache('"$SOURCE_TEMPLATE"');
 ' >/dev/null
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-elementor-restored >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-elementor-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-elementor-restored" \
   || fail 'Elementor source did not restore byte-identically after malformed/secret/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-elementor-restored"
@@ -447,7 +447,7 @@ wp_conf1 eval '
   $admins=get_users(["role"=>"administrator","number"=>1]);
   if (!$admins) throw new RuntimeException("source Elementor conflict save needs an administrator");
   wp_set_current_user($admins[0]->ID);
-  $post=get_page_by_path("duo-conformance-elementor-page",OBJECT,"page");
+  $post=get_page_by_path("wprism-conformance-elementor-page",OBJECT,"page");
   $data=json_decode((string)get_post_meta($post->ID,"_elementor_data",true),true,512,JSON_THROW_ON_ERROR);
   $data[0]["elements"][1]["elements"][1]["settings"]["title"]="Repository competing Elementor heading 東京 🚀";
   $document=\Elementor\Plugin::$instance->documents->get($post->ID);
@@ -458,26 +458,26 @@ wp_conf2 eval '
   $admins=get_users(["role"=>"administrator","number"=>1]);
   if (!$admins) throw new RuntimeException("target Elementor conflict save needs an administrator");
   wp_set_current_user($admins[0]->ID);
-  $post=get_page_by_path("duo-conformance-elementor-page",OBJECT,"page");
+  $post=get_page_by_path("wprism-conformance-elementor-page",OBJECT,"page");
   $data=json_decode((string)get_post_meta($post->ID,"_elementor_data",true),true,512,JSON_THROW_ON_ERROR);
   $data[0]["elements"][1]["elements"][1]["settings"]["title"]="Target competing Elementor heading";
   $document=\Elementor\Plugin::$instance->documents->get($post->ID);
   if (!$document || $document->save(["elements"=>$data]) === false) throw new RuntimeException("target Elementor conflict save failed");
 ' >/dev/null
 CONFLICT_BEFORE=$(elementor_target_hash)
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor competing document plan' json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor competing document plan' json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "Elementor competing document did not produce a typed conflict: $CONFLICT_PLAN"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered 'Elementor unforced competing document apply' human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered 'Elementor unforced competing document apply' human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflict' <<<"$CONFLICT_OUT" \
   || fail "Elementor competing document did not refuse: $CONFLICT_OUT"
 [ "$(elementor_target_hash)" = "$CONFLICT_BEFORE" ] \
   || fail 'Elementor unforced conflict partially mutated target state'
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor forced competing document apply' json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor forced competing document apply' json "$FORCED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict > 0' <<<"$FORCED" >/dev/null \
   || fail "Elementor forced repository intent did not converge cleanly: $FORCED"
 CONVERGED=$(observe_elementor conf2)
@@ -499,33 +499,33 @@ CSS_FAULT=$(wp_conf2 eval '
   $uploads=wp_upload_dir();
   $css=rtrim((string)$uploads["basedir"],"/")."/elementor/css";
   if (!is_dir($css) && !wp_mkdir_p($css)) throw new RuntimeException("Elementor fault CSS directory unavailable");
-  $fault=$css."/duo-unsupported-nested-entry";
+  $fault=$css."/wprism-unsupported-nested-entry";
   if (!mkdir($fault) && !is_dir($fault)) throw new RuntimeException("Elementor CSS fault injection failed");
   echo $fault;
 ')
 require_observed_nonempty 'Elementor provider projection-fault path' "$CSS_FAULT"
-FAILURE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+FAILURE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty 'Elementor applied revision before provider fault' "$FAILURE_REV_BEFORE"
 FAILURE_RC=0
-FAILURE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAILURE_RC=$?
-require_duo_answered 'Elementor provider projection failure' human "$FAILURE_OUT"
+FAILURE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAILURE_RC=$?
+require_wprism_answered 'Elementor provider projection failure' human "$FAILURE_OUT"
 [ "$FAILURE_RC" -ne 0 ] && grep -q "provider 'elementor-css' capability 'regenerate_css' failed" <<<"$FAILURE_OUT" \
   || fail "Elementor malformed CSS projection did not refuse in the provider: $FAILURE_OUT"
 [ "$(wp_conf2 post get "$(jq -r '.ids.classic' <<<"$CONVERGED")" --field=post_title)" = 'Failure recovery Elementor title 東京 🚀' ] \
   || fail 'Elementor provider failure did not retain the post-commit authored state needed for retry'
 [ "$(wp_conf2 option get elementor_target_undeclared_neighbor)" = target-neighbor-preserved ] \
   || fail 'Elementor provider recovery crossed the target-owned option boundary'
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FAILURE_REV_BEFORE" ] \
+[ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FAILURE_REV_BEFORE" ] \
   || fail 'Elementor provider failure advanced applied_revision before verified effects'
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail 'Elementor provider failure did not retain retry authority'
 wp_conf2 eval '
   $uploads=wp_upload_dir();
-  $fault=rtrim((string)$uploads["basedir"],"/")."/elementor/css/duo-unsupported-nested-entry";
+  $fault=rtrim((string)$uploads["basedir"],"/")."/elementor/css/wprism-unsupported-nested-entry";
   if (!rmdir($fault)) throw new RuntimeException("Elementor CSS fault repair failed");
 ' >/dev/null
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor retry after provider projection repair' json "$RETRY"
+RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor retry after provider projection repair' json "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
   any(.actions[]?; .source == "provider:elementor-css/regenerate_css" and .verified == true)
@@ -541,8 +541,8 @@ wp_conf1 eval '
   update_post_meta($kit,"_elementor_page_settings",$settings);
 ' >/dev/null
 commit_elementor_source 'conformance: Elementor authored kit-field absence'
-FIELD_REMOVED=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor kit-field absence apply' json "$FIELD_REMOVED"
+FIELD_REMOVED=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor kit-field absence apply' json "$FIELD_REMOVED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update > 0 and .plan.delete == 0' <<<"$FIELD_REMOVED" >/dev/null \
   || fail "Elementor kit-field absence did not converge as an update: $FIELD_REMOVED"
 FIELD_OBSERVED=$(observe_elementor conf2)
@@ -559,22 +559,22 @@ TARGET_DELETION=$(jq -r '.ids.deletion' <<<"$TARGET_BEFORE_DELETE")
 require_fixture_ids SOURCE_DELETION TARGET_DELETION
 wp_conf1 post delete "$SOURCE_DELETION" --force >/dev/null
 commit_elementor_source 'conformance: Elementor core-page deletion intent'
-WITHHELD=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1)
-require_duo_answered 'Elementor page deletion withheld without authority' human "$WITHHELD"
+WITHHELD=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1)
+require_wprism_answered 'Elementor page deletion withheld without authority' human "$WITHHELD"
 grep -q 'planned deletions NOT applied (1)' <<<"$WITHHELD" \
   && grep -q -- '--with-deletes' <<<"$WITHHELD" \
   && grep -q 'canary clean' <<<"$WITHHELD" \
   || fail "Elementor page deletion was not explicitly withheld: $WITHHELD"
-[ "$(wp_conf2 post list --post_type=page --name=duo-elementor-deletion-page --format=count)" = 1 ] \
+[ "$(wp_conf2 post list --post_type=page --name=wprism-elementor-deletion-page --format=count)" = 1 ] \
   || fail 'Elementor page deletion ran without explicit authority'
-DELETED=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor authorized page deletion apply' json "$DELETED"
+DELETED=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor authorized page deletion apply' json "$DELETED"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and (.plan.delete + .plan.deleted) > 0 and
   any(.actions[]?; .source == "provider:elementor-css/regenerate_css" and
     .after.orphan_document_css == 0 and .verified == true)
 ' <<<"$DELETED" >/dev/null || fail "Elementor authorized deletion did not verify CSS cleanup: $DELETED"
-[ "$(wp_conf2 post list --post_type=page --name=duo-elementor-deletion-page --format=count)" = 0 ] \
+[ "$(wp_conf2 post list --post_type=page --name=wprism-elementor-deletion-page --format=count)" = 0 ] \
   || fail 'Elementor authorized deletion left the page on target'
 DELETE_OBSERVED=$(observe_elementor conf2)
 jq -e '
@@ -590,8 +590,8 @@ commit_elementor_source 'conformance: concurrent Elementor apply intent'
 CONCURRENT_A="$CONF_REPO2/.tmp-elementor-concurrent-a.log"
 CONCURRENT_B="$CONF_REPO2/.tmp-elementor-concurrent-b.log"
 set +e
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
 wait "$PID_A"; RC_A=$?
 wait "$PID_B"; RC_B=$?
 set -e
@@ -611,8 +611,8 @@ rm -f "$CONCURRENT_A" "$CONCURRENT_B"
 CONCURRENT=$(observe_elementor conf2)
 jq -e '.classic.post_title == "Concurrent Elementor intent 東京 🚀"' <<<"$CONCURRENT" >/dev/null \
   || fail "competing Elementor applies lost repository intent: $CONCURRENT"
-CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor plan after competing applies' json "$CONCURRENT_PLAN"
+CONCURRENT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor plan after competing applies' json "$CONCURRENT_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "Elementor competing applies left retained work: $CONCURRENT_PLAN"
 pass 'competing Elementor applies serialize and leave one exact idempotent result'
@@ -622,9 +622,9 @@ pass 'competing Elementor applies serialize and leave one exact idempotent resul
 # for an exact digest-bound reinstall and explicit apply recovery.
 wp_conf2 plugin deactivate elementor >/dev/null
 wp_conf2 plugin is-active elementor >/dev/null 2>&1 && fail 'Elementor deactivation premise did not land'
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor deploy after deactivation' json "$REACTIVATE"
-wp_conf2 plugin is-active elementor >/dev/null || fail 'Duo deploy did not reactivate exact Elementor code'
+REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor deploy after deactivation' json "$REACTIVATE"
+wp_conf2 plugin is-active elementor >/dev/null || fail 'WPrism deploy did not reactivate exact Elementor code'
 TARGET_CLASSIC=$(jq -r '.ids.classic' <<<"$CONCURRENT")
 TARGET_KIT=$(jq -r '.ids.kit' <<<"$CONCURRENT")
 require_fixture_ids TARGET_CLASSIC TARGET_KIT
@@ -638,8 +638,8 @@ wp_conf2 plugin is-installed elementor >/dev/null 2>&1 && fail 'Elementor uninst
 [ "$(wp_conf2 eval 'echo hash("sha256",serialize(get_post_meta('"$TARGET_KIT"',"_elementor_page_settings",true)));')" = "$KIT_HASH_BEFORE" ] \
   || fail 'Elementor native uninstall removed repository-owned kit settings'
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered 'Elementor deploy with code absent' human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered 'Elementor deploy with code absent' human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing Elementor code did not refuse at compatibility: $MISSING_OUT"
 ELEMENTOR_SHA=20d8bf5f8be00cd89f8ae6ba13a109faa175ac198f2280bb593d6960c1c65fd5
@@ -648,13 +648,13 @@ ELEMENTOR_ARTIFACT="/artifacts-cache/plugin-elementor-4.2.3-${ELEMENTOR_SHA}.zip
   || fail 'cached Elementor reinstall artifact digest moved'
 wp_conf2 plugin install "$ELEMENTOR_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get elementor --field=version)" = 4.2.3 ] || fail 'Elementor exact reinstall reported wrong version'
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor deploy after exact reinstall' json "$REINSTALL_DEPLOY"
-REINSTALL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor plan after exact reinstall' json "$REINSTALL_PLAN"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor deploy after exact reinstall' json "$REINSTALL_DEPLOY"
+REINSTALL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor plan after exact reinstall' json "$REINSTALL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$REINSTALL_PLAN" >/dev/null \
   || fail "Elementor uninstall unexpectedly removed repository-owned authored state: $REINSTALL_PLAN"
-LAZY_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/duo-conformance-elementor-page/") \
+LAZY_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/wprism-conformance-elementor-page/") \
   || fail 'Elementor exact reinstall did not lazily render retained document data'
 grep -Fq 'Repository competing Elementor heading 東京 🚀' <<<"$LAZY_FRONT" \
   || fail 'Elementor exact reinstall did not consume retained document data through its native lazy path'
@@ -664,8 +664,8 @@ grep -Fq 'Repository competing Elementor heading 東京 🚀' <<<"$LAZY_FRONT" \
 # revision; that next real promotion must rebuild the complete projection.
 wp_conf1 post update "$SOURCE_CLASSIC" --post_title='Post-reinstall Elementor recovery 東京 🚀' >/dev/null
 commit_elementor_source 'conformance: Elementor post-reinstall recovery intent'
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor authored apply after exact reinstall' json "$REINSTALL_APPLY"
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor authored apply after exact reinstall' json "$REINSTALL_APPLY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
   any(.actions[]?; .source == "provider:elementor-css/regenerate_css" and .verified == true)
@@ -677,17 +677,17 @@ jq -e '
   .ids.deletion == 0 and .derived.invalid_receipts == 0 and .derived.missing == [] and
   .derived.unexpected_empty == [] and .derived.orphan == [] and .derived.render_caches == 0
 ' <<<"$RECOVERED" >/dev/null || fail "Elementor state did not recover after exact reinstall: $RECOVERED"
-RECOVERY_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/duo-conformance-elementor-page/") \
+RECOVERY_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/wprism-conformance-elementor-page/") \
   || fail 'Elementor recovered page did not render'
 grep -Fq 'Repository competing Elementor heading 東京 🚀' <<<"$RECOVERY_FRONT" \
   || fail 'Elementor recovered frontend did not consume the repository document'
 grep -Fq "http://localhost:${CONF1_PORT}" <<<"$RECOVERY_FRONT" \
   && fail 'Elementor recovered frontend leaked the source host'
-FINAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor final recovery plan' json "$FINAL_PLAN"
+FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Elementor final recovery plan' json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "Elementor recovery was not idempotent: $FINAL_PLAN"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-elementor-final >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-elementor-final >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-elementor-final" \
   || fail 'Elementor final recovered state was not byte-identical'
 rm -rf "$CONF_REPO2/.tmp-elementor-final"

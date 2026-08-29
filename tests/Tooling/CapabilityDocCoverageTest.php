@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\TestCase;
 
@@ -35,7 +35,7 @@ final class CapabilityDocCoverageTest extends TestCase
 {
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -48,7 +48,7 @@ final class CapabilityDocCoverageTest extends TestCase
     private function stagedRepo(): string
     {
         $repo = self::repoRoot();
-        $root = sys_get_temp_dir() . '/duo_capdoc_' . bin2hex(random_bytes(6));
+        $root = sys_get_temp_dir() . '/wprism_capdoc_' . bin2hex(random_bytes(6));
         foreach ([
             'tools',
             'agent/src/Kernel',
@@ -62,7 +62,7 @@ final class CapabilityDocCoverageTest extends TestCase
             'agent/src/Kernel/Canon.php',
             'agent/src/Policy/AdapterLibrary.php',
             'agent/src/Policy/AdapterPackage.php',
-            'agent/duo.php',
+            'agent/wprism.php',
             'docs/compatibility-baseline.json',
         ] as $relative) {
             self::assertTrue(copy("$repo/$relative", "$root/$relative"), "could not stage $relative");

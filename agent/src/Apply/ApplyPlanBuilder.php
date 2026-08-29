@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -85,11 +85,11 @@ final class ApplyPlanBuilder {
     ): array {
         $tree = $compiled->tree();
         $this->check_theme_mismatch($tree);
-        // Capture::snapshot() runs the SAME build() capture.php's own `duo
+        // Capture::snapshot() runs the SAME build() capture.php's own `wprism
         // capture` does (drift detection needs the live environment's
         // current canonical view) — so it hits the identical task #73
         // loud-and-blocking gate on an unscoped ref-typed option. Threaded
-        // through so plan/apply have the same escape hatch `duo capture`
+        // through so plan/apply have the same escape hatch `wprism capture`
         // does, matching this file's existing --force-* precedents.
         $planObservations = null;
         if ($strictObservation) {
@@ -108,7 +108,7 @@ final class ApplyPlanBuilder {
                 $planObservations
             );
         }
-        // A target materialized from another environment's snapshot (`duo
+        // A target materialized from another environment's snapshot (`wprism
         // rehearse`) holds that environment's bytes AND its ledger: every
         // `{{home}}`/`{{uploads}}`-bearing entity then observes as "target
         // changed since base" here, because the source's literal URLs are
@@ -157,7 +157,7 @@ final class ApplyPlanBuilder {
             'code_mismatch' => [], 'code_drift' => [], 'incomplete_apply' => [],
             'incomplete_lifecycle' => [],
             'missing_user' => [], 'skipped_user_meta' => [],
-            // DUO-3297: complete immutable declaration available before any
+            // issue #3297: complete immutable declaration available before any
             // target mutation. Runtime journaling resolves these bounded
             // original/derivative roots into exact before-image and absence
             // receipts; this list itself never claims that an undeclared
@@ -371,7 +371,7 @@ final class ApplyPlanBuilder {
             Deploy::code_mismatch($this->policy, $desired),
             Deploy::code_revision_mismatch($compiled)
         );
-        // DUO-3231: same $desired, same call shape as code_mismatch above —
+        // issue #3231: same $desired, same call shape as code_mismatch above —
         // see Deploy::code_drift()'s own docblock for why it's a distinct
         // question (out-of-band version change vs. compatibility range).
         $plan['code_drift'] = Deploy::code_drift($this->policy, $desired);
@@ -388,7 +388,7 @@ final class ApplyPlanBuilder {
             ];
         }
 
-        // The retry widening and DUO-3489's preserved-drift carve-out are a
+        // The retry widening and issue #3489's preserved-drift carve-out are a
         // pure projection over the marker's own payload; the Ledger read is
         // the only environment fact this block owns.
         // ApplyPlanner::project_incomplete_apply_retry() states why each
@@ -397,7 +397,7 @@ final class ApplyPlanBuilder {
         $retryingIncompleteApply = $incompleteApplyMarker !== null;
         $plan = ApplyPlanner::project_incomplete_apply_retry($plan, $incompleteApplyMarker);
 
-        // DUO-3234 / DUO-3342: expose all durable derived-state retry debt
+        // issue #3234 / issue #3342: expose all durable derived-state retry debt
         // through one read-only planner projection. Ledger and Policy remain
         // Apply's engine boundaries; the planner owns the shared rows,
         // orphan rules, ordering, and warning vocabulary.
@@ -408,10 +408,10 @@ final class ApplyPlanBuilder {
             $this->warnings[] = $warning;
         }
 
-        // DUO-3232: env-bound value provisioning checklist. Read-only, like
+        // issue #3232: env-bound value provisioning checklist. Read-only, like
         // regen_pending above — no write here, ever (env values are
         // deliberately excluded from Capture/Apply's ordinary content
-        // pipeline; this bucket exists purely so a plain `duo plan` tells
+        // pipeline; this bucket exists purely so a plain `wprism plan` tells
         // an operator the truth about what a freshly-materialized
         // environment still needs, per manifest-declared class:"env"
         // options only — see Policy::env_options()'s own docblock for why
@@ -420,7 +420,7 @@ final class ApplyPlanBuilder {
         // — a per-environment self-check, not a cross-environment diff
         // (env values are never captured, so the repo has no record of
         // what any other environment had; an operator wanting an actual
-        // source-vs-target checklist gets one by running `duo plan`
+        // source-vs-target checklist gets one by running `wprism plan`
         // against both named environments and diffing the two
         // env_missing lists client-side — see cli/README.md).
         $envMissing = $this->env_missing_projection();
@@ -429,7 +429,7 @@ final class ApplyPlanBuilder {
             $this->warnings[] = $warning;
         }
 
-        // DUO-3249: loud, plan-visible half of Policy::rule_details()'s
+        // issue #3249: loud, plan-visible half of Policy::rule_details()'s
         // core-yields-to-plugin precedence fix — a plain warning naming
         // every core-manifest option a pinned plugin manifest is actively
         // reclassifying on THIS site (e.g. polylang.json's own
@@ -445,7 +445,7 @@ final class ApplyPlanBuilder {
                 . "'{$r['core_class']}' but '{$r['overridden_by']}' (pinned) reclassifies it "
                 . "'{$r['active_class']}' on this site — the plugin's declaration governs";
         }
-        // DUO-3272: the same loud-plan-warning treatment, for menu_fields
+        // issue #3272: the same loud-plan-warning treatment, for menu_fields
         // instead of options — see Policy::active_menu_field_reclassifications()'s
         // own docblock for why this is a separate method/loop rather than a
         // generalized shared one.
@@ -454,7 +454,7 @@ final class ApplyPlanBuilder {
                 . "'{$r['core_class']}' but '{$r['overridden_by']}' (pinned) reclassifies it "
                 . "'{$r['active_class']}' on this site — the plugin's declaration governs";
         }
-        // WP-5.5: the loud half of site.duo.json's `policy.adapter_claims`
+        // WP-5.5: the loud half of site.wprism.json's `policy.adapter_claims`
         // resolution — every plugin/theme claim the operator's decision
         // displaced, with the range that actually bounds the subject and the
         // one that no longer does. A plain warning for the identical reason
@@ -472,7 +472,7 @@ final class ApplyPlanBuilder {
                 ? 'no range'
                 : "{$d['in_force_range']['min']}..{$d['in_force_range']['max']}";
             $this->warnings[] = "displaced: {$d['kind']} '{$d['id']}' is claimed by '{$d['displaced']}' "
-                . "($range) and by '{$d['in_force']}' ($inForce); site.duo.json policy.adapter_claims puts "
+                . "($range) and by '{$d['in_force']}' ($inForce); site.wprism.json policy.adapter_claims puts "
                 . "'{$d['in_force']}' in force, so '{$d['displaced']}' still loads but its {$d['kind']} claim "
                 . 'is displaced'
                 . ($d['note'] === null || $d['note'] === '' ? '' : " — {$d['note']}");

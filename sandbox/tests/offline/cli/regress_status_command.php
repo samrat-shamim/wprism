@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/StatusCommand.php';
 
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\PlanContract;
-use Duo\Orchestrator\PlanSummary;
-use Duo\Orchestrator\StatusCommand;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\PlanContract;
+use WPrism\Orchestrator\PlanSummary;
+use WPrism\Orchestrator\StatusCommand;
 
 function fail_status_command(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 function assert_status_command(bool $condition, string $message): void { if (!$condition) fail_status_command($message); }
@@ -31,14 +31,14 @@ final class StatusCommandDriver implements EnvironmentDriver {
             $plan['env_missing'] = [['name' => $name, 'required' => true]];
             $plan['warnings'] = [
                 "env_missing: option '$name' is required and not yet provisioned on "
-                    . "this environment — see 'wp duo env-set --name=$name --stdin'",
+                    . "this environment — see 'wp wprism env-set --name=$name --stdin'",
                 'env_missing: separate diagnostic must remain visible',
             ];
         }
         if ($this->mode === 'unsafe-env-missing') {
             $plan['env_missing'] = [['name' => "unsafe\0option", 'required' => true]];
         }
-        // DUO-3502: a tombstone this environment still holds. An ordinary
+        // issue #3502: a tombstone this environment still holds. An ordinary
         // apply performs no deletion at all without --with-deletes
         // (agent/src/Apply/ApplyPreparationCoordinator.php:167-169 leaves
         // $executeDeletes false and AuthoredTransactionExecutor.php:222-253
@@ -90,12 +90,12 @@ assert_status_command($envMissingExit === 1, 'required env value keeps status no
 assert_status_command(
     str_contains(
         $envMissingOutput,
-        'run: `duo env-set status-fixture --name=outfitters_catalog_gateway_secret --stdin`'
+        'run: `wprism env-set status-fixture --name=outfitters_catalog_gateway_secret --stdin`'
     ),
     'host status renders the exact environment-bound secret remediation'
 );
 assert_status_command(
-    !str_contains($envMissingOutput, 'wp duo env-set'),
+    !str_contains($envMissingOutput, 'wp wprism env-set'),
     'host status does not mix target-side env-set advice into host remediation'
 );
 assert_status_command(
@@ -118,7 +118,7 @@ assert_status_command($customRegistryExit === 1, 'custom-registry env value keep
 assert_status_command(
     str_contains(
         $customRegistryOutput,
-        "run: `duo '--envs-file=/tmp/custom registry.json' env-set status-fixture "
+        "run: `wprism '--envs-file=/tmp/custom registry.json' env-set status-fixture "
             . '--name=outfitters_catalog_gateway_secret --stdin`'
     ),
     'status remediation preserves the exact operator-selected registry binding'
@@ -143,7 +143,7 @@ assert_status_command(
     'unsafe selected registry produces bounded one-line remediation without reproducing it'
 );
 
-$hostSource = (string) file_get_contents(__DIR__ . '/../../../../cli/duo');
+$hostSource = (string) file_get_contents(__DIR__ . '/../../../../cli/wprism');
 assert_status_command(
     str_contains($hostSource, "'status' => cmd_status(\$transport, \$extra, \$envsFileOverride)")
         && str_contains($hostSource, 'cmd_status($driver, [], $envsFileOverride)'),
@@ -178,7 +178,7 @@ $unsafeEnvironmentLines = implode("\n", PlanSummary::render(
 )['lines']);
 assert_status_command(
     str_contains($unsafeEnvironmentLines, 'cannot render a safe command')
-        && !str_contains($unsafeEnvironmentLines, 'duo env-set --envs-file='),
+        && !str_contains($unsafeEnvironmentLines, 'wprism env-set --envs-file='),
     'option-looking environment never renders as a positional command token'
 );
 
@@ -208,7 +208,7 @@ assert_status_command(
     str_contains(
         $pendingDeleteOutput,
         'planned deletions are not authorized — an ordinary promote performs none of them; '
-            . 'rerun with `duo promote status-fixture --with-deletes` once these are the deletions you intend'
+            . 'rerun with `wprism promote status-fixture --with-deletes` once these are the deletions you intend'
     ),
     'host status renders the exact authorizing promote command for this environment'
 );
@@ -232,12 +232,12 @@ assert_status_command(
     $pendingDeleteRegistryExit === 1
         && str_contains(
             $pendingDeleteRegistryOutput,
-            "rerun with `duo '--envs-file=/tmp/custom registry.json' promote status-fixture --with-deletes`"
+            "rerun with `wprism '--envs-file=/tmp/custom registry.json' promote status-fixture --with-deletes`"
         ),
     'the deletion authorization command preserves the exact operator-selected registry binding'
 );
 
-// No environment is owned by the caller (`wp duo plan` read directly, or an
+// No environment is owned by the caller (`wp wprism plan` read directly, or an
 // unsafe environment token): the target-side command takes neither a positional
 // environment nor a registry, so it is always exact.
 $targetSidePlan = [];
@@ -252,7 +252,7 @@ assert_status_command(
     str_contains(
         $targetSideLines,
         'planned deletions are not authorized — an ordinary apply performs none of them; '
-            . 'rerun with `wp duo apply --with-deletes` once these are the deletions you intend'
+            . 'rerun with `wp wprism apply --with-deletes` once these are the deletions you intend'
     ),
     'target-side readiness renders the target-side authorization command'
 );
@@ -261,7 +261,7 @@ assert_status_command(
     'a pending deletion alone makes readiness false — apply will not perform it and the revision advances anyway'
 );
 
-// `duo release` owns the deletion-authorization decision itself: it refuses a
+// `wprism release` owns the deletion-authorization decision itself: it refuses a
 // pending deletion by name with `release_deletes_not_authorized` and no gap
 // action (cli/src/Release/AuthorizationPlan.php:613-625). Counting the bucket
 // in `ok` for that caller shadowed the reviewed refusal behind the generic

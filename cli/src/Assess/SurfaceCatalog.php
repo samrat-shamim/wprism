@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Contract/ApplicationContract.php';
@@ -9,10 +9,10 @@ require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/GapActions.php';
 require_once __DIR__ . '/StackInventory.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * Section 2 of `duo assess` — one row per WordPress-language surface, each
+ * Section 2 of `wprism assess` — one row per WordPress-language surface, each
  * carrying the six dimensions of MUP §1 (round-3 MUP §2.1, §4.1).
  *
  * **No plugin slug appears in this file, and none can.** Every surface here
@@ -32,7 +32,7 @@ use Duo\CommandRefusalException;
  * Three sources, in this precedence:
  *
  *  1. `inventory.policy.surface_groups` — the authoritative set. Each group
- *     already carries the policy `class` Duo decided for it, which is the
+ *     already carries the policy `class` WPrism decided for it, which is the
  *     §1.1 input, and the manifest that declared it, which is the §1.3/§1.4
  *     input.
  *  2. `coverage.tables.undeclared` — a live table no manifest declares. It
@@ -51,9 +51,9 @@ use Duo\CommandRefusalException;
  *     sense: the slug is data the target reported, exactly like a post type
  *     name, and no rule here keys off which slug it is. Without the row an
  *     unmanaged plugin was invisible to assess while being the single
- *     largest thing Duo could not version on the site — `duo init` refused
- *     it, `duo capture` refused its CPTs, and the assessment that is
- *     supposed to say what authority Duo has said nothing at all.
+ *     largest thing WPrism could not version on the site — `wprism init` refused
+ *     it, `wprism capture` refused its CPTs, and the assessment that is
+ *     supposed to say what authority WPrism has said nothing at all.
  *
  * The grouped sections (`options`, `post_meta`, `term_meta`, …) mint no
  * rows: the inventory groups them by declarant and class precisely because
@@ -94,7 +94,7 @@ use Duo\CommandRefusalException;
  * | `managed`  | no | **yes** | no | code release | **yes** |
  *
  * `env` is not apply-window-only on purpose: rebinding an environment value
- * hands a credential to a system Duo does not model, so `unknown` is the
+ * hands a credential to a system WPrism does not model, so `unknown` is the
  * only honest containment — which is exactly what MUP §2.1's worked
  * `payment keys` row prints. `managed` is the code lifecycle window, where
  * activation hooks run with normal WordPress semantics; it is the one row
@@ -221,7 +221,7 @@ final class SurfaceCatalog {
     /**
      * Build the catalog.
      *
-     * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document
+     * @param array<string,mixed> $inventory a `wprism-assess-inventory/v1` document
      * @param array<string,array<string,mixed>> $registryReports one
      *        `AdapterRegistry::report()` document per REGISTRY_OPERATION
      *        value, keyed by that value
@@ -627,7 +627,7 @@ final class SurfaceCatalog {
         // an operator is entitled to make about one. Refusing it would leave
         // the row permanently `unclassified / block`, which blocks every
         // release on a site that deliberately runs an unmanaged plugin —
-        // the case `duo init --allow-unmanaged-plugins` exists to support.
+        // the case `wprism init --allow-unmanaged-plugins` exists to support.
         //
         // The declaration is honoured only when it was actually REVIEWED:
         // `decided_by: unresolved` is the generated placeholder, and
@@ -724,7 +724,7 @@ final class SurfaceCatalog {
             ];
             // A THIRD key beside the two `projectionFacts()` copies (:284-291
             // copies exactly `facts` and `expiry_and_dependencies`), so
-            // `projection.json` and every `duo assess` byte are unmoved by
+            // `projection.json` and every `wprism assess` byte are unmoved by
             // this. `manifest` is carried at the vector level because a
             // surface whose claim raises NO condition today still has to be
             // attributable to its manifest at the gate — otherwise a
@@ -793,7 +793,7 @@ final class SurfaceCatalog {
      *
      * `registryFacts()` below flattens the same reasons to their prose
      * `message` (`$conditions[] = (string) ($reason['message'] ?? …)`), which
-     * is what `projection.json`, `duo assess` and MUP §1.3's readiness word
+     * is what `projection.json`, `wprism assess` and MUP §1.3's readiness word
      * read and what they must keep reading. That flattening is also exactly
      * why a frozen authorization plan could not re-check its own conditions:
      * the code and the subject were dropped, so `plugin_version_mismatch` and
@@ -853,7 +853,7 @@ final class SurfaceCatalog {
      * join to make one with.
      *
      * The mutation gate is exactly that caller: it re-reads ONE
-     * `wp duo capabilities --operation=promote` document and has neither the
+     * `wp wprism capabilities --operation=promote` document and has neither the
      * inventory nor the contract that `catalog()` needs to attribute a claim
      * to a surface. Per-manifest is therefore not a convenience, it is the
      * only projection of a condition the gate can recompute — which is why

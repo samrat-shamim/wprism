@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ReferencePath.php';
 
@@ -15,7 +15,7 @@ final class ReferenceRules {
      * One `json_refs[]` entry's closed key set, hoisted out of
      * validate_structured()'s own `array_diff_key()` (WP-6.6).
      *
-     * Hoisted rather than copied: `duo manifest-validate --emit-schema` now
+     * Hoisted rather than copied: `wprism manifest-validate --emit-schema` now
      * publishes the value grammar of every feature-claimed section, and
      * `body_refs.<type>.json_refs[]` is this triple exactly — the section hands
      * its entries straight to value_rule() so that this engine has one JSONPath
@@ -42,12 +42,12 @@ final class ReferenceRules {
      */
     public static function description(mixed $declaration, string $where): array {
         if (!is_array($declaration) || array_is_list($declaration)) {
-            throw new \RuntimeException("duo: $where must be an object");
+            throw new \RuntimeException("wprism: $where must be an object");
         }
         if (array_key_exists('kind', $declaration)) {
             if (array_diff_key($declaration, ['kind' => true])) {
                 throw new \RuntimeException(
-                    "duo: $where legacy kind shorthand cannot be mixed with json_refs/key_refs or other fields"
+                    "wprism: $where legacy kind shorthand cannot be mixed with json_refs/key_refs or other fields"
                 );
             }
             self::assert_kind($declaration['kind'], "$where.kind");
@@ -58,7 +58,7 @@ final class ReferenceRules {
             ];
         }
         if (array_diff_key($declaration, ['json_refs' => true, 'key_refs' => true])) {
-            throw new \RuntimeException("duo: $where accepts only json_refs and key_refs in full form");
+            throw new \RuntimeException("wprism: $where accepts only json_refs and key_refs in full form");
         }
         self::validate_structured($declaration, $where, true);
         return [
@@ -80,54 +80,54 @@ final class ReferenceRules {
                 || ($repeated['duplicates'] ?? null) !== 'forbid'
                 || ($repeated['order'] ?? null) !== 'preserve') {
                 throw new \RuntimeException(
-                    "duo: $where.repeated_rows must be exactly "
+                    "wprism: $where.repeated_rows must be exactly "
                     . '{cardinality: one_or_more, duplicates: forbid, order: preserve}'
                 );
             }
             if (($rule['class'] ?? null) !== 'authored') {
-                throw new \RuntimeException("duo: $where.repeated_rows is valid only for authored metadata");
+                throw new \RuntimeException("wprism: $where.repeated_rows is valid only for authored metadata");
             }
             if (!empty($rule['order_preserving'])) {
                 throw new \RuntimeException(
-                    "duo: $where cannot combine repeated_rows with order_preserving; repeated row order is already explicit"
+                    "wprism: $where cannot combine repeated_rows with order_preserving; repeated row order is already explicit"
                 );
             }
             if ($structured || !empty($rule['plain_data']) || ($rule['cast'] ?? null) === 'csv') {
                 throw new \RuntimeException(
-                    "duo: $where repeated_rows requires one scalar value per database row; "
+                    "wprism: $where repeated_rows requires one scalar value per database row; "
                     . 'structured, plain_data, and csv codecs are ambiguous'
                 );
             }
             if (is_string($rule['ref'] ?? null) && str_ends_with($rule['ref'], '[]')) {
                 throw new \RuntimeException(
-                    "duo: $where cannot combine repeated_rows with an array ref; one repeated database row must hold one value"
+                    "wprism: $where cannot combine repeated_rows with an array ref; one repeated database row must hold one value"
                 );
             }
         }
         if (array_key_exists('cast', $rule)
             && (!is_string($rule['cast']) || !in_array($rule['cast'], ['string', 'csv'], true))) {
-            throw new \RuntimeException("duo: $where.cast must be 'string' or 'csv'");
+            throw new \RuntimeException("wprism: $where.cast must be 'string' or 'csv'");
         }
         foreach (['allow_secret', 'order_preserving', 'plain_data'] as $booleanField) {
             if (array_key_exists($booleanField, $rule) && !is_bool($rule[$booleanField])) {
-                throw new \RuntimeException("duo: $where.$booleanField must be a boolean");
+                throw new \RuntimeException("wprism: $where.$booleanField must be a boolean");
             }
         }
         if (!empty($rule['plain_data'])
             && (array_key_exists('cast', $rule) || array_key_exists('json_encoded', $rule))) {
             throw new \RuntimeException(
-                "duo: $where plain_data cannot combine with cast or json_encoded; it preserves native PHP plain data"
+                "wprism: $where plain_data cannot combine with cast or json_encoded; it preserves native PHP plain data"
             );
         }
         if (array_key_exists('ref', $rule)) {
             if ($structured || !empty($rule['plain_data'])) {
                 throw new \RuntimeException(
-                    "duo: $where cannot combine scalar ref with json_refs/key_refs or plain_data; the ownership is ambiguous"
+                    "wprism: $where cannot combine scalar ref with json_refs/key_refs or plain_data; the ownership is ambiguous"
                 );
             }
             $ref = $rule['ref'];
             if (!is_string($ref)) {
-                throw new \RuntimeException("duo: $where.ref must name a reference keyspace");
+                throw new \RuntimeException("wprism: $where.ref must name a reference keyspace");
             }
             $kind = str_ends_with($ref, '[]') ? substr($ref, 0, -2) : $ref;
             self::assert_kind($kind, "$where.ref");
@@ -135,22 +135,22 @@ final class ReferenceRules {
         if ($structured) {
             if (!empty($rule['plain_data'])) {
                 throw new \RuntimeException(
-                    "duo: $where cannot combine json_refs/key_refs with plain_data; the ownership is ambiguous"
+                    "wprism: $where cannot combine json_refs/key_refs with plain_data; the ownership is ambiguous"
                 );
             }
             self::validate_structured($rule, $where, true);
             if (array_key_exists('cast', $rule)) {
                 throw new \RuntimeException(
-                    "duo: $where.cast is ambiguous for a structured value; put cast on each json_refs entry"
+                    "wprism: $where.cast is ambiguous for a structured value; put cast on each json_refs entry"
                 );
             }
         }
         if (array_key_exists('json_encoded', $rule)) {
             if (!is_bool($rule['json_encoded'])) {
-                throw new \RuntimeException("duo: $where.json_encoded must be a boolean");
+                throw new \RuntimeException("wprism: $where.json_encoded must be a boolean");
             }
             if (!$structured) {
-                throw new \RuntimeException("duo: $where.json_encoded requires json_refs or key_refs");
+                throw new \RuntimeException("wprism: $where.json_encoded requires json_refs or key_refs");
             }
         }
     }
@@ -192,7 +192,7 @@ final class ReferenceRules {
         foreach (array_values(array_unique($kinds)) as $kind) {
             if (!in_array($kind, $allowed, true)) {
                 throw new \RuntimeException(
-                    "duo: $where declares unknown reference keyspace '$kind'; expected post, term, tt, "
+                    "wprism: $where declares unknown reference keyspace '$kind'; expected post, term, tt, "
                     . 'or an authored_snapshot table id_kind'
                 );
             }
@@ -202,7 +202,7 @@ final class ReferenceRules {
     private static function validate_structured(array $rule, string $where, bool $requireRef): void {
         $jsonRefs = $rule['json_refs'] ?? [];
         if (!is_array($jsonRefs) || !array_is_list($jsonRefs)) {
-            throw new \RuntimeException("duo: $where.json_refs must be a list");
+            throw new \RuntimeException("wprism: $where.json_refs must be a list");
         }
         $paths = [];
         foreach ($jsonRefs as $i => $ref) {
@@ -212,23 +212,23 @@ final class ReferenceRules {
                     true
                 ))) {
                 throw new \RuntimeException(
-                    "duo: $where.json_refs[$i] must be an object containing only path, kind, and optional cast"
+                    "wprism: $where.json_refs[$i] must be an object containing only path, kind, and optional cast"
                 );
             }
             if (!is_string($ref['path'] ?? null)) {
-                throw new \RuntimeException("duo: $where.json_refs[$i].path must be a string");
+                throw new \RuntimeException("wprism: $where.json_refs[$i].path must be a string");
             }
             self::assert_kind($ref['kind'] ?? null, "$where.json_refs[$i].kind");
             if (isset($ref['cast']) && $ref['cast'] !== 'string') {
                 throw new \RuntimeException(
-                    "duo: $where.json_refs[$i].cast must be 'string' when present"
+                    "wprism: $where.json_refs[$i].cast must be 'string' when present"
                 );
             }
             $segments = ReferencePath::parse($ref['path']);
             foreach ($paths as $prior) {
                 if (self::paths_overlap($prior['segments'], $segments)) {
                     throw new \RuntimeException(
-                        "duo: $where has ambiguous overlapping json_refs paths '{$prior['path']}' and '{$ref['path']}'"
+                        "wprism: $where has ambiguous overlapping json_refs paths '{$prior['path']}' and '{$ref['path']}'"
                     );
                 }
             }
@@ -240,19 +240,19 @@ final class ReferenceRules {
             if (!is_array($keyRefs) || array_is_list($keyRefs)
                 || array_diff_key($keyRefs, ['path' => true, 'kind' => true])) {
                 throw new \RuntimeException(
-                    "duo: $where.key_refs must be an object containing kind and optional path"
+                    "wprism: $where.key_refs must be an object containing kind and optional path"
                 );
             }
             self::assert_kind($keyRefs['kind'] ?? null, "$where.key_refs.kind");
             if (array_key_exists('path', $keyRefs)) {
                 if (!is_string($keyRefs['path'])) {
-                    throw new \RuntimeException("duo: $where.key_refs.path must be a string");
+                    throw new \RuntimeException("wprism: $where.key_refs.path must be a string");
                 }
                 $keySegments = ReferencePath::parse($keyRefs['path']);
                 foreach ($paths as $valuePath) {
                     if (self::path_can_be_ancestor($valuePath['segments'], $keySegments)) {
                         throw new \RuntimeException(
-                            "duo: $where json_refs path '{$valuePath['path']}' is equal to or an ancestor of "
+                            "wprism: $where json_refs path '{$valuePath['path']}' is equal to or an ancestor of "
                             . "key_refs path '{$keyRefs['path']}'; one location cannot be both a scalar "
                             . 'reference and an id-keyed map'
                         );
@@ -261,14 +261,14 @@ final class ReferenceRules {
             }
         }
         if ($requireRef && $jsonRefs === [] && $keyRefs === null) {
-            throw new \RuntimeException("duo: $where must declare at least one json_refs or key_refs path");
+            throw new \RuntimeException("wprism: $where must declare at least one json_refs or key_refs path");
         }
     }
 
     private static function assert_kind(mixed $kind, string $where): void {
         if (!is_string($kind) || !preg_match(self::KIND_RE, $kind)) {
             throw new \RuntimeException(
-                "duo: $where must be a lowercase reference keyspace name of at most 16 characters"
+                "wprism: $where must be a lowercase reference keyspace name of at most 16 characters"
             );
         }
     }

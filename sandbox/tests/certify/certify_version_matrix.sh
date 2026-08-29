@@ -20,8 +20,8 @@ assert_no_php_diagnostics() { # <label> <log>
 }
 
 # The conformance seeds/postdeploy hooks this harness sources call the shared
-# premise/answer assertion helpers (DUO-3381/DUO-3391); they live in one
-# fragment precisely so this second harness cannot strand them (DUO-3408 —
+# premise/answer assertion helpers (issue #3381/issue #3391); they live in one
+# fragment precisely so this second harness cannot strand them (issue #3408 —
 # leg 12 died `require_fixture_state: command not found` on pristine main).
 . conformance/asserts.sh
 
@@ -51,18 +51,18 @@ if declare -F version_matrix_preflight >/dev/null; then
   version_matrix_preflight
 fi
 VMATRIX_CASES=0
-WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+WORDPRESS_OFFLINE="${WPRISM_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
   0|1) ;;
-  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+  *) fail "WPRISM_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
 esac
-export DUO_PAIR="$PAIR"
+export WPRISM_PAIR="$PAIR"
 # A boundary result is evidence only for the agent and adapter-library source bytes that the
 # pair mounts. Export before the first pair.sh call: `up` can allocate the
 # databases and start containers, so setting it later would certify a stale
 # canonical checkout rather than this candidate.
 if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
-  export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
+  export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
 fi
 # Boundary observations use fresh direct Compose processes. Keep the selected
 # mounts in this shell; shared .env can legitimately move when another pair is
@@ -70,19 +70,19 @@ fi
 . lib/pair_identity.sh
 pair_identity_export_source_mounts \
   || fail 'version matrix could not pin its selected source mounts in the caller environment'
-PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
   PAIR_COMPOSE+=(-f pair.wordpress-offline.yml)
   PAIR_UP_FLAGS+=(--wordpress-offline)
 fi
-export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 PAIR_COMPOSE_STRING="${PAIR_COMPOSE[*]}"
-VMATRIX_APPLY_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-apply.${PAIR}.XXXXXX")
+VMATRIX_APPLY_LOG=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-apply.${PAIR}.XXXXXX")
 trap 'rm -f -- "$VMATRIX_APPLY_LOG"' EXIT
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
-GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix1@example.test)
+GIT1=(git -C "siterepo/${PAIR}1" -c user.name=wprism-vmatrix1 -c user.email=vmatrix1@example.test)
 
 . bin/fetch-artifact.sh
 
@@ -94,7 +94,7 @@ normalize_version_matrix_archive_root() { # <service> <plugin|theme> <slug> <arc
     theme) base=/var/www/html/wp-content/themes ;;
     *) fail "invalid version-matrix extension kind for archive-root normalization" ;;
   esac
-  "${PAIR_COMPOSE[@]}" run --rm -T "$service" sh /duo-harness/artifact-archive-root.sh \
+  "${PAIR_COMPOSE[@]}" run --rm -T "$service" sh /wprism-harness/artifact-archive-root.sh \
     "$base" "$archive_root" "$slug" \
     || fail "could not normalize pinned $kind archive root $archive_root to $slug on $service"
 }
@@ -197,10 +197,10 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   if declare -F version_matrix_reset_after_delete >/dev/null; then
     version_matrix_reset_after_delete "$cli"
   fi
-  "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_journal" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_map" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_state" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_kv" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_journal" >/dev/null 2>&1 || true
 }
 
 

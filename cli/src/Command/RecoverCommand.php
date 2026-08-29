@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
@@ -18,17 +18,17 @@ require_once __DIR__ . '/../Release/AuthorizationPlan.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * `duo recover <env>` — the operator verb over the recovery runtime
+ * `wprism recover <env>` — the operator verb over the recovery runtime
  * (round-3 MUP §2.5).
  *
  * This replaces raw invocation of `recovery/rollback-control.php` (§5.3).
  * The runtime is unchanged; only who types it changes. It is deliberately a
  * THIN, LITERAL front end: `RollbackAuthority`, `VerifiedRollbackProfile` and
  * `ScopedRollbackProfile` own every transition, and the operator-directed
- * path drives exactly the four commands `cli/duo`'s
+ * path drives exactly the four commands `cli/wprism`'s
  * `print_promotion_recovery()` currently asks a human to type, in the same
  * order, built from the same `CodeDeploy` argument builders. Nothing here
  * invents a fifth step, and nothing here reorders the four.
@@ -36,7 +36,7 @@ use Duo\CommandRefusalException;
  * ## The three rules §2.5 makes non-negotiable
  *
  *  1. **External writer exclusion is asserted before anything starts.** The
- *     checkpoint contains the promotion lease row (`cli/duo`'s
+ *     checkpoint contains the promotion lease row (`cli/wprism`'s
  *     `print_promotion_recovery()` says so), so a lock inside the database
  *     being imported cannot protect the window. `--writers-excluded` is the
  *     operator's assertion that a real maintenance window exists; without it
@@ -90,7 +90,7 @@ use Duo\CommandRefusalException;
  * retained release checkpoint, and nothing removes one automatically. It lives
  * on THIS verb because `flags()` below is already the closed grammar over this
  * catalog and `CheckpointCatalog::list()` is already the single read that
- * names every retained row; a separate `duo checkpoints` verb would duplicate
+ * names every retained row; a separate `wprism checkpoints` verb would duplicate
  * the catalog read, the `--limit` grammar and a help block in order to own an
  * `rm`. `CheckpointPrune`'s docblock carries the five safety rules and why
  * `retention_until` stays null; two of them matter here:
@@ -126,7 +126,7 @@ final class RecoverCommand {
      * What a failed step reports when the target sent no classified refusal —
      * a transport error, `wp db import`'s own non-zero exit, an agent build
      * that predates the reason codes. It stays byte-identical to what every
-     * failed step said before DUO-3506, so the only thing that changed for an
+     * failed step said before issue #3506, so the only thing that changed for an
      * unclassified failure is that it is now distinguishable from a
      * classified one.
      */
@@ -324,19 +324,19 @@ final class RecoverCommand {
             throw new CommandRefusalException(
                 'checkpoint_unknown',
                 'no checkpoint with that receipt id is active on this target',
-                'run duo recover <env> --list and restore one of the receipt ids it prints'
+                'run wprism recover <env> --list and restore one of the receipt ids it prints'
             );
         }
         if ($flags['writers_excluded'] !== true) {
-            // §2.5, and `cli/duo`'s own recovery guidance: the checkpoint
+            // §2.5, and `cli/wprism`'s own recovery guidance: the checkpoint
             // contains its temporary promotion lease row, so the exclusion
             // has to be external to the database being imported.
             throw new CommandRefusalException(
                 'writer_exclusion_required',
                 'recovery imports a database that contains its own promotion lease row, so it cannot start '
                     . 'until every external writer is excluded for the whole recovery window',
-                'establish external maintenance/exclusion that prevents every Duo writer for the full recovery '
-                    . 'window, then re-run duo recover <env> --restore=<id> ' . self::WRITERS_EXCLUDED_FLAG
+                'establish external maintenance/exclusion that prevents every WPrism writer for the full recovery '
+                    . 'window, then re-run wprism recover <env> --restore=<id> ' . self::WRITERS_EXCLUDED_FLAG
             );
         }
 
@@ -386,7 +386,7 @@ final class RecoverCommand {
         // on the controller (`RollbackAuthority::__construct()` refuses
         // without it), so a receipt this machine cannot sign against is
         // recovered the operator-directed way — the same conclusion
-        // `cli/duo`'s promotion path reaches when `rollbackConfigured()` is
+        // `cli/wprism`'s promotion path reaches when `rollbackConfigured()` is
         // false. `--operator-directed` forces that path explicitly.
         $signed = $row['kind'] === CheckpointCatalog::KIND_VERIFIED
             && $flags['operator_directed'] !== true
@@ -405,7 +405,7 @@ final class RecoverCommand {
             'checkpoint_source' => $resolved['checkpoint_source'],
             'claim' => $claim,
             'environment' => $transport->name(),
-            'format' => 'duo-recovery-outcome/v1',
+            'format' => 'wprism-recovery-outcome/v1',
             'recovered' => $steps['recovered'],
             'steps' => $steps['steps'],
         ];
@@ -417,7 +417,7 @@ final class RecoverCommand {
      * Every ordering decision — effects, uploads, code, database, prior
      * verification, exclusion release — belongs to
      * `VerifiedRollbackProfile::rollback()`, which is the same call
-     * `cli/duo`'s `promote_verified_failed()` makes. Recomputing which
+     * `cli/wprism`'s `promote_verified_failed()` makes. Recomputing which
      * boundaries were crossed here would be a second, divergent answer to a
      * question the signed receipt already answers.
      *
@@ -463,7 +463,7 @@ final class RecoverCommand {
                 'checkpoint_identity_unknown',
                 'this checkpoint has no artifact identity, so the promotion lease its recovery needs cannot be named',
                 'recover this environment through the provider that owns its backups; a retained checkpoint is '
-                    . 'restorable only while its compiled artifact under .duo/artifacts is present'
+                    . 'restorable only while its compiled artifact under .wprism/artifacts is present'
             );
         }
         // Proved BEFORE step 1. An absent or truncated checkpoint means there
@@ -475,7 +475,7 @@ final class RecoverCommand {
         $recovered = false;
 
         // Step 1 stands outside the mandatory-final-abort guarantee on
-        // purpose. `cli/duo`: "do not begin checkpoint recovery until the
+        // purpose. `cli/wprism`: "do not begin checkpoint recovery until the
         // exact lease cleanup command above succeeds" — expiry lets a
         // DIFFERENT promotion owner recover the target, it does not authorize
         // this restore. Nothing has been reinstated yet either, so there is no
@@ -546,7 +546,7 @@ final class RecoverCommand {
                 . ($revision === null
                     ? 'the pre-release revision recorded in the frozen authorization plan for this release'
                     : substr($revision, 0, 12))
-                . ' first, confirm with duo status, then re-run duo recover with the same --restore id',
+                . ' first, confirm with wprism status, then re-run wprism recover with the same --restore id',
             [['code_revision_expected' => $revision === null ? 'unknown' : substr($revision, 0, 12)]]
         );
     }
@@ -556,7 +556,7 @@ final class RecoverCommand {
      *
      * Read out of the frozen authorization plan whose `artifact_hash` matches
      * the receipt's — the plan is the durable record of what the release was
-     * authorized to move FROM, and `.duo/releases/` is committed for exactly
+     * authorized to move FROM, and `.wprism/releases/` is committed for exactly
      * this reason (MUP §3.1).
      *
      * @param array<string,mixed> $row
@@ -745,10 +745,10 @@ final class RecoverCommand {
     /**
      * Where the operator-directed checkpoint lives on the target.
      *
-     * `cli/duo`'s `cmd_promote_internal()` writes it at
-     * `<repo>/.duo/checkpoints/promote-<owner>.sql.enc`, and the receipt names the
+     * `cli/wprism`'s `cmd_promote_internal()` writes it at
+     * `<repo>/.wprism/checkpoints/promote-<owner>.sql.enc`, and the receipt names the
      * owner, so the path is derived rather than guessed. `DeployCommand::run()`
-     * is the second writer, at `<repo>/.duo/checkpoints/deploy-<owner>.sql.enc`;
+     * is the second writer, at `<repo>/.wprism/checkpoints/deploy-<owner>.sql.enc`;
      * `RetainedCheckpoints::prefixForRow()` reads which of the two a catalog
      * row came from off the row's own id and returns promote's prefix for a
      * signed receipt, so the verified path resolves to exactly the string it
@@ -803,9 +803,9 @@ final class RecoverCommand {
      *
      * A failure the target CLASSIFIED is reported with its reason code and
      * its reviewed remediation; a failure it did not keeps the constant
-     * sentence below. Before DUO-3506 every failure of all four steps
+     * sentence below. Before issue #3506 every failure of all four steps
      * collapsed onto that one sentence, in the human view and in
-     * `duo-recovery-outcome/v1` alike, because `$result['stdout']` was never
+     * `wprism-recovery-outcome/v1` alike, because `$result['stdout']` was never
      * read — so a deliberate, documented refusal (restoring a checkpoint a
      * later promotion session superseded) reached the operator as an
      * unexplained failure with no next action.
@@ -847,7 +847,7 @@ final class RecoverCommand {
      *
      * The two lease steps are asked in machine mode
      * (`CodeDeploy::recoveryAbortArgs()`/`recoveryBeginArgs()`), so a refusal
-     * arrives as a `duo-command-refusal/v1` object on stdout. Exactly three
+     * arrives as a `wprism-command-refusal/v1` object on stdout. Exactly three
      * reviewed fields are lifted out of it — reason code, public message,
      * remediation — because those are the only ones the agent screens as
      * public (agent/src/Kernel/CommandRefusal.php:38-49); its diagnostics are
@@ -858,7 +858,7 @@ final class RecoverCommand {
      * operator sentence behind `promotion_abort_session_superseded` names the
      * superseding lease owner token and its 64-hex artifact hash, and MUP
      * §5.2 admits an internal identifier into a human view only when a
-     * documented command consumes it — no `duo` verb takes either. The screen
+     * documented command consumes it — no `wprism` verb takes either. The screen
      * below is the host's own last line before printing: the agent already
      * applied it, and a target this build did not compile is not a reason to
      * take its word.
@@ -868,7 +868,7 @@ final class RecoverCommand {
      */
     private static function targetRefusal(array $result): ?array {
         $decoded = json_decode(trim((string) ($result['stdout'] ?? '')), true);
-        if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'duo-command-refusal/v1') {
+        if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'wprism-command-refusal/v1') {
             return null;
         }
         $code = $decoded['reason_code'] ?? $decoded['error'] ?? null;
@@ -940,7 +940,7 @@ final class RecoverCommand {
 
     /** @param array<string,mixed> $document */
     private static function encode(array $document): string {
-        return \Duo\Canon::encode($document);
+        return \WPrism\Canon::encode($document);
     }
 
     /**
@@ -1048,7 +1048,7 @@ final class RecoverCommand {
         return new CommandRefusalException(
             'invalid_arguments',
             $message,
-            'duo recover <env> accepts --list, --restore=<checkpoint>, ' . self::WRITERS_EXCLUDED_FLAG
+            'wprism recover <env> accepts --list, --restore=<checkpoint>, ' . self::WRITERS_EXCLUDED_FLAG
                 . ', --operator-directed, ' . self::PRUNE_RETAINED_FLAG . '=<'
                 . CheckpointPrune::KEEP_MIN . '..' . CheckpointPrune::KEEP_MAX . '>, '
                 . self::CONFIRM_PRUNE_FLAG . ', --limit=<1..200> and --format=json'

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Code/Code.php';
@@ -18,19 +18,19 @@ final class InitCodeBaseline {
         $blockers = [];
         $inventory = InitCodeInventory::inventory((array) ($code['roots'] ?? []), (array) ($code['components'] ?? []), $blockers);
         if ($blockers !== []) {
-            throw new \RuntimeException('duo: code changed into an unsupported shape after confirmation');
+            throw new \RuntimeException('wprism: code changed into an unsupported shape after confirmation');
         }
         $revision = hash('sha256', Canon::encode($inventory['files']));
         if (!hash_equals((string) ($code['source_revision'] ?? ''), $revision)) {
-            throw new \RuntimeException('duo: code changed after proposal review; rerun init and review the new digest');
+            throw new \RuntimeException('wprism: code changed after proposal review; rerun init and review the new digest');
         }
 
-        $stage = $repo . '/.duo-init-code-' . bin2hex(random_bytes(8));
+        $stage = $repo . '/.wprism-init-code-' . bin2hex(random_bytes(8));
         if ($onStage !== null) {
             $onStage($stage, null);
         }
         $stageParent = dirname($stage);
-        // DUO-3425: one inode-bound helper for the whole capture walk (the
+        // issue #3425: one inode-bound helper for the whole capture walk (the
         // 6062-file hot path) — the same per-op CWD-as-inode-capability
         // guarantee as a fresh per-file spawn, but ONE subprocess for the
         // whole tree. The finally guarantees a mid-walk throw can never leak
@@ -47,7 +47,7 @@ final class InitCodeBaseline {
                 'code capture staging directory',
                 $helper
             );
-            // DUO-3421: the staging tree's full content identity is computed where
+            // issue #3421: the staging tree's full content identity is computed where
             // it is actually consumed -- once on success (returned to the caller,
             // which journals it as the deletion authority for this tree) and once
             // in the catch below before compensation. It used to be recomputed
@@ -87,21 +87,21 @@ final class InitCodeBaseline {
                 $descriptor = Code::descriptor_from_source($stage);
                 $copiedRevision = hash('sha256', Canon::encode($descriptor['files']));
                 if (!hash_equals($revision, $copiedRevision)) {
-                    throw new \RuntimeException('duo: code changed while the baseline was being copied; rerun init');
+                    throw new \RuntimeException('wprism: code changed while the baseline was being copied; rerun init');
                 }
                 return [$descriptor, $stage, InitOwnedArtifacts::directory_identity($stage, 'code capture staging directory')];
             } catch (\Throwable $error) {
                 try {
                     // A bound copy can create its destination and then reject a
                     // changed source digest before the caller refreshes the stage
-                    // manifest. Re-identify the Duo-created partial tree under the
+                    // manifest. Re-identify the WPrism-created partial tree under the
                     // confirmed repository-writer exclusion before compensating it.
                     $currentIdentity = InitOwnedArtifacts::directory_identity($stage, 'code capture staging directory');
                     InitOwnedArtifacts::remove_owned_tree($stage, $currentIdentity, 'code capture staging directory');
                 } catch (\Throwable $cleanupError) {
                     throw new InitAttemptRetentionException(
                         $error->getMessage()
-                        . "\nduo: init retained the partial code staging tree for sealed fresh-process recovery: "
+                        . "\nwprism: init retained the partial code staging tree for sealed fresh-process recovery: "
                         . $cleanupError->getMessage(),
                         0,
                         $error
@@ -124,7 +124,7 @@ final class InitCodeBaseline {
         BoundHelper $helper
     ): void {
         if (is_link($source)) {
-            throw new \RuntimeException("duo: refusing symbolic-link code source $source");
+            throw new \RuntimeException("wprism: refusing symbolic-link code source $source");
         }
         if (is_file($source)) {
             $parent = dirname($destination);
@@ -141,7 +141,7 @@ final class InitCodeBaseline {
             return;
         }
         if (!is_dir($source)) {
-            throw new \RuntimeException("duo: code source disappeared before copy: $source");
+            throw new \RuntimeException("wprism: code source disappeared before copy: $source");
         }
         self::ensure_code_stage_directory($stage, $destination, $stageRootIdentity, $ownedDirs, $helper);
         $iterator = new \RecursiveIteratorIterator(
@@ -152,14 +152,14 @@ final class InitCodeBaseline {
             $path = $item->getPathname();
             $target = $destination . '/' . substr($path, strlen(rtrim($source, '/')) + 1);
             if ($item->isLink()) {
-                throw new \RuntimeException("duo: refusing symbolic-link code source $path");
+                throw new \RuntimeException("wprism: refusing symbolic-link code source $path");
             }
             if ($item->isDir()) {
                 self::ensure_code_stage_directory($stage, $target, $stageRootIdentity, $ownedDirs, $helper);
                 continue;
             }
             if (!$item->isFile()) {
-                throw new \RuntimeException("duo: could not copy regular code file $path");
+                throw new \RuntimeException("wprism: could not copy regular code file $path");
             }
             self::ensure_code_stage_directory($stage, dirname($target), $stageRootIdentity, $ownedDirs, $helper);
             $parentKey = trim(substr(dirname($target), strlen(rtrim($stage, '/'))), '/');
@@ -185,14 +185,14 @@ final class InitCodeBaseline {
         InitOwnedArtifacts::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
         $prefix = rtrim($stage, '/') . '/';
         if (!str_starts_with($directory . '/', $prefix)) {
-            throw new \RuntimeException('duo: code staging destination escaped its owned root');
+            throw new \RuntimeException('wprism: code staging destination escaped its owned root');
         }
         $relative = trim(substr($directory, strlen(rtrim($stage, '/'))), '/');
         $current = rtrim($stage, '/');
         $key = '';
         foreach ($relative === '' ? [] : explode('/', $relative) as $part) {
             if (!self::safe_stage_component($part)) {
-                throw new \RuntimeException('duo: code staging destination has an unsafe component');
+                throw new \RuntimeException('wprism: code staging destination has an unsafe component');
             }
             $key = $key === '' ? $part : $key . '/' . $part;
             if (!isset($ownedDirs[$key])) {
@@ -209,7 +209,7 @@ final class InitCodeBaseline {
             } else {
                 $current .= '/' . $part;
                 if (Publish::directory_ownership_identity($current) !== $ownedDirs[$key]) {
-                    throw new \RuntimeException('duo: code staging child directory changed identity');
+                    throw new \RuntimeException('wprism: code staging child directory changed identity');
                 }
             }
         }
@@ -226,16 +226,16 @@ final class InitCodeBaseline {
     ): void {
         InitOwnedArtifacts::assert_directory_inode($stage, $stageRootIdentity, 'code capture staging directory');
         if (file_exists($destination) || is_link($destination)) {
-            throw new \RuntimeException('duo: code staging gained an unowned destination file');
+            throw new \RuntimeException('wprism: code staging gained an unowned destination file');
         }
         $digest = @hash_file('sha256', $source);
         $mode = @fileperms($source);
         if (!is_string($digest) || !is_int($mode)) {
-            throw new \RuntimeException('duo: could not identify the reviewed code source before copy');
+            throw new \RuntimeException('wprism: could not identify the reviewed code source before copy');
         }
         $expectedDigest = $digest;
-        if (getenv('DUO_TEST_MODE') === '1'
-            && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file') {
+        if (getenv('WPRISM_TEST_MODE') === '1'
+            && getenv('WPRISM_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file') {
             // Exercise the bound helper's post-create source-digest refusal:
             // the helper must remove only the destination inode it created.
             $expectedDigest = str_repeat('0', 64);
@@ -266,7 +266,7 @@ final class InitCodeBaseline {
             $label = InitCodeInventory::blockingSecretLabel($item->getPathname());
             if ($label !== null) {
                 throw new \RuntimeException(
-                    "duo: captured code contains a high-confidence $label; the value is redacted and was not published"
+                    "wprism: captured code contains a high-confidence $label; the value is redacted and was not published"
                 );
             }
         }
@@ -276,14 +276,14 @@ final class InitCodeBaseline {
      * A path component the code STAGING tree may create — deliberately not
      * InitCodeInventory::safeIdentifier()'s identifier charset.
      *
-     * DUO-3421. safeIdentifier() names something Duo SELECTS: an active
+     * issue #3421. safeIdentifier() names something WPrism SELECTS: an active
      * plugin's basename, an active theme's slug. A staging component is
      * different in kind: it names a directory the site already has, inside a
-     * payload Duo's job is to carry, and real extension and theme trees ship
+     * payload WPrism's job is to carry, and real extension and theme trees ship
      * names outside [A-Za-z0-9._-] as a matter of course — build outputs keep
      * their npm scope directories, whose names begin with '@', and font assets
      * carry ',' in their filenames. The identifier charset therefore made
-     * `duo init` refuse to stage ordinary shipped bytes with "code staging
+     * `wprism init` refuse to stage ordinary shipped bytes with "code staging
      * destination has an unsafe component", after the journal and lock already
      * existed. (File leaves were never charset-checked at all, so a directory
      * was held to a stricter rule than the files beside it.)

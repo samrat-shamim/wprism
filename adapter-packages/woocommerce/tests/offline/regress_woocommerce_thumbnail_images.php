@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
@@ -19,12 +19,12 @@ require_once $root . '/agent/src/Policy/Policy.php';
 require_once $root . '/agent/src/Apply/ApplyFieldMaterializer.php';
 require_once $root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\Policy;
-use Duo\Interpreters\Woocommerce;
-use DuoTest\FakeWpdb;
-use DuoTest\LockingFakeWpdb;
-use DuoTest\WpStore;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\Policy;
+use WPrism\Interpreters\Woocommerce;
+use WPrismTest\FakeWpdb;
+use WPrismTest\LockingFakeWpdb;
+use WPrismTest\WpStore;
 
 /**
  * Attachment state behind the exact WordPress function names crossed by
@@ -452,7 +452,7 @@ function woo_thumbnail_seed_attachment(
         if (!is_dir(dirname($path))) {
             mkdir(dirname($path), 0o777, true);
         }
-        file_put_contents($path, "duo-thumbnail-fixture-$id");
+        file_put_contents($path, "wprism-thumbnail-fixture-$id");
     }
     $sizes = [];
     if (is_array($staleSize)) {
@@ -492,7 +492,7 @@ function woo_thumbnail_restore_file(int $attachmentId): void {
     if (!is_dir(dirname($path))) {
         mkdir(dirname($path), 0o777, true);
     }
-    file_put_contents($path, "duo-thumbnail-restored-$attachmentId");
+    file_put_contents($path, "wprism-thumbnail-restored-$attachmentId");
 }
 
 /** @return list<array<string,mixed>> */
@@ -525,19 +525,19 @@ $settingsInventory = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 $convergence = $settingsInventory['closed_records']['derived_convergence_options']['thumbnail_images'] ?? null;
-duo_check(is_array($convergence), 'the exact 11.0.x settings union declares thumbnail request convergence');
-duo_check_same(
+wprism_check(is_array($convergence), 'the exact 11.0.x settings union declares thumbnail request convergence');
+wprism_check_same(
     ['woocommerce_thumbnail_cropping', 'woocommerce_thumbnail_cropping_custom_width',
         'woocommerce_thumbnail_cropping_custom_height', 'woocommerce_thumbnail_image_width'],
     $convergence['authored_options'] ?? null,
     'the product path owns all four merchant thumbnail controls'
 );
-duo_check_same(
+wprism_check_same(
     ['woocommerce_maybe_regenerate_images_hash', 'wp_<blog>_wc_regenerate_images_batch_*'],
     $convergence['background_state'] ?? null,
     'the Customizer hash and background queue remain runtime acceleration'
 );
-duo_check_same(
+wprism_check_same(
     'target_environment_owned',
     $convergence['external_processors'] ?? null,
     'external image processors remain an explicit target-environment boundary'
@@ -574,12 +574,12 @@ $policy = Policy::load(
     ['woocommerce'],
     false,
     null,
-    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+    \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
 );
 $interpreter = $policy->interpreters()['woocommerce'] ?? null;
-duo_check($interpreter instanceof Woocommerce, 'the shipped digest-bound Woo interpreter drives image-option validation');
+wprism_check($interpreter instanceof Woocommerce, 'the shipped digest-bound Woo interpreter drives image-option validation');
 if (!$interpreter instanceof Woocommerce) {
-    duo_check_summary('WooCommerce thumbnail images');
+    wprism_check_summary('WooCommerce thumbnail images');
 }
 $desired = [
     'woocommerce_thumbnail_cropping' => 'custom',
@@ -591,57 +591,57 @@ $records = [];
 foreach ($desired as $name => $value) {
     $records[$name] = ['state' => 'present', 'autoload' => 'yes', 'value' => $value];
 }
-duo_check_same([], woo_thumbnail_repository_diagnostics($interpreter, $records),
+wprism_check_same([], woo_thumbnail_repository_diagnostics($interpreter, $records),
     'the repository admits the exact 500-pixel custom-square authored projection');
 
 $materializer = (new ReflectionClass(ApplyFieldMaterializer::class))->newInstanceWithoutConstructor();
-\Duo\Db::start_repeatable_read('WooCommerce thumbnail fixture transaction');
+\WPrism\Db::start_repeatable_read('WooCommerce thumbnail fixture transaction');
 $materializer->begin_authored_transaction();
-\Duo\CacheInvalidationTransaction::begin();
+\WPrism\CacheInvalidationTransaction::begin();
 foreach ($desired as $name => $value) {
     $materializer->upsert_option($name, $materializer->option_wire_value($value), 'yes');
     $store->options[$name] = $value;
     $store->autoload[$name] = 'yes';
 }
-\Duo\Db::commit('WooCommerce thumbnail fixture transaction commit');
-\Duo\CacheInvalidationTransaction::finish();
+\WPrism\Db::commit('WooCommerce thumbnail fixture transaction commit');
+\WPrism\CacheInvalidationTransaction::finish();
 $materializer->end_authored_transaction();
-\Duo\CacheInvalidationTransaction::end();
+\WPrism\CacheInvalidationTransaction::end();
 $optionRows = [];
 foreach ($wpdb->rows('wp_options') as $row) {
     $optionRows[(string) $row['option_name']] = (string) $row['option_value'];
 }
 foreach ($desired as $name => $value) {
-    duo_check_same($value, $optionRows[$name] ?? null, "$name materializes as exact native option bytes");
+    wprism_check_same($value, $optionRows[$name] ?? null, "$name materializes as exact native option bytes");
 }
-duo_check_same('target-runtime-hash', $optionRows['woocommerce_maybe_regenerate_images_hash'] ?? null,
+wprism_check_same('target-runtime-hash', $optionRows['woocommerce_maybe_regenerate_images_hash'] ?? null,
     'authored apply preserves the target regeneration hash byte-for-byte');
-duo_check_same('runtime-job', $optionRows['wp_1_wc_regenerate_images_batch_91'] ?? null,
+wprism_check_same('runtime-job', $optionRows['wp_1_wc_regenerate_images_batch_91'] ?? null,
     'authored apply preserves an existing target background job byte-for-byte');
 
 $GLOBALS['wooThumbnailThemeSupport'] = ['thumbnail_image_width' => 450];
 $themeRegistered = woo_thumbnail_register_image_size();
 wc_get_image_size('woocommerce_thumbnail');
-duo_check_same(450, $themeRegistered['width'] ?? null,
+wprism_check_same(450, $themeRegistered['width'] ?? null,
     'the real Twenty Twenty-One precedence model keeps its 450px override above an authored option');
 $store->options['woocommerce_thumbnail_image_width'] = '300';
 wp_cache_delete('size-thumbnail', 'woocommerce');
-duo_check_same(450, wc_get_image_size('woocommerce_thumbnail')['width'] ?? null,
+wprism_check_same(450, wc_get_image_size('woocommerce_thumbnail')['width'] ?? null,
     'clearing only size-thumbnail leaves the distinct WooCommerce thumbnail cache alias stale');
 $GLOBALS['wooThumbnailThemeSupport'] = null;
 woo_thumbnail_clear_size_cache();
-duo_check_same(300, wc_get_image_size('thumbnail')['width'] ?? null,
+wprism_check_same(300, wc_get_image_size('thumbnail')['width'] ?? null,
     'process-local theme-support removal exposes the exact option-controlled 300px target');
 
 woo_thumbnail_seed_attachment(90, 800, 800, null);
 $staleRegistration = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
-duo_check_same([450, 450], [
+wprism_check_same([450, 450], [
     $staleRegistration['sizes']['woocommerce_thumbnail']['width'] ?? null,
     $staleRegistration['sizes']['woocommerce_thumbnail']['height'] ?? null,
 ], 'an option write alone cannot manufacture a 300px preimage after the request registered 450px');
 $registered300 = woo_thumbnail_register_image_size();
 $metadata300 = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
-duo_check_same([300, 300, 300, 300], [
+wprism_check_same([300, 300, 300, 300], [
     $registered300['width'] ?? null,
     $registered300['height'] ?? null,
     $metadata300['sizes']['woocommerce_thumbnail']['width'] ?? null,
@@ -650,11 +650,11 @@ duo_check_same([300, 300, 300, 300], [
 $store->options['woocommerce_thumbnail_image_width'] = '500';
 woo_thumbnail_clear_size_cache();
 $stale300 = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
-duo_check_same(300, $stale300['sizes']['woocommerce_thumbnail']['width'] ?? null,
+wprism_check_same(300, $stale300['sizes']['woocommerce_thumbnail']['width'] ?? null,
     'a 300-to-500 option transition stays on the boot-registered 300px size until Woo re-registers it');
 $registered500 = woo_thumbnail_register_image_size();
 $metadata500 = wp_generate_attachment_metadata(90, (string) get_attached_file(90));
-duo_check_same([500, 500, 500, 500], [
+wprism_check_same([500, 500, 500, 500], [
     $registered500['width'] ?? null,
     $registered500['height'] ?? null,
     $metadata500['sizes']['woocommerce_thumbnail']['width'] ?? null,
@@ -675,7 +675,7 @@ foreach (['image_get_intermediate_size', 'wp_generate_attachment_metadata',
         ];
     }
 }
-duo_check_same([
+wprism_check_same([
     'image_get_intermediate_size' => [[
         'callback' => 'WC_Regenerate_Images::filter_image_get_intermediate_size',
         'priority' => 10,
@@ -701,72 +701,72 @@ duo_check_same([
 woo_thumbnail_seed_attachment(101, 800, 600, [300, 300, false], true, true, true, 1);
 $metadataBeforeFailure = wp_get_attachment_metadata(101);
 $first = wp_get_attachment_image_src(101, 'woocommerce_thumbnail');
-duo_check_same([500, 375], [$first[1] ?? null, $first[2] ?? null],
+wprism_check_same([500, 375], [$first[1] ?? null, $first[2] ?? null],
     'an editor failure returns the bounded full-image fallback instead of stale square dimensions');
 $metadataAfterFailure = wp_get_attachment_metadata(101);
-duo_check($metadataBeforeFailure !== $metadataAfterFailure,
+wprism_check($metadataBeforeFailure !== $metadataAfterFailure,
     'an editor-selection failure replaces stale derivative metadata with the native base projection');
-duo_check_same([800, 600], [
+wprism_check_same([800, 600], [
     $metadataAfterFailure['width'] ?? null,
     $metadataAfterFailure['height'] ?? null,
 ], 'an editor-selection failure persists the full-image dimensions before returning the bounded fallback');
-duo_check((int) ($metadataAfterFailure['filesize'] ?? 0) > 0,
+wprism_check((int) ($metadataAfterFailure['filesize'] ?? 0) > 0,
     'an editor-selection failure persists the normal JPEG source filesize in core base metadata');
-duo_check_same([], array_keys($metadataAfterFailure['sizes'] ?? []),
+wprism_check_same([], array_keys($metadataAfterFailure['sizes'] ?? []),
     'an editor-selection failure persists no derivative names in the native base metadata');
-duo_check_same([1, 1], [
+wprism_check_same([1, 1], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
 ], 'the failed request records one editor attempt and one core base-metadata write');
 
 unset($store->options['wp_1_wc_regenerate_images_batch_91']);
 $second = wp_get_attachment_image_src(101, 'woocommerce_thumbnail');
-duo_check_same([500, 500], [$second[1] ?? null, $second[2] ?? null],
+wprism_check_same([500, 500], [$second[1] ?? null, $second[2] ?? null],
     'the next normal image request retries and returns the exact custom-square projection');
-duo_check_same([2, 3], [
+wprism_check_same([2, 3], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
 ], 'retry persists the core derivative then Woo commits its uncropped metadata marker');
-duo_check_same(false,
+wprism_check_same(false,
     wp_get_attachment_metadata(101)['sizes']['woocommerce_thumbnail']['uncropped'] ?? null,
     'generated cropped metadata records the exact Woo uncropped=false marker');
 $third = wp_get_attachment_image_src(101, 'woocommerce_thumbnail');
-duo_check_same($second, $third, 'a converged third request is idempotent at the frontend image boundary');
-duo_check_same([2, 3], [
+wprism_check_same($second, $third, 'a converged third request is idempotent at the frontend image boundary');
+wprism_check_same([2, 3], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
 ], 'idempotent read performs no second image-editor or metadata mutation');
-duo_check_same(4, WC_Post_Data::$metadataCalls,
+wprism_check_same(4, WC_Post_Data::$metadataCalls,
     'failure base, retry base, core derivative, and Woo marker writes cross the real product-meta callback');
 
 $frontend = woo_thumbnail_frontend(101);
 $rest = woo_thumbnail_rest(101);
 $storeApi = woo_thumbnail_store_api(101);
-duo_check_same($frontend, $rest, 'WordPress REST image readback observes the same converged thumbnail');
-duo_check_same($frontend, $storeApi, 'Woo Store API image readback observes the same converged thumbnail');
-duo_check_same([2, 3], [
+wprism_check_same($frontend, $rest, 'WordPress REST image readback observes the same converged thumbnail');
+wprism_check_same($frontend, $storeApi, 'Woo Store API image readback observes the same converged thumbnail');
+wprism_check_same([2, 3], [
     $GLOBALS['wooThumbnailAttachments'][101]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][101]['metadata_writes'],
 ], 'frontend, REST, and Store API repeat reads remain mutation-free');
 
 woo_thumbnail_seed_attachment(102, 800, 600, [300, 300, false], true, false);
 $missingFile = wp_get_attachment_image_src(102, 'woocommerce_thumbnail');
-duo_check_same([500, 375], [$missingFile[1] ?? null, $missingFile[2] ?? null],
+wprism_check_same([500, 375], [$missingFile[1] ?? null, $missingFile[2] ?? null],
     'a missing source file returns bounded native fallback dimensions');
-duo_check_same([0, 0], [
+wprism_check_same([0, 0], [
     $GLOBALS['wooThumbnailAttachments'][102]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][102]['metadata_writes'],
 ], 'missing-file refusal reaches no editor and commits no metadata');
 woo_thumbnail_restore_file(102);
 $restoredFile = wp_get_attachment_image_src(102, 'woocommerce_thumbnail');
-duo_check_same([500, 500], [$restoredFile[1] ?? null, $restoredFile[2] ?? null],
+wprism_check_same([500, 500], [$restoredFile[1] ?? null, $restoredFile[2] ?? null],
     'restoring the file makes the next request converge without a queue');
 
 woo_thumbnail_seed_attachment(103, 800, 600, null, false, true);
 $missingMetadata = wp_get_attachment_image_src(103, 'woocommerce_thumbnail');
-duo_check_same([800, 600], [$missingMetadata[1] ?? null, $missingMetadata[2] ?? null],
+wprism_check_same([800, 600], [$missingMetadata[1] ?? null, $missingMetadata[2] ?? null],
     'missing attachment metadata preserves the usable original instead of inventing dimensions');
-duo_check_same([0, 0], [
+wprism_check_same([0, 0], [
     $GLOBALS['wooThumbnailAttachments'][103]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][103]['metadata_writes'],
 ], 'missing metadata performs no unsafe regeneration');
@@ -777,39 +777,39 @@ $GLOBALS['wooThumbnailAttachments'][103]['metadata'] = [
     'sizes' => [],
 ];
 $restoredMetadata = wp_get_attachment_image_src(103, 'woocommerce_thumbnail');
-duo_check_same([500, 500], [$restoredMetadata[1] ?? null, $restoredMetadata[2] ?? null],
+wprism_check_same([500, 500], [$restoredMetadata[1] ?? null, $restoredMetadata[2] ?? null],
     'a later request converges after native metadata repair');
 
 woo_thumbnail_seed_attachment(104, 800, 800, [300, 300, false]);
 $sameAspect = wp_get_attachment_image_src(104, 'woocommerce_thumbnail');
-duo_check_same([500, 500], [$sameAspect[1] ?? null, $sameAspect[2] ?? null],
+wprism_check_same([500, 500], [$sameAspect[1] ?? null, $sameAspect[2] ?? null],
     'the 300-to-500 same-aspect change returns the exact requested dimensions from the full image');
-duo_check_same([0, 0], [
+wprism_check_same([0, 0], [
     $GLOBALS['wooThumbnailAttachments'][104]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][104]['metadata_writes'],
 ], 'same-aspect width convergence needs no derivative or background queue');
-duo_check_same($sameAspect, wp_get_attachment_image_src(104, 'woocommerce_thumbnail'),
+wprism_check_same($sameAspect, wp_get_attachment_image_src(104, 'woocommerce_thumbnail'),
     'same-aspect full-image convergence is idempotent');
 
 woo_thumbnail_seed_attachment(105, 240, 180, null);
 $smaller = wp_get_attachment_image_src(105, 'woocommerce_thumbnail');
-duo_check_same([240, 180], [$smaller[1] ?? null, $smaller[2] ?? null],
+wprism_check_same([240, 180], [$smaller[1] ?? null, $smaller[2] ?? null],
     'a smaller original is never zoomed or upscaled to the authored dimensions');
-duo_check_same(0, $GLOBALS['wooThumbnailAttachments'][105]['editor_attempts'],
+wprism_check_same(0, $GLOBALS['wooThumbnailAttachments'][105]['editor_attempts'],
     'the smaller-original guard runs before the image editor');
 
 woo_thumbnail_seed_attachment(106, 800, 600, [500, 500, false]);
 $store->options['woocommerce_thumbnail_cropping'] = 'uncropped';
 woo_thumbnail_register_image_size();
 $uncropped = wp_get_attachment_image_src(106, 'woocommerce_thumbnail');
-duo_check_same([500, 375], [$uncropped[1] ?? null, $uncropped[2] ?? null],
+wprism_check_same([500, 375], [$uncropped[1] ?? null, $uncropped[2] ?? null],
     'cropped-to-uncropped transition follows the original aspect ratio on the next request');
-duo_check_same(0, $GLOBALS['wooThumbnailAttachments'][106]['editor_attempts'],
+wprism_check_same(0, $GLOBALS['wooThumbnailAttachments'][106]['editor_attempts'],
     'uncropped full-image convergence remains independent of the background queue');
 $uncroppedGenerated = apply_filters('wp_generate_attachment_metadata', [
     'sizes' => ['woocommerce_thumbnail' => ['width' => 500, 'height' => 375]],
 ]);
-duo_check_same(true, $uncroppedGenerated['sizes']['woocommerce_thumbnail']['uncropped'] ?? null,
+wprism_check_same(true, $uncroppedGenerated['sizes']['woocommerce_thumbnail']['uncropped'] ?? null,
     'the native metadata filter marks newly generated uncropped thumbnails');
 
 $store->options['woocommerce_thumbnail_cropping'] = 'custom';
@@ -818,7 +818,7 @@ $store->options['woocommerce_thumbnail_cropping_custom_height'] = '3';
 woo_thumbnail_register_image_size();
 woo_thumbnail_seed_attachment(107, 800, 600, [500, 500, false]);
 $customRatio = wp_get_attachment_image_src(107, 'woocommerce_thumbnail');
-duo_check_same([500, 375], [$customRatio[1] ?? null, $customRatio[2] ?? null],
+wprism_check_same([500, 375], [$customRatio[1] ?? null, $customRatio[2] ?? null],
     'square-to-custom 4:3 transition converges through the normal image-source path');
 
 unset(
@@ -828,10 +828,10 @@ unset(
     $store->options['woocommerce_thumbnail_image_width']
 );
 woo_thumbnail_register_image_size();
-duo_check_same(['width' => 300, 'height' => 300, 'crop' => 1], wc_get_image_size('woocommerce_thumbnail'),
+wprism_check_same(['width' => 300, 'height' => 300, 'crop' => 1], wc_get_image_size('woocommerce_thumbnail'),
     'deleted/absent image options restore the exact 300-pixel square reader defaults');
 woo_thumbnail_seed_attachment(108, 800, 800, [300, 300, false]);
-duo_check_same([300, 300], array_slice((array) wp_get_attachment_image_src(108, 'woocommerce_thumbnail'), 1, 2),
+wprism_check_same([300, 300], array_slice((array) wp_get_attachment_image_src(108, 'woocommerce_thumbnail'), 1, 2),
     'default-state frontend readback remains exact and performs no regeneration');
 
 $store->options['woocommerce_thumbnail_cropping'] = 'custom';
@@ -841,16 +841,16 @@ $store->options['woocommerce_thumbnail_image_width'] = '500';
 woo_thumbnail_register_image_size();
 woo_thumbnail_seed_attachment(109, 800, 600, [300, 300, false], true, true, false);
 $nonImage = wp_get_attachment_image_src(109, 'woocommerce_thumbnail');
-duo_check_same([500, 375], [$nonImage[1] ?? null, $nonImage[2] ?? null],
+wprism_check_same([500, 375], [$nonImage[1] ?? null, $nonImage[2] ?? null],
     'a non-image attachment remains on the safe bounded fallback path');
-duo_check_same([0, 0], [
+wprism_check_same([0, 0], [
     $GLOBALS['wooThumbnailAttachments'][109]['editor_attempts'],
     $GLOBALS['wooThumbnailAttachments'][109]['metadata_writes'],
 ], 'non-image refs never reach regeneration or metadata writes');
 
-duo_check_same('target-runtime-hash', $store->options['woocommerce_maybe_regenerate_images_hash'] ?? null,
+wprism_check_same('target-runtime-hash', $store->options['woocommerce_maybe_regenerate_images_hash'] ?? null,
     'request-time convergence never rewrites the target Customizer hash');
-duo_check(!array_key_exists('wp_1_wc_regenerate_images_batch_91', $store->options),
+wprism_check(!array_key_exists('wp_1_wc_regenerate_images_batch_91', $store->options),
     'successful retry remains independent after the simulated background queue is killed');
 
-duo_check_summary('WooCommerce thumbnail images');
+wprism_check_summary('WooCommerce thumbnail images');

@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-use Duo\Tooling\AdapterPackageMakeTarget;
+use WPrism\Tooling\AdapterPackageMakeTarget;
 
 require_once __DIR__ . '/src/AdapterPackageMakeTarget.php';
 
@@ -34,8 +34,8 @@ foreach (array_slice($_SERVER['argv'] ?? [], 1) as $argument) {
     exit(2);
 }
 if ($targetFromMake) {
-    $fromMake = getenv('DUO_ADAPTER_PACKAGE_MAKE_TARGET');
-    putenv('DUO_ADAPTER_PACKAGE_MAKE_TARGET');
+    $fromMake = getenv('WPRISM_ADAPTER_PACKAGE_MAKE_TARGET');
+    putenv('WPRISM_ADAPTER_PACKAGE_MAKE_TARGET');
     $target = is_string($fromMake) ? $fromMake : null;
 }
 if (!is_string($target) || $target === '') {

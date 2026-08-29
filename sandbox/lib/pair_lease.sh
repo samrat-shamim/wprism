@@ -52,7 +52,7 @@ pair_lease_assert_access() { # pair_lease_assert_access <name> [persisted-or-req
   local -a requested_ports=("$@")
   pair_lease_prune_stale
   dir="$(pair_lease_dir)"
-  token="${DUO_PAIR_LEASE_TOKEN:-}"
+  token="${WPRISM_PAIR_LEASE_TOKEN:-}"
   shopt -s nullglob
   for file in "$dir"/*.json; do
     leased_name="$(basename "$file" .json)"

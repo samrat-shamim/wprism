@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure cross-source grammar for the ref, token, and ledger kind vocabularies.
@@ -14,7 +14,7 @@ final class ReferenceKindGrammar {
     private const ENGINE_TOKEN_KINDS = ['post', 'term', 'tt'];
     /** @see ENGINE_TOKEN_KINDS */
     private const ENGINE_REF_KINDS = ['post', 'term', 'tt', 'user'];
-    /** @see ENGINE_TOKEN_KINDS — duo_map's own long spellings, not the token short ones. */
+    /** @see ENGINE_TOKEN_KINDS — wprism_map's own long spellings, not the token short ones. */
     private const ENGINE_LEDGER_KINDS = ['post', 'term', 'term_taxonomy'];
 
     /** @return list<string> Policy::closed_vocabularies()'s engine ref base. */
@@ -33,8 +33,8 @@ final class ReferenceKindGrammar {
     }
 
     /**
-     * The two remaining surfaces that name a duo_map keyspace directly
-     * (DUO-3318 review, S6), closed the same way the ref/token vocabularies
+     * The two remaining surfaces that name a wprism_map keyspace directly
+     * (issue #3318 review, S6), closed the same way the ref/token vocabularies
      * above are.
      *
      * These are LEDGER kinds, a third vocabulary rather than a restatement of
@@ -43,7 +43,7 @@ final class ReferenceKindGrammar {
      * resolution path) instead of going through Tokens. So the engine-owned
      * base here is the ledger's own LONG spellings — `term_taxonomy`, never
      * the `tt` a manifest writes in a token kind — and `user` is absent
-     * because duo_map has no user keyspace at all (a user reference is
+     * because wprism_map has no user keyspace at all (a user reference is
      * serialized as a login, never an id).
      *
      * `option_name_refs[].id_kind` is narrower still: its own contract is
@@ -91,9 +91,9 @@ final class ReferenceKindGrammar {
                     continue;
                 }
                 throw new \RuntimeException(
-                    "duo: $label declares $path=" . var_export($value, true) . ' but the ledger kind vocabulary '
+                    "wprism: $label declares $path=" . var_export($value, true) . ' but the ledger kind vocabulary '
                     . 'is closed here (' . ($legal === [] ? '<no table id_kind is declared by any pinned manifest>'
-                        : implode(', ', $legal)) . '). This value is looked up in duo_map verbatim, so an '
+                        : implode(', ', $legal)) . '). This value is looked up in wprism_map verbatim, so an '
                     . 'unrecognized one names a keyspace with no rows rather than failing — '
                     . ($legal === $declaredIdKinds
                         ? 'an option-name reference resolves against a declared TABLE, so name the id_kind of a '
@@ -108,7 +108,7 @@ final class ReferenceKindGrammar {
 
     /**
      * The ref-kind vocabulary, closed across every pinned manifest and the
-     * site's own policy (DUO-3318).
+     * site's own policy (issue #3318).
      *
      * A ref kind is the engine's typed-identity keyspace name: three are the
      * engine's own (`post`, `term`, `tt` — Tokens::KIND_MAP's historical
@@ -133,7 +133,7 @@ final class ReferenceKindGrammar {
      * classification rule's `ref` may name `user` and may carry the `[]`
      * plural suffix. A TOKEN kind — a table's `refs[]`, a `block_attrs`/
      * `shortcode_attrs` rule, a `json_refs`/`key_refs` entry — is normally
-     * resolved through duo_map, which has no user keyspace, and carries its
+     * resolved through wprism_map, which has no user keyspace, and carries its
      * plurality in a separate `type`/`cast` field rather than in the kind
      * name. `block_attrs` alone may name `user`: Blocks owns the explicit
      * user-id <-> user:<login> codec used by core/avatar, while none of the
@@ -148,7 +148,7 @@ final class ReferenceKindGrammar {
      * existing anywhere.
      *
      * @param list<array> $manifests
-     * @param array<string,mixed> $sitePolicy site.duo.json's `policy` object
+     * @param array<string,mixed> $sitePolicy site.wprism.json's `policy` object
      */
     public static function validate_ref_kinds(array $manifests, array $sitePolicy): void {
         $idKinds = [];
@@ -173,7 +173,7 @@ final class ReferenceKindGrammar {
         foreach ($manifests as $manifest) {
             $sources["manifest '" . (string) ($manifest['name'] ?? '?') . "'"] = $manifest;
         }
-        $sources['site.duo.json policy'] = $sitePolicy;
+        $sources['site.wprism.json policy'] = $sitePolicy;
         foreach ($sources as $label => $source) {
             $claims = [];
             self::collect_ref_kind_claims($source, '', $claims);
@@ -191,7 +191,7 @@ final class ReferenceKindGrammar {
                     continue;
                 }
                 throw new \RuntimeException(
-                    "duo: $label declares $path=" . var_export($value, true) . ' but the '
+                    "wprism: $label declares $path=" . var_export($value, true) . ' but the '
                     . ($token ? 'token' : 'reference') . ' kind vocabulary is closed ('
                     . implode(', ', $legal) . ($token ? '' : ', each optionally suffixed with [] for a list')
                     . '). post/term/tt' . (!$token || $blockUser ? '/user' : '')

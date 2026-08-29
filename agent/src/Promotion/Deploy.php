@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Code/CodeCompatibility.php';
 require_once __DIR__ . '/DeployPlanner.php';
@@ -17,7 +17,7 @@ require_once __DIR__ . '/../Policy/AdapterLibrary.php';
  * against the environment's actual state, using real WP APIs —
  * activate_plugin()/deactivate_plugins()/switch_theme() — so their
  * activation/switch hooks fire DELIBERATELY. This is the one place in the
- * engine where that's true: `duo apply`'s canary (Canary.php) requires the
+ * engine where that's true: `wprism apply`'s canary (Canary.php) requires the
  * opposite (zero content-CRUD hooks, hook-free direct SQL), and DESIGN.md
  * §3.4 states that as a blanket rule for apply. Both requirements can't be
  * satisfied inside the same transaction, so this class runs entirely
@@ -33,7 +33,7 @@ require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 final class Deploy {
     /**
      * Thin compatibility facade over LifecyclePlanner::code_mismatch()
-     * (DUO-3350 slice 6) — kept so this method's existing internal call site
+     * (issue #3350 slice 6) — kept so this method's existing internal call site
      * (run(), unchanged) and the external callers (Apply::build_plan(),
      * sandbox/tests/offline/code-half/regress_template_mismatch.php,
      * sandbox/tests/live/regress_adapter_theme_range.sh) need no edit while this
@@ -45,7 +45,7 @@ final class Deploy {
 
     /**
      * Thin compatibility facade over LifecyclePlanner::code_revision_mismatch()
-     * (DUO-3350 slice 6) — kept so this method's existing internal call site
+     * (issue #3350 slice 6) — kept so this method's existing internal call site
      * (run(), unchanged) and the external caller (Apply::build_plan()) need
      * no edit while this decomposition proceeds.
      */
@@ -55,7 +55,7 @@ final class Deploy {
 
     /**
      * Thin compatibility facade over LifecyclePlanner::code_drift()
-     * (DUO-3350 slice 6) — kept so this method's existing internal call site
+     * (issue #3350 slice 6) — kept so this method's existing internal call site
      * (run(), unchanged) and the external caller (Apply::build_plan()) need
      * no edit while this decomposition proceeds.
      */
@@ -65,10 +65,10 @@ final class Deploy {
 
     /**
      * Thin compatibility facade over LifecyclePlanner::record_code_versions()
-     * (DUO-3350 slice 6) — kept so this method's existing internal call site
+     * (issue #3350 slice 6) — kept so this method's existing internal call site
      * (run(), unchanged) needs no edit while this decomposition proceeds.
      *
-     * DUO-3507 removed the one external caller: capture now goes through
+     * issue #3507 removed the one external caller: capture now goes through
      * LifecyclePlanner::observe_code_versions(), which writes the baseline
      * only when there is nothing to accept. run()'s own call at :472 is
      * therefore the only unconditional re-baseline left in the product, and
@@ -80,10 +80,10 @@ final class Deploy {
     }
 
     /**
-     * `wp duo deploy` — the agent-side half of the proposal's `duo deploy`
+     * `wp wprism deploy` — the agent-side half of the proposal's `wprism deploy`
      * step (§3.4's ordering: materialize code [cli/'s orchestrator, not
      * this] -> reconcile activation [here] -> plugin/theme migrations run
-     * as a side effect of activation hooks firing -> THEN `duo apply`).
+     * as a side effect of activation hooks firing -> THEN `wprism apply`).
      * Refuses loudly, listing every blocking finding, while any
      * currently-desired-active plugin/theme is missing from this
      * environment's code or outside its manifest's version_range —
@@ -100,7 +100,7 @@ final class Deploy {
         $repo = rtrim($repo, '/');
         $adapterLibrary = $opts['adapter_library'] ?? null;
         if ($adapterLibrary !== null && !$adapterLibrary instanceof AdapterLibrary) {
-            throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+            throw new \InvalidArgumentException('adapter_library must be a WPrism\\AdapterLibrary');
         }
         $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
         $compiledPath = (string) ($opts['compiled'] ?? '');
@@ -124,7 +124,7 @@ final class Deploy {
             || ($expectedArtifact !== ''
                 && (!preg_match('/^[0-9a-f]{64}$/', $expectedArtifact)
                     || !hash_equals($expectedArtifact, $promotionArtifact)))) {
-            throw new \RuntimeException('duo: deploy artifact does not match the host-compiled artifact hash');
+            throw new \RuntimeException('wprism: deploy artifact does not match the host-compiled artifact hash');
         }
         if ($continuation) {
             PromotionLock::acquire($promotionOwner, $promotionArtifact, 'deploy', null, true);
@@ -140,7 +140,7 @@ final class Deploy {
                 ? RepositoryCompiler::read_artifact($compiledPath, $lockedPolicy)
                 : RepositoryCompiler::compile($repo, $lockedPolicy);
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
-                throw new \RuntimeException('duo: compiled artifact changed before locked deploy');
+                throw new \RuntimeException('wprism: compiled artifact changed before locked deploy');
             }
             if ($continuation) {
                 PromotionLock::assert_no_lifecycle_attempt(
@@ -172,8 +172,8 @@ final class Deploy {
         if ($revisionMismatch && !$stagedMaterialization) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $revisionMismatch));
             throw new \RuntimeException(
-                "duo: deploy refused — code_revision_stale:\n\n$list\n\n"
-                . "This lifecycle command cannot materialize code. Run the host 'duo deploy <env>' workflow, "
+                "wprism: deploy refused — code_revision_stale:\n\n$list\n\n"
+                . "This lifecycle command cannot materialize code. Run the host 'wprism deploy <env>' workflow, "
                 . 'which stages and verifies the exact descriptor before invoking this command.'
             );
         }
@@ -214,13 +214,13 @@ final class Deploy {
         if ($blockingMismatch && empty($opts['force_code_mismatch'])) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $blockingMismatch));
             throw new \RuntimeException(
-                "duo: deploy refused — code_mismatch:\n\n$list\n\n"
+                "wprism: deploy refused — code_mismatch:\n\n$list\n\n"
                 . 'Install/vendor whatever is missing (or update code/) in this environment first, '
                 . 'or pass --force-code-mismatch to proceed anyway.'
             );
         }
 
-        // DUO-3231: checked here too, not just at apply time — a deploy on
+        // issue #3231: checked here too, not just at apply time — a deploy on
         // top of already-drifted code would reconcile activation against a
         // plugin version nobody vouched for, compounding rather than
         // catching the risk. Checked BEFORE this run's own reconciliation
@@ -229,7 +229,7 @@ final class Deploy {
         if ($drift && empty($opts['force_code_drift']) && !$stagedMaterialization) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $drift));
             throw new \RuntimeException(
-                "duo: deploy refused — code_drift:\n\n$list\n\n"
+                "wprism: deploy refused — code_drift:\n\n$list\n\n"
                 . 'Reconcile the environment to a known version first, or pass --force-code-drift to proceed anyway.'
             );
         }
@@ -239,7 +239,7 @@ final class Deploy {
         // never dropped — code_revision_mismatch() output still flows into
         // $mismatch -> $summary['code_mismatch']/['reconciled_code_mismatch']
         // below exactly as before, in both JSON and human output. What no
-        // longer happens is copying it into $warnings (DUO-3490):
+        // longer happens is copying it into $warnings (issue #3490):
         // revision_stale_warnings() explains why that copy was never
         // reporting new information in the one context it fired.
         $warnings = self::revision_stale_warnings($revisionMismatch, $stagedMaterialization);
@@ -287,7 +287,7 @@ final class Deploy {
             array_filter($blockingMismatch, fn($r) => $r['kind'] === 'plugin' && $r['issue'] === 'missing_in_code'),
             'plugin'
         );
-        // DUO-3222: issue-scoped, mirroring $missingPlugins immediately above
+        // issue #3222: issue-scoped, mirroring $missingPlugins immediately above
         // — before this issue, EVERY theme-kind finding WAS missing_in_code
         // (theme version_range didn't exist yet), so the original blanket
         // "any theme finding at all" check was exactly right at the time.
@@ -322,14 +322,14 @@ final class Deploy {
 
         if ($lifecyclePhase === 'activate' && $toDeactivate) {
             throw new \RuntimeException(
-                'duo: lifecycle activation refused — retirement phase did not remove: '
+                'wprism: lifecycle activation refused — retirement phase did not remove: '
                 . implode(', ', $toDeactivate)
             );
         }
         if ($lifecyclePhase === 'all' && $toActivate && $toDeactivate) {
             throw new \RuntimeException(
-                'duo: replacing active plugin identities requires fresh retire and activate processes; '
-                . "run the host 'duo deploy <env>' or 'duo promote <env>' workflow"
+                'wprism: replacing active plugin identities requires fresh retire and activate processes; '
+                . "run the host 'wprism deploy <env>' or 'wprism promote <env>' workflow"
             );
         }
 
@@ -401,7 +401,7 @@ final class Deploy {
 
         Canary::begin_external_observation();
         try {
-            // DUO-3350 slice 8: the real WordPress lifecycle mutation for this
+            // issue #3350 slice 8: the real WordPress lifecycle mutation for this
             // phase now lives in LifecycleExecutor::execute(). Kept here: the
             // PromotionLock/Canary sequencing around the call and the failure
             // augmentation below, both run()'s own orchestration rather than
@@ -453,7 +453,7 @@ final class Deploy {
             );
             if ($unexpected) {
                 throw new \RuntimeException(
-                    'duo: lifecycle hooks changed canonical authored option(s) outside this compiled state: '
+                    'wprism: lifecycle hooks changed canonical authored option(s) outside this compiled state: '
                     . implode(', ', $unexpected)
                     . '. Capture/reconcile those changes before retrying; state apply was not run.'
                 );
@@ -575,7 +575,7 @@ final class Deploy {
 
     /**
      * Human-facing text for a code_revision_stale finding discovered mid-run,
-     * or none while $stagedMaterialization holds (DUO-3490).
+     * or none while $stagedMaterialization holds (issue #3490).
      *
      * Outside $stagedMaterialization this method is never reached with a
      * non-empty $revisionMismatch: run()'s own refuse-gate just above throws
@@ -601,7 +601,7 @@ final class Deploy {
      * outlive its OWN run's finalize; measured live, both observed message
      * variants trace to this same guaranteed structural state, not a cleanup
      * miss). Warning about an already-verified, guaranteed condition on every
-     * green deploy is the "failure-shaped warning inside a green run" DUO-3490
+     * green deploy is the "failure-shaped warning inside a green run" issue #3490
      * reports, so this returns no text for it; the finding itself keeps
      * flowing into $mismatch -> $summary['code_mismatch'] either way. The
      * non-staged branch below is unreachable with a non-empty
@@ -629,8 +629,8 @@ final class Deploy {
     private static function assert_materializing_continuation(array $opts, bool $continuation): void {
         if (!empty($opts['materializing_code']) && !$continuation) {
             throw new \RuntimeException(
-                'duo: --materializing-code is valid only inside the host orchestrator promotion continuation; '
-                . "run 'duo deploy <env>'"
+                'wprism: --materializing-code is valid only inside the host orchestrator promotion continuation; '
+                . "run 'wprism deploy <env>'"
             );
         }
     }
@@ -639,7 +639,7 @@ final class Deploy {
         if (!empty($opts['state_handoff'])
             && (!$continuation || empty($opts['promotion_hold']))) {
             throw new \RuntimeException(
-                'duo: --state-handoff is valid only inside a retained host promotion continuation'
+                'wprism: --state-handoff is valid only inside a retained host promotion continuation'
             );
         }
     }
@@ -648,17 +648,17 @@ final class Deploy {
         $phase = (string) ($opts['lifecycle_phase'] ?? 'all');
         if (!in_array($phase, ['all', 'retire', 'activate'], true)) {
             throw new \RuntimeException(
-                "duo: unsupported lifecycle phase '$phase' (expected retire or activate)"
+                "wprism: unsupported lifecycle phase '$phase' (expected retire or activate)"
             );
         }
         if ($phase !== 'all' && !$continuation) {
             throw new \RuntimeException(
-                'duo: phased lifecycle commands are valid only inside a host promotion continuation'
+                'wprism: phased lifecycle commands are valid only inside a host promotion continuation'
             );
         }
         if ($phase === 'retire' && empty($opts['promotion_hold'])) {
             throw new \RuntimeException(
-                'duo: lifecycle retirement must retain the lease for fresh-process activation'
+                'wprism: lifecycle retirement must retain the lease for fresh-process activation'
             );
         }
         return $phase;
@@ -670,8 +670,8 @@ final class Deploy {
      * has the target tree's options entity decoded (from load_tree()) and
      * would otherwise have to duplicate this same key-extraction — one
      * implementation read from two different starting points (a file path
-     * here, an in-memory decoded array there) is how `duo plan`/`duo
-     * status` and `duo deploy` stay unable to disagree about what the
+     * here, an in-memory decoded array there) is how `wprism plan`/`wprism
+     * status` and `wprism deploy` stay unable to disagree about what the
      * target state actually declares.
      *
      * @return array{active_plugins?: string[], template?: string, stylesheet?: string}
@@ -693,7 +693,7 @@ final class Deploy {
 
     /**
      * Thin compatibility facade over StateHandoffVerifier::options_snapshot()
-     * (DUO-3350 slice 7) -- kept so this method's existing internal call
+     * (issue #3350 slice 7) -- kept so this method's existing internal call
      * sites (run(), both the before- and after-mutation snapshots,
      * unchanged) need no edit while this decomposition proceeds.
      *
@@ -710,7 +710,7 @@ final class Deploy {
 
     /**
      * Thin compatibility facade over
-     * StateHandoffVerifier::bind_lifecycle_missing_options() (DUO-3350
+     * StateHandoffVerifier::bind_lifecycle_missing_options() (issue #3350
      * slice 7) -- kept solely because
      * sandbox/tests/offline/code-half/regress_lifecycle_state_handoff.php invokes it via
      * ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options') for
@@ -718,7 +718,7 @@ final class Deploy {
      * production caller and that call moved with it, so this facade has no
      * remaining production caller of its own -- caught by grepping for
      * reflection-based callers specifically before writing any code, the
-     * same discipline this series has used since DUO-3347 slice 12's
+     * same discipline this series has used since issue #3347 slice 12's
      * assign_locations() precedent.
      */
     private static function bind_lifecycle_missing_options(array $observedDocument, array $desiredDocument): array {
@@ -727,7 +727,7 @@ final class Deploy {
 
     /**
      * Thin compatibility facade over
-     * StateHandoffVerifier::unexpected_lifecycle_state_changes() (DUO-3350
+     * StateHandoffVerifier::unexpected_lifecycle_state_changes() (issue #3350
      * slice 7) -- kept so this method's existing internal call site (run(),
      * unchanged) and the two reflection-based test callers
      * (sandbox/tests/offline/code-half/regress_lifecycle_options_snapshot.php,
@@ -749,7 +749,7 @@ final class Deploy {
      * WordPress validates a plugin's requirements at activation time, so this
      * order is independent of the desired active_plugins storage order.
      *
-     * Public (DUO-3350 slice 8, was private): LifecycleExecutor::execute()
+     * Public (issue #3350 slice 8, was private): LifecycleExecutor::execute()
      * -- the extracted lifecycle-mutation pass, its only production caller
      * now -- calls this directly. The rest of this dependency-ordering
      * cluster (plugin_dependency_requirements()/plugin_dependency_slug()/
@@ -773,7 +773,7 @@ final class Deploy {
      * Read WordPress's bounded Requires Plugins headers and produce a reverse
      * dependency order for the exact removal set.
      *
-     * Public (DUO-3350 slice 8, was private) -- see
+     * Public (issue #3350 slice 8, was private) -- see
      * dependency_ordered_activations()'s docblock immediately above.
      *
      * @param list<string> $plugins active plugin basenames being retired
@@ -797,7 +797,7 @@ final class Deploy {
             $slug = self::plugin_dependency_slug($plugin);
             if (isset($bySlug[$slug]) && $bySlug[$slug] !== $plugin) {
                 throw new \RuntimeException(
-                    "duo: cannot prove plugin dependency lifecycle because '$slug' identifies both "
+                    "wprism: cannot prove plugin dependency lifecycle because '$slug' identifies both "
                     . "'{$bySlug[$slug]}' and '$plugin'"
                 );
             }
@@ -862,7 +862,7 @@ final class Deploy {
 
     /**
      * Public: LifecyclePlanner.php's code_mismatch()/code_drift()/
-     * record_code_versions() (DUO-3350 slice 6) share this accessor too.
+     * record_code_versions() (issue #3350 slice 6) share this accessor too.
      * @return string[]
      */
     public static function current_active_plugins(): array {
@@ -878,7 +878,7 @@ final class Deploy {
      * get_option('active_plugins') for the lifecycle state, and WordPress's
      * plugin-header parser for the installed version.
      *
-     * Public because DUO-3338's provider negotiation asks the same question
+     * Public because issue #3338's provider negotiation asks the same question
      * about a provider's owning plugin from Providers::negotiate(). Sharing
      * this accessor — rather than letting a second class learn where the live
      * plugin facts live and which wp-admin include has to be loaded first —
@@ -902,7 +902,7 @@ final class Deploy {
      * Min inclusive, max exclusive — the whole of the version_range mechanic
      * (Policy::version_ranges()'s docblock explains why it is two
      * version_compare() calls and not a semver-range parser). Public so
-     * DUO-3338's provider negotiation bounds a provider by the identical
+     * issue #3338's provider negotiation bounds a provider by the identical
      * arithmetic that bounds its manifest's classification guarantees,
      * instead of a second copy that could drift on an edge case.
      */
@@ -918,7 +918,7 @@ final class Deploy {
      * calling wp_generate_attachment_metadata().
      *
      * Public: LifecyclePlanner.php's code_mismatch()/code_drift()/
-     * record_code_versions() (DUO-3350 slice 6) share this guard too.
+     * record_code_versions() (issue #3350 slice 6) share this guard too.
      */
     public static function require_plugin_admin_functions(): void {
         if (!function_exists('validate_plugin')) {

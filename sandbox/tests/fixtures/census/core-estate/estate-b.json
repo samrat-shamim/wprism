@@ -1,5 +1,5 @@
 {
-    "format": "duo-assess-inventory/v1",
+    "format": "wprism-assess-inventory/v1",
     "spec_version": 2,
     "agent_version": "0.5.0",
     "target": {
@@ -64,7 +64,7 @@
         "surface_groups": []
     },
     "coverage": {
-        "format": "duo-coverage-report/v1",
+        "format": "wprism-coverage-report/v1",
         "options": {
             "total": 312,
             "captured": 41,

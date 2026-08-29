@@ -105,9 +105,9 @@ declare(strict_types=1);
  * test passed. This file counts what those have already proved.
  */
 
-use Duo\AdapterLibrary;
-use Duo\ManifestDispositions;
-use Duo\Tooling\AdapterProductionReadiness;
+use WPrism\AdapterLibrary;
+use WPrism\ManifestDispositions;
+use WPrism\Tooling\AdapterProductionReadiness;
 
 $repo = dirname(__DIR__);
 
@@ -116,14 +116,14 @@ $repo = dirname(__DIR__);
 // not optional: ManifestDispositions calls Canon:: at :294, :465 and :1048
 // and deliberately requires nothing itself (":76 — `require` here would grow
 // the load graph of every context that only …"), so the caller carries its
-// dependency, exactly as agent/duo.php does. Nothing else of the agent loads.
+// dependency, exactly as agent/wprism.php does. Nothing else of the agent loads.
 require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Policy/AdapterLibrary.php';
 require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
 require_once $repo . '/tools/src/AdapterProductionReadiness.php';
 
-const GRADE_LEDGER_FORMAT = 'duo-adapter-production-readiness/v1';
-const GRADE_PLATFORM_FORMAT = 'duo-platform-boundary/v1';
+const GRADE_LEDGER_FORMAT = 'wprism-adapter-production-readiness/v1';
+const GRADE_PLATFORM_FORMAT = 'wprism-platform-boundary/v1';
 
 /** The three axes, in the order every projection prints them. */
 const GRADE_AXES = ['coverage_breadth', 'exercise_depth', 'platform_reach'];
@@ -454,7 +454,7 @@ function grade_platform_reach(?array $stated, array $boundary): ?array {
  * weakest axis is the sentence an operator actually needs ("this is as far as
  * the evidence goes").
  *
- * THERE IS NO `format` MEMBER, deliberately. A `duo-adapter-grade/vN` string
+ * THERE IS NO `format` MEMBER, deliberately. A `wprism-adapter-grade/vN` string
  * would name a wire generation that does not exist: this record is never
  * serialised, never signed and never written to disk — the only thing that
  * leaves this process is the rendered prose. `platform/adapter-library/capabilities/platform.json`'s own note

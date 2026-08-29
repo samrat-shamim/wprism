@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/AdapterSources.php';
@@ -31,8 +31,8 @@ require_once __DIR__ . '/../Policy/ManifestDispositions.php';
  * authoring.md states an edit "moves the digest and the claim drops back to
  * uncertified". AdapterSources::scan() catches this specific signal and
  * resolves the adapter as uncertified support (the same state a companion-
- * absent site adapter reaches), so `duo assess`/`duo release` see a clean
- * uncertified row instead of an unclassified hard failure, and `duo adapter
+ * absent site adapter reaches), so `wprism assess`/`wprism release` see a clean
+ * uncertified row instead of an unclassified hard failure, and `wprism adapter
  * certify --pin` can re-sign over the new bytes. Every genuine anomaly
  * (malformed/misplaced companion, wrong authority, bad signature) stays a
  * hard \RuntimeException — a superseded adapter never keeps its certified
@@ -64,7 +64,7 @@ final class SupersededSiteAdapterCertificate extends \RuntimeException {
  * scan_site_source() could not tell from a forgery, so discover() refused the
  * WHOLE site source (refuse() at SCOPE_SOURCE) and Policy::load() propagated
  * it uncaught (Policy.php:400) — an agent upgrade bricked every command on
- * every site holding a certified adapter, including `duo adapter certify
+ * every site holding a certified adapter, including `wprism adapter certify
  * --pin`, the one command that repairs it (AdapterCertify.php:283, 349, 570).
  *
  * Routing it to uncertified support is a WITHDRAWAL OF A CLAIM, never a
@@ -84,7 +84,7 @@ final class StalePlatformSiteAdapterCertificate extends \RuntimeException {
 /**
  * A canonical companion this agent cannot verify because of its WIRE
  * GENERATION, at any of three tests: a root `format` naming the certification
- * family (`duo-adapter-certification/v<n>`) at another version, a statement
+ * family (`wprism-adapter-certification/v<n>`) at another version, a statement
  * written in the v1 generation (the five members R-06 closed, signed under the
  * retired `/v1` certification domain — deliberately not spelled here, because
  * tools/wire-surface.php gate 2 reads every domain literal in this tree as a
@@ -149,7 +149,7 @@ final class SupersededWireSiteAdapterCertificate extends \RuntimeException {
  * not tell it from a forgery: `guarded()` re-threw it (`AdapterSources.php:2377`),
  * `discover()` refused the WHOLE site source, and `Policy::load()` propagated it
  * uncaught (`Policy.php:415`, `:508`) — every command on the site, including the
- * `duo adapter certify --pin` that repairs it. On the frozen path the same
+ * `wprism adapter certify --pin` that repairs it. On the frozen path the same
  * refusal was worse: `from_snapshot()` caught exactly the two existing typed
  * withdrawals (`AdapterSources.php:4359-4362`), so a promoted site met it as a
  * whole-policy refusal. A v2 authority record's window is MANDATORY
@@ -207,11 +207,11 @@ final class WithdrawnAuthoritySiteAdapterCertificate extends \RuntimeException {
 }
 
 final class AdapterCertification {
-    public const FORMAT = 'duo-adapter-certification/v1';
+    public const FORMAT = 'wprism-adapter-certification/v1';
     // Frozen policy snapshots carry the exact certificate format too; there
     // is no weaker second envelope protocol to accidentally accept.
     public const ENVELOPE_FORMAT = self::FORMAT;
-    public const AUTHORITIES_FORMAT = 'duo-adapter-authorities/v1';
+    public const AUTHORITIES_FORMAT = 'wprism-adapter-authorities/v1';
     /**
      * The AUTHORITY RECORD v2 envelope (spec/repo-format.md § v3.7, WP-4.8).
      *
@@ -224,9 +224,9 @@ final class AdapterCertification {
      * document opting into v2 accepts all five v2 rules at once. The two are
      * verified beside each other; neither is a fallback for the other.
      */
-    public const AUTHORITIES_FORMAT_V2 = 'duo-adapter-authorities/v2';
-    public const BUNDLE_FORMAT = 'duo-site-adapter-certification-bundle/v1';
-    public const RATIFICATION_FORMAT = 'duo-manifest-dispositions/v1';
+    public const AUTHORITIES_FORMAT_V2 = 'wprism-adapter-authorities/v2';
+    public const BUNDLE_FORMAT = 'wprism-site-adapter-certification-bundle/v1';
+    public const RATIFICATION_FORMAT = 'wprism-manifest-dispositions/v1';
 
     /**
      * Kept independent from JSON framing so this signature cannot verify
@@ -242,7 +242,7 @@ final class AdapterCertification {
      * NAME in assertStatementShape() and the adapter degrades to uncertified,
      * which is strictly weaker than what its certificate conferred.
      */
-    public const SIGNATURE_DOMAIN = "duo-site-adapter-certification-signature/v2\0";
+    public const SIGNATURE_DOMAIN = "wprism-site-adapter-certification-signature/v2\0";
 
     /**
      * The wire generation stated INSIDE the signed statement.
@@ -398,7 +398,7 @@ final class AdapterCertification {
      * `signature` member removed, because a signature is never inside its own
      * input (the same exclusion ContractAttestation's `attested_digest` makes).
      */
-    public const SIGNATURE_DOMAIN_AUTHORITIES = "duo-adapter-authorities-signature/v1\0";
+    public const SIGNATURE_DOMAIN_AUTHORITIES = "wprism-adapter-authorities-signature/v1\0";
 
     /**
      * THE DELEGATION STATEMENT DOMAIN (spec/repo-format.md § v3.8, WP-4.9).
@@ -417,7 +417,7 @@ final class AdapterCertification {
      * Ed25519 root with its own format, scope and domain, verified beside the
      * certification one and never inside it.
      */
-    public const SIGNATURE_DOMAIN_DELEGATION = "duo-adapter-authority-delegation-signature/v1\0";
+    public const SIGNATURE_DOMAIN_DELEGATION = "wprism-adapter-authority-delegation-signature/v1\0";
 
     /**
      * THE REVOCATION STATEMENT DOMAIN (§ v3.8).
@@ -431,7 +431,7 @@ final class AdapterCertification {
      * happened to overlap could be replayed as a revocation of its own
      * delegator, which is the one direction that must never be forgeable.
      */
-    public const SIGNATURE_DOMAIN_REVOCATION = "duo-adapter-authority-revocation-signature/v1\0";
+    public const SIGNATURE_DOMAIN_REVOCATION = "wprism-adapter-authority-revocation-signature/v1\0";
 
     /**
      * The delegation wire, plural on the document and singular on the statement.
@@ -445,11 +445,11 @@ final class AdapterCertification {
      * certification envelope, so a reader that trusted only the envelope's word
      * would be trusting an unauthenticated byte.
      */
-    public const DELEGATIONS_FORMAT = 'duo-adapter-authority-delegations/v1';
-    public const DELEGATION_FORMAT = 'duo-adapter-authority-delegation/v1';
+    public const DELEGATIONS_FORMAT = 'wprism-adapter-authority-delegations/v1';
+    public const DELEGATION_FORMAT = 'wprism-adapter-authority-delegation/v1';
     /** The revocation wire, plural/singular for the identical reason. */
-    public const REVOCATIONS_FORMAT = 'duo-adapter-authority-revocations/v1';
-    public const REVOCATION_FORMAT = 'duo-adapter-authority-revocation/v1';
+    public const REVOCATIONS_FORMAT = 'wprism-adapter-authority-revocations/v1';
+    public const REVOCATION_FORMAT = 'wprism-adapter-authority-revocation/v1';
 
     /**
      * Verification chains EXACTLY one level, and the constant exists so the
@@ -484,7 +484,7 @@ final class AdapterCertification {
      * it; the agent's verdict is identical, because the trust comes from the
      * signature and not from the channel.
      *
-     * Installed agents resolve it from the operator-owned `duo-control`
+     * Installed agents resolve it from the operator-owned `wprism-control`
      * directory through AdapterLibrary::revocationsPath(), outside the
      * replaceable agent projection. Source and explicit legacy libraries keep
      * their own capabilities path for authoring and deterministic fixtures.
@@ -498,7 +498,7 @@ final class AdapterCertification {
      * Anthropic-side review could ever fill it — so before T6 every operator's
      * own adapter was permanently `uncertified` and `Site-certified` was
      * NEVER_EMITTED, despite the product spec defining it as "customer-
-     * organization approval ... explicitly not a Duo endorsement". A key here
+     * organization approval ... explicitly not a WPrism endorsement". A key here
      * is trusted ONLY for adapters in this repository, which is the whole of
      * its authority: the certificate binds `adapter.path:
      * adapters/<name>.json` inside the signed statement, so a site key cannot
@@ -616,7 +616,7 @@ final class AdapterCertification {
     /**
      * The fingerprint prefix length a v2 key id must carry, in hex characters.
      *
-     * 12 because that is already the id `duo adapter keygen` hands an operator
+     * 12 because that is already the id `wprism adapter keygen` hands an operator
      * by default — `'site-' . substr(hash('sha256', $public), 0, 12)`
      * (`cli/src/Adapter/AdapterCertify.php:1241`) — so v2 makes the shipped
      * default THE RULE rather than minting a second convention nobody's tooling
@@ -756,8 +756,8 @@ final class AdapterCertification {
      * consts — which
      * `sandbox/tests/offline/policy/regress_spec_v3_dry_run.php:165-181` does
      * precisely because a copy would be the second definition the wire-surface
-     * register exists to forbid. `duo manifest-validate --emit-schema` now
-     * publishes it in `duo-manifest-grammar/v2`, so this accessor exists
+     * register exists to forbid. `wprism manifest-validate --emit-schema` now
+     * publishes it in `wprism-manifest-grammar/v2`, so this accessor exists
      * rather than a fourth spelling of 33 strings.
      *
      * WP-4.3 made it the LOAD-TIME set as well, and this accessor is how:
@@ -884,7 +884,7 @@ final class AdapterCertification {
         $provided = realpath($certPath);
         if ($provided === false || !hash_equals($expectedCert, $provided)) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification path must be exactly $certRelative"
+                "wprism: site adapter '$name' certification path must be exactly $certRelative"
             );
         }
         [$certificateRaw, $certificateTyped, $certificate] = self::readCanonicalObjectFile(
@@ -946,7 +946,7 @@ final class AdapterCertification {
         $certificateDigest = $envelope['certificate_sha256'] ?? null;
         if (($envelope['format'] ?? null) !== self::ENVELOPE_FORMAT
             || !is_string($certificateDigest) || !self::sha($certificateDigest)) {
-            throw new \RuntimeException('duo: frozen site adapter certification envelope is malformed');
+            throw new \RuntimeException('wprism: frozen site adapter certification envelope is malformed');
         }
         $encoded = $envelope['certificate_json'] ?? null;
         $raw = is_string($encoded) ? base64_decode($encoded, true) : false;
@@ -954,7 +954,7 @@ final class AdapterCertification {
             $raw = false;
         }
         if ($raw === false || !hash_equals($certificateDigest, hash('sha256', $raw))) {
-            throw new \RuntimeException('duo: frozen site adapter certification envelope has corrupt certificate bytes');
+            throw new \RuntimeException('wprism: frozen site adapter certification envelope has corrupt certificate bytes');
         }
         [, $certificateTyped, $certificate] = self::parseCanonicalObject($raw, 'frozen site adapter certification');
         $result = self::verifyCertificate(
@@ -996,18 +996,18 @@ final class AdapterCertification {
         }
         if (!is_dir($directory) || is_link($directory) || realpath($directory) !== $directory) {
             throw new \RuntimeException(
-                'duo: site adapter certifications must be a real directory at ' . self::CERTIFICATE_DIR
+                'wprism: site adapter certifications must be a real directory at ' . self::CERTIFICATE_DIR
             );
         }
         if (!is_readable($directory)) {
             throw new \RuntimeException(
-                'duo: site adapter certifications are not readable; authority-bearing bytes cannot be treated as absent'
+                'wprism: site adapter certifications are not readable; authority-bearing bytes cannot be treated as absent'
             );
         }
         $entries = @scandir($directory);
         if ($entries === false) {
             throw new \RuntimeException(
-                'duo: site adapter certifications could not be enumerated; authority-bearing bytes cannot be treated as absent'
+                'wprism: site adapter certifications could not be enumerated; authority-bearing bytes cannot be treated as absent'
             );
         }
         $out = [];
@@ -1018,7 +1018,7 @@ final class AdapterCertification {
             $path = $directory . '/' . $entry;
             if (is_link($path) || !is_file($path) || !str_ends_with($entry, '.json')) {
                 throw new \RuntimeException(
-                    "duo: site adapter certification source contains '$entry' — only direct <name>.json certificate files are allowed"
+                    "wprism: site adapter certification source contains '$entry' — only direct <name>.json certificate files are allowed"
                 );
             }
             $name = self::adapterName(substr($entry, 0, -5));
@@ -1060,7 +1060,7 @@ final class AdapterCertification {
         $configured = self::publicKey($authority);
         if (!hash_equals($configured, $public)) {
             throw new \RuntimeException(
-                "duo: private key does not match trusted authority key '$keyId'"
+                "wprism: private key does not match trusted authority key '$keyId'"
             );
         }
 
@@ -1152,7 +1152,7 @@ final class AdapterCertification {
      * @param null|array<string,mixed> $authoredDisposition the author's own
      *        disposition entry — the exact document shape
      *        `adapter-packages/<name>/package/disposition.json` carries — or null to derive
-     * @return string canonical duo-adapter-certification/v1 bytes
+     * @return string canonical wprism-adapter-certification/v1 bytes
      */
     public static function sign_site(
         string|AdapterLibrary $manifestDir,
@@ -1167,7 +1167,7 @@ final class AdapterCertification {
         $name = self::adapterName($name);
         if (trim($reason) === '') {
             throw new \RuntimeException(
-                'duo: a site adapter certification must state its basis; supply a non-empty reason'
+                'wprism: a site adapter certification must state its basis; supply a non-empty reason'
             );
         }
         $root = self::repoRoot($repo, 'site repository');
@@ -1182,7 +1182,7 @@ final class AdapterCertification {
             // this entry point would be exactly the downgrade the two words
             // exist to keep separable.
             throw new \RuntimeException(
-                "duo: authority key '$keyId' is agent-owned, and an agent-owned key certifies a reviewed "
+                "wprism: authority key '$keyId' is agent-owned, and an agent-owned key certifies a reviewed "
                 . 'exercise — sign a ' . self::BUNDLE_FORMAT . ' bundle through sign() instead'
             );
         }
@@ -1194,7 +1194,7 @@ final class AdapterCertification {
         $configured = self::publicKey($authority);
         if (!hash_equals($configured, $public)) {
             throw new \RuntimeException(
-                "duo: private key does not match trusted authority key '$keyId'"
+                "wprism: private key does not match trusted authority key '$keyId'"
             );
         }
 
@@ -1400,7 +1400,7 @@ final class AdapterCertification {
             Policy::load($repo, [$name], false, null, $library);
         } catch (\Throwable $t) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' does not load, so there is no grammar verdict to certify: "
+                "wprism: site adapter '$name' does not load, so there is no grammar verdict to certify: "
                 . $t->getMessage()
             );
         }
@@ -1562,7 +1562,7 @@ final class AdapterCertification {
                 $field[] = $key;
             } elseif ($arm !== self::ARM_NON_SURFACE) {
                 throw new \RuntimeException(
-                    "duo: site adapter '$name' declares '$key', which this signer cannot classify as an entity "
+                    "wprism: site adapter '$name' declares '$key', which this signer cannot classify as an entity "
                     . 'or field surface — a certificate that silently omitted it would cover less than the '
                     . 'adapter does. Certify it through a reviewed bundle, or teach the signer this section'
                 );
@@ -1616,13 +1616,13 @@ final class AdapterCertification {
     private static function authoredRatification(string $name, array $manifest, array $entry): array {
         if ($entry === [] || array_is_list($entry)) {
             throw new \RuntimeException(
-                "duo: authored site adapter disposition for '$name' must be a JSON object holding one "
+                "wprism: authored site adapter disposition for '$name' must be a JSON object holding one "
                 . 'disposition entry — the exact document '
                 . 'adapter-packages/<name>/package/disposition.json carries'
             );
         }
         // THE ENVELOPE, NAMED (WP-6.6). An author who reached for
-        // `duo-manifest-dispositions/v1` wrote a well-formed object, so every
+        // `wprism-manifest-dispositions/v1` wrote a well-formed object, so every
         // check below and every check in validate_entry() answered about the
         // WRONG document: the measured verdict was "has a malformed required
         // field", which is true of the envelope and says nothing about the two
@@ -1636,7 +1636,7 @@ final class AdapterCertification {
                 ? "pass the value at manifests.$name from that file instead"
                 : 'pass the single disposition entry itself instead';
             throw new \RuntimeException(
-                "duo: authored site adapter disposition for '$name' is a '"
+                "wprism: authored site adapter disposition for '$name' is a '"
                 . (is_string($entry['format']) ? $entry['format'] : var_export($entry['format'], true))
                 . "' ENVELOPE — --ratification-file takes the BARE entry, the object with {capabilities, "
                 . 'default_authored_keyspaces, evidence, reason, status, supported_versions, unsupported} that '
@@ -1677,7 +1677,7 @@ final class AdapterCertification {
             foreach ($arms[$arm] as $declared) {
                 if (!in_array($declared, $claimed, true)) {
                     throw new \RuntimeException(
-                        "duo: authored site adapter disposition '$name' omits declared $arm section "
+                        "wprism: authored site adapter disposition '$name' omits declared $arm section "
                         . "'$declared' — narrow a claim with an unsupported[] row and its reason, never by "
                         . 'leaving a surface out: a certificate naming fewer surfaces than the adapter '
                         . 'declares covers less than the adapter does, and the uncovered surface is blocked '
@@ -1697,7 +1697,7 @@ final class AdapterCertification {
                     ? "this manifest's vocabulary classifies as " . self::surfaceArmArticle($other) . ' section'
                     : 'declares no state surface of its own';
                 throw new \RuntimeException(
-                    "duo: authored site adapter disposition '$name' names '$section' as "
+                    "wprism: authored site adapter disposition '$name' names '$section' as "
                     . self::surfaceArmArticle($arm) . ' section, which ' . $classified
                 );
             }
@@ -1712,7 +1712,7 @@ final class AdapterCertification {
     /**
      * Is this disposition the one sign_site() would DERIVE for these inputs?
      *
-     * `duo adapter recertify` re-signs a claim under a moved boundary by
+     * `wprism adapter recertify` re-signs a claim under a moved boundary by
      * replaying the inputs a certificate already carries, and it derives the
      * ratification — which was total before WP-5.3 and is now a choice. Without
      * this predicate the remedy verb would silently replace an author's own
@@ -1794,7 +1794,7 @@ final class AdapterCertification {
             ],
             'force_hatches' => [],
             'git_revision' => str_repeat('0', 40),
-            'harness' => ['name' => 'duo-adapter-certify', 'version' => 1],
+            'harness' => ['name' => 'wprism-adapter-certify', 'version' => 1],
             'ratification' => [
                 'path' => 'ratification.json',
                 'sha256' => hash('sha256', $ratificationRaw),
@@ -1882,7 +1882,7 @@ final class AdapterCertification {
             // The two words a host prints beside `Site-certified`: WHO
             // certified, and under WHICH root. Projected from the verified
             // claim rather than re-derived, so the printed line cannot drift
-            // from the claim `duo promote` gates on.
+            // from the claim `wprism promote` gates on.
             'principal' => $certification['principal'] ?? null,
             'status' => $verified['claim']['status'] ?? null,
             'trust_root' => $certification['trust_root'] ?? null,
@@ -1931,13 +1931,13 @@ final class AdapterCertification {
         $selectedAuthority = $statementAuthority['key_id'] ?? null;
         if (!is_string($selectedAuthority)) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification authority key_id must be a canonical string selector"
+                "wprism: site adapter '$name' certification authority key_id must be a canonical string selector"
             );
         }
         $claimedRoot = $statementAuthority['trust_root'] ?? null;
         if (!in_array($claimedRoot, [self::TRUST_ROOT_PLATFORM, self::TRUST_ROOT_SITE], true)) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification must name trust root "
+                "wprism: site adapter '$name' certification must name trust root "
                 . self::TRUST_ROOT_PLATFORM . ' or ' . self::TRUST_ROOT_SITE
             );
         }
@@ -1945,7 +1945,7 @@ final class AdapterCertification {
         if (!is_array($embeddedRecord) || array_is_list($embeddedRecord)
             || !isset($statementTyped->authority->record) || !is_object($statementTyped->authority->record)) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification authority binding must carry its exact authority record"
+                "wprism: site adapter '$name' certification authority binding must carry its exact authority record"
             );
         }
         if ($claimedRoot === self::TRUST_ROOT_SITE) {
@@ -2036,7 +2036,7 @@ final class AdapterCertification {
                 self::signatureBytes($statementTyped),
                 self::publicKey($authority)
             )) {
-            throw new \RuntimeException("duo: site adapter '$name' certification has an invalid Ed25519 signature");
+            throw new \RuntimeException("wprism: site adapter '$name' certification has an invalid Ed25519 signature");
         }
 
         // Reached only after the signature and the authority binding above have
@@ -2110,16 +2110,16 @@ final class AdapterCertification {
 
     private static function assertSodium(): void {
         if (!function_exists('sodium_crypto_sign_verify_detached')) {
-            throw new \RuntimeException('duo: signed site adapter certification requires the PHP sodium extension');
+            throw new \RuntimeException('wprism: signed site adapter certification requires the PHP sodium extension');
         }
     }
 
     private static function agentVersion(): string {
-        return defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : '0.6.0';
+        return defined('WPRISM_AGENT_VERSION') ? (string) WPRISM_AGENT_VERSION : '0.7.0';
     }
 
     private static function specVersion(): int {
-        return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 3;
+        return defined('WPRISM_SPEC_VERSION') ? (int) WPRISM_SPEC_VERSION : 3;
     }
 
     private static function adapterName(string $name): string {
@@ -2135,7 +2135,7 @@ final class AdapterCertification {
     private static function repoRoot(string $repo, string $label): string {
         $root = realpath($repo);
         if ($root === false || !is_dir($root)) {
-            throw new \RuntimeException("duo: $label is absent or not a directory: $repo");
+            throw new \RuntimeException("wprism: $label is absent or not a directory: $repo");
         }
         return rtrim($root, '/');
     }
@@ -2143,12 +2143,12 @@ final class AdapterCertification {
     /** A deliberately non-normalising relative path grammar. */
     private static function relativePath(string $path, string $label): string {
         if ($path === '' || str_starts_with($path, '/') || str_contains($path, '\\') || str_contains($path, "\0")) {
-            throw new \RuntimeException("duo: $label must be a non-empty slash-separated relative path");
+            throw new \RuntimeException("wprism: $label must be a non-empty slash-separated relative path");
         }
         $parts = explode('/', $path);
         foreach ($parts as $part) {
             if ($part === '' || $part === '.' || $part === '..') {
-                throw new \RuntimeException("duo: $label is not a canonical relative path: $path");
+                throw new \RuntimeException("wprism: $label is not a canonical relative path: $path");
             }
         }
         return $path;
@@ -2162,11 +2162,11 @@ final class AdapterCertification {
         $relative = self::relativePath($relative, $label . ' path');
         $expected = $root . '/' . $relative;
         if (!is_file($expected) || is_link($expected)) {
-            throw new \RuntimeException("duo: $label is absent, not a regular file, or a symbolic link: $relative");
+            throw new \RuntimeException("wprism: $label is absent, not a regular file, or a symbolic link: $relative");
         }
         $resolved = realpath($expected);
         if ($resolved === false || !hash_equals($expected, $resolved)) {
-            throw new \RuntimeException("duo: $label must resolve exactly inside its declared root: $relative");
+            throw new \RuntimeException("wprism: $label must resolve exactly inside its declared root: $relative");
         }
         return $resolved;
     }
@@ -2175,7 +2175,7 @@ final class AdapterCertification {
     private static function readCanonicalObjectFile(string $path, string $label): array {
         $raw = file_get_contents($path);
         if ($raw === false) {
-            throw new \RuntimeException("duo: cannot read $label: $path");
+            throw new \RuntimeException("wprism: cannot read $label: $path");
         }
         return self::parseCanonicalObject($raw, $label);
     }
@@ -2186,13 +2186,13 @@ final class AdapterCertification {
             $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+            throw new \RuntimeException("wprism: $label is not valid JSON: " . $e->getMessage());
         }
         if (!is_object($typed) || !is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException("duo: $label JSON root must be an object");
+            throw new \RuntimeException("wprism: $label JSON root must be an object");
         }
         if (!hash_equals(Canon::encode($typed), $raw)) {
-            throw new \RuntimeException("duo: $label must use Duo canonical JSON bytes");
+            throw new \RuntimeException("wprism: $label must use WPrism canonical JSON bytes");
         }
         return [$raw, $typed, $decoded];
     }
@@ -2209,7 +2209,7 @@ final class AdapterCertification {
     private static function readBundleObjectFile(string $path, string $label): array {
         $raw = file_get_contents($path);
         if ($raw === false) {
-            throw new \RuntimeException("duo: cannot read $label: $path");
+            throw new \RuntimeException("wprism: cannot read $label: $path");
         }
         return self::parseBundleObject($raw, $label);
     }
@@ -2220,13 +2220,13 @@ final class AdapterCertification {
             $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
             $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+            throw new \RuntimeException("wprism: $label is not valid JSON: " . $e->getMessage());
         }
         if (!is_object($typed) || !is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException("duo: $label JSON root must be an object");
+            throw new \RuntimeException("wprism: $label JSON root must be an object");
         }
         if (!hash_equals(self::bundlePretty($typed), $raw)) {
-            throw new \RuntimeException("duo: $label must use certification-bundle canonical JSON bytes");
+            throw new \RuntimeException("wprism: $label must use certification-bundle canonical JSON bytes");
         }
         return [$raw, $typed, $decoded];
     }
@@ -2238,7 +2238,7 @@ final class AdapterCertification {
                 JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
             );
         } catch (\JsonException $e) {
-            throw new \RuntimeException('duo: certification bundle is not canonicalizable: ' . $e->getMessage());
+            throw new \RuntimeException('wprism: certification bundle is not canonicalizable: ' . $e->getMessage());
         }
         return $json . "\n";
     }
@@ -2250,7 +2250,7 @@ final class AdapterCertification {
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                "duo: $label must contain exactly " . implode(', ', $expected)
+                "wprism: $label must contain exactly " . implode(', ', $expected)
             );
         }
     }
@@ -2258,12 +2258,12 @@ final class AdapterCertification {
     /** @param mixed $value */
     private static function stringList($value, string $label, bool $allowEmpty = true): array {
         if (!is_array($value) || !array_is_list($value) || (!$allowEmpty && $value === [])) {
-            throw new \RuntimeException("duo: $label must be a " . ($allowEmpty ? 'list' : 'non-empty list'));
+            throw new \RuntimeException("wprism: $label must be a " . ($allowEmpty ? 'list' : 'non-empty list'));
         }
         $seen = [];
         foreach ($value as $item) {
             if (!is_string($item) || $item === '' || isset($seen[$item])) {
-                throw new \RuntimeException("duo: $label must contain unique non-empty strings");
+                throw new \RuntimeException("wprism: $label must contain unique non-empty strings");
             }
             $seen[$item] = true;
         }
@@ -2291,7 +2291,7 @@ final class AdapterCertification {
     private static function assertSiteManifest(string $name, array $manifest, string|AdapterLibrary $manifestDir): void {
         if (($manifest['name'] ?? null) !== $name) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification requires adapters/$name.json to declare the same name"
+                "wprism: site adapter '$name' certification requires adapters/$name.json to declare the same name"
             );
         }
         // These are trust/certification facts, not adapter facts.  A manifest
@@ -2304,7 +2304,7 @@ final class AdapterCertification {
         ] as $reserved) {
             if (array_key_exists($reserved, $manifest)) {
                 throw new \RuntimeException(
-                    "duo: site adapter '$name' declares reserved self-certification field '$reserved' — "
+                    "wprism: site adapter '$name' declares reserved self-certification field '$reserved' — "
                     . 'trust roots and signatures belong only in agent-owned roots and adapters/certifications/'
                 );
             }
@@ -2329,7 +2329,7 @@ final class AdapterCertification {
     private static function assertSameManifest(string $name, array $provided, array $raw): void {
         if (!hash_equals(self::canonicalHash($raw), self::canonicalHash($provided))) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certificate was asked to verify manifest bytes different from adapters/$name.json"
+                "wprism: site adapter '$name' certificate was asked to verify manifest bytes different from adapters/$name.json"
             );
         }
     }
@@ -2412,11 +2412,11 @@ final class AdapterCertification {
                     : ' or ' . self::SITE_AUTHORITIES_RELATIVE . ' or ' . self::SITE_DELEGATIONS_RELATIVE);
             if ($platform === [] && $site === [] && $delegated === []) {
                 throw new \RuntimeException(
-                    'duo: no adapter certification authorities are installed at ' . $sources
+                    'wprism: no adapter certification authorities are installed at ' . $sources
                 );
             }
             throw new \RuntimeException(
-                "duo: authority key '$id' is not installed in " . $sources
+                "wprism: authority key '$id' is not installed in " . $sources
             );
         }
         self::assertNotRevoked($manifestDir, $selected[1], $selected[0]);
@@ -2483,7 +2483,7 @@ final class AdapterCertification {
             return [];
         }
         if (!is_file($file) || is_link($file)) {
-            throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
+            throw new \RuntimeException("wprism: $label must be an ordinary regular file: $file");
         }
         self::assertSodium();
         [, $typed, $data] = self::readCanonicalObjectFile($file, $label);
@@ -2491,14 +2491,14 @@ final class AdapterCertification {
         if (($data['format'] ?? null) !== self::DELEGATIONS_FORMAT
             || !is_array($data['delegations'] ?? null)
             || !isset($typed->delegations) || !is_object($typed->delegations)) {
-            throw new \RuntimeException("duo: $label have an unsupported or malformed root");
+            throw new \RuntimeException("wprism: $label have an unsupported or malformed root");
         }
         if ($data['delegations'] === []) {
             // Inert authority bytes an operator believes in are the failure mode
             // this whole source refuses: a file that grants nothing reads as a
             // vendor who has been enrolled and has not.
             throw new \RuntimeException(
-                "duo: $label carry no delegations — remove the file rather than installing one that grants nothing"
+                "wprism: $label carry no delegations — remove the file rather than installing one that grants nothing"
             );
         }
         // The chain refusal needs the whole delegate set before any single
@@ -2515,14 +2515,14 @@ final class AdapterCertification {
         foreach ($data['delegations'] as $mapKey => $delegation) {
             if (!is_string($mapKey)) {
                 throw new \RuntimeException(
-                    "duo: $label contain non-string delegate key " . var_export($mapKey, true)
+                    "wprism: $label contain non-string delegate key " . var_export($mapKey, true)
                     . ' — numeric-only identities are forbidden because PHP coerces JSON object-map keys to integers'
                 );
             }
             $delegateId = self::keyId($mapKey);
             if (!is_array($delegation) || array_is_list($delegation)
                 || !isset($typed->delegations->{$mapKey}) || !is_object($typed->delegations->{$mapKey})) {
-                throw new \RuntimeException("duo: $label delegation '$delegateId' must be a JSON object");
+                throw new \RuntimeException("wprism: $label delegation '$delegateId' must be a JSON object");
             }
             $out[$delegateId] = self::verifyDelegation(
                 $manifestDir,
@@ -2561,7 +2561,7 @@ final class AdapterCertification {
         $statement = $delegation['statement'] ?? null;
         if (!is_array($statement) || array_is_list($statement)
             || !isset($typed->statement) || !is_object($typed->statement)) {
-            throw new \RuntimeException("duo: $label statement must be a JSON object");
+            throw new \RuntimeException("wprism: $label statement must be a JSON object");
         }
         self::assertExactKeys($statement, self::DELEGATION_STATEMENT_KEYS, "$label statement");
         // BY VERSION, never as corruption — the property `record_version` gives
@@ -2570,29 +2570,29 @@ final class AdapterCertification {
         // is still answered with the version it declares.
         if (($statement['version'] ?? null) !== 1) {
             throw new \RuntimeException(
-                "duo: $label declares delegation version " . var_export($statement['version'] ?? null, true)
+                "wprism: $label declares delegation version " . var_export($statement['version'] ?? null, true)
                 . ', which this agent does not implement — a delegation version is refused by version, never'
                 . ' read as a v1 delegation with unexpected members'
             );
         }
         if (($statement['format'] ?? null) !== self::DELEGATION_FORMAT) {
             throw new \RuntimeException(
-                "duo: $label statement must declare format " . self::DELEGATION_FORMAT
+                "wprism: $label statement must declare format " . self::DELEGATION_FORMAT
                 . ' inside its own signature; the envelope\'s format is outside every signature and proves nothing'
             );
         }
 
         $delegate = $statement['delegate'] ?? null;
         if (!is_array($delegate) || array_is_list($delegate)) {
-            throw new \RuntimeException("duo: $label statement delegate must be a JSON object");
+            throw new \RuntimeException("wprism: $label statement delegate must be a JSON object");
         }
         self::assertExactKeys($delegate, self::DELEGATION_DELEGATE_KEYS, "$label delegate");
         if (($delegate['algorithm'] ?? null) !== 'ed25519') {
-            throw new \RuntimeException("duo: $label delegate must declare algorithm ed25519");
+            throw new \RuntimeException("wprism: $label delegate must declare algorithm ed25519");
         }
         if (($delegate['key_id'] ?? null) !== $delegateId) {
             throw new \RuntimeException(
-                "duo: $label is installed under key id '$delegateId' but its SIGNED statement names "
+                "wprism: $label is installed under key id '$delegateId' but its SIGNED statement names "
                 . var_export($delegate['key_id'] ?? null, true)
                 . ' — the map key and the delegated identity are one value, not two'
             );
@@ -2605,13 +2605,13 @@ final class AdapterCertification {
         self::assertKeyIdBindsKeyMaterial($delegateId, $delegatePublic, "$label delegate");
         if (isset($platform[$delegateId])) {
             throw new \RuntimeException(
-                "duo: authority key '$delegateId' is reviewed and shipped by this agent, so a delegation cannot"
+                "wprism: authority key '$delegateId' is reviewed and shipped by this agent, so a delegation cannot"
                 . ' claim it'
             );
         }
         if (isset($site[$delegateId])) {
             throw new \RuntimeException(
-                "duo: $label delegates an id the site trust root already carries at "
+                "wprism: $label delegates an id the site trust root already carries at "
                 . self::SITE_AUTHORITIES_RELATIVE . ' — one identity has one record, never a written one and a'
                 . ' granted one that could disagree'
             );
@@ -2619,19 +2619,19 @@ final class AdapterCertification {
 
         $delegator = $statement['delegator'] ?? null;
         if (!is_array($delegator) || array_is_list($delegator)) {
-            throw new \RuntimeException("duo: $label statement delegator must be a JSON object");
+            throw new \RuntimeException("wprism: $label statement delegator must be a JSON object");
         }
         self::assertExactKeys($delegator, self::DELEGATION_DELEGATOR_KEYS, "$label delegator");
         $delegatorId = is_string($delegator['key_id'] ?? null) ? self::keyId($delegator['key_id']) : '';
         if ($delegatorId === '') {
-            throw new \RuntimeException("duo: $label delegator key_id must be a canonical string selector");
+            throw new \RuntimeException("wprism: $label delegator key_id must be a canonical string selector");
         }
         // (1) DEPTH. Refused here, before the platform lookup below, so a chain
         // reads as a chain: resolving first would report the honest but useless
         // "not installed in capabilities/adapter-authorities.json".
         if (isset($delegateIds[$delegatorId])) {
             throw new \RuntimeException(
-                "duo: $label is delegated by '$delegatorId', which is itself a delegate — verification chains"
+                "wprism: $label is delegated by '$delegatorId', which is itself a delegate — verification chains"
                 . ' exactly ' . self::DELEGATION_DEPTH . ' level and a delegate may not delegate'
             );
         }
@@ -2640,14 +2640,14 @@ final class AdapterCertification {
         // checked first so the refusal names the claim rather than the miss.
         if (($delegator['trust_root'] ?? null) !== self::TRUST_ROOT_PLATFORM) {
             throw new \RuntimeException(
-                "duo: $label names trust root " . var_export($delegator['trust_root'] ?? null, true)
+                "wprism: $label names trust root " . var_export($delegator['trust_root'] ?? null, true)
                 . ' — a delegation is made by a ' . self::TRUST_ROOT_PLATFORM . ' key; a '
                 . self::TRUST_ROOT_SITE . ' key certifies its own repository and delegates nothing'
             );
         }
         if (!isset($platform[$delegatorId])) {
             throw new \RuntimeException(
-                "duo: $label is delegated by '$delegatorId', which is not installed in "
+                "wprism: $label is delegated by '$delegatorId', which is not installed in "
                 . self::AUTHORITIES_RELATIVE . ' — a delegation is rooted in the shipped, reviewed trust root and'
                 . ' never in the site\'s own'
             );
@@ -2656,7 +2656,7 @@ final class AdapterCertification {
         $delegatorPublic = self::publicKey($delegatorRecord);
         if (($delegator['fingerprint'] ?? null) !== hash('sha256', $delegatorPublic)) {
             throw new \RuntimeException(
-                "duo: $label binds a delegator fingerprint that is not the current "
+                "wprism: $label binds a delegator fingerprint that is not the current "
                 . self::AUTHORITIES_RELATIVE . " record's for '$delegatorId' — the key under that id moved"
             );
         }
@@ -2677,12 +2677,12 @@ final class AdapterCertification {
         $signature = $delegation['signature'] ?? null;
         if (!is_array($signature) || array_is_list($signature)
             || !isset($typed->signature) || !is_object($typed->signature)) {
-            throw new \RuntimeException("duo: $label signature must be a JSON object");
+            throw new \RuntimeException("wprism: $label signature must be a JSON object");
         }
         self::assertExactKeys($signature, self::DELEGATION_SIGNATURE_KEYS, "$label signature");
         if (($signature['key_id'] ?? null) !== $delegatorId) {
             throw new \RuntimeException(
-                "duo: $label is signed by " . var_export($signature['key_id'] ?? null, true)
+                "wprism: $label is signed by " . var_export($signature['key_id'] ?? null, true)
                 . " but its statement names delegator '$delegatorId' — the signer and the delegator are one key"
             );
         }
@@ -2696,7 +2696,7 @@ final class AdapterCertification {
                 $delegatorPublic
             )) {
             throw new \RuntimeException(
-                "duo: $label does not verify under delegator '$delegatorId'; an unsigned or tampered delegation is"
+                "wprism: $label does not verify under delegator '$delegatorId'; an unsigned or tampered delegation is"
                 . ' refused, never read as an absent grant'
             );
         }
@@ -2719,7 +2719,7 @@ final class AdapterCertification {
         // refused — assertAuthorityScope(), naming the delegate's own instant.
         if (($delegatorRecord['status'] ?? null) !== 'trusted') {
             throw new \RuntimeException(
-                "duo: authority key '$delegatorId' is revoked and cannot certify adapters, so the delegation it"
+                "wprism: authority key '$delegatorId' is revoked and cannot certify adapters, so the delegation it"
                 . " made to '$delegateId' grants nothing"
             );
         }
@@ -2733,7 +2733,7 @@ final class AdapterCertification {
             self::assertScopeEntry($entry, "$label.adapter_names");
             if (!self::scopeEntryCovered((array) ($delegatorRecord['adapter_names'] ?? []), $entry)) {
                 throw new \RuntimeException(
-                    "duo: $label grants '$entry', which its delegator '$delegatorId' does not hold — a"
+                    "wprism: $label grants '$entry', which its delegator '$delegatorId' does not hold — a"
                     . ' delegation may only narrow the namespace it was given, never widen it'
                 );
             }
@@ -2742,7 +2742,7 @@ final class AdapterCertification {
         foreach ($tiers as $tier) {
             if (!in_array($tier, (array) ($delegatorRecord['trust_tiers'] ?? []), true)) {
                 throw new \RuntimeException(
-                    "duo: $label grants trust tier '$tier', which its delegator '$delegatorId' does not hold — a"
+                    "wprism: $label grants trust tier '$tier', which its delegator '$delegatorId' does not hold — a"
                     . ' delegation may only narrow the tier set it was given, never widen it'
                 );
             }
@@ -2755,7 +2755,7 @@ final class AdapterCertification {
             $rootAfter = self::instant($delegatorRecord['not_after'] ?? null, "authority key '$delegatorId'.not_after");
             if ($grantBefore < $rootBefore || $grantAfter > $rootAfter) {
                 throw new \RuntimeException(
-                    "duo: $label is valid " . self::stamp($grantBefore) . '/' . self::stamp($grantAfter)
+                    "wprism: $label is valid " . self::stamp($grantBefore) . '/' . self::stamp($grantAfter)
                     . ", outside its delegator '$delegatorId' window " . self::stamp($rootBefore) . '/'
                     . self::stamp($rootAfter) . ' — time is a scope like any other and narrows the same way'
                 );
@@ -2873,7 +2873,7 @@ final class AdapterCertification {
         // backwards).
         if ($channel['issued'] !== null && $now < $channel['issued']) {
             throw new WithdrawnAuthoritySiteAdapterCertificate(
-                "duo: this host's own wall clock reads " . self::stamp($now)
+                "wprism: this host's own wall clock reads " . self::stamp($now)
                 . ', before the platform-signed revocation record at ' . self::REVOCATIONS_RELATIVE
                 . ' was issued at ' . self::stamp($channel['issued'])
                 . " — an implausible clock refuses rather than resurrecting the revoked key '$keyId'",
@@ -2899,7 +2899,7 @@ final class AdapterCertification {
         // patient with the disease. The adapter loses its certified grants,
         // which is what the revocation was for; the site keeps working.
         throw new WithdrawnAuthoritySiteAdapterCertificate(
-            "duo: authority key '$keyId' is revoked by the platform-signed revocation record at "
+            "wprism: authority key '$keyId' is revoked by the platform-signed revocation record at "
             . self::REVOCATIONS_RELATIVE . ' — effective ' . self::stamp($effective) . ', reason: '
             . (string) $entry['reason']
             . '. This channel reaches the frozen path, which a status flip in the operator\'s own '
@@ -2931,7 +2931,7 @@ final class AdapterCertification {
      *
      * A signer this root does not carry is now a NAMED NON-FATAL STATE: the
      * document is REPORTED (`AdapterSources::survey()` raises a library-scoped
-     * row for it, so `duo adapter doctor` and `wp duo adapter-survey` exit 1 and
+     * row for it, so `wprism adapter doctor` and `wp wprism adapter-survey` exit 1 and
      * print the sentence) and its entries DO NOT APPLY. That is the honest
      * posture — inert until enrollment — and it takes nothing away: this agent
      * cannot authenticate a document signed by a key it does not hold, so it
@@ -2955,30 +2955,30 @@ final class AdapterCertification {
             return $absent;
         }
         if (!is_file($file) || is_link($file)) {
-            throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
+            throw new \RuntimeException("wprism: $label must be an ordinary regular file: $file");
         }
         self::assertSodium();
         [, $typed, $data] = self::readCanonicalObjectFile($file, $label);
         self::assertExactKeys($data, self::REVOCATIONS_ENVELOPE_KEYS, $label);
         if (($data['format'] ?? null) !== self::REVOCATIONS_FORMAT) {
-            throw new \RuntimeException("duo: $label have an unsupported or malformed root");
+            throw new \RuntimeException("wprism: $label have an unsupported or malformed root");
         }
         $statement = $data['statement'] ?? null;
         if (!is_array($statement) || array_is_list($statement)
             || !isset($typed->statement) || !is_object($typed->statement)) {
-            throw new \RuntimeException("duo: $label statement must be a JSON object");
+            throw new \RuntimeException("wprism: $label statement must be a JSON object");
         }
         self::assertExactKeys($statement, self::REVOCATION_STATEMENT_KEYS, "$label statement");
         if (($statement['version'] ?? null) !== 1) {
             throw new \RuntimeException(
-                "duo: $label declare revocation version " . var_export($statement['version'] ?? null, true)
+                "wprism: $label declare revocation version " . var_export($statement['version'] ?? null, true)
                 . ', which this agent does not implement — a revocation version is refused by version, never'
                 . ' read as a v1 revocation with unexpected members'
             );
         }
         if (($statement['format'] ?? null) !== self::REVOCATION_FORMAT) {
             throw new \RuntimeException(
-                "duo: $label statement must declare format " . self::REVOCATION_FORMAT
+                "wprism: $label statement must declare format " . self::REVOCATION_FORMAT
                 . ' inside its own signature; the envelope\'s format is outside every signature and proves nothing'
             );
         }
@@ -3002,13 +3002,13 @@ final class AdapterCertification {
         $signature = $data['signature'] ?? null;
         if (!is_array($signature) || array_is_list($signature)
             || !isset($typed->signature) || !is_object($typed->signature)) {
-            throw new \RuntimeException("duo: $label signature must be a JSON object");
+            throw new \RuntimeException("wprism: $label signature must be a JSON object");
         }
         self::assertExactKeys($signature, self::AUTHORITIES_SIGNATURE_KEYS, "$label signature");
         $signer = $signature['key_id'] ?? null;
         if (!is_string($signer)) {
             throw new \RuntimeException(
-                "duo: $label signature key_id must be a canonical string selector"
+                "wprism: $label signature key_id must be a canonical string selector"
             );
         }
         if (!isset($platform[$signer])) {
@@ -3022,7 +3022,7 @@ final class AdapterCertification {
             return [
                 'entries' => [],
                 'inert' => [
-                    'message' => "duo: $label are signed by key " . var_export($signer, true)
+                    'message' => "wprism: $label are signed by key " . var_export($signer, true)
                         . ', which is not installed in ' . self::AUTHORITIES_RELATIVE
                         . ' — revocation is a platform-rooted statement and a site key cannot make one.'
                         . ' The document is installed and its entries do NOT apply: this channel is inert until'
@@ -3033,7 +3033,7 @@ final class AdapterCertification {
             ];
         }
         if (($platform[$signer]['status'] ?? null) !== 'trusted') {
-            throw new \RuntimeException("duo: $label were signed by revoked key '$signer'");
+            throw new \RuntimeException("wprism: $label were signed by revoked key '$signer'");
         }
         $encoded = $signature['value'] ?? null;
         $bytes = is_string($encoded) ? base64_decode($encoded, true) : false;
@@ -3045,38 +3045,38 @@ final class AdapterCertification {
                 self::publicKey($platform[$signer])
             )) {
             throw new \RuntimeException(
-                "duo: $label do not verify under key '$signer'; an unsigned or tampered revocation document is"
+                "wprism: $label do not verify under key '$signer'; an unsigned or tampered revocation document is"
                 . ' refused, never read as an absent one'
             );
         }
 
         $rows = $statement['revocations'] ?? null;
         if (!is_array($rows) || !array_is_list($rows) || $rows === []) {
-            throw new \RuntimeException("duo: $label statement must carry a non-empty revocations list");
+            throw new \RuntimeException("wprism: $label statement must carry a non-empty revocations list");
         }
         $out = [];
         foreach ($rows as $index => $row) {
             if (!is_array($row) || array_is_list($row)) {
-                throw new \RuntimeException("duo: $label entry $index must be a JSON object");
+                throw new \RuntimeException("wprism: $label entry $index must be a JSON object");
             }
             self::assertExactKeys($row, self::REVOCATION_ENTRY_KEYS, "$label entry $index");
             self::keyId(is_string($row['key_id'] ?? null) ? $row['key_id'] : '');
             if (!self::sha($row['fingerprint'] ?? null)) {
                 throw new \RuntimeException(
-                    "duo: $label entry $index must bind a sha256 key fingerprint — an id can be re-minted over"
+                    "wprism: $label entry $index must bind a sha256 key fingerprint — an id can be re-minted over"
                     . ' new key material and material cannot be re-minted under an old id'
                 );
             }
             if (!is_string($row['reason'] ?? null) || trim((string) $row['reason']) === '') {
                 throw new \RuntimeException(
-                    "duo: $label entry $index must state a non-empty reason; a revocation nobody can explain is"
+                    "wprism: $label entry $index must state a non-empty reason; a revocation nobody can explain is"
                     . ' one nobody will act on'
                 );
             }
             self::instant($row['effective_at'] ?? null, "$label entry $index.effective_at");
             if (isset($out[$row['fingerprint']])) {
                 throw new \RuntimeException(
-                    "duo: $label revoke the same key fingerprint twice — two instants for one identity is a"
+                    "wprism: $label revoke the same key fingerprint twice — two instants for one identity is a"
                     . ' disagreement, not a list'
                 );
             }
@@ -3133,20 +3133,20 @@ final class AdapterCertification {
         self::assertExactKeys($statement, self::DELEGATION_STATEMENT_KEYS, 'adapter certification delegation statement');
         if (($statement['format'] ?? null) !== self::DELEGATION_FORMAT || ($statement['version'] ?? null) !== 1) {
             throw new \RuntimeException(
-                'duo: a delegation statement must declare format ' . self::DELEGATION_FORMAT . ' and version 1'
+                'wprism: a delegation statement must declare format ' . self::DELEGATION_FORMAT . ' and version 1'
             );
         }
         $id = self::keyId($keyId);
         $delegator = $statement['delegator'] ?? null;
         if (!is_array($delegator) || ($delegator['key_id'] ?? null) !== $id) {
             throw new \RuntimeException(
-                "duo: authority key '$id' is not the delegator the statement names"
+                "wprism: authority key '$id' is not the delegator the statement names"
             );
         }
         $secret = self::secretKey($secretKey);
         $public = sodium_crypto_sign_publickey_from_secretkey($secret);
         if (($delegator['fingerprint'] ?? null) !== hash('sha256', $public)) {
-            throw new \RuntimeException("duo: private key does not match the delegator fingerprint for '$id'");
+            throw new \RuntimeException("wprism: private key does not match the delegator fingerprint for '$id'");
         }
 
         return Canon::encode((object) [
@@ -3168,7 +3168,7 @@ final class AdapterCertification {
      * compromise response actually has.
      *
      * @param string $statementRaw canonical revocation-statement bytes
-     * @return string canonical duo-adapter-authority-revocations/v1 bytes
+     * @return string canonical wprism-adapter-authority-revocations/v1 bytes
      */
     public static function signRevocations(string $statementRaw, string $keyId, string $secretKey): string {
         self::assertSodium();
@@ -3176,7 +3176,7 @@ final class AdapterCertification {
         self::assertExactKeys($statement, self::REVOCATION_STATEMENT_KEYS, 'adapter certification revocation statement');
         if (($statement['format'] ?? null) !== self::REVOCATION_FORMAT || ($statement['version'] ?? null) !== 1) {
             throw new \RuntimeException(
-                'duo: a revocation statement must declare format ' . self::REVOCATION_FORMAT . ' and version 1'
+                'wprism: a revocation statement must declare format ' . self::REVOCATION_FORMAT . ' and version 1'
             );
         }
         $id = self::keyId($keyId);
@@ -3231,7 +3231,7 @@ final class AdapterCertification {
             return [];
         }
         if (!is_file($file) || is_link($file)) {
-            throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
+            throw new \RuntimeException("wprism: $label must be an ordinary regular file: $file");
         }
         [, $typed, $data] = self::readCanonicalObjectFile($file, $label);
         // The envelope key set is decided BEFORE the format is judged, and by
@@ -3248,18 +3248,18 @@ final class AdapterCertification {
         if (!in_array($data['format'] ?? null, [self::AUTHORITIES_FORMAT, self::AUTHORITIES_FORMAT_V2], true)
             || !is_array($data['keys'] ?? null)
             || !isset($typed->keys) || !is_object($typed->keys)) {
-            throw new \RuntimeException("duo: $label have an unsupported or malformed root");
+            throw new \RuntimeException("wprism: $label have an unsupported or malformed root");
         }
         // An EMPTY v2 registry is unrepresentable, and that is what lets the
         // shipped `platform/adapter-library/capabilities/adapter-authorities.json` stay the
-        // byte-identical `{"format": "duo-adapter-authorities/v1", "keys": {}}`
+        // byte-identical `{"format": "wprism-adapter-authorities/v1", "keys": {}}`
         // through the flag day: the envelope signature names a key INSIDE the
         // document, so a registry with no keys has nothing that could sign it,
         // and a signature over an empty key set proves nothing about any key.
         // An empty registry stays v1; v2 is the enrolled format.
         if (($data['format'] ?? null) === self::AUTHORITIES_FORMAT_V2 && $data['keys'] === []) {
             throw new \RuntimeException(
-                "duo: $label carry no keys, so the " . self::AUTHORITIES_FORMAT_V2
+                "wprism: $label carry no keys, so the " . self::AUTHORITIES_FORMAT_V2
                 . ' envelope signature has nothing to sign with; an empty registry stays '
                 . self::AUTHORITIES_FORMAT
             );
@@ -3268,16 +3268,16 @@ final class AdapterCertification {
         foreach ($data['keys'] as $keyId => $record) {
             if (!is_string($keyId)) {
                 throw new \RuntimeException(
-                    'duo: adapter certification authority key map contains non-string key ' . var_export($keyId, true)
+                    'wprism: adapter certification authority key map contains non-string key ' . var_export($keyId, true)
                     . ' — numeric-only identities are forbidden because PHP coerces JSON object-map keys to integers'
                 );
             }
             self::keyId($keyId);
             if (!is_array($record) || array_is_list($record)) {
-                throw new \RuntimeException("duo: adapter certification key '$keyId' must be an object");
+                throw new \RuntimeException("wprism: adapter certification key '$keyId' must be an object");
             }
             if (!isset($typed->keys->{$keyId}) || !is_object($typed->keys->{$keyId})) {
-                throw new \RuntimeException("duo: adapter certification key '$keyId' must be a JSON object");
+                throw new \RuntimeException("wprism: adapter certification key '$keyId' must be a JSON object");
             }
             self::validateAuthorityRecord($record, "adapter certification key '$keyId'", $keyId, $platformRoot);
             // The document's format and each record's own `record_version` are
@@ -3289,7 +3289,7 @@ final class AdapterCertification {
             $declaredV2 = ($record['record_version'] ?? null) !== null;
             if ($declaredV2 !== (($data['format'] ?? null) === self::AUTHORITIES_FORMAT_V2)) {
                 throw new \RuntimeException(
-                    "duo: adapter certification key '$keyId' declares record_version "
+                    "wprism: adapter certification key '$keyId' declares record_version "
                     . ($declaredV2 ? '2' : 'nothing') . " inside a $label document declaring format "
                     . (string) ($data['format'] ?? '') . ' — the envelope and the record must state one grammar'
                 );
@@ -3319,7 +3319,7 @@ final class AdapterCertification {
         );
         if (isset($platform[$id])) {
             throw new \RuntimeException(
-                "duo: authority key '$id' is reviewed and shipped by this agent, so a site trust root cannot claim it"
+                "wprism: authority key '$id' is reviewed and shipped by this agent, so a site trust root cannot claim it"
             );
         }
     }
@@ -3350,7 +3350,7 @@ final class AdapterCertification {
             self::assertExactKeys($record, self::AUTHORITY_RECORD_V2_KEYS, $label);
             if ($version !== 2) {
                 throw new \RuntimeException(
-                    "duo: $label declares authority record_version " . var_export($version, true)
+                    "wprism: $label declares authority record_version " . var_export($version, true)
                     . ', which this agent does not implement — a record version is refused by version, never'
                     . ' read as a v2 record with unexpected members'
                 );
@@ -3358,10 +3358,10 @@ final class AdapterCertification {
         }
         if (($record['algorithm'] ?? null) !== 'ed25519'
             || ($record['scope'] ?? null) !== 'site_adapter_certification') {
-            throw new \RuntimeException("duo: $label must declare algorithm ed25519 and scope site_adapter_certification");
+            throw new \RuntimeException("wprism: $label must declare algorithm ed25519 and scope site_adapter_certification");
         }
         if (!in_array($record['status'] ?? null, ['trusted', 'revoked'], true)) {
-            throw new \RuntimeException("duo: $label status must be trusted or revoked");
+            throw new \RuntimeException("wprism: $label status must be trusted or revoked");
         }
         $names = self::stringList($record['adapter_names'] ?? null, "$label.adapter_names", false);
         foreach ($names as $name) {
@@ -3387,7 +3387,7 @@ final class AdapterCertification {
                 AdapterSources::TIER_PLUGIN_PROVIDER,
                 AdapterSources::TIER_COMPATIBILITY_SHIM,
             ], true)) {
-                throw new \RuntimeException("duo: $label names unsupported site adapter trust tier '$tier'");
+                throw new \RuntimeException("wprism: $label names unsupported site adapter trust tier '$tier'");
             }
         }
         $public = self::publicKey($record);
@@ -3420,7 +3420,7 @@ final class AdapterCertification {
         $fingerprint = substr(hash('sha256', $public), 0, self::AUTHORITY_KEY_FINGERPRINT_LENGTH);
         if (!str_ends_with($id, '-' . $fingerprint)) {
             throw new \RuntimeException(
-                "duo: $label is named '$id', which does not derive from its own key material — a "
+                "wprism: $label is named '$id', which does not derive from its own key material — a "
                 . self::AUTHORITIES_FORMAT_V2 . " key id must end in '-$fingerprint', the first "
                 . self::AUTHORITY_KEY_FINGERPRINT_LENGTH . ' hex characters of sha256(public_key)'
             );
@@ -3446,7 +3446,7 @@ final class AdapterCertification {
         }
         if (!str_ends_with($entry, '-*') || substr_count($entry, '*') !== 1) {
             throw new \RuntimeException(
-                "duo: $label entry '$entry' is neither an exact adapter name nor a '<vendor>-*' namespace"
+                "wprism: $label entry '$entry' is neither an exact adapter name nor a '<vendor>-*' namespace"
             );
         }
         // The vendor half is held to the one shared identity grammar every
@@ -3463,8 +3463,8 @@ final class AdapterCertification {
      *
      * THE ESCALATION IT CLOSES, exactly. 10 of the 16 grandfathered shipped
      * names sit inside a legal `<vendor>-*` namespace: `ninja-forms` is inside
-     * `ninja-*`, `yoast-duplicate-post` inside `yoast-*`, `duo-agency-cpt`
-     * inside `duo-*`, and so on. So enrolling one vendor with the namespace its
+     * `ninja-*`, `yoast-duplicate-post` inside `yoast-*`, `wprism-agency-cpt`
+     * inside `wprism-*`, and so on. So enrolling one vendor with the namespace its
      * own products live in — the whole point of § v3.8's federation — silently
      * handed that vendor the SHIPPED adapter of the same name. It could then
      * certify `adapters/ninja-forms.json`, which as a reviewed override
@@ -3479,7 +3479,7 @@ final class AdapterCertification {
      * Out of tree, a shipped name is reachable only as the reviewed
      * `{name, source: "site"}` override of that same adapter (T6 §3.3, restated
      * in `IdentityNamespaces`' own header as "the case the closed list must not
-     * break"), and `duo adapter certify` writes the operator's own key record by
+     * break"), and `wprism adapter certify` writes the operator's own key record by
      * EXACT name — `regress_adapter_certify.php:855-875` walks exactly that:
      * an operator overriding `woocommerce` under their own site key. Refusing
      * the exact form would delete a shipped capability to close a hole the
@@ -3499,7 +3499,7 @@ final class AdapterCertification {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: $label entry '$entry' covers '$shipped', which is one of the "
+                "wprism: $label entry '$entry' covers '$shipped', which is one of the "
                 . count(IdentityNamespaces::GRANDFATHERED_ADAPTER_NAMES)
                 . ' adapter names the shipped library reserves — a namespace grant may not reach a shipped'
                 . ' adapter, whose out-of-tree override inherits that adapter\'s interpreter, regenerator and'
@@ -3539,7 +3539,7 @@ final class AdapterCertification {
         $after = self::instant($record['not_after'] ?? null, "$label.not_after");
         if ($before >= $after) {
             throw new \RuntimeException(
-                "duo: $label declares not_before " . (string) $record['not_before'] . ' at or after not_after '
+                "wprism: $label declares not_before " . (string) $record['not_before'] . ' at or after not_after '
                 . (string) $record['not_after'] . ' — a window that has never been open certifies nothing'
             );
         }
@@ -3552,7 +3552,7 @@ final class AdapterCertification {
             : false;
         if ($parsed === false || $parsed->format(self::AUTHORITY_WINDOW_FORMAT) !== $value) {
             throw new \RuntimeException(
-                "duo: $label must be one unambiguous ISO-8601 UTC instant (YYYY-MM-DDTHH:MM:SSZ)"
+                "wprism: $label must be one unambiguous ISO-8601 UTC instant (YYYY-MM-DDTHH:MM:SSZ)"
             );
         }
         return $parsed->getTimestamp();
@@ -3611,7 +3611,7 @@ final class AdapterCertification {
             // between. The type routes it to the same uncertified destination
             // StalePlatform reaches; nothing about WHAT is refused moved.
             throw new WithdrawnAuthoritySiteAdapterCertificate(
-                "duo: this host's own wall clock reads " . self::stamp($now) . ", before authority key '$keyId'"
+                "wprism: this host's own wall clock reads " . self::stamp($now) . ", before authority key '$keyId'"
                 . ' was issued at ' . self::stamp($issued)
                 . ' — an implausible clock refuses rather than resurrecting an expired record',
                 AdapterSources::WITHDRAWN_AUTHORITY_WINDOW
@@ -3619,7 +3619,7 @@ final class AdapterCertification {
         }
         if ($now >= $expires) {
             throw new WithdrawnAuthoritySiteAdapterCertificate(
-                "duo: authority key '$keyId' expired at " . self::stamp($expires) . ', judged against this'
+                "wprism: authority key '$keyId' expired at " . self::stamp($expires) . ', judged against this'
                 . " host's own wall clock, which reads " . self::stamp($now)
                 . ' — there is no skew allowance in either direction',
                 AdapterSources::WITHDRAWN_AUTHORITY_WINDOW
@@ -3662,19 +3662,19 @@ final class AdapterCertification {
         $signature = $data['signature'] ?? null;
         if (!is_array($signature) || array_is_list($signature)
             || !isset($typed->signature) || !is_object($typed->signature)) {
-            throw new \RuntimeException("duo: $label envelope signature must be a JSON object");
+            throw new \RuntimeException("wprism: $label envelope signature must be a JSON object");
         }
         self::assertExactKeys($signature, self::AUTHORITIES_SIGNATURE_KEYS, "$label envelope signature");
         $signer = $signature['key_id'] ?? null;
         if (!is_string($signer) || !isset($authorityRecords[$signer])) {
             throw new \RuntimeException(
-                "duo: $label envelope signature names key " . var_export($signer, true)
+                "wprism: $label envelope signature names key " . var_export($signer, true)
                 . ' — a v2 registry is signed by a key it carries itself'
             );
         }
         if (($authorityRecords[$signer]['status'] ?? null) !== 'trusted') {
             throw new \RuntimeException(
-                "duo: $label envelope signature was made by revoked key '$signer'"
+                "wprism: $label envelope signature was made by revoked key '$signer'"
             );
         }
         $encoded = $signature['value'] ?? null;
@@ -3687,7 +3687,7 @@ final class AdapterCertification {
                 self::publicKey($authorityRecords[$signer])
             )) {
             throw new \RuntimeException(
-                "duo: $label envelope signature does not verify under key '$signer'; an unsigned or tampered"
+                "wprism: $label envelope signature does not verify under key '$signer'; an unsigned or tampered"
                 . ' authorities document is refused, never read as an absent trust root'
             );
         }
@@ -3712,40 +3712,40 @@ final class AdapterCertification {
      * cannot be signed either.
      *
      * @param string $documentRaw canonical `{format, keys}` bytes, signed or not
-     * @return string canonical duo-adapter-authorities/v2 bytes
+     * @return string canonical wprism-adapter-authorities/v2 bytes
      */
     public static function signAuthorities(string $documentRaw, string $keyId, string $secretKey): string {
         self::assertSodium();
         [, $typed, $data] = self::parseCanonicalObject($documentRaw, 'adapter certification authorities');
         if (($data['format'] ?? null) !== self::AUTHORITIES_FORMAT_V2) {
             throw new \RuntimeException(
-                'duo: only a ' . self::AUTHORITIES_FORMAT_V2 . ' authorities document carries an envelope'
+                'wprism: only a ' . self::AUTHORITIES_FORMAT_V2 . ' authorities document carries an envelope'
                 . ' signature; ' . self::AUTHORITIES_FORMAT . ' documents have no signed envelope at all'
             );
         }
         if (!is_array($data['keys'] ?? null) || $data['keys'] === []
             || !isset($typed->keys) || !is_object($typed->keys)) {
             throw new \RuntimeException(
-                'duo: a ' . self::AUTHORITIES_FORMAT_V2 . ' authorities document must carry at least the key'
+                'wprism: a ' . self::AUTHORITIES_FORMAT_V2 . ' authorities document must carry at least the key'
                 . ' that signs it'
             );
         }
         $id = self::keyId($keyId);
         foreach ($data['keys'] as $mapKey => $record) {
             if (!is_string($mapKey) || !is_array($record) || array_is_list($record)) {
-                throw new \RuntimeException('duo: adapter certification authority key map is malformed');
+                throw new \RuntimeException('wprism: adapter certification authority key map is malformed');
             }
             self::validateAuthorityRecord($record, "adapter certification key '$mapKey'", $mapKey);
         }
         if (!isset($data['keys'][$id])) {
             throw new \RuntimeException(
-                "duo: authority key '$id' is not carried by the document it would sign"
+                "wprism: authority key '$id' is not carried by the document it would sign"
             );
         }
         $secret = self::secretKey($secretKey);
         $public = sodium_crypto_sign_publickey_from_secretkey($secret);
         if (!hash_equals(self::publicKey($data['keys'][$id]), $public)) {
-            throw new \RuntimeException("duo: private key does not match authority key '$id'");
+            throw new \RuntimeException("wprism: private key does not match authority key '$id'");
         }
         $signature = sodium_crypto_sign_detached(
             self::authoritiesSignatureBytes(self::AUTHORITIES_FORMAT_V2, $typed->keys),
@@ -3764,7 +3764,7 @@ final class AdapterCertification {
         $key = is_string($encoded) ? base64_decode($encoded, true) : false;
         if ($key === false || !is_string($encoded) || !self::isCanonicalBase64($encoded, $key)
             || strlen($key) !== SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES) {
-            throw new \RuntimeException('duo: authority public_key must be a base64 Ed25519 public key');
+            throw new \RuntimeException('wprism: authority public_key must be a base64 Ed25519 public key');
         }
         return $key;
     }
@@ -3777,14 +3777,14 @@ final class AdapterCertification {
             $decoded = base64_decode($trimmed, true);
         }
         if ($decoded === false || strlen($decoded) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
-            throw new \RuntimeException('duo: private key must be a base64 or hexadecimal Ed25519 secret key');
+            throw new \RuntimeException('wprism: private key must be a base64 or hexadecimal Ed25519 secret key');
         }
         return $decoded;
     }
 
     private static function assertAuthorityScope(array $authority, string $keyId, string $name, string $tier): void {
         if (($authority['status'] ?? null) !== 'trusted') {
-            throw new \RuntimeException("duo: authority key '$keyId' is revoked and cannot certify adapters");
+            throw new \RuntimeException("wprism: authority key '$keyId' is revoked and cannot certify adapters");
         }
         // Directly after revocation, because expiry is revocation with a date
         // on it and the two must refuse in the same seat: signing, live
@@ -3792,11 +3792,11 @@ final class AdapterCertification {
         // returns from this immediately (§ v3.7 change (b)).
         self::assertAuthorityWindow($authority, $keyId);
         if (!self::scopeCoversName($authority['adapter_names'], $name)) {
-            throw new \RuntimeException("duo: authority key '$keyId' is not scoped to site adapter '$name'");
+            throw new \RuntimeException("wprism: authority key '$keyId' is not scoped to site adapter '$name'");
         }
         if (!in_array($tier, $authority['trust_tiers'], true)) {
             throw new \RuntimeException(
-                "duo: authority key '$keyId' is not scoped to derived trust tier '$tier'"
+                "wprism: authority key '$keyId' is not scoped to derived trust tier '$tier'"
             );
         }
     }
@@ -3813,7 +3813,7 @@ final class AdapterCertification {
         $recordDigest = $statementAuthority['record_sha256'] ?? null;
         // BOTH TRUST ROOTS BIND THE KEY IDENTITY — everything but the scope
         // lists (§ v3.7 change (e), WP-4.8). The site root has always done so,
-        // because it is a LIVING registry: `duo adapter certify` appends every
+        // because it is a LIVING registry: `wprism adapter certify` appends every
         // newly certified name and tier to the key's record, so binding the
         // whole record invalidated every earlier certificate under that key the
         // moment a second adapter was certified (seen: certifying an override
@@ -3850,7 +3850,7 @@ final class AdapterCertification {
             || ($statementAuthority['fingerprint'] ?? null) !== hash('sha256', self::publicKey($authority))
             || !$bound) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification authority/key/fingerprint/trust root does not match the "
+                "wprism: site adapter '$name' certification authority/key/fingerprint/trust root does not match the "
                 . "current $trustRoot authority record"
             );
         }
@@ -3901,7 +3901,7 @@ final class AdapterCertification {
         $file = self::platformPath($manifestDir);
         if (!is_file($file)) {
             throw new \RuntimeException(
-                'duo: current agent platform boundary is absent at capabilities/platform.json'
+                'wprism: current agent platform boundary is absent at capabilities/platform.json'
             );
         }
         // Read here rather than through ManifestDispositions::platform_boundary()
@@ -3915,7 +3915,7 @@ final class AdapterCertification {
         if (($data['format'] ?? null) !== ManifestDispositions::PLATFORM_FORMAT
             || !isset($typed->platform) || !is_object($typed->platform)
             || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])) {
-            throw new \RuntimeException('duo: agent platform boundary document has no valid platform object');
+            throw new \RuntimeException('wprism: agent platform boundary document has no valid platform object');
         }
         $platform = $data['platform'];
         self::assertExactKeys($platform, [
@@ -3925,7 +3925,7 @@ final class AdapterCertification {
             || ($platform['spec_version'] ?? null) !== self::specVersion()
             || ($platform['site_mode'] ?? null) !== 'single-site'
             || !is_array($platform['compatibility'] ?? null) || array_is_list($platform['compatibility'])) {
-            throw new \RuntimeException('duo: agent capability platform boundary disagrees with the loaded agent');
+            throw new \RuntimeException('wprism: agent capability platform boundary disagrees with the loaded agent');
         }
         return [$typed->platform, self::canonicalHash($typed->platform), $platform];
     }
@@ -3952,7 +3952,7 @@ final class AdapterCertification {
         $hasEngines = is_array($engines) && !array_is_list($engines);
         if ($hasSeries && $hasEngines) {
             throw new \RuntimeException(
-                "duo: agent platform boundary axis '$name' declares both `" . self::PLATFORM_AXIS_SERIES
+                "wprism: agent platform boundary axis '$name' declares both `" . self::PLATFORM_AXIS_SERIES
                 . '` and `' . self::PLATFORM_AXIS_ENGINES . '`, so what a certificate binds on it is ambiguous'
             );
         }
@@ -4026,7 +4026,7 @@ final class AdapterCertification {
             $name = (string) $name;
             if (!is_array($axis) || array_is_list($axis)) {
                 throw new \RuntimeException(
-                    "duo: agent platform boundary compatibility axis '$name' must be an object"
+                    "wprism: agent platform boundary compatibility axis '$name' must be an object"
                 );
             }
             $declared = is_array($narrowed[$name] ?? null) ? $narrowed[$name] : $axis;
@@ -4046,7 +4046,7 @@ final class AdapterCertification {
             // covers nothing is worse than no certificate, because it reads as
             // one.
             throw new \RuntimeException(
-                'duo: agent platform boundary declares no compatibility axis, so a certificate signed against '
+                'wprism: agent platform boundary declares no compatibility axis, so a certificate signed against '
                 . 'it would bind no exercised runtime cell at all'
             );
         }
@@ -4090,14 +4090,14 @@ final class AdapterCertification {
     private static function assertPlatformBinding(string $name, array $platformBoundary, array $bound): string {
         if (($bound['spec_version'] ?? null) !== ($platformBoundary['spec_version'] ?? null)) {
             throw new StalePlatformSiteAdapterCertificate(
-                "duo: site adapter '$name' certification was signed under spec version "
+                "wprism: site adapter '$name' certification was signed under spec version "
                 . var_export($bound['spec_version'] ?? null, true) . ', which is not the spec version '
                 . var_export($platformBoundary['spec_version'] ?? null, true) . ' this agent publishes'
             );
         }
         if (($bound['site_mode'] ?? null) !== ($platformBoundary['site_mode'] ?? null)) {
             throw new StalePlatformSiteAdapterCertificate(
-                "duo: site adapter '$name' certification binds site mode '"
+                "wprism: site adapter '$name' certification binds site mode '"
                 . (string) ($bound['site_mode'] ?? '') . "', which is not the site mode this agent publishes"
             );
         }
@@ -4109,7 +4109,7 @@ final class AdapterCertification {
             $current = $compatibility[$axis] ?? null;
             if (!is_array($current) || array_is_list($current)) {
                 throw new StalePlatformSiteAdapterCertificate(
-                    "duo: site adapter '$name' certification binds compatibility axis '$axis', which the "
+                    "wprism: site adapter '$name' certification binds compatibility axis '$axis', which the "
                     . 'agent-owned platform boundary no longer declares'
                 );
             }
@@ -4119,7 +4119,7 @@ final class AdapterCertification {
                 $cell = (string) $cell;
                 if (!array_key_exists($cell, $cells)) {
                     throw new StalePlatformSiteAdapterCertificate(
-                        "duo: site adapter '$name' certification was exercised against '$axis' cell '$cell', "
+                        "wprism: site adapter '$name' certification was exercised against '$axis' cell '$cell', "
                         . 'which the agent-owned platform boundary no longer carries'
                     );
                 }
@@ -4128,7 +4128,7 @@ final class AdapterCertification {
             ksort($restricted, SORT_STRING);
             if (!hash_equals((string) $binding['sha256'], self::canonicalHash((object) $restricted))) {
                 throw new StalePlatformSiteAdapterCertificate(
-                    "duo: site adapter '$name' certification binds compatibility axis '$axis', whose exercised "
+                    "wprism: site adapter '$name' certification binds compatibility axis '$axis', whose exercised "
                     . 'cells the agent-owned platform boundary now states differently'
                 );
             }
@@ -4155,18 +4155,18 @@ final class AdapterCertification {
             || !is_int($bound['spec_version'])
             || !is_array($bound['axes']) || array_is_list($bound['axes']) || $bound['axes'] === []) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification platform member is malformed"
+                "wprism: site adapter '$name' certification platform member is malformed"
             );
         }
         foreach ($bound['axes'] as $axis => $binding) {
             $label = "site adapter '$name' certification platform axis '" . (string) $axis . "'";
             if (!is_array($binding) || array_is_list($binding)) {
-                throw new \RuntimeException("duo: $label must be an object");
+                throw new \RuntimeException("wprism: $label must be an object");
             }
             self::assertExactKeys($binding, self::STATEMENT_AXIS_KEYS, $label);
             self::stringList($binding['cells'], $label . ' cells', false);
             if (!self::sha($binding['sha256'] ?? null)) {
-                throw new \RuntimeException("duo: $label must carry a sha256 digest of its exercised cells");
+                throw new \RuntimeException("wprism: $label must carry a sha256 digest of its exercised cells");
             }
         }
     }
@@ -4177,7 +4177,7 @@ final class AdapterCertification {
         // authenticates (SupersededWireSiteAdapterCertificate states why it
         // cannot be: root `format` is outside signatureBytes(), `:1340-1342`).
         // Ordering is therefore the only thing that narrows it, and it buys
-        // exactly this: a one-key `{"format":"duo-adapter-certification/v2"}`
+        // exactly this: a one-key `{"format":"wprism-adapter-certification/v2"}`
         // file — the cheapest thing an attacker with write access to
         // adapters/certification/ can author — is refused as malformed here
         // instead of reaching the typed signal and silently degrading the
@@ -4196,12 +4196,12 @@ final class AdapterCertification {
         if (!is_string($certificate['signature'] ?? null)
             || !isset($typed->statement) || !is_object($typed->statement)
             || !is_array($certificate['statement'] ?? null) || array_is_list($certificate['statement'])) {
-            throw new \RuntimeException('duo: site adapter certification has an unsupported or malformed root');
+            throw new \RuntimeException('wprism: site adapter certification has an unsupported or malformed root');
         }
         $signature = base64_decode($certificate['signature'], true);
         if ($signature === false || !self::isCanonicalBase64($certificate['signature'], $signature)
             || strlen($signature) !== SODIUM_CRYPTO_SIGN_BYTES) {
-            throw new \RuntimeException('duo: site adapter certification signature is not a base64 Ed25519 signature');
+            throw new \RuntimeException('wprism: site adapter certification signature is not a base64 Ed25519 signature');
         }
         // The predicate is the exact family at a different integer version and
         // nothing else — see SupersededWireSiteAdapterCertificate for why one
@@ -4210,12 +4210,12 @@ final class AdapterCertification {
         // parseCanonicalObject(), so an unparseable file never arrives at all.
         $format = $certificate['format'] ?? null;
         if (is_string($format) && $format !== self::FORMAT
-            && preg_match('#^duo-adapter-certification/v[1-9][0-9]*$#D', $format) === 1) {
+            && preg_match('#^wprism-adapter-certification/v[1-9][0-9]*$#D', $format) === 1) {
             throw new SupersededWireSiteAdapterCertificate(
                 // The regex above has already proved $format is exactly
-                // `duo-adapter-certification/v<digits>`, so it is safe to
+                // `wprism-adapter-certification/v<digits>`, so it is safe to
                 // print verbatim: there is nothing left in it to inject.
-                "duo: site adapter certification is written in wire version '$format', which this agent does not "
+                "wprism: site adapter certification is written in wire version '$format', which this agent does not "
                 . "verify; it verifies '" . self::FORMAT . "'"
             );
         }
@@ -4224,7 +4224,7 @@ final class AdapterCertification {
         // VALUE is the one root term the version signal is allowed to answer
         // for, so it is the one term that may not preempt it.
         if ($format !== self::FORMAT) {
-            throw new \RuntimeException('duo: site adapter certification has an unsupported or malformed root');
+            throw new \RuntimeException('wprism: site adapter certification has an unsupported or malformed root');
         }
     }
 
@@ -4267,7 +4267,7 @@ final class AdapterCertification {
         foreach (self::STATEMENT_RESERVED_KEYS as $reserved => $why) {
             if (array_key_exists($reserved, $statement)) {
                 throw new \RuntimeException(
-                    "duo: site adapter certification statement declares '$reserved' — $why"
+                    "wprism: site adapter certification statement declares '$reserved' — $why"
                 );
             }
         }
@@ -4281,7 +4281,7 @@ final class AdapterCertification {
         foreach (self::STATEMENT_V1_KEYS as $key) {
             if (!isset($typed->$key) || !is_object($typed->$key)
                 || !is_array($statement[$key] ?? null) || array_is_list($statement[$key])) {
-                throw new \RuntimeException("duo: site adapter certification statement.$key must be an object");
+                throw new \RuntimeException("wprism: site adapter certification statement.$key must be an object");
             }
         }
         if ($keys === $v1) {
@@ -4290,21 +4290,21 @@ final class AdapterCertification {
             // platform document. Refused BY NAME and routed to uncertified
             // per-adapter — never a whole-source refusal, which would take the
             // site's unrelated adapters down with it. The remedy is
-            // `duo adapter certify --pin`, which mints v2.
+            // `wprism adapter certify --pin`, which mints v2.
             throw new SupersededWireSiteAdapterCertificate(
-                'duo: site adapter certification statement is written in wire generation 1, which this agent '
+                'wprism: site adapter certification statement is written in wire generation 1, which this agent '
                 . 'does not verify; it verifies generation ' . self::STATEMENT_VERSION
             );
         }
         $version = $statement['version'];
         if (!is_int($version) || $version < 1) {
             throw new \RuntimeException(
-                'duo: site adapter certification statement.version must be a positive integer wire generation'
+                'wprism: site adapter certification statement.version must be a positive integer wire generation'
             );
         }
         if ($version !== self::STATEMENT_VERSION) {
             throw new SupersededWireSiteAdapterCertificate(
-                "duo: site adapter certification statement is written in wire generation $version, which this "
+                "wprism: site adapter certification statement is written in wire generation $version, which this "
                 . 'agent does not verify; it verifies generation ' . self::STATEMENT_VERSION
             );
         }
@@ -4335,7 +4335,7 @@ final class AdapterCertification {
             || !self::sha($adapter['raw_sha256'] ?? null)
             || !is_int($adapter['raw_size'] ?? null) || $adapter['raw_size'] < 1) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification does not bind the exact source/path/canonical manifest/trust tier"
+                "wprism: site adapter '$name' certification does not bind the exact source/path/canonical manifest/trust tier"
             );
         }
         // Content supersession: the well-formed companion binds different
@@ -4344,14 +4344,14 @@ final class AdapterCertification {
         // route it to uncertified support (see SupersededSiteAdapterCertificate).
         if (!hash_equals((string) $adapter['canonical_sha256'], self::canonicalHash($manifest))) {
             throw new SupersededSiteAdapterCertificate(
-                "duo: site adapter '$name' certification binds a superseded manifest; the adapter changed since it was certified"
+                "wprism: site adapter '$name' certification binds a superseded manifest; the adapter changed since it was certified"
             );
         }
         if ($rawAdapter !== null
             && (!hash_equals((string) $adapter['raw_sha256'], hash('sha256', (string) $rawAdapter['raw']))
                 || $adapter['raw_size'] !== (int) $rawAdapter['size'])) {
             throw new SupersededSiteAdapterCertificate(
-                "duo: site adapter '$name' certification binds superseded raw bytes; the adapter changed since it was certified"
+                "wprism: site adapter '$name' certification binds superseded raw bytes; the adapter changed since it was certified"
             );
         }
     }
@@ -4412,12 +4412,12 @@ final class AdapterCertification {
     private static function bundleFile(string $input): array {
         $candidate = is_dir($input) ? rtrim($input, '/') . '/bundle.json' : $input;
         if (basename($candidate) !== 'bundle.json' || !is_file($candidate) || is_link($candidate)) {
-            throw new \RuntimeException('duo: certification bundle input must be a regular bundle.json file or its directory');
+            throw new \RuntimeException('wprism: certification bundle input must be a regular bundle.json file or its directory');
         }
         $dir = realpath(dirname($candidate));
         $file = realpath($candidate);
         if ($dir === false || $file === false || !hash_equals($dir . '/bundle.json', $file)) {
-            throw new \RuntimeException('duo: certification bundle must resolve to an exact bundle.json inside its directory');
+            throw new \RuntimeException('wprism: certification bundle must resolve to an exact bundle.json inside its directory');
         }
         return [$dir, $file];
     }
@@ -4446,24 +4446,24 @@ final class AdapterCertification {
         foreach (['environment', 'environment_summary', 'evidence', 'harness', 'ratification', 'ratification_summary'] as $key) {
             if (!isset($typed->$key) || !is_object($typed->$key)
                 || !is_array($bundle[$key] ?? null) || array_is_list($bundle[$key])) {
-                throw new \RuntimeException("duo: $label.$key must be an object");
+                throw new \RuntimeException("wprism: $label.$key must be an object");
             }
         }
         foreach (['artifacts', 'bound_inputs', 'force_hatches', 'tests'] as $key) {
             if (!isset($typed->$key) || !is_array($typed->$key)
                 || !is_array($bundle[$key] ?? null) || !array_is_list($bundle[$key])) {
-                throw new \RuntimeException("duo: $label.$key must be a JSON list");
+                throw new \RuntimeException("wprism: $label.$key must be a JSON list");
             }
         }
         if (!isset($typed->subject) || !is_object($typed->subject)
             || !is_array($bundle['subject'] ?? null) || array_is_list($bundle['subject'])) {
-            throw new \RuntimeException("duo: $label.subject must be an object");
+            throw new \RuntimeException("wprism: $label.subject must be an object");
         }
         self::assertExactKeys($bundle['subject'], ['kind', 'name'], "$label.subject");
         if (($bundle['subject']['kind'] ?? null) !== 'site_adapter'
             || ($bundle['subject']['name'] ?? null) !== $name) {
             throw new \RuntimeException(
-                "duo: $label must be scoped exactly to site_adapter.$name"
+                "wprism: $label must be scoped exactly to site_adapter.$name"
             );
         }
         if (($bundle['schema_version'] ?? null) !== self::BUNDLE_FORMAT
@@ -4475,7 +4475,7 @@ final class AdapterCertification {
             || preg_match('/^[0-9a-f]{40}$/D', $bundle['git_revision']) !== 1
             || !is_string($bundle['harness']['name'] ?? null) || $bundle['harness']['name'] === ''
             || !is_int($bundle['harness']['version'] ?? null) || $bundle['harness']['version'] < 1) {
-            throw new \RuntimeException("duo: $label is not an intact passing " . self::BUNDLE_FORMAT . ' manifest');
+            throw new \RuntimeException("wprism: $label is not an intact passing " . self::BUNDLE_FORMAT . ' manifest');
         }
         self::assertExactKeys($bundle['harness'], ['name', 'version'], "$label.harness");
         $evidence = self::bundleEvidence($bundle['evidence'], $label, $trustRoot, $authorityKeyId);
@@ -4484,12 +4484,12 @@ final class AdapterCertification {
         // Binding a non-empty list would make it visible, but still turns an
         // override into a green site claim, which this source never permits.
         if ($bundle['force_hatches'] !== []) {
-            throw new \RuntimeException('duo: a site adapter certification bundle may not use force hatches');
+            throw new \RuntimeException('wprism: a site adapter certification bundle may not use force hatches');
         }
         self::assertExactKeys($bundle['ratification_summary'], ['certified_claims', 'manifest_count', 'profile_count'], "$label.ratification_summary");
         if (!is_int($bundle['ratification_summary']['manifest_count'] ?? null)
             || !is_int($bundle['ratification_summary']['profile_count'] ?? null)) {
-            throw new \RuntimeException("duo: $label.ratification_summary is malformed");
+            throw new \RuntimeException("wprism: $label.ratification_summary is malformed");
         }
 
         $assets = [];
@@ -4503,18 +4503,18 @@ final class AdapterCertification {
         foreach ($bundle['bound_inputs'] as $i => $input) {
             $descriptor = self::assetDescriptor($input, "$label.bound_inputs[$i]");
             if (isset($boundSeen[$descriptor['path']])) {
-                throw new \RuntimeException("duo: $label has duplicate bound input '{$descriptor['path']}'");
+                throw new \RuntimeException("wprism: $label has duplicate bound input '{$descriptor['path']}'");
             }
             $boundSeen[$descriptor['path']] = true;
             $bound[] = $descriptor;
         }
         if ($bound === []) {
-            throw new \RuntimeException("duo: $label has no bound code/manifest/harness inputs");
+            throw new \RuntimeException("wprism: $label has no bound code/manifest/harness inputs");
         }
 
         foreach ($bundle['artifacts'] as $i => $artifact) {
             if (!is_array($artifact) || array_is_list($artifact)) {
-                throw new \RuntimeException("duo: $label.artifacts[$i] must be an object");
+                throw new \RuntimeException("wprism: $label.artifacts[$i] must be an object");
             }
             self::assertExactKeys($artifact, ['name', 'role', 'sha256', 'url', 'version'], "$label.artifacts[$i]");
             if (!is_string($artifact['name'] ?? null) || $artifact['name'] === ''
@@ -4522,33 +4522,33 @@ final class AdapterCertification {
                 || !self::sha($artifact['sha256'] ?? null)
                 || !filter_var($artifact['url'] ?? '', FILTER_VALIDATE_URL)
                 || !in_array($artifact['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
-                throw new \RuntimeException("duo: $label.artifacts[$i] is malformed");
+                throw new \RuntimeException("wprism: $label.artifacts[$i] is malformed");
             }
         }
 
         $tests = [];
         foreach ($bundle['tests'] as $i => $test) {
             if (!is_array($test) || array_is_list($test)) {
-                throw new \RuntimeException("duo: $label.tests[$i] must be an object");
+                throw new \RuntimeException("wprism: $label.tests[$i] must be an object");
             }
             self::assertExactKeys($test, ['diff', 'id', 'log', 'result', 'verdict'], "$label.tests[$i]");
             $id = self::testId($test['id'] ?? null, "$label.tests[$i].id");
             if (isset($tests[$id]) || ($test['verdict'] ?? null) !== 'pass') {
-                throw new \RuntimeException("duo: $label must contain each named passing test exactly once");
+                throw new \RuntimeException("wprism: $label must contain each named passing test exactly once");
             }
             $result = self::assetDescriptor($test['result'], "$label.tests[$i].result", "results/$id.json");
             $diff = self::assetDescriptor($test['diff'], "$label.tests[$i].diff", "diffs/$id.json");
             $log = self::assetDescriptor($test['log'], "$label.tests[$i].log", "logs/$id.txt");
             foreach ([$result, $diff, $log] as $asset) {
                 if (isset($assets[$asset['path']])) {
-                    throw new \RuntimeException("duo: $label reuses bundle asset path '{$asset['path']}'");
+                    throw new \RuntimeException("wprism: $label reuses bundle asset path '{$asset['path']}'");
                 }
                 $assets[$asset['path']] = $asset;
             }
             $tests[$id] = true;
         }
         if ($exercised && $tests === []) {
-            throw new \RuntimeException("duo: $label has no named tests");
+            throw new \RuntimeException("wprism: $label has no named tests");
         }
         if (!$exercised && ($tests !== [] || $bundle['artifacts'] !== [])) {
             // `exercised: false` is a claim about what was NOT done. A bundle
@@ -4557,7 +4557,7 @@ final class AdapterCertification {
             // (`exercised: false` beside a named artifact list) would be the
             // exact ambiguity this key exists to remove.
             throw new \RuntimeException(
-                "duo: $label declares evidence.exercised false but names tests or artifacts"
+                "wprism: $label declares evidence.exercised false but names tests or artifacts"
             );
         }
         return [
@@ -4594,7 +4594,7 @@ final class AdapterCertification {
      *                      platform-rooted certificate may take.
      *   exercised: false — no exercise proof; `tests` and `artifacts` must
      *                      both be empty, and the claim carries the fact
-     *                      forward so `duo assess` prints it rather than
+     *                      forward so `wprism assess` prints it rather than
      *                      letting `certified` imply an exercise nobody ran.
      *
      * `grammar` must be `ok`: a certificate for a manifest the loader itself
@@ -4633,7 +4633,7 @@ final class AdapterCertification {
         string $authorityKeyId
     ): array {
         if (!is_array($evidence) || array_is_list($evidence)) {
-            throw new \RuntimeException("duo: $label.evidence must be an object");
+            throw new \RuntimeException("wprism: $label.evidence must be an object");
         }
         // The optional member is lifted out BEFORE the closed-set check rather
         // than added to it, so every other unknown member still gets the exact
@@ -4652,7 +4652,7 @@ final class AdapterCertification {
             || ($evidence['grammar'] ?? null) !== AdapterSources::GRAMMAR_OK
             || !is_string($evidence['reason'] ?? null) || trim((string) $evidence['reason']) === '') {
             throw new \RuntimeException(
-                "duo: $label.evidence must declare a boolean exercised, grammar '" . AdapterSources::GRAMMAR_OK
+                "wprism: $label.evidence must declare a boolean exercised, grammar '" . AdapterSources::GRAMMAR_OK
                 . "', and a non-empty reason"
             );
         }
@@ -4668,20 +4668,20 @@ final class AdapterCertification {
         if ($reviewer !== null) {
             if (!is_string($reviewer)) {
                 throw new \RuntimeException(
-                    "duo: $label.evidence." . self::EVIDENCE_REVIEWER
+                    "wprism: $label.evidence." . self::EVIDENCE_REVIEWER
                     . ' must name one reviewing party as a canonical identity string'
                 );
             }
             AdapterSources::assert_name($reviewer, "$label.evidence." . self::EVIDENCE_REVIEWER);
             if (!$exercised) {
                 throw new \RuntimeException(
-                    "duo: $label.evidence names reviewer '$reviewer' beside exercised false — the reviewer tier "
+                    "wprism: $label.evidence names reviewer '$reviewer' beside exercised false — the reviewer tier "
                     . 'states WHO exercised the adapter, and a bundle declaring no exercise has none to attribute'
                 );
             }
             if (hash_equals($authorityKeyId, $reviewer)) {
                 throw new \RuntimeException(
-                    "duo: $label.evidence names reviewer '$reviewer', which is the signing authority itself — the "
+                    "wprism: $label.evidence names reviewer '$reviewer', which is the signing authority itself — the "
                     . 'reviewer tier names a party OTHER than the key that vouches for it, or it says nothing the '
                     . 'trust root did not already say'
                 );
@@ -4689,7 +4689,7 @@ final class AdapterCertification {
         }
         if (!$exercised && $trustRoot !== self::TRUST_ROOT_SITE) {
             throw new \RuntimeException(
-                "duo: $label declares no exercise proof, which only a " . self::TRUST_ROOT_SITE
+                "wprism: $label declares no exercise proof, which only a " . self::TRUST_ROOT_SITE
                 . ' trust root may certify — a platform-rooted certificate states a reviewed exercise'
             );
         }
@@ -4699,24 +4699,24 @@ final class AdapterCertification {
     /** @return array{path:string,sha256:string,size:int} */
     private static function assetDescriptor($descriptor, string $label, ?string $expectedPath = null): array {
         if (!is_array($descriptor) || array_is_list($descriptor)) {
-            throw new \RuntimeException("duo: $label must be an asset descriptor object");
+            throw new \RuntimeException("wprism: $label must be an asset descriptor object");
         }
         self::assertExactKeys($descriptor, ['path', 'sha256', 'size'], $label);
         if (!is_string($descriptor['path'] ?? null)
             || !self::sha($descriptor['sha256'] ?? null)
             || !is_int($descriptor['size'] ?? null) || $descriptor['size'] < 0) {
-            throw new \RuntimeException("duo: $label is malformed");
+            throw new \RuntimeException("wprism: $label is malformed");
         }
         $path = self::relativePath($descriptor['path'], $label . '.path');
         if ($expectedPath !== null && !hash_equals($expectedPath, $path)) {
-            throw new \RuntimeException("duo: $label path must be exactly $expectedPath");
+            throw new \RuntimeException("wprism: $label path must be exactly $expectedPath");
         }
         return ['path' => $path, 'sha256' => $descriptor['sha256'], 'size' => $descriptor['size']];
     }
 
     private static function testId($value, string $label): string {
         if (!is_string($value) || preg_match('/^[a-z][a-z0-9-]*$/D', $value) !== 1) {
-            throw new \RuntimeException("duo: $label must match ^[a-z][a-z0-9-]*$");
+            throw new \RuntimeException("wprism: $label must match ^[a-z][a-z0-9-]*$");
         }
         return $value;
     }
@@ -4730,7 +4730,7 @@ final class AdapterCertification {
                 JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
             );
         } catch (\JsonException $e) {
-            throw new \RuntimeException('duo: certification bundle is not canonicalizable: ' . $e->getMessage());
+            throw new \RuntimeException('wprism: certification bundle is not canonicalizable: ' . $e->getMessage());
         }
         return hash('sha256', $json . "\n");
     }
@@ -4755,7 +4755,7 @@ final class AdapterCertification {
             || !hash_equals((string) $matches[0]['sha256'], (string) $adapter['raw_sha256'])
             || $matches[0]['size'] !== $adapter['raw_size']) {
             throw new \RuntimeException(
-                "duo: certification bundle must bind exactly current raw adapters/$name.json as one bound input"
+                "wprism: certification bundle must bind exactly current raw adapters/$name.json as one bound input"
             );
         }
     }
@@ -4788,7 +4788,7 @@ final class AdapterCertification {
             if ($size === false || $digest === false || $size !== $input['size']
                 || !hash_equals($input['sha256'], $digest)) {
                 throw new \RuntimeException(
-                    "duo: certification bundle bound input is missing or tampered: {$input['path']}"
+                    "wprism: certification bundle bound input is missing or tampered: {$input['path']}"
                 );
             }
         }
@@ -4798,7 +4798,7 @@ final class AdapterCertification {
             'certification bundle environment asset'
         );
         if (!hash_equals(Canon::encode($environmentTyped), Canon::encode($bundleTyped->environment_summary))) {
-            throw new \RuntimeException('duo: certification bundle environment asset disagrees with environment_summary');
+            throw new \RuntimeException('wprism: certification bundle environment asset disagrees with environment_summary');
         }
 
         foreach ($bundle['tests'] as $test) {
@@ -4810,7 +4810,7 @@ final class AdapterCertification {
             if (($result['test'] ?? null) !== $id || ($result['verdict'] ?? null) !== 'pass'
                 || ($result['exit_code'] ?? null) !== 0) {
                 throw new \RuntimeException(
-                    "duo: certification bundle result '$id' does not record a named passing zero-exit test"
+                    "wprism: certification bundle result '$id' does not record a named passing zero-exit test"
                 );
             }
             self::parseCanonicalObject(
@@ -4832,7 +4832,7 @@ final class AdapterCertification {
         if ($raw === false || strlen($raw) !== $asset['size']
             || !hash_equals($asset['sha256'], hash('sha256', $raw))) {
             throw new \RuntimeException(
-                "duo: certification bundle asset is missing or tampered: {$asset['path']}"
+                "wprism: certification bundle asset is missing or tampered: {$asset['path']}"
             );
         }
         self::afterVerifiedBundleAssetRead($asset['path']);
@@ -4906,14 +4906,14 @@ final class AdapterCertification {
             || !is_array($ratification['profiles'] ?? null) || !array_is_list($ratification['profiles'])
             || $ratification['profiles'] !== []) {
             throw new \RuntimeException(
-                'duo: site adapter ratification must be a canonical one-manifest duo-manifest-dispositions/v1 document with profiles []'
+                'wprism: site adapter ratification must be a canonical one-manifest wprism-manifest-dispositions/v1 document with profiles []'
             );
         }
         $ratifiedNames = array_keys($ratification['manifests']);
         foreach ($ratifiedNames as $ratifiedName) {
             if (!is_string($ratifiedName)) {
                 throw new \RuntimeException(
-                    'duo: site adapter ratification manifests map contains non-string key ' . var_export($ratifiedName, true)
+                    'wprism: site adapter ratification manifests map contains non-string key ' . var_export($ratifiedName, true)
                     . ' — numeric-only identities are forbidden because PHP coerces JSON object-map keys to integers'
                 );
             }
@@ -4923,7 +4923,7 @@ final class AdapterCertification {
             || !isset($ratificationTyped->manifests->$name) || !is_object($ratificationTyped->manifests->$name)
             || !is_array($ratification['manifests'][$name]) || array_is_list($ratification['manifests'][$name])) {
             throw new \RuntimeException(
-                "duo: site adapter ratification must name exactly manifests.$name"
+                "wprism: site adapter ratification must name exactly manifests.$name"
             );
         }
         $disposition = $ratification['manifests'][$name];
@@ -4931,7 +4931,7 @@ final class AdapterCertification {
         foreach ($disposition['evidence']['tests'] as $test) {
             if (!isset($bundleInfo['tests'][$test])) {
                 throw new \RuntimeException(
-                    "duo: certified site adapter '$name' cites absent or non-passing bundle test '$test'"
+                    "wprism: certified site adapter '$name' cites absent or non-passing bundle test '$test'"
                 );
             }
         }
@@ -4940,14 +4940,14 @@ final class AdapterCertification {
             || ($bundleInfo['summary']['manifest_count'] ?? null) !== 1
             || ($bundleInfo['summary']['profile_count'] ?? null) !== 0) {
             throw new \RuntimeException(
-                "duo: certification bundle ratification summary does not describe exactly certified manifests.$name"
+                "wprism: certification bundle ratification summary does not describe exactly certified manifests.$name"
             );
         }
         $asset = $bundleInfo['ratification_asset'];
         if (!hash_equals($asset['sha256'], hash('sha256', $ratificationRaw))
             || $asset['size'] !== strlen($ratificationRaw)) {
             throw new \RuntimeException(
-                "duo: certification bundle ratification asset does not bind the exact ratification for '$name'"
+                "wprism: certification bundle ratification asset does not bind the exact ratification for '$name'"
             );
         }
         return [$ratification, $disposition];
@@ -4969,26 +4969,26 @@ final class AdapterCertification {
         $evidence = $disposition['evidence'] ?? null;
         if (!is_array($capabilities) || array_is_list($capabilities)
             || !is_array($evidence) || array_is_list($evidence)) {
-            throw new \RuntimeException("duo: site adapter disposition '$name' is malformed");
+            throw new \RuntimeException("wprism: site adapter disposition '$name' is malformed");
         }
         self::assertExactKeys($capabilities, [
             'deletion_semantics', 'entity_sections', 'field_sections', 'lifecycle_phases', 'operations',
         ], "site adapter disposition '$name'.capabilities");
         if (!is_array($capabilities['deletion_semantics'] ?? null)
             || array_is_list($capabilities['deletion_semantics'])) {
-            throw new \RuntimeException("duo: site adapter disposition '$name' deletion semantics are malformed");
+            throw new \RuntimeException("wprism: site adapter disposition '$name' deletion semantics are malformed");
         }
         self::assertExactKeys($capabilities['deletion_semantics'], ['supported', 'unsupported'], "site adapter disposition '$name'.capabilities.deletion_semantics");
         self::assertExactKeys($evidence, ['bundle_schema', 'tests'], "site adapter disposition '$name'.evidence");
         foreach ((array) ($disposition['unsupported'] ?? []) as $i => $unsupported) {
             if (!is_array($unsupported) || array_is_list($unsupported)) {
-                throw new \RuntimeException("duo: site adapter disposition '$name'.unsupported[$i] is malformed");
+                throw new \RuntimeException("wprism: site adapter disposition '$name'.unsupported[$i] is malformed");
             }
             self::assertExactKeys($unsupported, ['operation', 'reason', 'surface'], "site adapter disposition '$name'.unsupported[$i]");
         }
         foreach ((array) ($disposition['default_authored_keyspaces'] ?? []) as $i => $row) {
             if (!is_array($row) || array_is_list($row)) {
-                throw new \RuntimeException("duo: site adapter disposition '$name'.default_authored_keyspaces[$i] is malformed");
+                throw new \RuntimeException("wprism: site adapter disposition '$name'.default_authored_keyspaces[$i] is malformed");
             }
             self::assertExactKeys($row, ['reason', 'status', 'table'], "site adapter disposition '$name'.default_authored_keyspaces[$i]");
         }
@@ -5149,7 +5149,7 @@ final class AdapterCertification {
         // projection of the signed statement — `principal` is the authority
         // key id, `signed_at` is the bundle's own created_at, both inside the
         // signature — so the human line cannot drift from the claim that
-        // `duo promote` gates on.
+        // `wprism promote` gates on.
         $claim['certification'] = [
             'principal' => $derived['provenance']['proof']['authority']['key_id'],
             'signed_at' => $derived['provenance']['proof']['bundle']['signed_at'],
@@ -5162,7 +5162,7 @@ final class AdapterCertification {
         // (`bundleEvidence()` refuses a bundle where they are the same). Added
         // conditionally for the reason derivedDisposition() states about the
         // same fact: an unconditional member would move a shape every existing
-        // certificate projects, and this block is what `duo assess` reads to
+        // certificate projects, and this block is what `wprism assess` reads to
         // print `Site-certified` with a principal.
         if (($derived['provenance']['proof']['bundle']['reviewer'] ?? null) !== null) {
             $claim['certification']['reviewer'] = (string) $derived['provenance']['proof']['bundle']['reviewer'];

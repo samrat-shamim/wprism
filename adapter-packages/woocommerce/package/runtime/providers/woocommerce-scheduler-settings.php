@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
 use Automattic\WooCommerce\Admin\Features\Features;
 use Automattic\WooCommerce\Internal\Admin\Schedulers\OrdersScheduler;
@@ -13,14 +13,14 @@ final class WoocommerceSchedulerSettings {
     private const RETENTION_CAPABILITY = 'reconcile_stock_notification_retention';
     private const ANALYTICS_OPTION = 'woocommerce_analytics_scheduled_import';
     private const RETENTION_OPTION = 'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold';
-    private const MARKER_OPTION = '_duo_woocommerce_scheduler_settings_state';
+    private const MARKER_OPTION = '_wprism_woocommerce_scheduler_settings_state';
     private const CURSOR_DATE_OPTION = 'woocommerce_admin_scheduler_last_processed_order_modified_date';
     private const CURSOR_ID_OPTION = 'woocommerce_admin_scheduler_last_processed_order_id';
     private const ACTION_SCHEDULER_SCHEMA_OPTION = 'schema-ActionScheduler_StoreSchema';
     private const ANALYTICS_HOOK = 'wc-admin_process_pending_orders_batch';
     private const ANALYTICS_GROUP = 'wc-admin-data';
     private const RETENTION_HOOK = 'customer_stock_notifications_daily';
-    private const MARKER_FORMAT = 'duo-woocommerce-scheduler-state/v1';
+    private const MARKER_FORMAT = 'wprism-woocommerce-scheduler-state/v1';
     private const MAX_ACTIONS = 16;
     private const MAX_ACTION_SCHEDULE_BYTES = 4096;
     private const MAX_ACTION_ARGS_BYTES = 191;
@@ -34,7 +34,7 @@ final class WoocommerceSchedulerSettings {
     private const MAX_SCHEMA_OPTION_BYTES = 64;
     private const RETENTION_PAST_GRACE_SECONDS = 300;
     private const RETENTION_FUTURE_GRACE_SECONDS = 300;
-    private const MUTEX_PREFIX = 'duo:woocommerce:scheduler:';
+    private const MUTEX_PREFIX = 'wprism:woocommerce:scheduler:';
     private const TABLE_IDENTIFIER_PATTERN = '/^[A-Za-z0-9_]{1,64}$/D';
     private const NATIVE_ANALYTICS_INTERVAL = 43200;
     private const NATIVE_ACTION_SCHEDULER_SCHEMA_VERSION = 8;
@@ -42,7 +42,7 @@ final class WoocommerceSchedulerSettings {
     /** @var ?array{name:string,connection:int} */
     private static ?array $activeMutex = null;
 
-    public function __construct(\Duo\Policy $policy) {
+    public function __construct(\WPrism\Policy $policy) {
     }
 
     /** @return array{id:string,plugin:string,version:string} */
@@ -80,7 +80,7 @@ final class WoocommerceSchedulerSettings {
                 'idempotent' => true,
                 'timeout_seconds' => 60,
                 'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
                     'reconcile' => true,
                 ],
             ],
@@ -95,13 +95,13 @@ final class WoocommerceSchedulerSettings {
                 'idempotent' => true,
                 'timeout_seconds' => 30,
                 'scoped' => [
-                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
                     'reconcile' => true,
                 ],
             ],
         ];
 
-        if (!\Duo\Providers::runtime_negotiation_available()) {
+        if (!\WPrism\Providers::runtime_negotiation_available()) {
             return $capabilities;
         }
         try {
@@ -130,7 +130,7 @@ final class WoocommerceSchedulerSettings {
             self::ANALYTICS_CAPABILITY => self::repair_analytics(hash('sha256', 'unscoped'), false),
             self::RETENTION_CAPABILITY => self::repair_retention(),
             default => throw new \RuntimeException(
-                "duo: WooCommerce scheduler-settings provider does not implement capability '$capability'"
+                "wprism: WooCommerce scheduler-settings provider does not implement capability '$capability'"
             ),
         };
     }
@@ -138,12 +138,12 @@ final class WoocommerceSchedulerSettings {
     /** @param array<string,mixed> $args @param array<string,mixed> $operation */
     public function invoke_scoped(string $capability, array $args, array $operation): array {
         self::assert_call($capability, $args);
-        $operation = \Duo\Providers::validate_scoped_operation($operation);
+        $operation = \WPrism\Providers::validate_scoped_operation($operation);
         $receipt = match ($capability) {
             self::ANALYTICS_CAPABILITY => self::repair_analytics(self::digest($operation), true),
             self::RETENTION_CAPABILITY => self::repair_retention(),
             default => throw new \RuntimeException(
-                "duo: WooCommerce scheduler-settings provider does not implement capability '$capability'"
+                "wprism: WooCommerce scheduler-settings provider does not implement capability '$capability'"
             ),
         };
         return [
@@ -157,12 +157,12 @@ final class WoocommerceSchedulerSettings {
     /** Read-only recovery; it must never replay a transition or repair. */
     public function reconcile_scoped(string $capability, array $args, array $operation): array {
         self::assert_call($capability, $args);
-        $operation = \Duo\Providers::validate_scoped_operation($operation);
+        $operation = \WPrism\Providers::validate_scoped_operation($operation);
         $after = match ($capability) {
             self::ANALYTICS_CAPABILITY => self::analytics_stable_projection(),
             self::RETENTION_CAPABILITY => self::retention_stable_projection(),
             default => throw new \RuntimeException(
-                "duo: WooCommerce scheduler-settings provider does not implement capability '$capability'"
+                "wprism: WooCommerce scheduler-settings provider does not implement capability '$capability'"
             ),
         };
         return [
@@ -176,11 +176,11 @@ final class WoocommerceSchedulerSettings {
     private static function assert_call(string $capability, array $args): void {
         if (!in_array($capability, [self::ANALYTICS_CAPABILITY, self::RETENTION_CAPABILITY], true)) {
             throw new \RuntimeException(
-                "duo: WooCommerce scheduler-settings provider does not implement capability '$capability'"
+                "wprism: WooCommerce scheduler-settings provider does not implement capability '$capability'"
             );
         }
         if ($args !== []) {
-            throw new \RuntimeException('duo: WooCommerce scheduler-settings capabilities accept no arguments');
+            throw new \RuntimeException('wprism: WooCommerce scheduler-settings capabilities accept no arguments');
         }
     }
 
@@ -224,13 +224,13 @@ final class WoocommerceSchedulerSettings {
                     $intent = $marker['data'];
                     if (!$allowIntentResume) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce analytics unscoped invocation cannot adopt a pre-existing '
+                            'wprism: WooCommerce analytics unscoped invocation cannot adopt a pre-existing '
                             . 'transition intent; manual recovery is required'
                         );
                     }
                     if (!hash_equals($intent['origin_operation_sha256'], $operationHash)) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce analytics transition intent belongs to another operation; '
+                            'wprism: WooCommerce analytics transition intent belongs to another operation; '
                             . 'manual recovery is required before a new scoped operation can proceed'
                         );
                     }
@@ -251,7 +251,7 @@ final class WoocommerceSchedulerSettings {
                         || $intent['before_cursor_id_present'] !== $currentCursors['id_present']
                         || $intent['before_cursor_id_autoload'] !== $currentCursors['id_autoload']) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce analytics transition witnesses changed while its durable intent was written; recovery_required'
+                            'wprism: WooCommerce analytics transition witnesses changed while its durable intent was written; recovery_required'
                         );
                     }
                 }
@@ -287,7 +287,7 @@ final class WoocommerceSchedulerSettings {
             throw $releaseFailure;
         }
         if (!is_array($before) || !is_array($after)) {
-            throw new \RuntimeException('duo: WooCommerce analytics repair produced no exact receipt');
+            throw new \RuntimeException('wprism: WooCommerce analytics repair produced no exact receipt');
         }
 
         // A process death after the terminal marker but before the framework's
@@ -296,7 +296,7 @@ final class WoocommerceSchedulerSettings {
         self::assert_provider_mutex($mutex);
         if (self::analytics_stable_projection() !== $after) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics projection changed while its native claim fence was released; recovery_required'
+                'wprism: WooCommerce analytics projection changed while its native claim fence was released; recovery_required'
             );
         }
         return ['before' => $before, 'after' => $after, 'verified' => true];
@@ -359,7 +359,7 @@ final class WoocommerceSchedulerSettings {
             // than exact args/group. Waiting for the native continuation to
             // finish is the only way to avoid deleting or blessing it.
             throw new \RuntimeException(
-                'duo: WooCommerce analytics recurring repair is blocked by a pending native continuation; retry after it completes'
+                'wprism: WooCommerce analytics recurring repair is blocked by a pending native continuation; retry after it completes'
             );
         }
     }
@@ -387,7 +387,7 @@ final class WoocommerceSchedulerSettings {
             if (!self::cursor_date_is_expected($intent, $state['cursors'])
                 || !self::cursor_id_is_reset($state['cursors'], $intent)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics cursor transition did not converge; recovery_required'
+                    'wprism: WooCommerce analytics cursor transition did not converge; recovery_required'
                 );
             }
         }
@@ -407,21 +407,21 @@ final class WoocommerceSchedulerSettings {
                 || $finalTopology['recurring_interval'] !== $intent['interval']
                 || $finalTopology['catchup'] !== 0) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics recurring schedule did not converge; recovery_required'
+                    'wprism: WooCommerce analytics recurring schedule did not converge; recovery_required'
                 );
             }
             if ($intent['plan'] === 'no_to_yes'
                 && (!self::cursor_date_is_expected($intent, $finalCursors)
                     || !self::cursor_id_is_reset($finalCursors, $intent))) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics cursor reset drifted before transition verification; recovery_required'
+                    'wprism: WooCommerce analytics cursor reset drifted before transition verification; recovery_required'
                 );
             }
         } elseif ($finalTopology['recurring'] !== 0
             || $finalTopology['catchup'] > 1
             || ($intent['catchup_required'] === 1 && $finalTopology['catchup'] !== 1)) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics immediate schedule did not converge; recovery_required'
+                'wprism: WooCommerce analytics immediate schedule did not converge; recovery_required'
             );
         }
     }
@@ -443,7 +443,7 @@ final class WoocommerceSchedulerSettings {
             }
             if ($topology['work'] > 0) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics recurring repair is blocked by a pending native continuation; retry after it completes'
+                    'wprism: WooCommerce analytics recurring repair is blocked by a pending native continuation; retry after it completes'
                 );
             }
             self::schedule_and_claim('recurring', $fence, $mutex);
@@ -479,7 +479,7 @@ final class WoocommerceSchedulerSettings {
         $marker = self::marker_state();
         if (($marker['phase'] ?? null) !== 'intent' || $marker['data'] !== $intent) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics transition marker changed concurrently; recovery_required'
+                'wprism: WooCommerce analytics transition marker changed concurrently; recovery_required'
             );
         }
         $topology = self::analytics_topology($fence);
@@ -496,7 +496,7 @@ final class WoocommerceSchedulerSettings {
             || $source['desired'] !== $intent['to']
             || self::analytics_interval() !== $intent['interval']) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics setting or native interval changed during transition; recovery_required'
+                'wprism: WooCommerce analytics setting or native interval changed during transition; recovery_required'
             );
         }
     }
@@ -505,7 +505,7 @@ final class WoocommerceSchedulerSettings {
     private static function assert_work_unchanged(array $intent, array $topology): void {
         if (!hash_equals($intent['before_work_sha256'], $topology['work_sha256'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics continuation changed during an in-progress transition; recovery_required'
+                'wprism: WooCommerce analytics continuation changed during an in-progress transition; recovery_required'
             );
         }
     }
@@ -524,7 +524,7 @@ final class WoocommerceSchedulerSettings {
         }
         if (!$topologyIsBefore && !$topologyIsPartial) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics transition has an ambiguous partial schedule; recovery_required'
+                'wprism: WooCommerce analytics transition has an ambiguous partial schedule; recovery_required'
             );
         }
 
@@ -547,7 +547,7 @@ final class WoocommerceSchedulerSettings {
         if ($intent['plan'] !== 'no_to_yes') {
             if (!$dateBefore || !$idBefore) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics cursors changed during a non-reset transition; recovery_required'
+                    'wprism: WooCommerce analytics cursors changed during a non-reset transition; recovery_required'
                 );
             }
             return;
@@ -556,7 +556,7 @@ final class WoocommerceSchedulerSettings {
         $idReset = self::cursor_id_is_reset($cursors, $intent);
         if (!(($dateBefore && $idBefore) || ($dateExpected && $idBefore) || ($dateExpected && $idReset))) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics transition has an ambiguous partial cursor reset; recovery_required'
+                'wprism: WooCommerce analytics transition has an ambiguous partial cursor reset; recovery_required'
             );
         }
     }
@@ -609,7 +609,7 @@ final class WoocommerceSchedulerSettings {
     private static function unschedule_analytics(array $args, array &$fence, array $mutex): void {
         $kind = $args === [] ? 'recurring' : ($args === [null, null] ? 'catchup' : '');
         if ($kind === '') {
-            throw new \RuntimeException('duo: WooCommerce analytics cancellation args are outside the closed grammar');
+            throw new \RuntimeException('wprism: WooCommerce analytics cancellation args are outside the closed grammar');
         }
         $targetIds = [];
         foreach ($fence['active'] as $actionId => $activeKind) {
@@ -619,7 +619,7 @@ final class WoocommerceSchedulerSettings {
         }
         sort($targetIds, SORT_NUMERIC);
         if ($targetIds === []) {
-            throw new \RuntimeException('duo: WooCommerce analytics cancellation has no exact claimed target');
+            throw new \RuntimeException('wprism: WooCommerce analytics cancellation has no exact claimed target');
         }
 
         self::assert_provider_mutex($mutex);
@@ -643,7 +643,7 @@ final class WoocommerceSchedulerSettings {
                     || $state['status'] !== 'pending'
                     || $state['claim_id'] !== ($temporary['owners'][$actionId] ?? null)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics exact cancellation target changed before native mutation; recovery_required'
+                        'wprism: WooCommerce analytics exact cancellation target changed before native mutation; recovery_required'
                     );
                 }
                 $temporary['store']->cancel_action($actionId);
@@ -669,7 +669,7 @@ final class WoocommerceSchedulerSettings {
                     || $state['claim_id'] !== ($temporary['owners'][$actionId] ?? null)) {
                     $committed = true;
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics cancellation COMMIT outcome is partial; recovery_required',
+                        'wprism: WooCommerce analytics cancellation COMMIT outcome is partial; recovery_required',
                         0,
                         $commitFailure
                     );
@@ -679,13 +679,13 @@ final class WoocommerceSchedulerSettings {
             if ($pending === count($targetIds)) {
                 throw $commitFailure
                     ?? new \RuntimeException(
-                        'duo: WooCommerce analytics cancellation COMMIT did not persist; recovery_required'
+                        'wprism: WooCommerce analytics cancellation COMMIT did not persist; recovery_required'
                     );
             }
             $committed = true;
             if ($canceled !== count($targetIds)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics cancellation COMMIT outcome is partial; recovery_required',
+                    'wprism: WooCommerce analytics cancellation COMMIT outcome is partial; recovery_required',
                     0,
                     $commitFailure
                 );
@@ -721,7 +721,7 @@ final class WoocommerceSchedulerSettings {
             || ($before !== null && $after['autoload'] !== $before['autoload'])
             || ($before === null && $after['autoload'] !== 'auto')) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics cursor write did not persist exact native bytes/autoload; recovery_required'
+                'wprism: WooCommerce analytics cursor write did not persist exact native bytes/autoload; recovery_required'
             );
         }
     }
@@ -748,7 +748,7 @@ final class WoocommerceSchedulerSettings {
         }
         if (self::retention_option_state() !== $source) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention setting changed during cron repair; recovery_required'
+                'wprism: WooCommerce stock-retention setting changed during cron repair; recovery_required'
             );
         }
         $after = self::retention_stable_projection();
@@ -806,7 +806,7 @@ final class WoocommerceSchedulerSettings {
                 || $lockedBefore['topology']['unrelated_count']
                     !== $lockedAfter['topology']['unrelated_count']) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce stock-retention native cron mutation changed unrelated state '
+                    'wprism: WooCommerce stock-retention native cron mutation changed unrelated state '
                     . 'or cron autoload; recovery_required'
                 );
             }
@@ -826,11 +826,11 @@ final class WoocommerceSchedulerSettings {
                     && $committedRecord['autoload'] === $lockedBefore['witness']['autoload']) {
                     throw $commitFailure
                         ?? new \RuntimeException(
-                            'duo: WooCommerce stock-retention COMMIT did not persist; recovery_required'
+                            'wprism: WooCommerce stock-retention COMMIT did not persist; recovery_required'
                         );
                 }
                 throw new \RuntimeException(
-                    'duo: WooCommerce stock-retention COMMIT bytes are neither preimage nor result; recovery_required',
+                    'wprism: WooCommerce stock-retention COMMIT bytes are neither preimage nor result; recovery_required',
                     0,
                     $commitFailure
                 );
@@ -845,7 +845,7 @@ final class WoocommerceSchedulerSettings {
                     $committedTopology['unrelated_sha256']
                 )) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce stock-retention COMMIT outcome is ambiguous; recovery_required',
+                    'wprism: WooCommerce stock-retention COMMIT outcome is ambiguous; recovery_required',
                     0,
                     $commitFailure
                 );
@@ -874,7 +874,7 @@ final class WoocommerceSchedulerSettings {
                 throw $failure;
             }
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention cron transaction ended without an outcome; recovery_required'
+                'wprism: WooCommerce stock-retention cron transaction ended without an outcome; recovery_required'
             );
         }
         if ($failure !== null) {
@@ -885,7 +885,7 @@ final class WoocommerceSchedulerSettings {
         $final = self::retention_stable_projection();
         if (!is_array($before) || !is_array($after) || $final !== $after) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention committed projection changed during cache readback; recovery_required'
+                'wprism: WooCommerce stock-retention committed projection changed during cache readback; recovery_required'
             );
         }
         return ['before' => $before, 'after' => $after, 'verified' => true];
@@ -930,7 +930,7 @@ final class WoocommerceSchedulerSettings {
         }
         if ($workFailure !== null || $releaseFailure !== null) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention replacement-session cleanup did not converge; recovery_required',
+                'wprism: WooCommerce stock-retention replacement-session cleanup did not converge; recovery_required',
                 0,
                 $workFailure ?? $releaseFailure
             );
@@ -941,7 +941,7 @@ final class WoocommerceSchedulerSettings {
     private static function assert_retention_source(array $source): void {
         if (self::retention_option_state() !== $source) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention setting changed during locked cron repair; recovery_required'
+                'wprism: WooCommerce stock-retention setting changed during locked cron repair; recovery_required'
             );
         }
     }
@@ -950,7 +950,7 @@ final class WoocommerceSchedulerSettings {
     private static function assert_locked_retention_source(array $source): void {
         if (self::locked_retention_option_state() !== $source) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention setting changed inside its locked cron repair; recovery_required'
+                'wprism: WooCommerce stock-retention setting changed inside its locked cron repair; recovery_required'
             );
         }
     }
@@ -964,7 +964,7 @@ final class WoocommerceSchedulerSettings {
         if (($marker['phase'] ?? null) !== 'verified'
             || ($marker['data']['state'] ?? null) !== $source['desired']) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics transition marker is incomplete or disagrees with the authored setting; recovery_required'
+                'wprism: WooCommerce analytics transition marker is incomplete or disagrees with the authored setting; recovery_required'
             );
         }
         $interval = self::analytics_interval();
@@ -972,7 +972,7 @@ final class WoocommerceSchedulerSettings {
         self::cursor_state();
         if (!self::analytics_topology_is_stable($source['desired'], $topology, $interval)) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics scheduler projection is stale; recovery_required'
+                'wprism: WooCommerce analytics scheduler projection is stale; recovery_required'
             );
         }
         return [
@@ -1009,7 +1009,7 @@ final class WoocommerceSchedulerSettings {
         if ($topology['matching'] !== $expected
             || ($expected === 1 && $topology['healthy'] !== 1)) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention cron projection is stale; recovery_required'
+                'wprism: WooCommerce stock-retention cron projection is stale; recovery_required'
             );
         }
         return self::retention_projection_from($source, $topology);
@@ -1034,7 +1034,7 @@ final class WoocommerceSchedulerSettings {
     /** @return array<string,mixed> */
     private static function with_provider_mutex(callable $operation): array {
         if (self::$activeMutex !== null) {
-            throw new \RuntimeException('duo: WooCommerce scheduler provider mutex scope is already active');
+            throw new \RuntimeException('wprism: WooCommerce scheduler provider mutex scope is already active');
         }
         $mutex = self::acquire_provider_mutex();
         self::$activeMutex = $mutex;
@@ -1064,7 +1064,7 @@ final class WoocommerceSchedulerSettings {
                 );
             }
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler provider could not verify release of its database mutex; recovery_required',
+                'wprism: WooCommerce scheduler provider could not verify release of its database mutex; recovery_required',
                 0,
                 $releaseFailure
             );
@@ -1073,7 +1073,7 @@ final class WoocommerceSchedulerSettings {
             throw $failure;
         }
         if (!is_array($result)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler provider returned malformed mutex work');
+            throw new \RuntimeException('wprism: WooCommerce scheduler provider returned malformed mutex work');
         }
         return $result;
     }
@@ -1082,19 +1082,19 @@ final class WoocommerceSchedulerSettings {
     private static function acquire_provider_mutex(): array {
         global $wpdb;
         self::assert_options_table_identity();
-        $connection = self::db_positive_uint(\Duo\ProviderSdk::checked_get_var(
+        $connection = self::db_positive_uint(\WPrism\ProviderSdk::checked_get_var(
             'SELECT CONNECTION_ID()',
             'WooCommerce scheduler mutex connection'
         ), 'connection');
         $database = is_string($wpdb->dbname ?? null) ? $wpdb->dbname : '';
         $name = self::MUTEX_PREFIX . substr(hash('sha256', $database . '|' . $wpdb->options), 0, 32);
-        $acquired = \Duo\ProviderSdk::checked_get_var(
+        $acquired = \WPrism\ProviderSdk::checked_get_var(
             $wpdb->prepare('SELECT GET_LOCK(%s, 0)', $name),
             'WooCommerce scheduler mutex acquisition'
         );
         if ((string) $acquired !== '1') {
             throw new \RuntimeException(
-                'duo: another WooCommerce scheduler reconciliation holds the provider mutex; retry after it finishes'
+                'wprism: another WooCommerce scheduler reconciliation holds the provider mutex; retry after it finishes'
             );
         }
         $mutex = ['name' => $name, 'connection' => $connection];
@@ -1127,7 +1127,7 @@ final class WoocommerceSchedulerSettings {
      */
     private static function session_witness(array $mutex): array {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             'SELECT CONNECTION_ID() AS connection_id, '
             . '@@in_transaction AS in_transaction, '
             . 'IS_USED_LOCK(%s) AS lock_holder',
@@ -1138,14 +1138,14 @@ final class WoocommerceSchedulerSettings {
             || !in_array($rows[0]['in_transaction'] ?? null, ['0', '1'], true)
             || !self::canonical_positive_uint($rows[0]['lock_holder'] ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler returned a malformed atomic session witness'
+                'wprism: WooCommerce scheduler returned a malformed atomic session witness'
             );
         }
         $connection = (int) $rows[0]['connection_id'];
         if ($connection !== $mutex['connection']
             || (int) $rows[0]['lock_holder'] !== $connection) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler provider lost its database mutex continuity; recovery_required'
+                'wprism: WooCommerce scheduler provider lost its database mutex continuity; recovery_required'
             );
         }
         return [
@@ -1173,17 +1173,17 @@ final class WoocommerceSchedulerSettings {
             throw $failure;
         }
         try {
-            $released = \Duo\ProviderSdk::checked_get_var(
+            $released = \WPrism\ProviderSdk::checked_get_var(
                 $wpdb->prepare('SELECT RELEASE_LOCK(%s)', $mutex['name']),
                 'WooCommerce scheduler mutex release'
             );
-            $holder = \Duo\ProviderSdk::checked_get_var(
+            $holder = \WPrism\ProviderSdk::checked_get_var(
                 $wpdb->prepare('SELECT IS_USED_LOCK(%s)', $mutex['name']),
                 'WooCommerce scheduler mutex release readback'
             );
             if ((string) $released !== '1' || $holder !== null) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce scheduler provider database mutex release did not persist'
+                    'wprism: WooCommerce scheduler provider database mutex release did not persist'
                 );
             }
         } catch (\Throwable $failure) {
@@ -1207,11 +1207,11 @@ final class WoocommerceSchedulerSettings {
         $failure = null;
         for ($attempt = 1; $attempt <= 2; $attempt++) {
             try {
-                $released = \Duo\ProviderSdk::checked_get_var(
+                $released = \WPrism\ProviderSdk::checked_get_var(
                     $wpdb->prepare('SELECT RELEASE_LOCK(%s)', $mutex['name']),
                     'WooCommerce scheduler mutex cleanup release'
                 );
-                $holder = \Duo\ProviderSdk::checked_get_var(
+                $holder = \WPrism\ProviderSdk::checked_get_var(
                     $wpdb->prepare('SELECT IS_USED_LOCK(%s)', $mutex['name']),
                     'WooCommerce scheduler mutex cleanup readback'
                 );
@@ -1224,7 +1224,7 @@ final class WoocommerceSchedulerSettings {
             }
         }
         throw new \RuntimeException(
-            'duo: WooCommerce scheduler provider mutex best-effort cleanup did not converge',
+            'wprism: WooCommerce scheduler provider mutex best-effort cleanup did not converge',
             0,
             $failure
         );
@@ -1233,7 +1233,7 @@ final class WoocommerceSchedulerSettings {
     /** @return object */
     private static function analytics_store(): object {
         if (!class_exists('ActionScheduler') || !is_callable(['ActionScheduler', 'store'])) {
-            throw new \RuntimeException('duo: WooCommerce exact Action Scheduler store is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce exact Action Scheduler store is unavailable');
         }
         $store = \ActionScheduler::store();
         if (!is_object($store)
@@ -1244,7 +1244,7 @@ final class WoocommerceSchedulerSettings {
             || !is_callable([$store, 'get_claim_id'])
             || !is_callable([$store, 'get_status'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler repair requires the exact ActionScheduler_DBStore boundary'
+                'wprism: WooCommerce scheduler repair requires the exact ActionScheduler_DBStore boundary'
             );
         }
         return $store;
@@ -1320,7 +1320,7 @@ final class WoocommerceSchedulerSettings {
             sort($expectedIds, SORT_NUMERIC);
             if ($claimed !== $expectedIds) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics worker won the native claim race; '
+                    'wprism: WooCommerce analytics worker won the native claim race; '
                     . 'wait for it or stale-claim cleanup before retrying'
                 );
             }
@@ -1341,13 +1341,13 @@ final class WoocommerceSchedulerSettings {
                 throw $proofFailure
                     ?? $commitFailure
                     ?? new \RuntimeException(
-                        'duo: WooCommerce initial native claim COMMIT did not persist; recovery_required'
+                        'wprism: WooCommerce initial native claim COMMIT did not persist; recovery_required'
                     );
             }
             $committed = true;
             if (!$commitState['claim_present'] || $commitState['action_ids'] !== $claimed) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce initial native claim COMMIT outcome is partial; recovery_required',
+                    'wprism: WooCommerce initial native claim COMMIT outcome is partial; recovery_required',
                     0,
                     $proofFailure ?? $commitFailure
                 );
@@ -1385,13 +1385,13 @@ final class WoocommerceSchedulerSettings {
             || !self::canonical_positive_uint($claim->get_id())
             || !is_array($claim->get_actions())
             || count($claim->get_actions()) > self::MAX_ACTIONS) {
-            throw new \RuntimeException('duo: WooCommerce Action Scheduler returned a malformed native claim');
+            throw new \RuntimeException('wprism: WooCommerce Action Scheduler returned a malformed native claim');
         }
         $ids = [];
         foreach ($claim->get_actions() as $actionId) {
             if (!self::canonical_positive_uint($actionId) || isset($ids[(int) $actionId])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce Action Scheduler returned duplicate or malformed claimed actions'
+                    'wprism: WooCommerce Action Scheduler returned duplicate or malformed claimed actions'
                 );
             }
             $ids[(int) $actionId] = true;
@@ -1411,7 +1411,7 @@ final class WoocommerceSchedulerSettings {
         $claimId = (int) $claim->get_id();
         foreach (self::claim_action_ids($claim) as $actionId) {
             if (isset($fence['owners'][$actionId]) || !isset($kinds[$actionId])) {
-                throw new \RuntimeException('duo: WooCommerce scheduler claim overlaps an existing provider fence');
+                throw new \RuntimeException('wprism: WooCommerce scheduler claim overlaps an existing provider fence');
             }
             $fence['owners'][$actionId] = $claimId;
             $fence['active'][$actionId] = $kinds[$actionId];
@@ -1427,13 +1427,13 @@ final class WoocommerceSchedulerSettings {
         foreach ($fence['claims'] as $claim) {
             $claimId = (int) $claim->get_id();
             if (isset($claimSets[$claimId])) {
-                throw new \RuntimeException('duo: WooCommerce scheduler provider claim identity is duplicated');
+                throw new \RuntimeException('wprism: WooCommerce scheduler provider claim identity is duplicated');
             }
             $claimSets[$claimId] = self::claim_action_ids($claim);
             $state = self::claim_db_state($claimId);
             if (!$state['claim_present'] || $state['action_ids'] !== $claimSets[$claimId]) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics native claim ownership changed during repair; recovery_required'
+                    'wprism: WooCommerce analytics native claim ownership changed during repair; recovery_required'
                 );
             }
         }
@@ -1444,14 +1444,14 @@ final class WoocommerceSchedulerSettings {
                 || $claimId !== ($fence['owners'][$actionId] ?? null)
                 || $status !== 'pending') {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics worker progressed inside the native claim fence; recovery_required'
+                    'wprism: WooCommerce analytics worker progressed inside the native claim fence; recovery_required'
                 );
             }
         }
         foreach ($fence['canceled'] as $actionId => $_kind) {
             if ($fence['store']->get_status($actionId) !== 'canceled') {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics scoped cancellation did not persist; recovery_required'
+                    'wprism: WooCommerce analytics scoped cancellation did not persist; recovery_required'
                 );
             }
         }
@@ -1560,7 +1560,7 @@ final class WoocommerceSchedulerSettings {
         }
         if ($failure !== null) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics native claim release was incomplete; recovery_required',
+                'wprism: WooCommerce analytics native claim release was incomplete; recovery_required',
                 0,
                 $failure
             );
@@ -1581,28 +1581,28 @@ final class WoocommerceSchedulerSettings {
         \Throwable $continuityFailure
     ): array {
         global $wpdb;
-        $connection = self::db_positive_uint(\Duo\ProviderSdk::checked_get_var(
+        $connection = self::db_positive_uint(\WPrism\ProviderSdk::checked_get_var(
             'SELECT CONNECTION_ID()',
             'WooCommerce scheduler claim-cleanup replacement connection'
         ), 'connection');
-        $holder = \Duo\ProviderSdk::checked_get_var(
+        $holder = \WPrism\ProviderSdk::checked_get_var(
             $wpdb->prepare('SELECT IS_USED_LOCK(%s)', $mutex['name']),
             'WooCommerce scheduler claim-cleanup lock holder'
         );
         if ($connection === $mutex['connection'] || $holder !== null) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler cannot recover its mutex for exhaustive claim cleanup',
+                'wprism: WooCommerce scheduler cannot recover its mutex for exhaustive claim cleanup',
                 0,
                 $continuityFailure
             );
         }
-        $acquired = \Duo\ProviderSdk::checked_get_var(
+        $acquired = \WPrism\ProviderSdk::checked_get_var(
             $wpdb->prepare('SELECT GET_LOCK(%s, 0)', $mutex['name']),
             'WooCommerce scheduler claim-cleanup mutex reacquisition'
         );
         if ((string) $acquired !== '1') {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler cannot recover its mutex for exhaustive claim cleanup',
+                'wprism: WooCommerce scheduler cannot recover its mutex for exhaustive claim cleanup',
                 0,
                 $continuityFailure
             );
@@ -1618,7 +1618,7 @@ final class WoocommerceSchedulerSettings {
                 // best-effort helper already performed exact holder readback.
             }
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler replacement mutex verification failed during claim cleanup',
+                'wprism: WooCommerce scheduler replacement mutex verification failed during claim cleanup',
                 0,
                 $recoveryFailure
             );
@@ -1630,7 +1630,7 @@ final class WoocommerceSchedulerSettings {
     private static function action_db_state(int $actionId): ?array {
         global $wpdb;
         $table = self::scheduler_table('actionscheduler_actions');
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT action_id, status, claim_id FROM `$table` WHERE action_id = %d "
             . 'ORDER BY action_id ASC LIMIT 2',
             $actionId
@@ -1642,7 +1642,7 @@ final class WoocommerceSchedulerSettings {
             || ($rows[0]['action_id'] ?? null) !== (string) $actionId
             || !in_array($rows[0]['status'] ?? null, ['pending', 'canceled'], true)
             || !self::canonical_uint($rows[0]['claim_id'] ?? null)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler exact action row is malformed or duplicated');
+            throw new \RuntimeException('wprism: WooCommerce scheduler exact action row is malformed or duplicated');
         }
         return ['status' => $rows[0]['status'], 'claim_id' => (int) $rows[0]['claim_id']];
     }
@@ -1652,27 +1652,27 @@ final class WoocommerceSchedulerSettings {
         global $wpdb;
         $claimsTable = self::scheduler_table('actionscheduler_claims');
         $actionsTable = self::scheduler_table('actionscheduler_actions');
-        $claimRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $claimRows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT claim_id FROM `$claimsTable` WHERE claim_id = %d ORDER BY claim_id ASC LIMIT 2",
             $claimId
         ), 'WooCommerce scheduler native claim-row readback');
         if (count($claimRows) > 1
             || ($claimRows !== [] && ($claimRows[0]['claim_id'] ?? null) !== (string) $claimId)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native claim row is malformed or duplicated');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native claim row is malformed or duplicated');
         }
-        $actionRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $actionRows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT action_id FROM `$actionsTable` WHERE claim_id = %d ORDER BY action_id ASC LIMIT %d",
             $claimId,
             self::MAX_ACTIONS + 1
         ), 'WooCommerce scheduler claimed-action readback');
         if (count($actionRows) > self::MAX_ACTIONS) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native claim exceeds its bounded action set');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native claim exceeds its bounded action set');
         }
         $ids = [];
         foreach ($actionRows as $row) {
             if (!self::canonical_positive_uint($row['action_id'] ?? null)
                 || isset($ids[(int) $row['action_id']])) {
-                throw new \RuntimeException('duo: WooCommerce scheduler native claim action set is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler native claim action set is malformed');
             }
             $ids[(int) $row['action_id']] = true;
         }
@@ -1683,7 +1683,7 @@ final class WoocommerceSchedulerSettings {
 
     private static function schedule_and_claim(string $kind, array &$fence, array $mutex): void {
         if (!in_array($kind, ['recurring', 'catchup'], true)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native schedule kind is outside the closed grammar');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native schedule kind is outside the closed grammar');
         }
         self::assert_provider_mutex($mutex);
         self::assert_analytics_claim_fence($fence);
@@ -1713,7 +1713,7 @@ final class WoocommerceSchedulerSettings {
             $unclaimedIds = self::unclaimed_analytics_action_ids();
             if (count($unclaimedIds) !== 1) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native scheduler created a missing or ambiguous unclaimed action'
+                    'wprism: WooCommerce native scheduler created a missing or ambiguous unclaimed action'
                 );
             }
             $claimPreimages = self::claim_runtime_preimages($unclaimedIds);
@@ -1730,7 +1730,7 @@ final class WoocommerceSchedulerSettings {
             $claimed = self::claim_action_ids($claim);
             if ($claimed !== $unclaimedIds) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native scheduler did not create exactly one transaction-fenced action'
+                    'wprism: WooCommerce native scheduler did not create exactly one transaction-fenced action'
                 );
             }
             self::register_claim($temporary, $claim, [$claimed[0] => $kind], true);
@@ -1742,7 +1742,7 @@ final class WoocommerceSchedulerSettings {
             ));
             if (count($created) !== 1 || $created[0]['kind'] !== $kind) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce transaction-fenced action disagrees with the native requested schedule'
+                    'wprism: WooCommerce transaction-fenced action disagrees with the native requested schedule'
                 );
             }
             self::assert_transaction_state(true);
@@ -1756,7 +1756,7 @@ final class WoocommerceSchedulerSettings {
                 throw $proofFailure
                     ?? $commitFailure
                     ?? new \RuntimeException(
-                        'duo: WooCommerce native scheduler COMMIT did not persist; recovery_required'
+                        'wprism: WooCommerce native scheduler COMMIT did not persist; recovery_required'
                     );
             }
             // A lost COMMIT acknowledgement is not evidence of rollback. Accept it only
@@ -1765,7 +1765,7 @@ final class WoocommerceSchedulerSettings {
             $committed = true;
             if (!$commitState['claim_present'] || $commitState['action_ids'] !== $claimed) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native scheduler COMMIT outcome is partial; recovery_required',
+                    'wprism: WooCommerce native scheduler COMMIT outcome is partial; recovery_required',
                     0,
                     $proofFailure ?? $commitFailure
                 );
@@ -1782,7 +1782,7 @@ final class WoocommerceSchedulerSettings {
             ));
             if (count($committedRows) !== 1 || $committedRows[0]['kind'] !== $kind) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native scheduler COMMIT outcome is ambiguous; recovery_required',
+                    'wprism: WooCommerce native scheduler COMMIT outcome is ambiguous; recovery_required',
                     0,
                     $commitFailure
                 );
@@ -1816,7 +1816,7 @@ final class WoocommerceSchedulerSettings {
         $wpdb->last_error = '';
         $result = $wpdb->query($sql);
         if ($result === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: provider checked mutation failed: $context");
+            throw new \RuntimeException("wprism: provider checked mutation failed: $context");
         }
     }
 
@@ -1824,7 +1824,7 @@ final class WoocommerceSchedulerSettings {
     private static function unclaimed_analytics_action_ids(): array {
         global $wpdb;
         $table = self::scheduler_table('actionscheduler_actions');
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT action_id FROM `$table` WHERE hook = %s AND status = %s AND claim_id = 0 "
             . 'ORDER BY action_id ASC LIMIT %d',
             self::ANALYTICS_HOOK,
@@ -1832,13 +1832,13 @@ final class WoocommerceSchedulerSettings {
             self::MAX_ACTIONS + 1
         ), 'WooCommerce scheduler unclaimed native action roster');
         if (count($rows) > self::MAX_ACTIONS) {
-            throw new \RuntimeException('duo: WooCommerce scheduler unclaimed action roster exceeds its bound');
+            throw new \RuntimeException('wprism: WooCommerce scheduler unclaimed action roster exceeds its bound');
         }
         $ids = [];
         foreach ($rows as $row) {
             if (!self::canonical_positive_uint($row['action_id'] ?? null)
                 || isset($ids[(int) $row['action_id']])) {
-                throw new \RuntimeException('duo: WooCommerce scheduler unclaimed action roster is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler unclaimed action roster is malformed');
             }
             $ids[(int) $row['action_id']] = true;
         }
@@ -1850,7 +1850,7 @@ final class WoocommerceSchedulerSettings {
         global $wpdb;
         self::assert_transaction_state(true);
         $table = self::scheduler_table('actionscheduler_actions');
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT action_id, BINARY hook AS hook, status, claim_id FROM `$table` "
             . 'FORCE INDEX (`hook_status_scheduled_date_gmt`) '
             . 'WHERE hook = %s AND status = %s '
@@ -1861,7 +1861,7 @@ final class WoocommerceSchedulerSettings {
         ), 'WooCommerce scheduler exact pending-hook range lock');
         if (count($rows) > self::MAX_ACTIONS) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics pending range exceeds its bounded action inventory'
+                'wprism: WooCommerce analytics pending range exceeds its bounded action inventory'
             );
         }
         $ids = [];
@@ -1873,7 +1873,7 @@ final class WoocommerceSchedulerSettings {
                 || !self::canonical_positive_uint($row['claim_id'] ?? null)
                 || (int) $row['claim_id'] !== ($fence['owners'][$actionId] ?? null)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics pending range changed outside its exact native claim fence; recovery_required'
+                    'wprism: WooCommerce analytics pending range changed outside its exact native claim fence; recovery_required'
                 );
             }
             $ids[$actionId] = true;
@@ -1884,7 +1884,7 @@ final class WoocommerceSchedulerSettings {
         sort($expected, SORT_NUMERIC);
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics pending range changed outside its exact native claim fence; recovery_required'
+                'wprism: WooCommerce analytics pending range changed outside its exact native claim fence; recovery_required'
             );
         }
         self::assert_transaction_state(true);
@@ -1899,15 +1899,15 @@ final class WoocommerceSchedulerSettings {
         global $wpdb;
         self::assert_transaction_state(true);
         if ($actionIds === [] || count($actionIds) > self::MAX_ACTIONS) {
-            throw new \RuntimeException('duo: WooCommerce cancellation log scope is malformed');
+            throw new \RuntimeException('wprism: WooCommerce cancellation log scope is malformed');
         }
         $table = self::scheduler_table('actionscheduler_logs');
         $out = [];
         foreach ($actionIds as $actionId) {
             if (!is_int($actionId) || $actionId < 1 || isset($out[$actionId])) {
-                throw new \RuntimeException('duo: WooCommerce cancellation log identity is malformed');
+                throw new \RuntimeException('wprism: WooCommerce cancellation log identity is malformed');
             }
-            $witnesses = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $witnesses = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT log_id, action_id, LENGTH(message) AS message_bytes, "
                 . "log_date_gmt, log_date_local FROM `$table` FORCE INDEX (`action_id`) "
                 . 'WHERE action_id = %d ORDER BY log_id ASC LIMIT %d FOR UPDATE',
@@ -1916,7 +1916,7 @@ final class WoocommerceSchedulerSettings {
             ), 'WooCommerce scheduler bounded cancellation-log range');
             if (count($witnesses) > self::MAX_LOGS_PER_ACTION + 1) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce cancellation-log owner range exceeds its bound'
+                    'wprism: WooCommerce cancellation-log owner range exceeds its bound'
                 );
             }
             $rows = [];
@@ -1934,10 +1934,10 @@ final class WoocommerceSchedulerSettings {
                     || !is_string($witness['log_date_local'] ?? null)
                     || !self::valid_mysql_datetime($witness['log_date_local'])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce cancellation-log owner range is malformed or oversized'
+                        'wprism: WooCommerce cancellation-log owner range is malformed or oversized'
                     );
                 }
-                $digestRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                $digestRows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                     "SELECT log_id, action_id, LENGTH(message) AS message_bytes, "
                     . "SHA2(message, 256) AS message_sha256 FROM `$table` "
                     . 'WHERE log_id = %d AND action_id = %d AND LENGTH(message) = %d '
@@ -1954,7 +1954,7 @@ final class WoocommerceSchedulerSettings {
                     || !is_string($digestRows[0]['message_sha256'] ?? null)
                     || preg_match('/^[a-f0-9]{64}$/D', $digestRows[0]['message_sha256']) !== 1) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce cancellation log changed during bounded readback; recovery_required'
+                        'wprism: WooCommerce cancellation log changed during bounded readback; recovery_required'
                     );
                 }
                 $rows[$logId] = [
@@ -1987,14 +1987,14 @@ final class WoocommerceSchedulerSettings {
                 || count($current) !== count($prior) + 1
                 || array_slice($current, 0, count($prior)) !== $prior) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native cancellation did not append exactly one owner-bound log; recovery_required'
+                    'wprism: WooCommerce native cancellation did not append exactly one owner-bound log; recovery_required'
                 );
             }
             $new = $current[array_key_last($current)];
             $priorLast = $prior === [] ? 0 : (int) $prior[array_key_last($prior)]['log_id'];
             if (!is_array($new) || ($new['log_id'] ?? 0) <= $priorLast) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native cancellation log identity is not an exact append; recovery_required'
+                    'wprism: WooCommerce native cancellation log identity is not an exact append; recovery_required'
                 );
             }
         }
@@ -2004,23 +2004,23 @@ final class WoocommerceSchedulerSettings {
     private static function claim_runtime_preimages(array $actionIds): array {
         global $wpdb;
         if ($actionIds === [] || count($actionIds) > self::MAX_ACTIONS) {
-            throw new \RuntimeException('duo: WooCommerce scheduler claim preimage scope is malformed');
+            throw new \RuntimeException('wprism: WooCommerce scheduler claim preimage scope is malformed');
         }
         sort($actionIds, SORT_NUMERIC);
         foreach ($actionIds as $actionId) {
             if (!is_int($actionId) || $actionId < 1) {
-                throw new \RuntimeException('duo: WooCommerce scheduler claim preimage identity is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler claim preimage identity is malformed');
             }
         }
         $table = self::scheduler_table('actionscheduler_actions');
         $placeholders = implode(',', array_fill(0, count($actionIds), '%d'));
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT action_id, status, claim_id, last_attempt_gmt, last_attempt_local FROM `$table` "
             . "WHERE action_id IN ($placeholders) ORDER BY action_id ASC LIMIT %d",
             ...[...$actionIds, count($actionIds) + 1]
         ), 'WooCommerce scheduler claim runtime preimages');
         if (count($rows) !== count($actionIds)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler claim preimage roster changed');
+            throw new \RuntimeException('wprism: WooCommerce scheduler claim preimage roster changed');
         }
         $preimages = [];
         foreach ($rows as $row) {
@@ -2033,7 +2033,7 @@ final class WoocommerceSchedulerSettings {
                 || ($row['claim_id'] ?? null) !== '0'
                 || !self::valid_native_attempt_date($gmt)
                 || !self::valid_native_attempt_date($local)) {
-                throw new \RuntimeException('duo: WooCommerce scheduler claim runtime preimage is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler claim runtime preimage is malformed');
             }
             $preimages[$actionId] = ['gmt' => $gmt, 'local' => $local];
         }
@@ -2053,13 +2053,13 @@ final class WoocommerceSchedulerSettings {
             ], ['action_id' => $actionId]);
             if ($result === false || !in_array($result, [0, 1], true) || (string) $wpdb->last_error !== '') {
                 throw new \RuntimeException(
-                    'duo: WooCommerce scheduler could not restore native claim runtime preimages'
+                    'wprism: WooCommerce scheduler could not restore native claim runtime preimages'
                 );
             }
         }
         if (self::claim_runtime_dates(array_keys($preimages)) !== $preimages) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native claim runtime preimage restoration changed; recovery_required'
+                'wprism: WooCommerce scheduler native claim runtime preimage restoration changed; recovery_required'
             );
         }
     }
@@ -2069,13 +2069,13 @@ final class WoocommerceSchedulerSettings {
         global $wpdb;
         $table = self::scheduler_table('actionscheduler_actions');
         $placeholders = implode(',', array_fill(0, count($actionIds), '%d'));
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT action_id, last_attempt_gmt, last_attempt_local FROM `$table` "
             . "WHERE action_id IN ($placeholders) ORDER BY action_id ASC LIMIT %d",
             ...[...$actionIds, count($actionIds) + 1]
         ), 'WooCommerce scheduler restored claim runtime dates');
         if (count($rows) !== count($actionIds)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler restored claim runtime roster changed');
+            throw new \RuntimeException('wprism: WooCommerce scheduler restored claim runtime roster changed');
         }
         $dates = [];
         foreach ($rows as $row) {
@@ -2086,7 +2086,7 @@ final class WoocommerceSchedulerSettings {
                 || isset($dates[$actionId])
                 || !self::valid_native_attempt_date($gmt)
                 || !self::valid_native_attempt_date($local)) {
-                throw new \RuntimeException('duo: WooCommerce scheduler restored claim runtime date is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler restored claim runtime date is malformed');
             }
             $dates[$actionId] = ['gmt' => $gmt, 'local' => $local];
         }
@@ -2145,7 +2145,7 @@ final class WoocommerceSchedulerSettings {
             throw $restoreFailure;
         }
         if (!is_object($claim) || get_class($claim) !== 'ActionScheduler_ActionClaim') {
-            throw new \RuntimeException('duo: WooCommerce Action Scheduler returned a malformed native claim');
+            throw new \RuntimeException('wprism: WooCommerce Action Scheduler returned a malformed native claim');
         }
         return $claim;
     }
@@ -2153,7 +2153,7 @@ final class WoocommerceSchedulerSettings {
     /** @return array{before:null,filters:array<string,mixed>} */
     private static function claim_store_state(object $store): array {
         if (get_class($store) !== 'ActionScheduler_DBStore') {
-            throw new \RuntimeException('duo: WooCommerce scheduler claim state requires the exact DBStore');
+            throw new \RuntimeException('wprism: WooCommerce scheduler claim state requires the exact DBStore');
         }
         try {
             $reflection = new \ReflectionClass($store);
@@ -2161,7 +2161,7 @@ final class WoocommerceSchedulerSettings {
             $filters = $reflection->getProperty('claim_filters');
         } catch (\ReflectionException $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native claim singleton layout disagrees',
+                'wprism: WooCommerce scheduler native claim singleton layout disagrees',
                 0,
                 $failure
             );
@@ -2172,13 +2172,13 @@ final class WoocommerceSchedulerSettings {
             || $filters->getDeclaringClass()->getName() !== 'ActionScheduler_DBStore'
             || !$filters->isProtected()
             || $filters->isStatic()) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native claim singleton layout disagrees');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native claim singleton layout disagrees');
         }
         $beforeValue = $before->getValue($store);
         $filterValue = $filters->getValue($store);
         if ($beforeValue !== null || !is_array($filterValue)) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native claim singleton is already active or malformed'
+                'wprism: WooCommerce scheduler native claim singleton is already active or malformed'
             );
         }
         self::assert_claim_filters($filterValue);
@@ -2195,14 +2195,14 @@ final class WoocommerceSchedulerSettings {
             $filters->setValue($store, $state['filters']);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native claim singleton restore failed; recovery_required',
+                'wprism: WooCommerce scheduler native claim singleton restore failed; recovery_required',
                 0,
                 $failure
             );
         }
         if (self::claim_store_state($store) !== $state) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native claim singleton restore changed; recovery_required'
+                'wprism: WooCommerce scheduler native claim singleton restore changed; recovery_required'
             );
         }
     }
@@ -2210,7 +2210,7 @@ final class WoocommerceSchedulerSettings {
     /** @param array<string,mixed> $filters */
     private static function assert_claim_filters(array $filters): void {
         if (array_keys($filters) !== ['group', 'hooks', 'exclude-groups']) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native claim filters are malformed');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native claim filters are malformed');
         }
         foreach ($filters as $name => $value) {
             if ($value === '') {
@@ -2218,7 +2218,7 @@ final class WoocommerceSchedulerSettings {
             }
             $values = is_string($value) ? [$value] : $value;
             if (!is_array($values) || $values === [] || count($values) > self::MAX_ACTIONS) {
-                throw new \RuntimeException('duo: WooCommerce scheduler native claim filters are malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler native claim filters are malformed');
             }
             $seen = [];
             foreach ($values as $key => $entry) {
@@ -2228,12 +2228,12 @@ final class WoocommerceSchedulerSettings {
                     || strlen($entry) > 191
                     || str_contains($entry, "\0")
                     || isset($seen[$entry])) {
-                    throw new \RuntimeException('duo: WooCommerce scheduler native claim filters are malformed');
+                    throw new \RuntimeException('wprism: WooCommerce scheduler native claim filters are malformed');
                 }
                 $seen[$entry] = true;
             }
             if ($name === 'hooks' && is_string($value)) {
-                throw new \RuntimeException('duo: WooCommerce scheduler native claim hook filter is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler native claim hook filter is malformed');
             }
         }
     }
@@ -2249,7 +2249,7 @@ final class WoocommerceSchedulerSettings {
             }
         }
         throw new \RuntimeException(
-            'duo: WooCommerce scheduler could not classify its native COMMIT claim outcome; recovery_required',
+            'wprism: WooCommerce scheduler could not classify its native COMMIT claim outcome; recovery_required',
             0,
             $failure
         );
@@ -2298,14 +2298,14 @@ final class WoocommerceSchedulerSettings {
         self::assert_provider_mutex($mutex);
         if (!self::transaction_is_active()) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler isolation cleanup did not start its empty transaction'
+                'wprism: WooCommerce scheduler isolation cleanup did not start its empty transaction'
             );
         }
         self::rollback_checked_transaction("$context isolation cleanup", true);
         self::assert_provider_mutex($mutex);
         if (self::transaction_is_active()) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler isolation cleanup left an active transaction; recovery_required'
+                'wprism: WooCommerce scheduler isolation cleanup left an active transaction; recovery_required'
             );
         }
     }
@@ -2338,7 +2338,7 @@ final class WoocommerceSchedulerSettings {
         $primary = $acknowledgementFailure
             ?? $continuityFailure
             ?? new \RuntimeException(
-                'duo: WooCommerce scheduler COMMIT acknowledgement did not end its transaction; recovery_required'
+                'wprism: WooCommerce scheduler COMMIT acknowledgement did not end its transaction; recovery_required'
             );
         try {
             // A truthy driver acknowledgement is not a commit certificate.
@@ -2384,7 +2384,7 @@ final class WoocommerceSchedulerSettings {
             }
         }
         throw new \RuntimeException(
-            'duo: WooCommerce scheduler transaction rollback outcome is ambiguous; recovery_required',
+            'wprism: WooCommerce scheduler transaction rollback outcome is ambiguous; recovery_required',
             0,
             $primaryFailure
         );
@@ -2393,7 +2393,7 @@ final class WoocommerceSchedulerSettings {
     private static function transaction_is_active(): bool {
         if (self::$activeMutex === null) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler transaction continuity has no active mutex authority'
+                'wprism: WooCommerce scheduler transaction continuity has no active mutex authority'
             );
         }
         return self::session_witness(self::$activeMutex)['in_transaction'];
@@ -2402,7 +2402,7 @@ final class WoocommerceSchedulerSettings {
     private static function assert_transaction_state(bool $expected): void {
         if (self::transaction_is_active() !== $expected) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler transaction continuity changed inside a native callback; recovery_required'
+                'wprism: WooCommerce scheduler transaction continuity changed inside a native callback; recovery_required'
             );
         }
         if ($expected) {
@@ -2425,14 +2425,14 @@ final class WoocommerceSchedulerSettings {
             'READ-UNCOMMITTED', 'READ-COMMITTED', 'REPEATABLE-READ', 'SERIALIZABLE',
         ], true)) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler could not read the native transaction-isolation variable'
+                'wprism: WooCommerce scheduler could not read the native transaction-isolation variable'
             );
         }
     }
 
     private static function assert_native_scheduler_hook_topology(): void {
         if (!function_exists('has_filter')) {
-            throw new \RuntimeException('duo: WooCommerce scheduler cannot inspect native hook topology');
+            throw new \RuntimeException('wprism: WooCommerce scheduler cannot inspect native hook topology');
         }
         self::assert_analytics_option_hook_topology();
         foreach ([
@@ -2449,7 +2449,7 @@ final class WoocommerceSchedulerSettings {
         ] as $hook) {
             if (has_filter($hook) !== false) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce scheduler native transaction hook topology has an extension callback'
+                    'wprism: WooCommerce scheduler native transaction hook topology has an extension callback'
                 );
             }
         }
@@ -2468,7 +2468,7 @@ final class WoocommerceSchedulerSettings {
 
         $logger = \ActionScheduler::logger();
         if (!is_object($logger) || get_class($logger) !== 'ActionScheduler_DBLogger') {
-            throw new \RuntimeException('duo: WooCommerce scheduler requires the exact native database logger');
+            throw new \RuntimeException('wprism: WooCommerce scheduler requires the exact native database logger');
         }
         self::assert_exact_native_hook(
             'action_scheduler_stored_action',
@@ -2568,11 +2568,11 @@ final class WoocommerceSchedulerSettings {
             return;
         }
         if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler option hook topology is unreadable');
+            throw new \RuntimeException('wprism: WooCommerce scheduler option hook topology is unreadable');
         }
         foreach ($registered->callbacks as $priority => $callbacks) {
             if (!is_int($priority) || !is_array($callbacks)) {
-                throw new \RuntimeException('duo: WooCommerce scheduler option hook topology is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler option hook topology is malformed');
             }
             foreach ($callbacks as $callback) {
                 $function = $callback['function'] ?? null;
@@ -2588,7 +2588,7 @@ final class WoocommerceSchedulerSettings {
                             $signature = $allowedFunction . '@' . $allowedPriority . '/' . $allowedArgs;
                             if (isset($seen[$signature])) {
                                 throw new \RuntimeException(
-                                    'duo: WooCommerce scheduler option hook topology has duplicate native callbacks'
+                                    'wprism: WooCommerce scheduler option hook topology has duplicate native callbacks'
                                 );
                             }
                             $seen[$signature] = true;
@@ -2598,7 +2598,7 @@ final class WoocommerceSchedulerSettings {
                     }
                     if (!$matched) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce scheduler option hook topology has an extension callback'
+                            'wprism: WooCommerce scheduler option hook topology has an extension callback'
                         );
                     }
                     continue;
@@ -2609,7 +2609,7 @@ final class WoocommerceSchedulerSettings {
                     || !is_string($function[1])
                     || !is_int($acceptedArgs)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce scheduler option hook topology has an extension callback'
+                        'wprism: WooCommerce scheduler option hook topology has an extension callback'
                     );
                 }
                 $class = is_object($function[0]) ? get_class($function[0]) : ltrim($function[0], '\\');
@@ -2623,14 +2623,14 @@ final class WoocommerceSchedulerSettings {
                             || !is_object($function[0])
                             || $function[0] !== self::native_container_service($allowedClass)) {
                             throw new \RuntimeException(
-                                'duo: WooCommerce scheduler option hook callback is not the exact native service'
+                                'wprism: WooCommerce scheduler option hook callback is not the exact native service'
                             );
                         }
                         $signature = $allowedClass . '::' . $allowedMethod . '@'
                             . $allowedPriority . '/' . $allowedArgs;
                         if (isset($seen[$signature])) {
                             throw new \RuntimeException(
-                                'duo: WooCommerce scheduler option hook topology has duplicate native callbacks'
+                                'wprism: WooCommerce scheduler option hook topology has duplicate native callbacks'
                             );
                         }
                         $seen[$signature] = true;
@@ -2640,7 +2640,7 @@ final class WoocommerceSchedulerSettings {
                 }
                 if (!$matched) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce scheduler option hook topology has an extension callback'
+                        'wprism: WooCommerce scheduler option hook topology has an extension callback'
                     );
                 }
             }
@@ -2649,15 +2649,15 @@ final class WoocommerceSchedulerSettings {
 
     private static function native_container_service(string $class): object {
         if (!function_exists('wc_get_container')) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native service container is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native service container is unavailable');
         }
         $container = wc_get_container();
         if (!is_object($container) || !is_callable([$container, 'get'])) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native service container is malformed');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native service container is malformed');
         }
         $service = $container->get($class);
         if (!is_object($service) || get_class($service) !== $class) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native option-hook service is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native option-hook service is unavailable');
         }
         return $service;
     }
@@ -2665,7 +2665,7 @@ final class WoocommerceSchedulerSettings {
     private static function assert_stored_action_log(int $actionId): void {
         global $wpdb;
         $logsTable = self::scheduler_table('actionscheduler_logs');
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT log_id, action_id, LENGTH(message) AS message_bytes, log_date_gmt, log_date_local "
             . "FROM `$logsTable` WHERE action_id = %d ORDER BY log_id ASC LIMIT 2",
             $actionId
@@ -2680,7 +2680,7 @@ final class WoocommerceSchedulerSettings {
             || !is_string($rows[0]['log_date_local'] ?? null)
             || !self::valid_mysql_datetime($rows[0]['log_date_local'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler committed action lacks its exact bounded native log'
+                'wprism: WooCommerce scheduler committed action lacks its exact bounded native log'
             );
         }
     }
@@ -2705,12 +2705,12 @@ final class WoocommerceSchedulerSettings {
         global $wp_filter;
         $registered = $wp_filter[$hook] ?? null;
         if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native hook is absent or unreadable');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native hook is absent or unreadable');
         }
         $matches = 0;
         foreach ($registered->callbacks as $registeredPriority => $callbacks) {
             if (!is_int($registeredPriority) || !is_array($callbacks)) {
-                throw new \RuntimeException('duo: WooCommerce scheduler native hook is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler native hook is malformed');
             }
             foreach ($callbacks as $callback) {
                 if ($registeredPriority === $priority
@@ -2722,7 +2722,7 @@ final class WoocommerceSchedulerSettings {
         }
         if ($matches !== 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native hook is absent or duplicated'
+                'wprism: WooCommerce scheduler native hook is absent or duplicated'
             );
         }
     }
@@ -2734,12 +2734,12 @@ final class WoocommerceSchedulerSettings {
         global $wp_filter;
         $registered = $wp_filter[$hook] ?? null;
         if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native hook is absent or unreadable');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native hook is absent or unreadable');
         }
         $rows = [];
         foreach ($registered->callbacks as $registeredPriority => $callbacks) {
             if (!is_int($registeredPriority) || !is_array($callbacks)) {
-                throw new \RuntimeException('duo: WooCommerce scheduler native hook is malformed');
+                throw new \RuntimeException('wprism: WooCommerce scheduler native hook is malformed');
             }
             foreach ($callbacks as $callback) {
                 $rows[] = [
@@ -2751,7 +2751,7 @@ final class WoocommerceSchedulerSettings {
         }
         if (count($rows) !== count($expected)) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native hook has missing or extension callbacks'
+                'wprism: WooCommerce scheduler native hook has missing or extension callbacks'
             );
         }
         $matched = [];
@@ -2768,7 +2768,7 @@ final class WoocommerceSchedulerSettings {
             }
             if ($found === null) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce scheduler native hook has missing or extension callbacks'
+                    'wprism: WooCommerce scheduler native hook has missing or extension callbacks'
                 );
             }
             $matched[$found] = true;
@@ -2884,14 +2884,14 @@ final class WoocommerceSchedulerSettings {
             'actionscheduler_logs' => 'log_id',
         ] as $suffix => $primaryKey) {
             $table = self::scheduler_table($suffix);
-            $rows = \Duo\ProviderSdk::checked_get_results(
+            $rows = \WPrism\ProviderSdk::checked_get_results(
                 "SELECT `$primaryKey` FROM `$table` WHERE `$primaryKey` = 0 "
                 . "ORDER BY `$primaryKey` ASC LIMIT 1 FOR UPDATE",
                 'WooCommerce scheduler transaction schema-lock acquisition'
             );
             if ($rows !== []) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce scheduler native storage contains an impossible zero identity'
+                    'wprism: WooCommerce scheduler native storage contains an impossible zero identity'
                 );
             }
             self::assert_transaction_state(true);
@@ -2905,7 +2905,7 @@ final class WoocommerceSchedulerSettings {
     private static function lock_analytics_group_range(): void {
         global $wpdb;
         $table = self::scheduler_table('actionscheduler_groups');
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT group_id, BINARY slug AS slug, LENGTH(slug) AS slug_bytes FROM `$table` "
             . 'FORCE INDEX (`slug`) WHERE slug = %s '
             . 'ORDER BY group_id ASC LIMIT 2 FOR UPDATE',
@@ -2913,13 +2913,13 @@ final class WoocommerceSchedulerSettings {
         ), 'WooCommerce scheduler locked analytics group range');
         self::assert_transaction_state(true);
         if (count($rows) > 1) {
-            throw new \RuntimeException('duo: WooCommerce analytics native action group is duplicated under lock');
+            throw new \RuntimeException('wprism: WooCommerce analytics native action group is duplicated under lock');
         }
         if ($rows !== []
             && (!self::canonical_positive_uint($rows[0]['group_id'] ?? null)
                 || ($rows[0]['slug'] ?? null) !== self::ANALYTICS_GROUP
                 || ($rows[0]['slug_bytes'] ?? null) !== (string) strlen(self::ANALYTICS_GROUP))) {
-            throw new \RuntimeException('duo: WooCommerce analytics native action group is aliased under lock');
+            throw new \RuntimeException('wprism: WooCommerce analytics native action group is aliased under lock');
         }
     }
 
@@ -2942,20 +2942,20 @@ final class WoocommerceSchedulerSettings {
     /** @param list<array{0:string,1:string,2:string,3:?string,4:string}> $expected */
     private static function assert_exact_columns(string $table, array $expected): void {
         global $wpdb;
-        $count = self::db_positive_or_zero_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+        $count = self::db_positive_or_zero_uint(\WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
             'SELECT COUNT(*) FROM information_schema.COLUMNS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
             $table
         ), 'WooCommerce scheduler column cardinality witness'), 'column count');
         if ($count !== count($expected) || $count > 32) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native column inventory disagrees with its exact schema');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native column inventory disagrees with its exact schema');
         }
-        $rows = \Duo\ProviderSdk::checked_get_results(
+        $rows = \WPrism\ProviderSdk::checked_get_results(
             "SHOW FULL COLUMNS FROM `$table`",
             'WooCommerce scheduler exact ordered columns'
         );
         if (count($rows) !== $count) {
-            throw new \RuntimeException('duo: WooCommerce scheduler column inventory changed during bounded readback');
+            throw new \RuntimeException('wprism: WooCommerce scheduler column inventory changed during bounded readback');
         }
         $actual = [];
         foreach ($rows as $row) {
@@ -2975,13 +2975,13 @@ final class WoocommerceSchedulerSettings {
             ];
         }
         if ($actual !== $expected) {
-            throw new \RuntimeException('duo: WooCommerce scheduler native ordered column schema disagrees');
+            throw new \RuntimeException('wprism: WooCommerce scheduler native ordered column schema disagrees');
         }
     }
 
     private static function assert_innodb_table(string $table): void {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results(
+        $rows = \WPrism\ProviderSdk::checked_get_results(
             $wpdb->prepare('SHOW TABLE STATUS LIKE %s', $wpdb->esc_like($table)),
             'WooCommerce scheduler transaction table engine'
         );
@@ -2989,7 +2989,7 @@ final class WoocommerceSchedulerSettings {
             || ($rows[0]['Name'] ?? null) !== $table
             || strtoupper((string) ($rows[0]['Engine'] ?? '')) !== 'INNODB') {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler transaction requires exact InnoDB native tables'
+                'wprism: WooCommerce scheduler transaction requires exact InnoDB native tables'
             );
         }
     }
@@ -2997,20 +2997,20 @@ final class WoocommerceSchedulerSettings {
     /** @param array<string,array{0:int,1:list<array{0:string,1:?int,2:string}>}> $required */
     private static function assert_required_indexes(string $table, array $required): void {
         global $wpdb;
-        $count = self::db_positive_or_zero_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+        $count = self::db_positive_or_zero_uint(\WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
             'SELECT COUNT(*) FROM information_schema.STATISTICS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
             $table
         ), 'WooCommerce scheduler index cardinality witness'), 'index count');
         if ($count > 64) {
-            throw new \RuntimeException('duo: WooCommerce scheduler table index inventory exceeds its bound');
+            throw new \RuntimeException('wprism: WooCommerce scheduler table index inventory exceeds its bound');
         }
-        $rows = \Duo\ProviderSdk::checked_get_results(
+        $rows = \WPrism\ProviderSdk::checked_get_results(
             "SHOW INDEX FROM `$table`",
             'WooCommerce scheduler required indexes'
         );
         if (count($rows) !== $count) {
-            throw new \RuntimeException('duo: WooCommerce scheduler index inventory changed during readback');
+            throw new \RuntimeException('wprism: WooCommerce scheduler index inventory changed during readback');
         }
         $actual = [];
         foreach ($rows as $row) {
@@ -3039,14 +3039,14 @@ final class WoocommerceSchedulerSettings {
                 || strtoupper((string) ($row['Index_type'] ?? '')) !== 'BTREE'
                 || (array_key_exists('Visible', $row) && strtoupper((string) $row['Visible']) !== 'YES')
                 || (array_key_exists('Ignored', $row) && strtoupper((string) $row['Ignored']) !== 'NO')) {
-                throw new \RuntimeException('duo: WooCommerce scheduler table returned an unusable native index');
+                throw new \RuntimeException('wprism: WooCommerce scheduler table returned an unusable native index');
             }
             if (isset($actual[$key][$sequence])) {
-                throw new \RuntimeException('duo: WooCommerce scheduler table returned a duplicate index column');
+                throw new \RuntimeException('wprism: WooCommerce scheduler table returned a duplicate index column');
             }
             $actual[$key]['non_unique'] ??= $nonUnique;
             if ($actual[$key]['non_unique'] !== $nonUnique) {
-                throw new \RuntimeException('duo: WooCommerce scheduler index uniqueness is inconsistent');
+                throw new \RuntimeException('wprism: WooCommerce scheduler index uniqueness is inconsistent');
             }
             $actual[$key][$sequence] = [$column, $subPart, $nullable];
         }
@@ -3056,18 +3056,18 @@ final class WoocommerceSchedulerSettings {
         sort($requiredNames, SORT_STRING);
         if ($actualNames !== $requiredNames) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native storage has a missing, renamed, or extra index'
+                'wprism: WooCommerce scheduler native storage has a missing, renamed, or extra index'
             );
         }
         foreach ($required as $key => [$nonUnique, $columns]) {
             if (!isset($actual[$key]) || ($actual[$key]['non_unique'] ?? null) !== $nonUnique) {
-                throw new \RuntimeException('duo: WooCommerce scheduler native storage lacks a required index');
+                throw new \RuntimeException('wprism: WooCommerce scheduler native storage lacks a required index');
             }
             $observed = $actual[$key];
             unset($observed['non_unique']);
             ksort($observed, SORT_NUMERIC);
             if (array_values($observed) !== $columns) {
-                throw new \RuntimeException('duo: WooCommerce scheduler required index columns disagree');
+                throw new \RuntimeException('wprism: WooCommerce scheduler required index columns disagree');
             }
         }
     }
@@ -3080,11 +3080,11 @@ final class WoocommerceSchedulerSettings {
         if ($suffix !== 'options'
             && (!isset($wpdb->$property) || $wpdb->$property !== $table)) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler native table registration disagrees with the exact site prefix'
+                'wprism: WooCommerce scheduler native table registration disagrees with the exact site prefix'
             );
         }
         if (preg_match(self::TABLE_IDENTIFIER_PATTERN, $table) !== 1) {
-            throw new \RuntimeException('duo: WooCommerce scheduler table identity is outside its bounded grammar');
+            throw new \RuntimeException('wprism: WooCommerce scheduler table identity is outside its bounded grammar');
         }
         return $table;
     }
@@ -3100,21 +3100,21 @@ final class WoocommerceSchedulerSettings {
             || !is_callable([$wpdb, 'prepare'])
             || !is_callable([$wpdb, 'esc_like'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler verification requires the exact options-table identity'
+                'wprism: WooCommerce scheduler verification requires the exact options-table identity'
             );
         }
     }
 
     private static function db_positive_uint(mixed $value, string $field): int {
         if (!self::canonical_positive_uint($value)) {
-            throw new \RuntimeException("duo: WooCommerce scheduler $field is not a canonical positive integer");
+            throw new \RuntimeException("wprism: WooCommerce scheduler $field is not a canonical positive integer");
         }
         return (int) $value;
     }
 
     private static function db_positive_or_zero_uint(mixed $value, string $field): int {
         if (!self::canonical_uint($value)) {
-            throw new \RuntimeException("duo: WooCommerce scheduler $field is not a canonical unsigned integer");
+            throw new \RuntimeException("wprism: WooCommerce scheduler $field is not a canonical unsigned integer");
         }
         return (int) $value;
     }
@@ -3123,7 +3123,7 @@ final class WoocommerceSchedulerSettings {
         foreach (['as_get_scheduled_actions', 'get_option', 'update_option', 'wc_get_container'] as $function) {
             if (!function_exists($function)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics schedule requires the native Action Scheduler and option APIs'
+                    'wprism: WooCommerce analytics schedule requires the native Action Scheduler and option APIs'
                 );
             }
         }
@@ -3131,7 +3131,7 @@ final class WoocommerceSchedulerSettings {
             || !is_callable([Features::class, 'is_enabled'])
             || Features::is_enabled('analytics-scheduled-import') !== true) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics scheduled-import feature must be enabled on the target'
+                'wprism: WooCommerce analytics scheduled-import feature must be enabled on the target'
             );
         }
         if (!class_exists(OrdersScheduler::class)
@@ -3139,11 +3139,11 @@ final class WoocommerceSchedulerSettings {
             || !is_callable([OrdersScheduler::class, 'schedule_action'])
             || !is_callable([OrdersScheduler::class, 'get_import_interval'])
             || !is_callable([OrdersScheduler::class, 'queue'])) {
-            throw new \RuntimeException('duo: WooCommerce exact analytics scheduler API is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce exact analytics scheduler API is unavailable');
         }
         $queue = OrdersScheduler::queue();
         if (!is_object($queue) || get_class($queue) !== 'WC_Action_Queue') {
-            throw new \RuntimeException('duo: WooCommerce analytics scheduler requires the exact native action queue');
+            throw new \RuntimeException('wprism: WooCommerce analytics scheduler requires the exact native action queue');
         }
         if (!class_exists('ActionScheduler')
             || !is_callable(['ActionScheduler', 'is_initialized'])
@@ -3152,14 +3152,14 @@ final class WoocommerceSchedulerSettings {
             || !is_callable(['ActionScheduler', 'factory'])
             || \ActionScheduler::is_initialized(__METHOD__) !== true) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics schedule requires initialized Action Scheduler storage'
+                'wprism: WooCommerce analytics schedule requires initialized Action Scheduler storage'
             );
         }
         self::assert_local_option_cache();
         self::action_scheduler_schema_state();
         $factory = \ActionScheduler::factory();
         if (!is_object($factory) || get_class($factory) !== 'ActionScheduler_ActionFactory') {
-            throw new \RuntimeException('duo: WooCommerce exact Action Scheduler factory is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce exact Action Scheduler factory is unavailable');
         }
         self::claim_store_state(self::analytics_store());
         self::assert_native_scheduler_hook_topology();
@@ -3175,17 +3175,17 @@ final class WoocommerceSchedulerSettings {
         ] as $function) {
             if (!function_exists($function)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce stock retention requires the native WordPress cron API'
+                    'wprism: WooCommerce stock retention requires the native WordPress cron API'
                 );
             }
         }
         if (!defined('WOOCOMMERCE_BIS_ALPHA_ENABLED') || WOOCOMMERCE_BIS_ALPHA_ENABLED !== true) {
             throw new \RuntimeException(
-                'duo: WooCommerce customer stock-notification feature must be enabled on the target'
+                'wprism: WooCommerce customer stock-notification feature must be enabled on the target'
             );
         }
         if (!function_exists('wc_get_container')) {
-            throw new \RuntimeException('duo: WooCommerce stock retention requires the native service container');
+            throw new \RuntimeException('wprism: WooCommerce stock retention requires the native service container');
         }
         $controller = wc_get_container()->get(DataRetentionController::class);
         if (!is_object($controller)
@@ -3193,7 +3193,7 @@ final class WoocommerceSchedulerSettings {
             || !is_callable([$controller, 'do_wc_customer_stock_notifications_daily'])
             || !is_callable([$controller, 'schedule_or_unschedule_daily_task'])
             || !is_callable([$controller, 'clear_daily_task'])) {
-            throw new \RuntimeException('duo: WooCommerce exact stock-retention controller is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce exact stock-retention controller is unavailable');
         }
         self::assert_retention_hook_topology();
         self::assert_options_storage();
@@ -3203,7 +3203,7 @@ final class WoocommerceSchedulerSettings {
             || !is_array($schedules['daily'] ?? null)
             || ($schedules['daily']['interval'] ?? null) !== DAY_IN_SECONDS) {
             throw new \RuntimeException(
-                'duo: WordPress daily cron recurrence disagrees with WooCommerce stock retention'
+                'wprism: WordPress daily cron recurrence disagrees with WooCommerce stock retention'
             );
         }
     }
@@ -3231,7 +3231,7 @@ final class WoocommerceSchedulerSettings {
         ] as $hook) {
             if (has_filter($hook) !== false) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce stock-retention cron or option hook topology has an extension callback'
+                    'wprism: WooCommerce stock-retention cron or option hook topology has an extension callback'
                 );
             }
         }
@@ -3268,7 +3268,7 @@ final class WoocommerceSchedulerSettings {
             || !class_exists('ActionScheduler_QueueRunner', false)
             || !is_callable(['ActionScheduler_QueueRunner', 'instance'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention native cron-schedule owners are unavailable'
+                'wprism: WooCommerce stock-retention native cron-schedule owners are unavailable'
             );
         }
         $runner = \ActionScheduler_QueueRunner::instance();
@@ -3276,7 +3276,7 @@ final class WoocommerceSchedulerSettings {
             || get_class($runner) !== 'ActionScheduler_QueueRunner'
             || !is_callable([$runner, 'add_wp_cron_schedule'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention Action Scheduler cron owner is malformed'
+                'wprism: WooCommerce stock-retention Action Scheduler cron owner is malformed'
             );
         }
         $imageProcess = self::native_regenerate_images_process();
@@ -3293,7 +3293,7 @@ final class WoocommerceSchedulerSettings {
         if (!class_exists('WC_Regenerate_Images', false)
             || !class_exists('WC_Regenerate_Images_Request', false)) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention native cron-schedule owners are unavailable'
+                'wprism: WooCommerce stock-retention native cron-schedule owners are unavailable'
             );
         }
         try {
@@ -3301,14 +3301,14 @@ final class WoocommerceSchedulerSettings {
             $process = $property->getValue();
         } catch (\Throwable) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention native cron-schedule owner is unreadable'
+                'wprism: WooCommerce stock-retention native cron-schedule owner is unreadable'
             );
         }
         if (!is_object($process)
             || get_class($process) !== 'WC_Regenerate_Images_Request'
             || !is_callable([$process, 'schedule_cron_healthcheck'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention native cron-schedule owner is malformed'
+                'wprism: WooCommerce stock-retention native cron-schedule owner is malformed'
             );
         }
         return $process;
@@ -3318,7 +3318,7 @@ final class WoocommerceSchedulerSettings {
         if (!class_exists('WC_Privacy', false)
             || !class_exists('WC_Privacy_Background_Process', false)) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention native cron-schedule owners are unavailable'
+                'wprism: WooCommerce stock-retention native cron-schedule owners are unavailable'
             );
         }
         try {
@@ -3326,14 +3326,14 @@ final class WoocommerceSchedulerSettings {
             $process = $property->getValue();
         } catch (\Throwable) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention native cron-schedule owner is unreadable'
+                'wprism: WooCommerce stock-retention native cron-schedule owner is unreadable'
             );
         }
         if (!is_object($process)
             || get_class($process) !== 'WC_Privacy_Background_Process'
             || !is_callable([$process, 'schedule_cron_healthcheck'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention native cron-schedule owner is malformed'
+                'wprism: WooCommerce stock-retention native cron-schedule owner is malformed'
             );
         }
         return $process;
@@ -3348,7 +3348,7 @@ final class WoocommerceSchedulerSettings {
         $state = self::normalize_action_scheduler_schema_record($record);
         if (get_option(self::ACTION_SCHEDULER_SCHEMA_OPTION, false) !== $record['value']) {
             throw new \RuntimeException(
-                'duo: WooCommerce Action Scheduler schema raw and native option views disagree'
+                'wprism: WooCommerce Action Scheduler schema raw and native option views disagree'
             );
         }
         return $state;
@@ -3358,7 +3358,7 @@ final class WoocommerceSchedulerSettings {
     private static function locked_action_scheduler_schema_state(): array {
         global $wpdb;
         self::assert_transaction_state(true);
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes FROM `{$wpdb->options}` "
             . 'FORCE INDEX (`option_name`) WHERE option_name = %s '
@@ -3373,12 +3373,12 @@ final class WoocommerceSchedulerSettings {
             || (int) $rows[0]['option_bytes'] > self::MAX_SCHEMA_OPTION_BYTES
             || !self::valid_autoload($rows[0]['autoload'] ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce Action Scheduler schema option is absent, aliased, oversized, or malformed under lock'
+                'wprism: WooCommerce Action Scheduler schema option is absent, aliased, oversized, or malformed under lock'
             );
         }
         $optionId = (int) $rows[0]['option_id'];
         $bytes = (int) $rows[0]['option_bytes'];
-        $payload = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $payload = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, autoload, "
             . "LENGTH(option_value) AS option_bytes FROM `{$wpdb->options}` "
             . 'WHERE option_id = %d AND BINARY option_name = BINARY %s '
@@ -3398,7 +3398,7 @@ final class WoocommerceSchedulerSettings {
             || !is_string($payload[0]['option_value'] ?? null)
             || strlen($payload[0]['option_value']) !== $bytes) {
             throw new \RuntimeException(
-                'duo: WooCommerce Action Scheduler schema option changed during its locked bounded read; recovery_required'
+                'wprism: WooCommerce Action Scheduler schema option changed during its locked bounded read; recovery_required'
             );
         }
         $record = ['value' => $payload[0]['option_value'], 'autoload' => $payload[0]['autoload']];
@@ -3406,7 +3406,7 @@ final class WoocommerceSchedulerSettings {
         self::refresh_option_cache(self::ACTION_SCHEDULER_SCHEMA_OPTION, true);
         if (get_option(self::ACTION_SCHEDULER_SCHEMA_OPTION, false) !== $record['value']) {
             throw new \RuntimeException(
-                'duo: WooCommerce locked Action Scheduler schema raw and native option views disagree'
+                'wprism: WooCommerce locked Action Scheduler schema raw and native option views disagree'
             );
         }
         return $state;
@@ -3418,7 +3418,7 @@ final class WoocommerceSchedulerSettings {
      */
     private static function normalize_action_scheduler_schema_record(?array $record): array {
         if ($record === null) {
-            throw new \RuntimeException('duo: WooCommerce Action Scheduler schema authority is absent');
+            throw new \RuntimeException('wprism: WooCommerce Action Scheduler schema authority is absent');
         }
         $parts = explode('.', $record['value']);
         if (count($parts) !== 3
@@ -3426,7 +3426,7 @@ final class WoocommerceSchedulerSettings {
             || $parts[1] !== '0'
             || !self::canonical_positive_uint($parts[2])) {
             throw new \RuntimeException(
-                'duo: WooCommerce Action Scheduler schema authority is outside the exact 8.0.timestamp wire'
+                'wprism: WooCommerce Action Scheduler schema authority is outside the exact 8.0.timestamp wire'
             );
         }
         return [
@@ -3440,13 +3440,13 @@ final class WoocommerceSchedulerSettings {
         $raw = self::raw_option(self::ANALYTICS_OPTION, 3);
         if ($raw !== null && !in_array($raw, ['yes', 'no'], true)) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics scheduled-import option is outside its exact yes/no grammar'
+                'wprism: WooCommerce analytics scheduled-import option is outside its exact yes/no grammar'
             );
         }
         $effective = get_option(self::ANALYTICS_OPTION, false);
         if (($raw === null && $effective !== false) || ($raw !== null && $effective !== $raw)) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics scheduled-import raw and native option views disagree'
+                'wprism: WooCommerce analytics scheduled-import raw and native option views disagree'
             );
         }
         return [
@@ -3466,13 +3466,13 @@ final class WoocommerceSchedulerSettings {
             && (preg_match('/^(?:0|[1-9][0-9]{0,9})$/D', $raw) !== 1
                 || (int) $raw > self::MAX_RETENTION_DAYS)) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention threshold is outside its reviewed nonnegative whole-day boundary'
+                'wprism: WooCommerce stock-retention threshold is outside its reviewed nonnegative whole-day boundary'
             );
         }
         $effective = get_option(self::RETENTION_OPTION, false);
         if (($raw === null && $effective !== false) || ($raw !== null && $effective !== $raw)) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention raw and native option views disagree'
+                'wprism: WooCommerce stock-retention raw and native option views disagree'
             );
         }
         return [
@@ -3488,7 +3488,7 @@ final class WoocommerceSchedulerSettings {
         $interval = OrdersScheduler::get_import_interval();
         if ($interval !== self::NATIVE_ANALYTICS_INTERVAL) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics import interval disagrees with the exact 11.0.x native default'
+                'wprism: WooCommerce analytics import interval disagrees with the exact 11.0.x native default'
             );
         }
         return $interval;
@@ -3510,36 +3510,36 @@ final class WoocommerceSchedulerSettings {
             ], 'objects');
             if (!is_array($actions) || count($actions) > self::MAX_ACTIONS) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics schedule exceeds its bounded action inventory'
+                    'wprism: WooCommerce analytics schedule exceeds its bounded action inventory'
                 );
             }
             foreach ($actions as $actionId => $action) {
                 if (!self::canonical_positive_uint($actionId) || isset($seenIds[(string) $actionId])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics schedule returned a malformed or duplicate action identity'
+                        'wprism: WooCommerce analytics schedule returned a malformed or duplicate action identity'
                     );
                 }
                 $seenIds[(string) $actionId] = true;
                 $raw = $rawRoster['rows'][(int) $actionId] ?? null;
                 if (!is_array($raw) || $raw['status'] !== $status) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce raw and native analytics action rosters disagree; recovery_required'
+                        'wprism: WooCommerce raw and native analytics action rosters disagree; recovery_required'
                     );
                 }
                 if ($status === 'in-progress') {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics schedule has an active action; retry after it completes'
+                        'wprism: WooCommerce analytics schedule has an active action; retry after it completes'
                     );
                 }
                 $claimId = $store->get_claim_id((int) $actionId);
                 if (!is_int($claimId) || $claimId < 0) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics schedule returned a malformed native claim identity'
+                        'wprism: WooCommerce analytics schedule returned a malformed native claim identity'
                     );
                 }
                 if ($fence === null && $claimId !== 0) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics schedule is held by an active native claim; '
+                        'wprism: WooCommerce analytics schedule is held by an active native claim; '
                         . 'wait for the Action Scheduler runner or its bounded stale-claim cleanup before retrying'
                     );
                 }
@@ -3547,7 +3547,7 @@ final class WoocommerceSchedulerSettings {
                     && (!isset($fence['owners'][(int) $actionId])
                         || $fence['owners'][(int) $actionId] !== $claimId)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics worker claim changed during the provider fence; recovery_required'
+                        'wprism: WooCommerce analytics worker claim changed during the provider fence; recovery_required'
                     );
                 }
                 if (!is_object($action)
@@ -3556,14 +3556,14 @@ final class WoocommerceSchedulerSettings {
                     || !is_array($action->get_args())
                     || !is_string($action->get_group())) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics schedule returned a malformed native action'
+                        'wprism: WooCommerce analytics schedule returned a malformed native action'
                     );
                 }
                 $schedule = $action->get_schedule();
                 if (!is_object($schedule)
                     || get_class($schedule) !== $raw['schedule_class']) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics action has a malformed native schedule'
+                        'wprism: WooCommerce analytics action has a malformed native schedule'
                     );
                 }
                 $recurring = $schedule->is_recurring();
@@ -3574,7 +3574,7 @@ final class WoocommerceSchedulerSettings {
                     || $date->getTimestamp() > time() + self::ACTION_HORIZON_SECONDS
                     || gmdate('Y-m-d H:i:s', $date->getTimestamp()) !== $raw['scheduled_date_gmt']) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics action schedule is outside its bounded native time grammar'
+                        'wprism: WooCommerce analytics action schedule is outside its bounded native time grammar'
                     );
                 }
                 $args = $action->get_args();
@@ -3582,7 +3582,7 @@ final class WoocommerceSchedulerSettings {
                 if (!hash_equals(self::ANALYTICS_GROUP, $group)
                     || self::digest($args) !== $raw['args_sha256']) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics hook has a foreign Action Scheduler group'
+                        'wprism: WooCommerce analytics hook has a foreign Action Scheduler group'
                     );
                 }
                 $recurrence = null;
@@ -3593,7 +3593,7 @@ final class WoocommerceSchedulerSettings {
                         || $schedule->get_recurrence() < 1
                         || $schedule->get_recurrence() > 604800) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce analytics recurring interval is malformed'
+                            'wprism: WooCommerce analytics recurring interval is malformed'
                         );
                     }
                     $recurrence = $schedule->get_recurrence();
@@ -3604,7 +3604,7 @@ final class WoocommerceSchedulerSettings {
                     $kind = 'work';
                 } else {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics hook has foreign or malformed action arguments'
+                        'wprism: WooCommerce analytics hook has foreign or malformed action arguments'
                     );
                 }
                 $rows[] = [
@@ -3624,7 +3624,7 @@ final class WoocommerceSchedulerSettings {
             foreach ($fence['active'] as $actionId => $_kind) {
                 if (!isset($seenIds[(string) $actionId])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce analytics claimed action completed or disappeared during repair; recovery_required'
+                        'wprism: WooCommerce analytics claimed action completed or disappeared during repair; recovery_required'
                     );
                 }
             }
@@ -3635,7 +3635,7 @@ final class WoocommerceSchedulerSettings {
         sort($nativeIds, SORT_NUMERIC);
         if ($rawIds !== $nativeIds || self::analytics_raw_roster()['sha256'] !== $rawRoster['sha256']) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics raw action roster changed across native hydration; recovery_required'
+                'wprism: WooCommerce analytics raw action roster changed across native hydration; recovery_required'
             );
         }
         return [
@@ -3654,24 +3654,24 @@ final class WoocommerceSchedulerSettings {
         global $wpdb;
         $actionsTable = self::scheduler_table('actionscheduler_actions');
         $groupsTable = self::scheduler_table('actionscheduler_groups');
-        $groups = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $groups = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT group_id, BINARY slug AS slug, LENGTH(slug) AS slug_bytes FROM `$groupsTable` "
             . 'WHERE slug = %s ORDER BY group_id ASC LIMIT 2',
             self::ANALYTICS_GROUP
         ), 'WooCommerce analytics raw group roster');
         if (count($groups) > 1) {
-            throw new \RuntimeException('duo: WooCommerce analytics native action group is duplicated');
+            throw new \RuntimeException('wprism: WooCommerce analytics native action group is duplicated');
         }
         $groupId = null;
         if ($groups !== []) {
             if (!self::canonical_positive_uint($groups[0]['group_id'] ?? null)
                 || ($groups[0]['slug'] ?? null) !== self::ANALYTICS_GROUP
                 || ($groups[0]['slug_bytes'] ?? null) !== (string) strlen(self::ANALYTICS_GROUP)) {
-                throw new \RuntimeException('duo: WooCommerce analytics native action group is aliased');
+                throw new \RuntimeException('wprism: WooCommerce analytics native action group is aliased');
             }
             $groupId = (int) $groups[0]['group_id'];
         }
-        $witnesses = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $witnesses = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT action_id, BINARY hook AS hook, status, group_id, claim_id, priority, "
             . "scheduled_date_gmt, scheduled_date_local, last_attempt_gmt, last_attempt_local, "
             . "LENGTH(args) AS args_bytes, LENGTH(extended_args) AS extended_args_bytes, "
@@ -3683,12 +3683,12 @@ final class WoocommerceSchedulerSettings {
             self::MAX_ACTIONS + 1
         ), 'WooCommerce analytics bounded raw action witnesses');
         if (count($witnesses) > self::MAX_ACTIONS) {
-            throw new \RuntimeException('duo: WooCommerce analytics schedule exceeds its bounded action inventory');
+            throw new \RuntimeException('wprism: WooCommerce analytics schedule exceeds its bounded action inventory');
         }
         if ($groupId === null) {
             if ($witnesses !== []) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics active action references a missing native group'
+                    'wprism: WooCommerce analytics active action references a missing native group'
                 );
             }
             return ['rows' => [], 'sha256' => self::digest([])];
@@ -3712,10 +3712,10 @@ final class WoocommerceSchedulerSettings {
                 || ($witness['extended_args_bytes'] ?? null) !== null
                 || $scheduleBytes > self::MAX_ACTION_SCHEDULE_BYTES) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics raw action witness is malformed or exceeds its byte grammar'
+                    'wprism: WooCommerce analytics raw action witness is malformed or exceeds its byte grammar'
                 );
             }
-            $payload = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $payload = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT action_id, args, extended_args, schedule, LENGTH(args) AS args_bytes, "
                 . "LENGTH(schedule) AS schedule_bytes FROM `$actionsTable` WHERE action_id = %d "
                 . 'AND LENGTH(args) = %d AND LENGTH(args) <= %d AND extended_args IS NULL '
@@ -3735,16 +3735,16 @@ final class WoocommerceSchedulerSettings {
                 || !is_string($payload[0]['args'] ?? null)
                 || !is_string($payload[0]['schedule'] ?? null)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics raw action changed during bounded payload read; recovery_required'
+                    'wprism: WooCommerce analytics raw action changed during bounded payload read; recovery_required'
                 );
             }
             try {
                 $args = json_decode($payload[0]['args'], true, 8, JSON_THROW_ON_ERROR);
             } catch (\Throwable $failure) {
-                throw new \RuntimeException('duo: WooCommerce analytics raw action arguments are malformed');
+                throw new \RuntimeException('wprism: WooCommerce analytics raw action arguments are malformed');
             }
             if (!is_array($args) || wp_json_encode($args) !== $payload[0]['args']) {
-                throw new \RuntimeException('duo: WooCommerce analytics raw action arguments are noncanonical');
+                throw new \RuntimeException('wprism: WooCommerce analytics raw action arguments are noncanonical');
             }
             $scheduleClass = self::safe_schedule_class($payload[0]['schedule']);
             $rows[$actionId] = [
@@ -3772,7 +3772,7 @@ final class WoocommerceSchedulerSettings {
             || !in_array($header[2], ['ActionScheduler_IntervalSchedule', 'ActionScheduler_SimpleSchedule'], true)
             || preg_match('/(?:^|[;{}])(?:[rRC]):[0-9]+[;:]/', $raw) === 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics serialized schedule is outside its exact native class grammar'
+                'wprism: WooCommerce analytics serialized schedule is outside its exact native class grammar'
             );
         }
         set_error_handler(static function (int $severity, string $message): never {
@@ -3781,23 +3781,23 @@ final class WoocommerceSchedulerSettings {
         try {
             $decoded = unserialize($raw, ['allowed_classes' => false]);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: WooCommerce analytics serialized schedule is malformed');
+            throw new \RuntimeException('wprism: WooCommerce analytics serialized schedule is malformed');
         } finally {
             restore_error_handler();
         }
         if (!is_object($decoded) || get_class($decoded) !== '__PHP_Incomplete_Class') {
-            throw new \RuntimeException('duo: WooCommerce analytics serialized schedule is malformed');
+            throw new \RuntimeException('wprism: WooCommerce analytics serialized schedule is malformed');
         }
         if (serialize($decoded) !== $raw) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics serialized schedule is noncanonical or has trailing bytes'
+                'wprism: WooCommerce analytics serialized schedule is noncanonical or has trailing bytes'
             );
         }
         $properties = (array) $decoded;
         $class = $properties['__PHP_Incomplete_Class_Name'] ?? null;
         unset($properties['__PHP_Incomplete_Class_Name']);
         if ($class !== $header[2]) {
-            throw new \RuntimeException('duo: WooCommerce analytics serialized schedule class changed');
+            throw new \RuntimeException('wprism: WooCommerce analytics serialized schedule class changed');
         }
         $expectedWireKeys = $class === 'ActionScheduler_SimpleSchedule'
             ? ["\0*\0scheduled_timestamp", "\0ActionScheduler_SimpleSchedule\0timestamp"]
@@ -3810,20 +3810,20 @@ final class WoocommerceSchedulerSettings {
             ];
         if (array_keys($properties) !== $expectedWireKeys) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics serialized schedule fields are outside the exact native wire'
+                'wprism: WooCommerce analytics serialized schedule fields are outside the exact native wire'
             );
         }
         $normalized = [];
         foreach ($properties as $key => $value) {
             if (!is_string($key) || (!is_int($value) && $value !== null)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics serialized schedule contains non-scalar state'
+                    'wprism: WooCommerce analytics serialized schedule contains non-scalar state'
                 );
             }
             $parts = explode("\0", $key);
             $name = end($parts);
             if (!is_string($name) || $name === '' || array_key_exists($name, $normalized)) {
-                throw new \RuntimeException('duo: WooCommerce analytics serialized schedule fields are malformed');
+                throw new \RuntimeException('wprism: WooCommerce analytics serialized schedule fields are malformed');
             }
             $normalized[$name] = $value;
         }
@@ -3847,7 +3847,7 @@ final class WoocommerceSchedulerSettings {
                     || $normalized['first_timestamp'] > $normalized['scheduled_timestamp']
                     || ($normalized['interval_in_seconds'] ?? null) !== $normalized['recurrence']
                     || ($normalized['start_timestamp'] ?? null) !== $normalized['scheduled_timestamp']))) {
-            throw new \RuntimeException('duo: WooCommerce analytics serialized schedule fields disagree');
+            throw new \RuntimeException('wprism: WooCommerce analytics serialized schedule fields disagree');
         }
         return $class;
     }
@@ -3865,12 +3865,12 @@ final class WoocommerceSchedulerSettings {
         $dateRecord = self::raw_option_record(self::CURSOR_DATE_OPTION, 19);
         $date = $dateRecord['value'] ?? null;
         if ($date !== null && !self::valid_mysql_datetime($date)) {
-            throw new \RuntimeException('duo: WooCommerce analytics date cursor is malformed');
+            throw new \RuntimeException('wprism: WooCommerce analytics date cursor is malformed');
         }
         $idRecord = self::raw_option_record(self::CURSOR_ID_OPTION, 20);
         $id = $idRecord['value'] ?? null;
         if ($id !== null && !self::canonical_uint($id)) {
-            throw new \RuntimeException('duo: WooCommerce analytics ID cursor is malformed');
+            throw new \RuntimeException('wprism: WooCommerce analytics ID cursor is malformed');
         }
         return [
             'date_present' => $date === null ? 0 : 1,
@@ -3897,7 +3897,7 @@ final class WoocommerceSchedulerSettings {
     private static function locked_cron_state(): array {
         global $wpdb;
         self::assert_transaction_state(true);
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes "
             . "FROM `{$wpdb->options}` FORCE INDEX (`option_name`) WHERE option_name = %s "
@@ -3912,10 +3912,10 @@ final class WoocommerceSchedulerSettings {
             || (int) $rows[0]['option_bytes'] > self::MAX_CRON_BYTES
             || !self::valid_autoload($rows[0]['autoload'] ?? null)) {
             throw new \RuntimeException(
-                'duo: WordPress cron option is absent, aliased, duplicated, oversized, or malformed under lock'
+                'wprism: WordPress cron option is absent, aliased, duplicated, oversized, or malformed under lock'
             );
         }
-        $digestRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $digestRows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes, SHA2(option_value, 256) AS option_sha256 "
             . "FROM `{$wpdb->options}` WHERE option_id = %d AND BINARY option_name = BINARY %s "
@@ -3932,7 +3932,7 @@ final class WoocommerceSchedulerSettings {
             || !is_string($digestRows[0]['option_sha256'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/D', $digestRows[0]['option_sha256']) !== 1) {
             throw new \RuntimeException(
-                'duo: WordPress cron option changed before its bounded locked digest; recovery_required'
+                'wprism: WordPress cron option changed before its bounded locked digest; recovery_required'
             );
         }
         $witness = [
@@ -3941,7 +3941,7 @@ final class WoocommerceSchedulerSettings {
             'sha256' => $digestRows[0]['option_sha256'],
             'autoload' => $rows[0]['autoload'],
         ];
-        $payload = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $payload = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, autoload, "
             . "LENGTH(option_value) AS option_bytes "
             . "FROM `{$wpdb->options}` WHERE option_id = %d AND BINARY option_name = BINARY %s "
@@ -3959,7 +3959,7 @@ final class WoocommerceSchedulerSettings {
             || strlen($payload[0]['option_value']) !== $witness['bytes']
             || !hash_equals($witness['sha256'], hash('sha256', $payload[0]['option_value']))) {
             throw new \RuntimeException(
-                'duo: WordPress cron option changed during its locked bounded payload read; recovery_required'
+                'wprism: WordPress cron option changed during its locked bounded payload read; recovery_required'
             );
         }
         self::refresh_cron_option_cache(true);
@@ -3972,7 +3972,7 @@ final class WoocommerceSchedulerSettings {
     private static function locked_retention_option_state(): array {
         global $wpdb;
         self::assert_transaction_state(true);
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes FROM `{$wpdb->options}` "
             . 'FORCE INDEX (`option_name`) WHERE option_name = %s '
@@ -3982,14 +3982,14 @@ final class WoocommerceSchedulerSettings {
         self::assert_transaction_state(true);
         if (count($rows) > 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention setting is aliased or duplicated under lock'
+                'wprism: WooCommerce stock-retention setting is aliased or duplicated under lock'
             );
         }
         if ($rows === []) {
             self::refresh_option_cache(self::RETENTION_OPTION, true);
             if (get_option(self::RETENTION_OPTION, false) !== false) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce stock-retention locked raw and native absent views disagree'
+                    'wprism: WooCommerce stock-retention locked raw and native absent views disagree'
                 );
             }
             return [
@@ -4007,12 +4007,12 @@ final class WoocommerceSchedulerSettings {
             || (int) $row['option_bytes'] > 16
             || !self::valid_autoload($row['autoload'] ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention locked source witness is aliased, oversized, or malformed'
+                'wprism: WooCommerce stock-retention locked source witness is aliased, oversized, or malformed'
             );
         }
         $optionId = (int) $row['option_id'];
         $bytes = (int) $row['option_bytes'];
-        $payload = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $payload = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, autoload, "
             . "LENGTH(option_value) AS option_bytes, SHA2(option_value, 256) AS option_sha256 "
             . "FROM `{$wpdb->options}` WHERE option_id = %d "
@@ -4034,7 +4034,7 @@ final class WoocommerceSchedulerSettings {
             || preg_match('/^[a-f0-9]{64}$/D', $payload[0]['option_sha256']) !== 1
             || !hash_equals($payload[0]['option_sha256'], hash('sha256', $payload[0]['option_value']))) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention setting changed during its locked bounded read; recovery_required'
+                'wprism: WooCommerce stock-retention setting changed during its locked bounded read; recovery_required'
             );
         }
         $raw = $payload[0]['option_value'];
@@ -4042,13 +4042,13 @@ final class WoocommerceSchedulerSettings {
             && (preg_match('/^(?:0|[1-9][0-9]{0,9})$/D', $raw) !== 1
                 || (int) $raw > self::MAX_RETENTION_DAYS)) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention threshold is outside its reviewed nonnegative whole-day boundary'
+                'wprism: WooCommerce stock-retention threshold is outside its reviewed nonnegative whole-day boundary'
             );
         }
         self::refresh_option_cache(self::RETENTION_OPTION, true);
         if (get_option(self::RETENTION_OPTION, false) !== $raw) {
             throw new \RuntimeException(
-                'duo: WooCommerce stock-retention locked raw and native option views disagree'
+                'wprism: WooCommerce stock-retention locked raw and native option views disagree'
             );
         }
         return [
@@ -4073,7 +4073,7 @@ final class WoocommerceSchedulerSettings {
             wp_cache_get($key, 'options', false, $found);
             if (!is_bool($found) || $found) {
                 throw new \RuntimeException(
-                    'duo: WordPress option-cache deletion did not persist before cron observation; recovery_required'
+                    'wprism: WordPress option-cache deletion did not persist before cron observation; recovery_required'
                 );
             }
         }
@@ -4083,18 +4083,18 @@ final class WoocommerceSchedulerSettings {
         if (!function_exists('wp_using_ext_object_cache')
             || !function_exists('wp_cache_delete')
             || !function_exists('wp_cache_get')) {
-            throw new \RuntimeException('duo: WordPress exact option-cache boundary is unavailable');
+            throw new \RuntimeException('wprism: WordPress exact option-cache boundary is unavailable');
         }
         $external = wp_using_ext_object_cache();
         // Core leaves $_wp_using_ext_object_cache unset when no drop-in was
         // loaded, so stock WordPress returns null here; only true denotes the
         // persistent publication boundary this provider cannot fence.
         if ($external !== null && !is_bool($external)) {
-            throw new \RuntimeException('duo: WordPress returned a malformed external object-cache state');
+            throw new \RuntimeException('wprism: WordPress returned a malformed external object-cache state');
         }
         if ($external === true) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler option repair refuses external object-cache publication'
+                'wprism: WooCommerce scheduler option repair refuses external object-cache publication'
             );
         }
     }
@@ -4103,22 +4103,22 @@ final class WoocommerceSchedulerSettings {
     private static function retention_topology_from_raw(?string $raw, bool $verifyRawReadback): array {
         $decoded = [];
         if ($raw !== null) {
-            $plain = \Duo\PlainData::decode_serialized($raw, 'WordPress cron option');
+            $plain = \WPrism\PlainData::decode_serialized($raw, 'WordPress cron option');
             if (!is_array($plain)
                 || ($plain['version'] ?? null) !== 2) {
-                throw new \RuntimeException('duo: WordPress cron option is outside its exact plain-data version');
+                throw new \RuntimeException('wprism: WordPress cron option is outside its exact plain-data version');
             }
             unset($plain['version']);
             $decoded = $plain;
         }
         $crons = _get_cron_array();
         if (!is_array($crons)) {
-            throw new \RuntimeException('duo: WordPress returned a malformed cron inventory');
+            throw new \RuntimeException('wprism: WordPress returned a malformed cron inventory');
         }
         if ($crons !== $decoded
             || ($verifyRawReadback && self::raw_option('cron', self::MAX_CRON_BYTES) !== $raw)) {
             throw new \RuntimeException(
-                'duo: WordPress raw and native cron inventories disagree or changed during bounded observation; recovery_required'
+                'wprism: WordPress raw and native cron inventories disagree or changed during bounded observation; recovery_required'
             );
         }
         $events = [];
@@ -4126,15 +4126,15 @@ final class WoocommerceSchedulerSettings {
         $total = 0;
         foreach ($crons as $timestamp => $hooks) {
             if (!self::canonical_positive_uint($timestamp) || !is_array($hooks)) {
-                throw new \RuntimeException('duo: WordPress cron inventory contains a malformed timestamp bucket');
+                throw new \RuntimeException('wprism: WordPress cron inventory contains a malformed timestamp bucket');
             }
             foreach ($hooks as $hook => $instances) {
                 if (!is_string($hook) || !is_array($instances)) {
-                    throw new \RuntimeException('duo: WordPress cron inventory contains a malformed hook bucket');
+                    throw new \RuntimeException('wprism: WordPress cron inventory contains a malformed hook bucket');
                 }
                 $total += count($instances);
                 if ($total > self::MAX_CRON_EVENTS) {
-                    throw new \RuntimeException('duo: WordPress cron inventory exceeds the bounded event limit');
+                    throw new \RuntimeException('wprism: WordPress cron inventory exceeds the bounded event limit');
                 }
                 if ($hook !== self::RETENTION_HOOK) {
                     foreach ($instances as $instanceKey => $event) {
@@ -4143,7 +4143,7 @@ final class WoocommerceSchedulerSettings {
                             || !is_array($event['args'] ?? null)
                             || !hash_equals(md5(serialize($event['args'])), $instanceKey)) {
                             throw new \RuntimeException(
-                                'duo: WordPress cron inventory contains a malformed unrelated event'
+                                'wprism: WordPress cron inventory contains a malformed unrelated event'
                             );
                         }
                         $bytes = serialize($event);
@@ -4165,7 +4165,7 @@ final class WoocommerceSchedulerSettings {
                         || !is_string($instanceKey)
                         || !hash_equals(md5(serialize($event['args'] ?? null)), $instanceKey)) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce stock-retention hook has a foreign or malformed cron event'
+                            'wprism: WooCommerce stock-retention hook has a foreign or malformed cron event'
                         );
                     }
                     $events[] = ['timestamp' => (int) $timestamp];
@@ -4205,28 +4205,28 @@ final class WoocommerceSchedulerSettings {
         if ($record === null) {
             if (get_option(self::MARKER_OPTION, false) !== false) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce analytics marker raw and native option views disagree'
+                    'wprism: WooCommerce analytics marker raw and native option views disagree'
                 );
             }
             return ['phase' => 'absent', 'autoload' => null, 'sha256' => hash('sha256', 'absent')];
         }
         if ($record['autoload'] !== 'off') {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics Duo-owned marker is not on the exact non-autoloaded platform wire'
+                'wprism: WooCommerce analytics WPrism-owned marker is not on the exact non-autoloaded platform wire'
             );
         }
         if (get_option(self::MARKER_OPTION, false) !== $raw) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics marker raw and native option views disagree'
+                'wprism: WooCommerce analytics marker raw and native option views disagree'
             );
         }
         try {
             $data = json_decode($raw, true, 8, JSON_THROW_ON_ERROR);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: WooCommerce analytics transition marker is malformed');
+            throw new \RuntimeException('wprism: WooCommerce analytics transition marker is malformed');
         }
         if (!is_array($data) || self::canonical_json($data) !== $raw) {
-            throw new \RuntimeException('duo: WooCommerce analytics transition marker is noncanonical');
+            throw new \RuntimeException('wprism: WooCommerce analytics transition marker is noncanonical');
         }
         if (($data['phase'] ?? null) === 'verified') {
             if (self::sorted_keys($data) !== ['format', 'operation_sha256', 'phase', 'state']
@@ -4234,7 +4234,7 @@ final class WoocommerceSchedulerSettings {
                 || !in_array($data['state'] ?? null, ['yes', 'no'], true)
                 || !is_string($data['operation_sha256'] ?? null)
                 || preg_match('/^[a-f0-9]{64}$/D', $data['operation_sha256']) !== 1) {
-                throw new \RuntimeException('duo: WooCommerce analytics verified marker is malformed');
+                throw new \RuntimeException('wprism: WooCommerce analytics verified marker is malformed');
             }
             return [
                 'phase' => 'verified',
@@ -4275,7 +4275,7 @@ final class WoocommerceSchedulerSettings {
             || !is_int($intent['interval'] ?? null)
             || $intent['interval'] < 60
             || $intent['interval'] > 604800) {
-            throw new \RuntimeException('duo: WooCommerce analytics transition intent is malformed');
+            throw new \RuntimeException('wprism: WooCommerce analytics transition intent is malformed');
         }
         foreach ([
             ['before_cursor_date_present', 'before_cursor_date_autoload'],
@@ -4283,7 +4283,7 @@ final class WoocommerceSchedulerSettings {
         ] as [$presentKey, $autoloadKey]) {
             if (($intent[$presentKey] === 0 && $intent[$autoloadKey] !== null)
                 || ($intent[$presentKey] === 1 && !self::valid_autoload($intent[$autoloadKey] ?? null))) {
-                throw new \RuntimeException('duo: WooCommerce analytics transition cursor autoload is malformed');
+                throw new \RuntimeException('wprism: WooCommerce analytics transition cursor autoload is malformed');
             }
         }
         foreach ([
@@ -4292,12 +4292,12 @@ final class WoocommerceSchedulerSettings {
         ] as $hash) {
             if (!is_string($intent[$hash] ?? null)
                 || preg_match('/^[a-f0-9]{64}$/D', $intent[$hash]) !== 1) {
-                throw new \RuntimeException('duo: WooCommerce analytics transition intent hash is malformed');
+                throw new \RuntimeException('wprism: WooCommerce analytics transition intent hash is malformed');
             }
         }
         if (!is_string($intent['expected_cursor_date'] ?? null)
             || (($intent['plan'] === 'no_to_yes') !== self::valid_mysql_datetime($intent['expected_cursor_date']))) {
-            throw new \RuntimeException('duo: WooCommerce analytics transition intent cursor is malformed');
+            throw new \RuntimeException('wprism: WooCommerce analytics transition intent cursor is malformed');
         }
     }
 
@@ -4315,21 +4315,21 @@ final class WoocommerceSchedulerSettings {
     private static function write_marker(array $marker): void {
         $raw = self::canonical_json($marker);
         if (strlen($raw) > self::MAX_MARKER_BYTES) {
-            throw new \RuntimeException('duo: WooCommerce analytics transition marker exceeds its byte bound');
+            throw new \RuntimeException('wprism: WooCommerce analytics transition marker exceeds its byte bound');
         }
         update_option(self::MARKER_OPTION, $raw, false);
         try {
             $readback = self::marker_state();
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics transition marker write was not durable; recovery_required',
+                'wprism: WooCommerce analytics transition marker write was not durable; recovery_required',
                 0,
                 $failure
             );
         }
         if (($readback['data'] ?? null) !== $marker) {
             throw new \RuntimeException(
-                'duo: WooCommerce analytics transition marker write was not durable; recovery_required'
+                'wprism: WooCommerce analytics transition marker write was not durable; recovery_required'
             );
         }
     }
@@ -4388,13 +4388,13 @@ final class WoocommerceSchedulerSettings {
         $secondWitness = self::option_witness($name, $maxBytes);
         if ($firstWitness !== $secondWitness) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler setting changed during compact option observation; recovery_required'
+                'wprism: WooCommerce scheduler setting changed during compact option observation; recovery_required'
             );
         }
         if ($firstWitness === null) {
             return null;
         }
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, autoload, "
             . "LENGTH(option_value) AS option_bytes "
             . "FROM `{$wpdb->options}` WHERE option_id = %d AND BINARY option_name = BINARY %s "
@@ -4411,12 +4411,12 @@ final class WoocommerceSchedulerSettings {
             || strlen($rows[0]['option_value']) !== $firstWitness['bytes']
             || !hash_equals($firstWitness['sha256'], hash('sha256', $rows[0]['option_value']))) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler setting changed during bounded option read; recovery_required'
+                'wprism: WooCommerce scheduler setting changed during bounded option read; recovery_required'
             );
         }
         if (self::option_witness($name, $maxBytes) !== $firstWitness) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler setting changed after bounded option read; recovery_required'
+                'wprism: WooCommerce scheduler setting changed after bounded option read; recovery_required'
             );
         }
         return ['value' => $rows[0]['option_value'], 'autoload' => $rows[0]['autoload']];
@@ -4425,7 +4425,7 @@ final class WoocommerceSchedulerSettings {
     /** @return ?array{id:int,bytes:int,sha256:string,autoload:string} */
     private static function option_witness(string $name, int $maxBytes): ?array {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes "
             . "FROM `{$wpdb->options}` "
@@ -4441,14 +4441,14 @@ final class WoocommerceSchedulerSettings {
             || !self::canonical_uint($rows[0]['option_bytes'] ?? null)
             || !self::valid_autoload($rows[0]['autoload'] ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler setting is absent, aliased, duplicated, or has a malformed witness'
+                'wprism: WooCommerce scheduler setting is absent, aliased, duplicated, or has a malformed witness'
             );
         }
         $bytes = (int) $rows[0]['option_bytes'];
         if ($bytes > $maxBytes) {
-            throw new \RuntimeException('duo: WooCommerce scheduler setting exceeds its bounded byte grammar');
+            throw new \RuntimeException('wprism: WooCommerce scheduler setting exceeds its bounded byte grammar');
         }
-        $digestRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $digestRows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, autoload, "
             . "LENGTH(option_value) AS option_bytes, "
             . "SHA2(option_value, 256) AS option_sha256 FROM `{$wpdb->options}` "
@@ -4465,7 +4465,7 @@ final class WoocommerceSchedulerSettings {
             || !is_string($digestRows[0]['option_sha256'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/D', $digestRows[0]['option_sha256']) !== 1) {
             throw new \RuntimeException(
-                'duo: WooCommerce scheduler setting changed before its bounded digest; recovery_required'
+                'wprism: WooCommerce scheduler setting changed before its bounded digest; recovery_required'
             );
         }
         return [
@@ -4514,7 +4514,7 @@ final class WoocommerceSchedulerSettings {
         self::sort_recursive($value);
         $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($encoded)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler state could not be encoded');
+            throw new \RuntimeException('wprism: WooCommerce scheduler state could not be encoded');
         }
         return $encoded;
     }
@@ -4525,7 +4525,7 @@ final class WoocommerceSchedulerSettings {
         }
         $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($encoded)) {
-            throw new \RuntimeException('duo: WooCommerce scheduler receipt could not be encoded');
+            throw new \RuntimeException('wprism: WooCommerce scheduler receipt could not be encoded');
         }
         return hash('sha256', $encoded);
     }

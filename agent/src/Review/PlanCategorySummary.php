@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Deterministic, value-free category projection for the public plan envelope.
@@ -14,7 +14,7 @@ namespace Duo;
  * shipped manifest/wire classifier; this projection does not add an alias.
  */
 final class PlanCategorySummary {
-    public const FORMAT = 'duo-plan-category-summary/v1';
+    public const FORMAT = 'wprism-plan-category-summary/v1';
 
     /** @var list<string> */
     private const CATEGORY_IDS = [
@@ -455,7 +455,7 @@ final class PlanCategorySummary {
             $label = $labels[$id] ?? $id;
             $category = self::categoryById($categories, $id);
             if ($id === 'secrets') {
-                $lines[] = '  secrets: redacted; secret values omitted; secret-state refusals use duo-command-refusal/v1';
+                $lines[] = '  secrets: redacted; secret values omitted; secret-state refusals use wprism-command-refusal/v1';
                 continue;
             }
             $parts = [];

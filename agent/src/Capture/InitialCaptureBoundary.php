@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -15,10 +15,10 @@ final class InitialCaptureBoundary {
                 throw new CommandRefusalException(
                     'interrupted_init_recovery_pending',
                     'capture refused while a sealed init recovery journal exists',
-                    'run duo init for the same environment to verify or roll back that interrupted attempt, then capture again',
+                    'run wprism init for the same environment to verify or roll back that interrupted attempt, then capture again',
                     [],
-                    'duo: capture refused while a sealed init recovery journal exists; '
-                    . 'run duo init for the same environment to verify or roll back that attempt before capturing again'
+                    'wprism: capture refused while a sealed init recovery journal exists; '
+                    . 'run wprism init for the same environment to verify or roll back that attempt before capturing again'
                 );
             }
         }
@@ -38,7 +38,7 @@ final class InitialCaptureBoundary {
         ] as $path) {
             if (file_exists($path) || is_link($path)) {
                 throw new InitialStateBoundaryException(
-                    'duo: initial capture protocol namespace gained an unreviewed sibling'
+                    'wprism: initial capture protocol namespace gained an unreviewed sibling'
                 );
             }
         }
@@ -47,12 +47,12 @@ final class InitialCaptureBoundary {
     public static function assertConfigIdentity(string $path, string $expected): void {
         clearstatcache(true, $path);
         if (is_link($path) || !is_file($path)) {
-            throw new InitialStateBoundaryException('duo: confirmed init configuration changed type before capture');
+            throw new InitialStateBoundaryException('wprism: confirmed init configuration changed type before capture');
         }
         $stat = @lstat($path);
         $bytes = Canon::read_file($path);
         if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
-            throw new InitialStateBoundaryException('duo: confirmed init configuration identity is unavailable');
+            throw new InitialStateBoundaryException('wprism: confirmed init configuration identity is unavailable');
         }
         $actual = 'sha256:' . hash('sha256', Canon::encode([
             'dev' => (string) $stat['dev'],
@@ -60,7 +60,7 @@ final class InitialCaptureBoundary {
             'sha256' => hash('sha256', $bytes),
         ]));
         if (!hash_equals($expected, $actual)) {
-            throw new InitialStateBoundaryException('duo: confirmed init configuration changed before capture');
+            throw new InitialStateBoundaryException('wprism: confirmed init configuration changed before capture');
         }
     }
 
@@ -68,16 +68,16 @@ final class InitialCaptureBoundary {
     public static function assertStateReservation(string $path, string $expected): void {
         clearstatcache(true, $path);
         if (is_link($path) || !is_dir($path)) {
-            throw new InitialStateBoundaryException('duo: initial state boundary changed before publication');
+            throw new InitialStateBoundaryException('wprism: initial state boundary changed before publication');
         }
         $entries = @scandir($path);
         $stat = @lstat($path);
         if ($entries === false || !is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
-            throw new InitialStateBoundaryException('duo: initial state boundary could not be verified before publication');
+            throw new InitialStateBoundaryException('wprism: initial state boundary could not be verified before publication');
         }
         $children = array_values(array_diff($entries, ['.', '..']));
         if ($children !== []) {
-            throw new InitialStateBoundaryException('duo: initial state boundary gained unreviewed content before publication');
+            throw new InitialStateBoundaryException('wprism: initial state boundary gained unreviewed content before publication');
         }
         $inode = 'sha256:' . hash('sha256', Canon::encode([
             'dev' => (string) $stat['dev'],
@@ -85,7 +85,7 @@ final class InitialCaptureBoundary {
         ]));
         $actual = 'sha256:' . hash('sha256', Canon::encode(['inode' => $inode, 'tree' => []]));
         if (!hash_equals($expected, $actual)) {
-            throw new InitialStateBoundaryException('duo: initial state directory identity changed before publication');
+            throw new InitialStateBoundaryException('wprism: initial state directory identity changed before publication');
         }
     }
 }

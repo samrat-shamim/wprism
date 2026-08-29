@@ -1,7 +1,7 @@
 <?php
 /**
- * Offline characterization for `wp duo adapter-deletion-feasibility` — the
- * deletion-contract feasibility report (`Duo\DeletionFeasibility`).
+ * Offline characterization for `wp wprism adapter-deletion-feasibility` — the
+ * deletion-contract feasibility report (`WPrism\DeletionFeasibility`).
  *
  * `DeleteGuardEvaluator::lock_index()` decides whether a deletion guard has a
  * complete indexed lock boundary, and it decides it at DELETION time: when it
@@ -18,7 +18,7 @@
  *      verdict published per guard is `lock_index()`'s own return value, and
  *      an explanation that disagrees with it is refused rather than printed;
  *   2. computing that null decides NOTHING. `adapter-packages/ninja-forms/package/manifest.json`
- *      records the conclusion in prose — "Duo … does not advertise
+ *      records the conclusion in prose — "WPrism … does not advertise
  *      table:nf3_forms deletion" — and that sentence was written by a human.
  *      This tool reproduces the FACT under it and must not be able to reach
  *      the sentence: no capability is proposed, no cascade set is echoed, and
@@ -45,16 +45,16 @@ require_once __DIR__ . '/../../lib/FakeWpdb.php';
 $repoRoot = dirname(__DIR__, 4);
 
 // The two defines the drop-in stamps every document with. Parsed from
-// agent/duo.php rather than written here: rule 8 keeps those lines still, and
+// agent/wprism.php rather than written here: rule 8 keeps those lines still, and
 // a literal copy in a test would be a second place that has to move with them.
-$dropIn = (string) file_get_contents($repoRoot . '/agent/duo.php');
-duo_check(
-    preg_match("/define\('DUO_AGENT_VERSION',\s*'([^']+)'\)/", $dropIn, $versionMatch) === 1
-        && preg_match("/define\('DUO_SPEC_VERSION',\s*(\d+)\)/", $dropIn, $specMatch) === 1,
-    'agent/duo.php declares DUO_AGENT_VERSION and DUO_SPEC_VERSION'
+$dropIn = (string) file_get_contents($repoRoot . '/agent/wprism.php');
+wprism_check(
+    preg_match("/define\('WPRISM_AGENT_VERSION',\s*'([^']+)'\)/", $dropIn, $versionMatch) === 1
+        && preg_match("/define\('WPRISM_SPEC_VERSION',\s*(\d+)\)/", $dropIn, $specMatch) === 1,
+    'agent/wprism.php declares WPRISM_AGENT_VERSION and WPRISM_SPEC_VERSION'
 );
-define('DUO_AGENT_VERSION', (string) ($versionMatch[1] ?? ''));
-define('DUO_SPEC_VERSION', (int) ($specMatch[1] ?? 0));
+define('WPRISM_AGENT_VERSION', (string) ($versionMatch[1] ?? ''));
+define('WPRISM_SPEC_VERSION', (int) ($specMatch[1] ?? 0));
 
 require_once $repoRoot . '/agent/src/Kernel/Canon.php';
 require_once $repoRoot . '/agent/src/Adapter/DeletionFeasibility.php';
@@ -97,12 +97,12 @@ final class WP_CLI {
 require_once $repoRoot . '/agent/src/Repository/Journal.php';
 require_once $repoRoot . '/agent/src/Command/Cli.php';
 
-use Duo\Canon;
-use Duo\DeletionCapabilityResolver;
-use Duo\DeletionFeasibility;
-use Duo\OptionNameReferenceResolver;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\Canon;
+use WPrism\DeletionCapabilityResolver;
+use WPrism\DeletionFeasibility;
+use WPrism\OptionNameReferenceResolver;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 /**
  * A `$wpdb` that answers `SHOW INDEX` from recorded rows and delegates
@@ -195,7 +195,7 @@ echo "\n== 1. FakeWpdb declines SHOW INDEX (so the recorded fixtures are sanctio
 // --------------------------------------------------------------------------
 $plain = FakeWpdb::install();
 $plain->seedTable('wp_nf3_fields', []);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $plain->get_results('SHOW INDEX FROM `wp_nf3_fields`', ARRAY_A),
     LogicException::class,
     'FakeWpdb declines SHOW INDEX by name — an index inventory is the whole subject, so it is recorded, not synthesized'
@@ -208,20 +208,20 @@ echo "\n== 2. the Ninja Forms conclusion, as a COMPUTED null ==\n";
 // declared refs into nf3_form, which is exactly the reverse-reference set an
 // author writing `table:nf3_forms` guards would have to cover.
 $ninjaForms = json_decode((string) file_get_contents($repoRoot . '/adapter-packages/ninja-forms/package/manifest.json'), true);
-duo_check(is_array($ninjaForms), 'the Ninja Forms package manifest is readable');
-duo_check(
+wprism_check(is_array($ninjaForms), 'the Ninja Forms package manifest is readable');
+wprism_check(
     !isset($ninjaForms['deletions']['table:nf3_forms']),
     'table:nf3_forms deletion is NOT declared — the prose conclusion this report reproduces the fact under'
 );
-$duo3328 = '';
+$deletionFeasibility = '';
 foreach ((array) ($ninjaForms['notes'] ?? []) as $note) {
-    if (str_contains((string) $note, 'DUO-3328')) {
-        $duo3328 = (string) $note;
+    if (str_contains((string) $note, 'nf3_actions.parent_id and nf3_fields.parent_id')) {
+        $deletionFeasibility = (string) $note;
     }
 }
-duo_check(
-    str_contains($duo3328, 'nf3_actions.parent_id and nf3_fields.parent_id without complete indexes')
-        && str_contains($duo3328, 'does not advertise table:nf3_forms deletion'),
+wprism_check(
+    str_contains($deletionFeasibility, 'nf3_actions.parent_id and nf3_fields.parent_id without complete indexes')
+        && str_contains($deletionFeasibility, 'does not advertise table:nf3_forms deletion'),
     'the manifest note records, in prose, both the schema fact and the human decision taken from it'
 );
 
@@ -238,7 +238,7 @@ foreach ((array) ($ninjaForms['tables'] ?? []) as $table => $facts) {
         }
     }
 }
-duo_check_same(
+wprism_check_same(
     ['nf3_actions.parent_id', 'nf3_fields.parent_id'],
     array_map(static fn(array $g): string => $g['table'] . '.' . $g['column'], $proposedGuards),
     'the proposed guard set is derived from the manifest\'s own declared refs into nf3_form'
@@ -259,21 +259,21 @@ $target(['wp_nf3_actions', 'wp_nf3_fields'], [
 $report = DeletionFeasibility::report(['table:nf3_forms' => ['guards' => $proposedGuards]]);
 $ninjaRows = $report['selectors']['table:nf3_forms']['guards'];
 
-duo_check_same('duo-deletion-feasibility/v1', $report['format'], 'the envelope names the versioned feasibility format');
-duo_check_same(false, $report['authority'], 'the document declares authority:false in its own bytes');
-duo_check_same('values_omitted', $report['redaction'], 'the document declares the value redaction');
-duo_check_same(
+wprism_check_same('wprism-deletion-feasibility/v1', $report['format'], 'the envelope names the versioned feasibility format');
+wprism_check_same(false, $report['authority'], 'the document declares authority:false in its own bytes');
+wprism_check_same('values_omitted', $report['redaction'], 'the document declares the value redaction');
+wprism_check_same(
     $report['feasibility_hash'],
     DeletionFeasibility::hash_document($report),
     'feasibility_hash is the canonical hash of the document minus itself'
 );
-duo_check_same(
-    ['agent_version' => DUO_AGENT_VERSION, 'spec_version' => DUO_SPEC_VERSION],
+wprism_check_same(
+    ['agent_version' => WPRISM_AGENT_VERSION, 'spec_version' => WPRISM_SPEC_VERSION],
     $report['target'],
     'the answer is stamped with the loaded agent — a lock verdict is a fact about one target under one engine'
 );
 
-duo_check_same(
+wprism_check_same(
     [
         'column' => 'parent_id',
         'index' => null,
@@ -285,9 +285,9 @@ duo_check_same(
         'table_present' => true,
     ],
     $ninjaRows[0],
-    'nf3_actions.parent_id: the DUO-3328 prose reproduced as a computed null, with the reason named'
+    'nf3_actions.parent_id: the issue #3328 prose reproduced as a computed null, with the reason named'
 );
-duo_check_same(
+wprism_check_same(
     [
         'column' => 'parent_id',
         'index' => null,
@@ -301,7 +301,7 @@ duo_check_same(
     $ninjaRows[1],
     'nf3_fields.parent_id: the same null, computed against a table that DOES carry an index (on `key`)'
 );
-duo_check(
+wprism_check(
     $ninjaRows[0]['table_present'] === true && $ninjaRows[1]['table_present'] === true,
     'both guard tables are PRESENT — the null is about the index, not about a missing table'
 );
@@ -314,7 +314,7 @@ echo "\n== 3. the contrast: core's shipped, advertised guards compute an index =
 // terminal — the closed GUARD_KEYS set is checked against the shipped set.
 $core = json_decode((string) file_get_contents($repoRoot . '/platform/adapter-library/core/manifest.json'), true);
 $postGuards = $core['deletions']['post:post']['guards'] ?? [];
-duo_check_same(
+wprism_check_same(
     ['comments.comment_post_ID', 'posts.post_parent'],
     array_map(static fn(array $g): string => $g['table'] . '.' . $g['column'], $postGuards),
     'core.json post:post ships two reverse-reference guards, including one with exclude_where/source_pk'
@@ -336,17 +336,17 @@ $target(['wp_comments', 'wp_posts'], [
     ]],
 ]);
 $coreRows = DeletionFeasibility::report(['post:post' => ['guards' => $postGuards]])['selectors']['post:post']['guards'];
-duo_check_same(
+wprism_check_same(
     ['index' => 'comment_post_ID', 'prefix' => null, 'reason' => null],
     ['index' => $coreRows[0]['index'], 'prefix' => $coreRows[0]['prefix'], 'reason' => $coreRows[0]['reason']],
     'a guard whose column leads an index reports that index and NO reason: the lock boundary exists'
 );
-duo_check_same(
+wprism_check_same(
     ['index' => 'post_parent', 'prefix' => null, 'reason' => null],
     ['index' => $coreRows[1]['index'], 'prefix' => $coreRows[1]['prefix'], 'reason' => $coreRows[1]['reason']],
     'the qualified guard (exclude_where + source_id_kind/source_pk) resolves on its own first column'
 );
-duo_check_same(
+wprism_check_same(
     [['index' => 'post_parent', 'prefix' => null]],
     $coreRows[1]['leading'],
     'a column that is only a LATER part of a composite index is not reported as leading it'
@@ -376,7 +376,7 @@ $target(['wp_postmeta'], $postmetaIndexes([
 ]));
 $wide = DeletionFeasibility::report(['post:post' => ['guards' => [$metaGuard('_linked_post_id')]]]);
 $wideRow = $wide['selectors']['post:post']['guards'][0];
-duo_check_same(
+wprism_check_same(
     ['index' => 'meta_key', 'lock_column' => 'meta_key', 'prefix' => 191, 'reason' => null],
     [
         'index' => $wideRow['index'],
@@ -394,12 +394,12 @@ $target(['wp_postmeta'], $postmetaIndexes([
 $narrowRow = DeletionFeasibility::report([
     'post:post' => ['guards' => [$metaGuard('_linked_post_id')]],
 ])['selectors']['post:post']['guards'][0];
-duo_check_same(
+wprism_check_same(
     ['index' => null, 'prefix' => null, 'reason' => 'prefix index of 8 bytes cannot cover a declared key of 15'],
     ['index' => $narrowRow['index'], 'prefix' => $narrowRow['prefix'], 'reason' => $narrowRow['reason']],
     'a prefix too short for the declared key is a null with the SIZES named, not a covering index'
 );
-duo_check_same(
+wprism_check_same(
     [['index' => 'meta_key', 'prefix' => 8]],
     $narrowRow['leading'],
     'the rejected index is still reported as leading — the author sees what would have to grow'
@@ -415,7 +415,7 @@ $target(['wp_postmeta'], $postmetaIndexes([
 $widestRow = DeletionFeasibility::report([
     'post:post' => ['guards' => [$metaGuard('_linked_post_id')]],
 ])['selectors']['post:post']['guards'][0];
-duo_check_same(
+wprism_check_same(
     'prefix index of 12 bytes cannot cover a declared key of 15',
     $widestRow['reason'],
     'the reason names the WIDEST rejected prefix, the closest miss, not the first one walked'
@@ -430,7 +430,7 @@ $target(['wp_postmeta'], $postmetaIndexes([
 $acceptedRow = DeletionFeasibility::report([
     'post:post' => ['guards' => [$metaGuard('_linked_post_id')]],
 ])['selectors']['post:post']['guards'][0];
-duo_check_same(
+wprism_check_same(
     ['index' => 'meta_key_full', 'prefix' => 191, 'reason' => null],
     ['index' => $acceptedRow['index'], 'prefix' => $acceptedRow['prefix'], 'reason' => $acceptedRow['reason']],
     'a too-narrow index first does not hide a sufficient one behind it (lock_index() continues, so this does)'
@@ -443,7 +443,7 @@ $target([], []);
 $absentRow = DeletionFeasibility::report([
     'table:nf3_forms' => ['guards' => [$proposedGuards[0]]],
 ])['selectors']['table:nf3_forms']['guards'][0];
-duo_check_same(
+wprism_check_same(
     [
         'index' => null,
         'reason' => 'guard table is absent on this target',
@@ -456,7 +456,7 @@ duo_check_same(
     ],
     'a guard table this target does not have stays distinguishable from an unindexed one'
 );
-duo_check(
+wprism_check(
     $absentRow['reason'] !== 'no index leads with this column',
     'the scanner reports absence before any index question, and so does this — blaming the index would be wrong'
 );
@@ -465,7 +465,7 @@ duo_check(
 // ships exactly that), and its answer is an empty list, not a refusal.
 $target([], []);
 $noGuards = DeletionFeasibility::report(['menu:nav_menu' => ['guards' => []]]);
-duo_check_same(
+wprism_check_same(
     ['guards' => []],
     $noGuards['selectors']['menu:nav_menu'],
     'a selector with no guards answers an empty guard list: the lock question was never the open one'
@@ -486,7 +486,7 @@ $target(['wp_postmeta'], [
         'then' => ['rows' => [$idx('PRIMARY', 'meta_id', 1, null, 0)]],
     ],
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['post:post' => ['guards' => [$metaGuard('_linked_post_id')]]]),
     RuntimeException::class,
     'an explanation that disagrees with lock_index()\'s verdict is REFUSED, not published',
@@ -499,7 +499,7 @@ $target(['wp_postmeta'], [
         'then' => ['rows' => [$idx('meta_key', 'meta_key', 1, 191)]],
     ],
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['post:post' => ['guards' => [$metaGuard('_linked_post_id')]]]),
     RuntimeException::class,
     'the refusal is symmetric: an index appearing between the two reads refuses just as loudly'
@@ -514,7 +514,7 @@ echo "\n== 7. no capability is proposed and no ratification is taken ==\n";
 $target(['wp_nf3_actions'], [
     'SHOW INDEX FROM `wp_nf3_actions`' => ['rows' => [$idx('PRIMARY', 'id', 1, null, 0)]],
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report([
         'table:nf3_forms' => ['cascades' => ['attached_meta'], 'guards' => [$proposedGuards[0]]],
     ]),
@@ -535,7 +535,7 @@ $resolver = new DeletionCapabilityResolver(
     new OptionNameReferenceResolver([], static fn(): bool => false),
     ['string', 'csv']
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $resolver->capability('table:nf3_forms'),
     RuntimeException::class,
     'pasting the report into a manifest does not make a capability: the resolver refuses it',
@@ -544,7 +544,7 @@ duo_check_throws(
 
 $encoded = Canon::encode($report);
 foreach (['cascades', 'capability', 'ratif', 'advertise', 'eligible', 'approved', 'supported', 'recommend'] as $word) {
-    duo_check(
+    wprism_check(
         !str_contains($encoded, $word),
         "no `$word` word appears anywhere in a feasibility document"
     );
@@ -558,7 +558,7 @@ $publicApi = array_map(
     (new ReflectionClass(DeletionFeasibility::class))->getMethods(ReflectionMethod::IS_PUBLIC)
 );
 sort($publicApi);
-duo_check_same(
+wprism_check_same(
     ['hash_document', 'report'],
     $publicApi,
     'the emitter can report and hash, and nothing else — there is no method that proposes a selector'
@@ -566,13 +566,13 @@ duo_check_same(
 
 $closed = ['column', 'index', 'leading', 'lock_column', 'prefix', 'reason', 'table', 'table_present'];
 foreach ($report['selectors'] as $selector => $facts) {
-    duo_check_same(
+    wprism_check_same(
         ['guards'],
         array_keys($facts),
         "selector '$selector' carries a guard list and nothing beside it"
     );
     foreach ($facts['guards'] as $i => $row) {
-        duo_check_same(
+        wprism_check_same(
             [],
             array_values(array_diff(array_keys($row), $closed)),
             "guard row $i carries only the closed answer vocabulary"
@@ -582,7 +582,7 @@ foreach ($report['selectors'] as $selector => $facts) {
 // The guard's own authored `reason` prose explains why the reference matters;
 // this row's `reason` explains why the lock is impossible. Two meanings under
 // one key in one document is how a reviewer misreads it.
-duo_check(
+wprism_check(
     !str_contains($encoded, 'rows reference this form'),
     'the guard\'s authored reason prose is not echoed into the row whose `reason` means something else'
 );
@@ -595,12 +595,12 @@ $target(['wp_nf3_actions'], [
 ]);
 $oneGuard = ['guards' => [$proposedGuards[0]]];
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report([]),
     RuntimeException::class,
     'a report with no selector refuses rather than emitting an empty document'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['nf3_forms' => $oneGuard]),
     RuntimeException::class,
     'a selector outside the <post|term|menu|table>:<type> grammar is refused, and never echoed',
@@ -612,11 +612,11 @@ try {
 } catch (Throwable $e) {
     $unsafeSelector = $e->getMessage();
 }
-duo_check(
+wprism_check(
     is_string($unsafeSelector) && !str_contains($unsafeSelector, 'DROP TABLE'),
     'the refusal for an unsafe selector does not repeat the one string nothing has vetted'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(array_fill_keys(
         array_map(static fn(int $i): string => "table:t$i", range(1, 33)),
         $oneGuard
@@ -625,7 +625,7 @@ duo_check_throws(
     'more selectors than MAX_SELECTORS is refused rather than silently truncated',
     'refuses more than 32 selectors'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report([
         'table:nf3_forms' => ['guards' => array_fill(0, 33, $proposedGuards[0])],
     ]),
@@ -633,12 +633,12 @@ duo_check_throws(
     'more guards than MAX_GUARDS is refused rather than silently truncated',
     'refuses more than 32 guards'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['table:nf3_forms' => ['guards' => $oneGuard['guards'], 'notes' => 'x']]),
     RuntimeException::class,
     'a proposal field this report does not model is refused, not ignored'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['table:nf3_forms' => ['guards' => [
         ['table' => 'nf3_actions', 'column' => 'parent_id', 'id_kind' => 'nf3_form', 'when_referenced' => 'skip'],
     ]]]),
@@ -647,7 +647,7 @@ duo_check_throws(
     'it would answer for the wrong column'
 );
 // …and the refusal NAMES it. The author who hits this is annotating a guard
-// by hand, and `wp help duo adapter-deletion-feasibility` documents
+// by hand, and `wp help wprism adapter-deletion-feasibility` documents
 // `--proposal` only as "`<selector>: {"guards": [...]}` — minus `cascades`",
 // listing none of the 13 keys in GUARD_KEYS. Measured on a live WPForms Lite
 // pair: the field that hit it was `note`, and neither the key nor the legal
@@ -660,19 +660,19 @@ try {
 } catch (Throwable $e) {
     $unmodelled = $e;
 }
-duo_check(
-    $unmodelled instanceof \Duo\CommandRefusalException
+wprism_check(
+    $unmodelled instanceof \WPrism\CommandRefusalException
         && str_contains($unmodelled->publicMessage, '`note`')
         && str_contains($unmodelled->publicMessage, "position 0 of 'table:nf3_forms'"),
     'the refusal names the offending guard field and where it sits, not merely that one exists'
 );
-duo_check(
-    $unmodelled instanceof \Duo\CommandRefusalException
+wprism_check(
+    $unmodelled instanceof \WPrism\CommandRefusalException
         && str_contains($unmodelled->remediation, 'cast, column, exclude_where, id_kind, identity_column, meta_key')
         && str_contains($unmodelled->remediation, 'source_id_kind, source_pk, table, where'),
     'and its remediation lists the whole closed guard grammar, which is the fact `wp help` never gives'
 );
-duo_check(
+wprism_check(
     !str_contains(
         (string) $unmodelled?->getMessage(),
         'the payments twin'
@@ -687,12 +687,12 @@ try {
 } catch (Throwable $e) {
     $hostileKey = $e->getMessage();
 }
-duo_check(
+wprism_check(
     is_string($hostileKey) && !str_contains($hostileKey, 'DROP TABLE')
         && str_contains($hostileKey, 'outside the portable identifier grammar'),
     'a key nothing has vetted is described rather than echoed, exactly as an unsafe selector is'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['table:nf3_forms' => ['guards' => [
         ['table' => 'nf3_actions; DROP TABLE x', 'column' => 'parent_id', 'id_kind' => 'nf3_form'],
     ]]]),
@@ -716,7 +716,7 @@ try {
 } catch (Throwable $e) {
     $castAnswer = 'refused: ' . $e->getMessage();
 }
-duo_check_same(
+wprism_check_same(
     'meta_key',
     $castAnswer,
     'every field of the shipped guard grammar is modelled, `cast` included'
@@ -727,7 +727,7 @@ duo_check_same(
 $target(['wp_nf3_actions'], [
     'SHOW INDEX FROM `wp_nf3_actions`' => ['error' => 'simulated index introspection failure'],
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['table:nf3_forms' => $oneGuard]),
     RuntimeException::class,
     'a failed index read refuses instead of inferring an unindexed guard table',
@@ -737,14 +737,14 @@ duo_check_throws(
 $target(['wp_nf3_actions'], [
     'SHOW INDEX FROM `wp_nf3_actions`' => ['rows' => [$idx('idx`hostile', 'parent_id')]],
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['table:nf3_forms' => $oneGuard]),
     RuntimeException::class,
     'an index name outside the portable grammar refuses rather than reporting a silently rewritten name'
 );
 
 $GLOBALS['wpdb'] = null;
-duo_check_throws(
+wprism_check_throws(
     static fn() => DeletionFeasibility::report(['table:nf3_forms' => $oneGuard]),
     RuntimeException::class,
     'without a live target the report refuses: a document full of nulls would be indistinguishable from a real one',
@@ -752,35 +752,35 @@ duo_check_throws(
 );
 
 // --------------------------------------------------------------------------
-echo "\n== 9. the wp duo surface ==\n";
+echo "\n== 9. the wp wprism surface ==\n";
 // --------------------------------------------------------------------------
 $cli = (string) file_get_contents($repoRoot . '/agent/src/Command/Cli.php');
-duo_check(
+wprism_check(
     str_contains($cli, '@subcommand adapter-deletion-feasibility'),
-    'the verb is declared as wp duo adapter-deletion-feasibility'
+    'the verb is declared as wp wprism adapter-deletion-feasibility'
 );
-duo_check(
+wprism_check(
     substr_count($cli, 'public function adapter_deletion_feasibility(') === 1,
     'exactly one handler was added to the command surface'
 );
-duo_check(
+wprism_check(
     str_contains($cli, "self::halt_json_failure(\$t, \$assoc, 'adapter-deletion-feasibility')"),
-    'the verb routes its refusals through the shared duo-command-refusal/v1 envelope'
+    'the verb routes its refusals through the shared wprism-command-refusal/v1 envelope'
 );
-duo_check(
+wprism_check(
     preg_match(
         '/public function adapter_deletion_feasibility\(\$args, \$assoc\) \{\s*(?:\/\/[^\n]*\n\s*)*Journal::suspend_for_observation\(\);/',
         $cli
     ) === 1,
     'the read-only verb suspends the provenance journal at ENTRY, before any argument refusal'
 );
-duo_check(
+wprism_check(
     str_contains($dropIn, "require_once __DIR__ . '/src/Adapter/DeletionFeasibility.php';"),
     'the emitter is loaded by the drop-in bootstrap, like every one of its siblings'
 );
 $internals = (string) file_get_contents($repoRoot . '/docs/guides/internals.md');
-duo_check(
-    str_contains($internals, '`wp duo adapter-deletion-feasibility`'),
+wprism_check(
+    str_contains($internals, '`wp wprism adapter-deletion-feasibility`'),
     'the authoring internal is named in docs/guides/internals.md (MUP §5.1)'
 );
 
@@ -792,7 +792,7 @@ echo "\n== 10. the verb, driven: both output paths and the shared refusal envelo
 // notice a key that stopped being written. `Cli.php` states that the offline
 // refusal suites load it against pre-declared stubs (`:6-8`); WP_CLI above is
 // that stub and nothing else here is one.
-$scratch = sys_get_temp_dir() . '/duo_regress_deletion_feasibility_' . bin2hex(random_bytes(4));
+$scratch = sys_get_temp_dir() . '/wprism_regress_deletion_feasibility_' . bin2hex(random_bytes(4));
 mkdir($scratch, 0777, true);
 register_shutdown_function(static function () use ($scratch): void {
     foreach (glob($scratch . '/*') ?: [] as $file) {
@@ -811,26 +811,26 @@ $target(['wp_nf3_actions', 'wp_nf3_fields'], [
     ]],
 ]);
 
-$verb = new Duo\Cli();
+$verb = new WPrism\Cli();
 WP_CLI::reset();
 $verb->adapter_deletion_feasibility([], ['proposal' => $proposalPath]);
 $human = implode("\n", WP_CLI::$lines);
-duo_check(
+wprism_check(
     str_contains($human, 'authority: false; redaction: values_omitted'),
     'the human summary declares the same two boundaries the document does'
 );
-duo_check(
+wprism_check(
     str_contains(
         $human,
         'table:nf3_forms: nf3_actions.parent_id locks on parent_id — NO covering index: no index leads with this column'
     ),
     'the human summary names the guard, the column it locks on, and why there is no boundary'
 );
-duo_check(
+wprism_check(
     str_contains($human, 'feasibility hash: ' . $report['feasibility_hash']),
     'the summary carries the same hash the document does, so a pasted answer can be checked'
 );
-duo_check(
+wprism_check(
     !str_contains($human, 'advertise') && !str_contains($human, 'cascade'),
     'the terminal never suggests what to declare — the summary reports and stops'
 );
@@ -839,19 +839,19 @@ duo_check(
 WP_CLI::reset();
 $verb->adapter_deletion_feasibility([], ['proposal' => $proposalPath, 'format' => 'json']);
 $emitted = json_decode(implode("\n", WP_CLI::$lines), true);
-duo_check_same(
+wprism_check_same(
     $report['feasibility_hash'],
     $emitted['feasibility_hash'] ?? null,
     'the verb emits the same document the emitter builds, for the same target and proposal'
 );
-duo_check_same(
+wprism_check_same(
     $emitted['feasibility_hash'] ?? null,
     DeletionFeasibility::hash_document(is_array($emitted) ? $emitted : []),
     'the emitted bytes verify against their own hash after a round trip through the wire'
 );
 
 // A refusal reaches the shared envelope at RUNTIME, not merely in source.
-$journalSuspended = new ReflectionProperty(Duo\Journal::class, 'observationSuspended');
+$journalSuspended = new ReflectionProperty(WPrism\Journal::class, 'observationSuspended');
 $journalSuspended->setValue(null, false);
 WP_CLI::reset();
 $envelope = null;
@@ -860,20 +860,20 @@ try {
 } catch (Throwable $halted) {
     $envelope = json_decode(implode("\n", WP_CLI::$lines), true);
 }
-duo_check_same(
-    ['duo-command-refusal/v1', 'adapter-deletion-feasibility', false],
+wprism_check_same(
+    ['wprism-command-refusal/v1', 'adapter-deletion-feasibility', false],
     [$envelope['format'] ?? null, $envelope['command'] ?? null, $envelope['ok'] ?? null],
-    'an argument refusal reaches the shared duo-command-refusal/v1 envelope under its own command name'
+    'an argument refusal reaches the shared wprism-command-refusal/v1 envelope under its own command name'
 );
-duo_check(
+wprism_check(
     is_string($envelope['remediation'] ?? null)
         && $envelope['remediation'] !== 'correct the named adapter-deletion-feasibility blocker, then retry the command',
     'the verb carries a reviewed remediation arm, not the default that promises to name what it redacted'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $journalSuspended->getValue(),
-    'the journal is suspended before the refusal: asking whether a guard could lock never becomes a Duo INSERT'
+    'the journal is suspended before the refusal: asking whether a guard could lock never becomes a WPrism INSERT'
 );
 
 // A PROPOSAL refusal reaches the operator as itself, not as a redaction.
@@ -898,7 +898,7 @@ try {
 } catch (Throwable $halted) {
     $noteEnvelope = json_decode(implode("\n", WP_CLI::$lines), true);
 }
-duo_check_same(
+wprism_check_same(
     ['invalid_arguments', 'invalid_arguments', null],
     [
         $noteEnvelope['error'] ?? null,
@@ -907,18 +907,18 @@ duo_check_same(
     ],
     'a guard field the report does not model is a named argument refusal, never the redacted unclassified gate'
 );
-duo_check(
+wprism_check(
     is_string($noteEnvelope['message'] ?? null)
         && str_contains($noteEnvelope['message'], '`note`')
         && str_contains($noteEnvelope['message'], 'it would answer for the wrong column'),
     'the emitter\'s own sentence — the offending key and why it matters — reaches the JSON envelope'
 );
-duo_check(
+wprism_check(
     is_string($noteEnvelope['remediation'] ?? null)
         && str_contains($noteEnvelope['remediation'], 'option_name_ref, reason, ref'),
     'and the remediation hands the author the closed guard grammar instead of "inspect the proposed guards"'
 );
-duo_check(
+wprism_check(
     !str_contains((string) json_encode($noteEnvelope), 'unclassified safety gate')
         && !str_contains((string) json_encode($noteEnvelope), 'adapter_deletion_feasibility_failed')
         && !str_contains((string) json_encode($noteEnvelope), 'the actions twin'),
@@ -932,7 +932,7 @@ try {
 } catch (Throwable $halted) {
     $noteHuman = $halted->getMessage();
 }
-duo_check(
+wprism_check(
     is_string($noteHuman) && str_contains($noteHuman, '`note`')
         && !str_contains($noteHuman, 'deletion feasibility refused; inspect the proposed selectors'),
     'the terminal gets the same named sentence, not the generic "inspect the proposed selectors" fallback'
@@ -949,12 +949,12 @@ try {
 } catch (Throwable $halted) {
     $readEnvelope = json_decode(implode("\n", WP_CLI::$lines), true);
 }
-duo_check_same(
+wprism_check_same(
     ['adapter_deletion_feasibility_failed', true],
     [$readEnvelope['error'] ?? null, $readEnvelope['details_redacted'] ?? null],
     'a failed schema read still redacts through the unclassified gate: typing the PROPOSAL refusals moved nothing else'
 );
 
-duo_check_summary(
-    'deletion feasibility (duo-deletion-feasibility/v1): lock_index() answered at authoring time, deciding nothing'
+wprism_check_summary(
+    'deletion feasibility (wprism-deletion-feasibility/v1): lock_index() answered at authoring time, deciding nothing'
 );

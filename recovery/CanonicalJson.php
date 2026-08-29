@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Recovery;
+namespace WPrism\Recovery;
 
 /**
  * The one canonical JSON codec shared by the recovery authority and every
@@ -44,7 +44,7 @@ final class CanonicalJson {
     }
 
     /** @param array<string,mixed> $value */
-    public static function encode(array $value, string $scope = 'duo recovery'): string {
+    public static function encode(array $value, string $scope = 'wprism recovery'): string {
         try {
             return (string) json_encode(
                 self::normalize($value, $scope),

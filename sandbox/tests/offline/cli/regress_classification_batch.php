@@ -7,7 +7,7 @@
 
 require_once __DIR__ . '/../../../../cli/src/Onboarding/ClassificationBatch.php';
 
-use Duo\Orchestrator\ClassificationBatch;
+use WPrism\Orchestrator\ClassificationBatch;
 
 function fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -32,7 +32,7 @@ function refuses(callable $fn, string $needle, string $message): void {
 }
 
 /**
- * A completely reviewed batch: every class filled, and — since DUO-3496 —
+ * A completely reviewed batch: every class filled, and — since issue #3496 —
  * the field the site grammar demands of the class chosen. An options row
  * classed authored without `autoload` is not a complete decision, so a helper
  * that produced one would be asserting against a batch the agent refuses.
@@ -188,11 +188,11 @@ refuses(
 );
 
 // ---------------------------------------------------------------------------
-// DUO-3496: the row must be able to carry a COMPLETE decision, and an
+// issue #3496: the row must be able to carry a COMPLETE decision, and an
 // incomplete one must refuse here rather than on the target.
 //
 // Live-observed on main 273ce5b: a fully-filled v1 batch applied, and the
-// very next `duo pending` refused the site.duo.json it had just written —
+// very next `wprism pending` refused the site.wprism.json it had just written —
 // once per class, because agent/src/Grammar/OptionGrammar.php demands
 // `autoload` on an options rule classed authored or managed (:76-96) and a
 // boolean `required` on one classed env (:42-56). Both requirements are
@@ -314,7 +314,7 @@ refuses(
 
 // ---- the wire bump ---------------------------------------------------------
 
-ok(ClassificationBatch::FORMAT === 'duo-classification-batch/v2', 'the reviewed artifact is v2');
+ok(ClassificationBatch::FORMAT === 'wprism-classification-batch/v2', 'the reviewed artifact is v2');
 $staleV1 = reviewed($items);
 $staleV1['format'] = ClassificationBatch::FORMAT_WITHOUT_STORAGE_DECISIONS;
 refuses(
@@ -323,8 +323,8 @@ refuses(
     'a v1 artifact refuses by name with re-export as the remedy, never read as a decision'
 );
 refuses(
-    fn() => ClassificationBatch::validate(['format' => 'duo-classification-batch/v3'] + reviewed($items), 'production', $items),
-    "unsupported classification batch format 'duo-classification-batch/v3'",
+    fn() => ClassificationBatch::validate(['format' => 'wprism-classification-batch/v3'] + reviewed($items), 'production', $items),
+    "unsupported classification batch format 'wprism-classification-batch/v3'",
     'an unknown format keeps the generic refusal'
 );
 

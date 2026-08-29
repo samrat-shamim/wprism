@@ -1,5 +1,5 @@
 <?php
-/** Offline characterization of Policy's option namespace ownership lookup (DUO-3348 slice 56). */
+/** Offline characterization of Policy's option namespace ownership lookup (issue #3348 slice 56). */
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 4);
@@ -22,7 +22,7 @@ $throws = static function (callable $callback, string $expected) use ($check): v
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\OptionNamespaceResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\OptionNamespaceResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -42,7 +42,7 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\OptionNamespaceResolver;
+use WPrism\OptionNamespaceResolver;
 
 $manifests = [
     ['name' => 'alpha', 'option_namespaces' => [['match' => '^alpha_'], ['match' => '^alpha_exact$']]],
@@ -57,21 +57,21 @@ $check(
 );
 $throws(
     static fn() => $resolver->owner_for('alpha_exact'),
-    "duo: option 'alpha_exact' is claimed by overlapping namespaces from alpha, alpha — discovery ownership must not depend on manifest load order"
+    "wprism: option 'alpha_exact' is claimed by overlapping namespaces from alpha, alpha — discovery ownership must not depend on manifest load order"
 );
 $throws(
     static fn() => (new OptionNamespaceResolver([
         ['name' => 'bravo', 'option_namespaces' => [['match' => '^shared_']]],
         ['name' => 'alpha', 'option_namespaces' => [['match' => '^shared_']]],
     ]))->owner_for('shared_name'),
-    "duo: option 'shared_name' is claimed by overlapping namespaces from bravo, alpha — discovery ownership must not depend on manifest load order"
+    "wprism: option 'shared_name' is claimed by overlapping namespaces from bravo, alpha — discovery ownership must not depend on manifest load order"
 );
 
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->option_namespace('alpha_key') === $resolver->owner_for('alpha_key')

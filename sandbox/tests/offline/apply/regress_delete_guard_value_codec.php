@@ -1,6 +1,6 @@
 <?php
 /**
- * Direct characterization for DeleteGuardValueCodec (DUO-3347): the
+ * Direct characterization for DeleteGuardValueCodec (issue #3347): the
  * fail-closed representation boundary used by deletion guards before they
  * decide that a live reference is absent or explicitly repaired.
  *
@@ -14,7 +14,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardValueCodec.php';
 
-use Duo\DeleteGuardValueCodec;
+use WPrism\DeleteGuardValueCodec;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {

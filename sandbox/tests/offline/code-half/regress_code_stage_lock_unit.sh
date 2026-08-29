@@ -5,13 +5,13 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 
-DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
-namespace Duo;
+namespace WPrism;
 
-$root = getenv('DUO_ROOT');
-$target = sys_get_temp_dir() . '/duo-code-stage-lock-target-' . bin2hex(random_bytes(6));
-$repo = sys_get_temp_dir() . '/duo-code-stage-lock-repo-' . bin2hex(random_bytes(6));
+$root = getenv('WPRISM_ROOT');
+$target = sys_get_temp_dir() . '/wprism-code-stage-lock-target-' . bin2hex(random_bytes(6));
+$repo = sys_get_temp_dir() . '/wprism-code-stage-lock-repo-' . bin2hex(random_bytes(6));
 define('WP_CONTENT_DIR', $target);
 define('WP_PLUGIN_DIR', $target . '/plugins');
 define('WPMU_PLUGIN_DIR', $target . '/mu-plugins');
@@ -50,14 +50,14 @@ final class PromotionLock {
     public static function assert_no_lifecycle_attempt(string $owner, string $artifact, string $context): void {
         self::$attemptChecks++;
         if (self::$unresolved) {
-            throw new \RuntimeException("duo: $context refused — unresolved lifecycle attempt activate");
+            throw new \RuntimeException("wprism: $context refused — unresolved lifecycle attempt activate");
         }
     }
     public static function assert_lifecycle_complete(string $owner, string $artifact): void {
         self::$lifecycleCompleteChecks++;
         if (!self::$lifecycleComplete) {
             throw new \RuntimeException(
-                'duo: code-finalize refused — this promotion session has not completed lifecycle retirement and fresh-process activation in order'
+                'wprism: code-finalize refused — this promotion session has not completed lifecycle retirement and fresh-process activation in order'
             );
         }
     }

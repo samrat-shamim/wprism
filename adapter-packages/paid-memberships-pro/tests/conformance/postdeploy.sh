@@ -17,7 +17,7 @@ $wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 10001");
 $wpdb->query("ALTER TABLE {$wpdb->terms} AUTO_INCREMENT = 11001");
 
 $discount = new PMPro_Discount_Code();
-$discount->code = 'DUO-PORTABLE-25';
+$discount->code = 'WPRISM-PORTABLE-25';
 $discount->starts = '2020-01-01';
 $discount->expires = '2020-01-02';
 $discount->uses = 1;
@@ -36,7 +36,7 @@ foreach ([
     update_option($name, $value);
 }
 update_option('pmpro_updates', ['target-runtime' => 1999999001]);
-update_option('duo_target_pmpro_neighbor', 'target-neighbor-preserved');
+update_option('wprism_target_pmpro_neighbor', 'target-neighbor-preserved');
 
 $targetUser = wp_create_user('pmpro_target_member', 'target-member-password', 'target-member@example.test');
 if (is_wp_error($targetUser)) {

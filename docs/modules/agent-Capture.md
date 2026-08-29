@@ -28,6 +28,6 @@
 **Known debts.**
 
 - `InitialCaptureBoundary.php -> InitProtocol.php` and `CapturePublicationWorkflow.php -> Deploy.php` bind capture to onboarding and promotion.
-- CapturePublicationWorkflow is one of the 22 files over 800 lines and fans out to 24 other files.
+- CapturePublicationWorkflow is one of the 36 files over 800 lines and fans out to 24 other files.
 
-**Sub-namespace plan.** Target `Duo\Capture\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.
+**Sub-namespace plan.** Target `WPrism\Capture\`. Not in this round: the move keeps `namespace WPrism;` flat so that manifest interpreters/providers can keep naming `\WPrism\Policy`, `\WPrism\ProviderSdk`, `\WPrism\Providers` and `\WPrism\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

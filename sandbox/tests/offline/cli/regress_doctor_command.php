@@ -8,19 +8,19 @@ declare(strict_types=1);
  * adding a seam to the production path just to test it is not a change this
  * boundary needs. So the truncated-baseline case at the bottom of this file
  * re-invokes THIS suite against a COPY of cli/ whose baseline is deliberately
- * incomplete; DUO_DOCTOR_BASELINE_PROBE_ROOT is that copy's root and is set
+ * incomplete; WPRISM_DOCTOR_BASELINE_PROBE_ROOT is that copy's root and is set
  * only by this file. Re-entering the same file is what lets the probe reuse
  * the drivers below instead of a second fixture that could agree with a
  * broken Doctor.
  */
-$doctorCommandRoot = (string) (getenv('DUO_DOCTOR_BASELINE_PROBE_ROOT') ?: dirname(__DIR__, 4));
+$doctorCommandRoot = (string) (getenv('WPRISM_DOCTOR_BASELINE_PROBE_ROOT') ?: dirname(__DIR__, 4));
 require_once $doctorCommandRoot . '/cli/src/Command/DoctorCommand.php';
 
-use Duo\Orchestrator\AdoptionTransport;
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\DoctorCommand;
-use Duo\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\AdoptionTransport;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\DoctorCommand;
+use WPrism\Orchestrator\EnvironmentDriver;
 
 function fail_doctor_command(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -75,7 +75,7 @@ class HealthyDoctorDriver implements EnvironmentDriver {
     public int $wpCalls = 0;
 
     /**
-     * DUO-3511: an injected {exit,stdout,stderr} for the composed eval (null
+     * issue #3511: an injected {exit,stdout,stderr} for the composed eval (null
      * = the healthy payload), and the production snippet exactly as Doctor
      * sent it. The suite runs that snippet at the bottom of this file, so the
      * per-field isolation the composition rests on is PROVEN rather than
@@ -92,17 +92,17 @@ class HealthyDoctorDriver implements EnvironmentDriver {
     public function describe(): string { return 'healthy fixture'; }
     public function captureRaw(string $script): array {
         $this->rawCalls++;
-        if ($script === 'echo duo-reachable') return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
-        // DUO-3511: ONE script now carries the repo-path question and the
-        // .duo-env-values.json question, so it answers in the two lines the
+        if ($script === 'echo wprism-reachable') return ['exit' => 0, 'stdout' => "wprism-reachable\n", 'stderr' => ''];
+        // issue #3511: ONE script now carries the repo-path question and the
+        // .wprism-env-values.json question, so it answers in the two lines the
         // production script prints. Both str_contains() are load-bearing:
         // matching the git half alone (what this fake did when they were two
         // probes) would answer without line 1 and sink the repo row, and a
         // re-split would fall through to the refusal below instead of
         // silently passing.
-        if (str_contains($script, 'site.duo.json')
-            && str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
-            return ['exit' => 0, 'stdout' => "duo-repo-ok\nduo-untracked\n", 'stderr' => ''];
+        if (str_contains($script, 'site.wprism.json')
+            && str_contains($script, 'git ls-files --error-unmatch .wprism-env-values.json')) {
+            return ['exit' => 0, 'stdout' => "wprism-repo-ok\nwprism-untracked\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected raw probe'];
     }
@@ -110,7 +110,7 @@ class HealthyDoctorDriver implements EnvironmentDriver {
         $this->wpCalls++;
         if ($wpArgs === ['core', 'is-installed']) return ['exit' => 0, 'stdout' => "\n", 'stderr' => ''];
         $snippet = (string) ($wpArgs[1] ?? '');
-        // DUO-3511: the composed eval, recognised by all three facts it must
+        // issue #3511: the composed eval, recognised by all three facts it must
         // carry — a snippet that lost one is not this call and must not be
         // answered as if it were.
         if (str_contains($snippet, 'class_exists')
@@ -121,8 +121,8 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                 return $this->factsResult;
             }
             return ['exit' => 0, 'stdout' => (string) json_encode([
-                'agent' => $this->agentPresent ? 'duo-ok' : 'duo-missing',
-                'file_mods' => 'duo-unset',
+                'agent' => $this->agentPresent ? 'wprism-ok' : 'wprism-missing',
+                'file_mods' => 'wprism-unset',
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
@@ -188,7 +188,7 @@ class AdoptableDoctorDriver extends HealthyDoctorDriver implements AdoptionTrans
 
 // Probe mode: one healthy run against the copied tree, nothing else. The exit
 // status and rendered rows are the product answer the parent process asserts.
-if (getenv('DUO_DOCTOR_BASELINE_PROBE_ROOT') !== false) {
+if (getenv('WPRISM_DOCTOR_BASELINE_PROBE_ROOT') !== false) {
     exit(DoctorCommand::run(new HealthyDoctorDriver()));
 }
 
@@ -207,7 +207,7 @@ ob_start();
 $healthyExit = DoctorCommand::run($healthy);
 $healthyOutput = (string) ob_get_clean();
 assert_doctor_command($healthyExit === 0, 'healthy doctor exits successfully');
-// DUO-3511: the shape, not just the rendering. Doctor answered these same
+// issue #3511: the shape, not just the rendering. Doctor answered these same
 // ten rows in SEVEN target calls before this — three of the four `wp eval`s
 // were independent siblings under one `if ($installed)`, and the git probe
 // re-entered a target the repo probe had just left. Every row below renders
@@ -220,8 +220,8 @@ assert_doctor_command(str_contains($healthyOutput, '[WARN] DISALLOW_FILE_MODS se
 /** @return array{exit:int,output:string,driver:HealthyDoctorDriver} */
 $compatibilityCase = static function (array $override): array {
     $facts = [
-        'agent' => 'duo-ok',
-        'file_mods' => 'duo-set',
+        'agent' => 'wprism-ok',
+        'file_mods' => 'wprism-set',
         'php' => '8.3.33',
         'db_version' => '11.8.8',
         'db_engine' => 'mariadb',
@@ -253,7 +253,7 @@ $compatibilityCase = static function (array $override): array {
 // cli/ and agent/src/ do not share code), so each needs its own coverage of
 // the same two conditions or the two halves drift silently: a runtime doctor
 // calls compatible that the direct product path refuses is the exact failure
-// the DUO-3222 rationale comment above the check forbids.
+// the issue #3222 rationale comment above the check forbids.
 //
 // One asymmetry with the agent-side suite is deliberate and worth naming:
 // doctor reads the REAL docs/compatibility-baseline.json off disk, so no cell
@@ -302,7 +302,7 @@ foreach ([
     // The agent refuses an observed value that is not a plain dotted version
     // (PlatformCompatibility::inside_range()); doctor's PHP row carries the
     // same guard the WordPress row already did, or it would call a
-    // pre-release engine compatible that `wp duo` refuses.
+    // pre-release engine compatible that `wp wprism` refuses.
     'PHP pre-release runtime inside an exercised series' => [['php' => '8.4.0RC1'], '[FAIL] PHP version (8.4.0RC1)'],
     'MariaDB below minimum' => [['db_version' => '10.11.0'], '[FAIL] database (mariadb 10.11.0)'],
     'MariaDB exact exclusive maximum' => [['db_version' => '12.0.0'], '[FAIL] database (mariadb 12.0.0)'],
@@ -339,7 +339,7 @@ foreach ([
 // The certified v1 contract is single-site only, and until this row existed a
 // network read as an all-green pre-adoption screen while
 // docs/compatibility-baseline.json already claimed "the agent pre-policy gate
-// and duo doctor block outside these values". A FAIL, not an advisory.
+// and wprism doctor block outside these values". A FAIL, not an advisory.
 $multisiteCase = $compatibilityCase(['site_mode' => 'multisite']);
 assert_doctor_command($multisiteCase['exit'] === 1, 'a network is a blocking doctor failure');
 assert_doctor_command(
@@ -442,8 +442,8 @@ assert_doctor_command(
 );
 $noTopologyDriver = new HealthyDoctorDriver();
 $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
-    'agent' => 'duo-ok',
-    'file_mods' => 'duo-set',
+    'agent' => 'wprism-ok',
+    'file_mods' => 'wprism-set',
     'php' => '8.3.33',
     'db_version' => '11.8.8',
     'db_engine' => 'mariadb',
@@ -539,7 +539,7 @@ $baselineProbe = static function (array $baseline) use ($probeRoot): array {
     $lines = [];
     $status = 0;
     exec(
-        'DUO_DOCTOR_BASELINE_PROBE_ROOT=' . escapeshellarg($probeRoot) . ' '
+        'WPRISM_DOCTOR_BASELINE_PROBE_ROOT=' . escapeshellarg($probeRoot) . ' '
             . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' 2>&1',
         $lines,
         $status
@@ -622,7 +622,7 @@ $missingAgentOutput = (string) ob_get_clean();
 assert_doctor_command($missingAgentExit === 1, 'pre-adoption doctor remains a blocking failure');
 assert_doctor_command(str_contains(
     $missingAgentOutput,
-    "[FAIL] duo agent present — agent class not found (wp eval returned 'duo-missing'); next step: duo adopt 'healthy-fixture'"
+    "[FAIL] wprism agent present — agent class not found (wp eval returned 'wprism-missing'); next step: wprism adopt 'healthy-fixture'"
 ), 'pre-adoption doctor prints the exact host-side adopt command');
 
 $unauthorizedLocalAgent = new AdoptableDoctorDriver(false, false);
@@ -631,9 +631,9 @@ $unauthorizedLocalExit = DoctorCommand::run($unauthorizedLocalAgent);
 $unauthorizedLocalOutput = (string) ob_get_clean();
 assert_doctor_command($unauthorizedLocalExit === 1, 'missing agent remains blocking when local adoption lacks authorization');
 assert_doctor_command(
-    str_contains($unauthorizedLocalOutput, "host-side duo adopt is not ready for driver 'healthy-fixture'")
+    str_contains($unauthorizedLocalOutput, "host-side wprism adopt is not ready for driver 'healthy-fixture'")
         && str_contains($unauthorizedLocalOutput, 'authorize bootstrap in the untracked machine-local overlay')
-        && !str_contains($unauthorizedLocalOutput, 'next step: duo adopt'),
+        && !str_contains($unauthorizedLocalOutput, 'next step: wprism adopt'),
     'adoption-capable doctor relays its target-free capability remediation instead of suggesting a blocked adopt'
 );
 
@@ -643,13 +643,13 @@ $missingDockerAgentExit = DoctorCommand::run($missingDockerAgent);
 $missingDockerAgentOutput = (string) ob_get_clean();
 assert_doctor_command($missingDockerAgentExit === 1, 'missing agent remains blocking when host-side adoption is unavailable');
 assert_doctor_command(
-    str_contains($missingDockerAgentOutput, "host-side duo adopt is unavailable for driver 'healthy-fixture'")
-        && str_contains($missingDockerAgentOutput, "install or mount the Duo agent through that environment's control plane")
-        && !str_contains($missingDockerAgentOutput, "next step: duo adopt"),
+    str_contains($missingDockerAgentOutput, "host-side wprism adopt is unavailable for driver 'healthy-fixture'")
+        && str_contains($missingDockerAgentOutput, "install or mount the WPrism agent through that environment's control plane")
+        && !str_contains($missingDockerAgentOutput, "next step: wprism adopt"),
     'non-adoptable doctor directs the operator to the environment control plane instead of an impossible adopt command'
 );
 
-// DUO-3511: a per-field sentinel. The target's own try/catch caught a
+// issue #3511: a per-field sentinel. The target's own try/catch caught a
 // $wpdb->db_version() throw and left that ONE field null; the rows that never
 // needed the database must still print their real answers. This is the
 // assertion a naive composition fails — one try around the whole snippet, or
@@ -658,8 +658,8 @@ assert_doctor_command(
 // agent is installed and fine.
 $sunkDb = new HealthyDoctorDriver();
 $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
-    'agent' => 'duo-ok',
-    'file_mods' => 'duo-unset',
+    'agent' => 'wprism-ok',
+    'file_mods' => 'wprism-unset',
     'php' => '8.3.33',
     'db_version' => null,
     'db_engine' => null,
@@ -676,7 +676,7 @@ ob_start();
 $sunkDbExit = DoctorCommand::run($sunkDb);
 $sunkDbOutput = (string) ob_get_clean();
 assert_doctor_command($sunkDbExit === 1, 'an unreadable database fact remains a blocking doctor failure');
-assert_doctor_command(str_contains($sunkDbOutput, '[PASS] duo agent present'), 'a sunk database fact did not sink the agent-presence row');
+assert_doctor_command(str_contains($sunkDbOutput, '[PASS] wprism agent present'), 'a sunk database fact did not sink the agent-presence row');
 assert_doctor_command(str_contains($sunkDbOutput, '[WARN] DISALLOW_FILE_MODS set'), 'a sunk database fact did not sink the DISALLOW_FILE_MODS row');
 assert_doctor_command(!str_contains($sunkDbOutput, 'agent class not found'), 'a sunk database fact did not fabricate a missing agent');
 assert_doctor_command(str_contains(
@@ -688,10 +688,10 @@ assert_doctor_command(
     'a sunk database fact does not sink the independently readable process prerequisites'
 );
 
-// DUO-3511: an undecodable payload is the one case where every row falls back
+// issue #3511: an undecodable payload is the one case where every row falls back
 // to exactly what it printed when it owned its own eval — including this
 // sentence, which has been doctor's answer to an unreadable environment since
-// DUO-3222, and including quoting back what the target really printed rather
+// issue #3222, and including quoting back what the target really printed rather
 // than a JSON blob it never sent.
 $garbled = new HealthyDoctorDriver();
 $garbled->factsResult = ['exit' => 0, 'stdout' => "PHP Notice: a plugin wrote to stdout\n", 'stderr' => ''];
@@ -722,7 +722,7 @@ assert_doctor_command(str_contains($rendered, '[PASS] hard check'), 'render pres
 assert_doctor_command(str_contains($rendered, '[WARN] advisory check'), 'render labels advisory failures as warnings');
 assert_doctor_command(str_contains($rendered, 'recommended setting missing'), 'render preserves advisory detail');
 
-// DUO-3511: the isolation the whole composition rests on, proven by RUNNING
+// issue #3511: the isolation the whole composition rests on, proven by RUNNING
 // the production snippet Doctor just sent (captured above) instead of
 // trusting a fixture to imitate it — a fixture can only agree with a snippet
 // that is already broken. $wpdb->db_version() throws here the way it does on
@@ -746,7 +746,7 @@ final class ThrownDbWpdb {
 if (!function_exists('get_bloginfo')) {
     function get_bloginfo(string $show): string { return $show === 'version' ? '7.0.3' : ''; }
 }
-class_alias(stdClass::class, 'Duo\\Capture');
+class_alias(stdClass::class, 'WPrism\\Capture');
 $GLOBALS['wpdb'] = new ThrownDbWpdb();
 assert_doctor_command($healthy->factsSnippet !== '', 'the healthy run recorded the composed eval snippet');
 ob_start();
@@ -754,8 +754,8 @@ eval($healthy->factsSnippet);
 $payload = (string) ob_get_clean();
 $facts = json_decode($payload, true);
 assert_doctor_command(is_array($facts), "the composed snippet emitted a JSON object through a throwing \$wpdb (got '$payload')");
-assert_doctor_command(($facts['agent'] ?? null) === 'duo-ok', 'a throwing $wpdb sank the agent-presence field');
-assert_doctor_command(($facts['file_mods'] ?? null) === 'duo-unset', 'a throwing $wpdb sank the DISALLOW_FILE_MODS field');
+assert_doctor_command(($facts['agent'] ?? null) === 'wprism-ok', 'a throwing $wpdb sank the agent-presence field');
+assert_doctor_command(($facts['file_mods'] ?? null) === 'wprism-unset', 'a throwing $wpdb sank the DISALLOW_FILE_MODS field');
 assert_doctor_command(($facts['php'] ?? null) === PHP_VERSION, 'a throwing $wpdb sank the PHP version field');
 assert_doctor_command(($facts['wp'] ?? null) === '7.0.3', 'a throwing $wpdb sank the WordPress version field');
 assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');

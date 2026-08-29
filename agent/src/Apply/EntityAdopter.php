@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
@@ -32,7 +32,7 @@ final class EntityAdopter {
         $envId = (int) $row['env_id'];
         $uuid = (string) ($row['uuid'] ?? '');
         if ($envId <= 0 || !Uuid::is($uuid)) {
-            throw new \RuntimeException('duo: adoption request has a malformed physical/canonical identity');
+            throw new \RuntimeException('wprism: adoption request has a malformed physical/canonical identity');
         }
         if (isset($this->snapshotRowTables[$entity['type']])) {
             Snapshot::adopt($this->policy, $row['uuid'], $entity['type'], $envId);
@@ -44,18 +44,18 @@ final class EntityAdopter {
                 $wpdb->postmeta,
                 'post_id',
                 'adopt post identity owner-range locking'
-            )->exact_key_rows($envId, '_duo_uuid');
+            )->exact_key_rows($envId, '_wprism_uuid');
             if (count($exact) > 1) {
-                throw new \RuntimeException('duo: adopt post identity found duplicate exact identity rows');
+                throw new \RuntimeException('wprism: adopt post identity found duplicate exact identity rows');
             }
             if ($exact !== []
                 && (!is_string($exact[0]['meta_value']) || !hash_equals($uuid, $exact[0]['meta_value']))) {
-                throw new \RuntimeException('duo: adopt post identity contradicts the exact physical identity row');
+                throw new \RuntimeException('wprism: adopt post identity contradicts the exact physical identity row');
             }
             if ($exact === []) {
                 Db::insert($wpdb->postmeta, [
                     'post_id' => $envId,
-                    'meta_key' => '_duo_uuid',
+                    'meta_key' => '_wprism_uuid',
                     'meta_value' => $uuid,
                 ], null, 'adopt post identity');
                 CacheInvalidationTransaction::queue($envId, 'post_meta', 'adopt post identity');
@@ -76,7 +76,7 @@ final class EntityAdopter {
             ? 'nav_menu'
             : (string) ($entity['data']['taxonomy'] ?? '');
         if (preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1) {
-            throw new \RuntimeException('duo: adopt term identity has a malformed taxonomy');
+            throw new \RuntimeException('wprism: adopt term identity has a malformed taxonomy');
         }
         $index = $this->fieldMaterializer->proven_lock_index(
             $wpdb->term_taxonomy,
@@ -93,7 +93,7 @@ final class EntityAdopter {
             || !array_is_list($taxonomyRows)
             || trim((string) ($wpdb->last_error ?? '')) !== ''
             || count($taxonomyRows) > 1024) {
-            throw new \RuntimeException('duo: adopt term taxonomy owner-range read failed or exceeded its bound');
+            throw new \RuntimeException('wprism: adopt term taxonomy owner-range read failed or exceeded its bound');
         }
         $termTaxonomyIds = [];
         foreach ($taxonomyRows as $position => $taxonomyRow) {
@@ -106,32 +106,32 @@ final class EntityAdopter {
                 || $id === null
                 || !is_string($rowTaxonomy)
                 || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $rowTaxonomy) !== 1) {
-                throw new \RuntimeException("duo: adopt term taxonomy owner-range returned a malformed row at position $position");
+                throw new \RuntimeException("wprism: adopt term taxonomy owner-range returned a malformed row at position $position");
             }
             if (hash_equals($taxonomy, $rowTaxonomy)) {
                 $termTaxonomyIds[] = $id;
             }
         }
         if (count($termTaxonomyIds) !== 1) {
-            throw new \RuntimeException('duo: adopt term identity requires exactly one byte-exact taxonomy row');
+            throw new \RuntimeException('wprism: adopt term identity requires exactly one byte-exact taxonomy row');
         }
         $termTaxonomyId = $termTaxonomyIds[0];
         $exact = $this->fieldMaterializer->meta_owner_range_lock(
             $wpdb->termmeta,
             'term_id',
             'adopt term identity owner-range locking'
-        )->exact_key_rows($envId, '_duo_uuid');
+        )->exact_key_rows($envId, '_wprism_uuid');
         if (count($exact) > 1) {
-            throw new \RuntimeException('duo: adopt term identity found duplicate exact identity rows');
+            throw new \RuntimeException('wprism: adopt term identity found duplicate exact identity rows');
         }
         if ($exact !== []
             && (!is_string($exact[0]['meta_value']) || !hash_equals($uuid, $exact[0]['meta_value']))) {
-            throw new \RuntimeException('duo: adopt term identity contradicts the exact physical identity row');
+            throw new \RuntimeException('wprism: adopt term identity contradicts the exact physical identity row');
         }
         if ($exact === []) {
             Db::insert($wpdb->termmeta, [
                 'term_id' => $envId,
-                'meta_key' => '_duo_uuid',
+                'meta_key' => '_wprism_uuid',
                 'meta_value' => $uuid,
             ], null, 'adopt term identity');
             CacheInvalidationTransaction::queue($envId, 'term_meta', 'adopt term identity');
@@ -159,11 +159,11 @@ final class EntityAdopter {
             $table,
             $ownerColumn,
             "$purpose readback locking"
-        )->exact_key_rows($ownerId, '_duo_uuid');
+        )->exact_key_rows($ownerId, '_wprism_uuid');
         if (count($exact) !== 1
             || !is_string($exact[0]['meta_value'] ?? null)
             || !hash_equals($uuid, $exact[0]['meta_value'])) {
-            throw new \RuntimeException("duo: $purpose exact locked readback disagrees with the requested identity");
+            throw new \RuntimeException("wprism: $purpose exact locked readback disagrees with the requested identity");
         }
     }
 }

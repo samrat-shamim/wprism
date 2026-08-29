@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Regression — DUO-3409: the conformance core sweep's host `duo explain` envs
+# Regression — issue #3409: the conformance core sweep's host `wprism explain` envs
 # registry must allocate a concurrency-safe, per-run private path on BOTH GNU
-# and BSD/macOS mktemp. The prior inline `mktemp ".../duo-explain-envs.XXXXXX.json"`
+# and BSD/macOS mktemp. The prior inline `mktemp ".../wprism-explain-envs.XXXXXX.json"`
 # put the `.json` suffix AFTER the X-run; BSD/macOS mktemp only substitutes a
 # TERMINAL X-run, so it took the template literally and every concurrent core
-# sweep raced for the one fixed name (mkstemp: File exists — the DUO-3344
+# sweep raced for the one fixed name (mkstemp: File exists — the issue #3344
 # exact-source sweep, PR #184). This proves the extracted helper
 # (conformance/checks/_explain_registry.sh) is collision-free, that a killed
 # instance cannot block a later allocation, and that no suffixed-X mktemp
@@ -24,7 +24,7 @@ command -v alloc_explain_registry_dir >/dev/null \
 
 # Isolate every allocation under one scratch TMPDIR so a failure cannot litter
 # the real /tmp and the "stale artifact" case is observed in a controlled space.
-SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/duo-3409-test.XXXXXX")
+SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/explain-registry-test.XXXXXX")
 trap 'rm -rf -- "$SCRATCH"' EXIT
 export TMPDIR="$SCRATCH"
 
@@ -51,7 +51,7 @@ wait
 COUNT=$(cat "$OUT"/* | grep -c . || true)
 [ "$COUNT" -eq "$N" ] || fail "expected $N non-empty allocations, got $COUNT (a concurrent alloc failed)"
 UNIQ=$(cat "$OUT"/* | sort -u | grep -c . || true)
-[ "$UNIQ" -eq "$N" ] || fail "concurrent allocations collided: $UNIQ distinct of $N (the exact DUO-3344 fixed-name contention)"
+[ "$UNIQ" -eq "$N" ] || fail "concurrent allocations collided: $UNIQ distinct of $N (the exact issue #3344 fixed-name contention)"
 while IFS= read -r d; do
   [ -d "$d" ] || fail "a concurrently-allocated path is not a directory: $d"
 done < <(cat "$OUT"/*)

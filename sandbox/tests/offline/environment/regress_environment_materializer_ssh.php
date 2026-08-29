@@ -2,18 +2,18 @@
 declare(strict_types=1);
 
 /*
- * DUO-3324: public attach/materialize proof over the real SSH transport.
+ * issue #3324: public attach/materialize proof over the real SSH transport.
  *
  * This is deliberately offline.  The target SSH command is executed by a
  * deterministic wrapper, while the machine-local provider remains a real
  * direct-argv provider process.  The temporary source checkout is clean and
- * attached, so `cli/duo env materialize` exercises Registry, Refresh,
+ * attached, so `cli/wprism env materialize` exercises Registry, Refresh,
  * EnvironmentMaterializer, cmd_promote_frozen(), and exact reap as callers
  * see them.  No WordPress or plugin-specific behavior is implemented here.
  */
 
-use Duo\Canon;
-use Duo\Orchestrator\RefreshPlan;
+use WPrism\Canon;
+use WPrism\Orchestrator\RefreshPlan;
 
 $root = realpath(__DIR__ . '/../../../..');
 if ($root === false) {
@@ -83,7 +83,7 @@ function ssh_proof_copy_tree(string $source, string $target): void {
     }
 }
 
-$tmp = sys_get_temp_dir() . '/duo-3324-ssh-proof-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/environment-materializer-ssh-proof-' . bin2hex(random_bytes(6));
 $repo = $tmp . '/source';
 $production = $tmp . '/production';
 $target = $tmp . '/target';
@@ -138,11 +138,11 @@ try {
     ssh_proof_write($repo . '/state/deletions/' . $deletionUuid . '.json', json_encode([
         'expected_hash' => hash('sha256', 'prior-attachment'),
         'expected_revision' => hash('sha256', 'prior-revision'),
-        'format' => 'duo-deletion/v1', 'kind' => 'post',
+        'format' => 'wprism-deletion/v1', 'kind' => 'post',
         'source_path' => 'posts/attachment/' . $deletionUuid . '--photo.md',
         'type' => 'attachment', 'uuid' => $deletionUuid,
     ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
-    ssh_proof_write($repo . '/site.duo.json', json_encode([
+    ssh_proof_write($repo . '/site.wprism.json', json_encode([
         'manifests' => ['ssh-proof'],
         'policy' => [
             'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
@@ -151,8 +151,8 @@ try {
         'spec_version' => 2,
     ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n");
     ssh_proof_run(['git', 'init', '-b', 'feature'], $repo);
-    ssh_proof_run(['git', 'config', 'user.email', 'duo-test@example.invalid'], $repo);
-    ssh_proof_run(['git', 'config', 'user.name', 'Duo SSH Proof'], $repo);
+    ssh_proof_run(['git', 'config', 'user.email', 'wprism-test@example.invalid'], $repo);
+    ssh_proof_run(['git', 'config', 'user.name', 'WPrism SSH Proof'], $repo);
     ssh_proof_run(['git', 'add', '.'], $repo);
     ssh_proof_run(['git', 'commit', '-qm', 'fixture base'], $repo);
     $base = ssh_proof_git($repo, ['rev-parse', 'HEAD']);
@@ -165,8 +165,8 @@ try {
     ssh_proof_run(['git', 'clone', '--quiet', '--branch', 'production', $repo, $target]);
     mkdir($production . '/wp', 0700, true);
     mkdir($target . '/wp', 0700, true);
-    mkdir($target . '/.duo/artifacts', 0700, true);
-    mkdir($target . '/.duo/checkpoints', 0700, true);
+    mkdir($target . '/.wprism/artifacts', 0700, true);
+    mkdir($target . '/.wprism/checkpoints', 0700, true);
     $productionCommit = ssh_proof_git($production, ['rev-parse', 'HEAD']);
     ssh_proof_ok($productionCommit === $base, 'production clone is the exact clean production commit');
 
@@ -175,13 +175,13 @@ try {
     $compiledProduction = RefreshPlan::compileGitWorktree($production, $productionCommit, 'production-code');
     $export = $compiledProduction;
     unset($export['format'], $export['commit'], $export['label']);
-    $export['format'] = 'duo-refresh-production/v1';
+    $export['format'] = 'wprism-refresh-production/v1';
     $export['snapshot_hash'] = hash('sha256', Canon::encode($export));
     $exportPath = $tmp . '/production-export.json';
     ssh_proof_write($exportPath, Canon::encode($export) . "\n");
 
     $artifact = [
-        'deletions' => [], 'effects_inventory' => [], 'format' => 'duo-compiled-repository/v1',
+        'deletions' => [], 'effects_inventory' => [], 'format' => 'wprism-compiled-repository/v1',
         'revision_hash' => hash('sha256', 'ssh-proof-state'), 'tree' => [], 'uploads_inventory' => [],
     ];
     $artifact['artifact_hash'] = hash('sha256', json_encode(
@@ -194,7 +194,7 @@ try {
     $summary = ['artifact_hash' => $artifact['artifact_hash'], 'revision_hash' => $artifact['revision_hash']];
     ssh_proof_write($summaryPath, json_encode($summary, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
     // The complete envelope agent/src/Apply/Apply.php emits, not just the buckets
-    // this proof reads: convergence refuses an incomplete plan (DUO-3384).
+    // this proof reads: convergence refuses an incomplete plan (issue #3384).
     $planPath = $tmp . '/plan.json';
     ssh_proof_write($planPath, json_encode([
         'adapter_dispositions' => [], 'adopt' => [], 'code_drift' => [], 'code_mismatch' => [],
@@ -213,21 +213,21 @@ try {
 <?php
 declare(strict_types=1);
 $args = $argv; array_shift($args);
-$log = (string) getenv('DUO_SSH_PROOF_WP_LOG');
+$log = (string) getenv('WPRISM_SSH_PROOF_WP_LOG');
 file_put_contents($log, json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n", FILE_APPEND | LOCK_EX);
-$duo = array_search('duo', $args, true);
-$sub = $duo === false ? '' : (string) ($args[$duo + 1] ?? '');
+$wprism = array_search('wprism', $args, true);
+$sub = $wprism === false ? '' : (string) ($args[$wprism + 1] ?? '');
 $find = static function (string $prefix) use ($args): ?string {
     foreach ($args as $arg) if (str_starts_with((string) $arg, $prefix)) return substr((string) $arg, strlen($prefix));
     return null;
 };
-if ($sub === 'refresh-export') { echo file_get_contents((string) getenv('DUO_SSH_PROOF_EXPORT')); exit(0); }
+if ($sub === 'refresh-export') { echo file_get_contents((string) getenv('WPRISM_SSH_PROOF_EXPORT')); exit(0); }
 if ($sub === 'compile') {
     $out = $find('--out=');
-    if (!is_string($out) || $out === '' || !copy((string) getenv('DUO_SSH_PROOF_ARTIFACT'), $out)) exit(1);
-    echo file_get_contents((string) getenv('DUO_SSH_PROOF_SUMMARY')); exit(0);
+    if (!is_string($out) || $out === '' || !copy((string) getenv('WPRISM_SSH_PROOF_ARTIFACT'), $out)) exit(1);
+    echo file_get_contents((string) getenv('WPRISM_SSH_PROOF_SUMMARY')); exit(0);
 }
-if ($sub === 'plan') { echo file_get_contents((string) getenv('DUO_SSH_PROOF_PLAN')); exit(0); }
+if ($sub === 'plan') { echo file_get_contents((string) getenv('WPRISM_SSH_PROOF_PLAN')); exit(0); }
 if ($sub === 'checkpoint-seal') {
     $output = $find('--output=');
     if (!is_string($output) || $output === '') exit(2);
@@ -235,7 +235,7 @@ if ($sub === 'checkpoint-seal') {
     if (!is_string($input) || $input === '' || file_put_contents($output, $input, LOCK_EX) === false) exit(1);
     exit(0);
 }
-if ($duo === false && in_array('eval', $args, true)) {
+if ($wprism === false && in_array('eval', $args, true)) {
     foreach ($args as $arg) {
         if (str_contains((string) $arg, 'get_option')) {
             // Source URL binding read: home then uploads, one per line (the
@@ -244,15 +244,15 @@ if ($duo === false && in_array('eval', $args, true)) {
         }
     }
 }
-if (($sub === 'db' && $duo !== false && (($args[$duo + 2] ?? '') === 'export'))
-    || ($duo === false && (($args[0] ?? '') === 'db') && (($args[1] ?? '') === 'export'))) {
-    $path = (string) ($duo === false ? ($args[2] ?? '') : ($args[$duo + 3] ?? ''));
-    if ($path === '-') { echo "duo frozen checkpoint\n"; exit(0); }
-    if ($path === '' || file_put_contents($path, "duo frozen checkpoint\n", LOCK_EX) === false) exit(1);
+if (($sub === 'db' && $wprism !== false && (($args[$wprism + 2] ?? '') === 'export'))
+    || ($wprism === false && (($args[0] ?? '') === 'db') && (($args[1] ?? '') === 'export'))) {
+    $path = (string) ($wprism === false ? ($args[2] ?? '') : ($args[$wprism + 3] ?? ''));
+    if ($path === '-') { echo "wprism frozen checkpoint\n"; exit(0); }
+    if ($path === '' || file_put_contents($path, "wprism frozen checkpoint\n", LOCK_EX) === false) exit(1);
     echo "Exported to '$path'\n"; exit(0);
 }
 if ($sub === 'apply') {
-    $summary = json_decode(file_get_contents((string) getenv('DUO_SSH_PROOF_SUMMARY')), true, 512, JSON_THROW_ON_ERROR);
+    $summary = json_decode(file_get_contents((string) getenv('WPRISM_SSH_PROOF_SUMMARY')), true, 512, JSON_THROW_ON_ERROR);
     echo json_encode(['artifact' => ['hash' => $summary['artifact_hash'], 'revision' => $summary['revision_hash']]], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
     exit(0);
 }
@@ -353,7 +353,7 @@ $result = match ($action) {
     default => [],
 };
 $response = [
-    'action' => $action, 'environment' => $environment, 'format' => 'duo-branch-environment-provider-response/v1',
+    'action' => $action, 'environment' => $environment, 'format' => 'wprism-branch-environment-provider-response/v1',
     'operation_id' => (string) ($request['operation_id'] ?? ''), 'provider' => ['id' => 'ssh-proof-provider', 'protocol' => 1],
     'result' => $result, 'status' => 'ok',
 ];
@@ -382,14 +382,14 @@ PHP);
 
     $oldPath = (string) getenv('PATH');
     putenv('PATH=' . $bin . ':' . $oldPath);
-    putenv('DUO_SSH_PROOF_EXPORT=' . $exportPath);
-    putenv('DUO_SSH_PROOF_ARTIFACT=' . $artifactPath);
-    putenv('DUO_SSH_PROOF_SUMMARY=' . $summaryPath);
-    putenv('DUO_SSH_PROOF_PLAN=' . $planPath);
-    putenv('DUO_SSH_PROOF_WP_LOG=' . $wpLog);
-    $duo = $root . '/cli/duo';
+    putenv('WPRISM_SSH_PROOF_EXPORT=' . $exportPath);
+    putenv('WPRISM_SSH_PROOF_ARTIFACT=' . $artifactPath);
+    putenv('WPRISM_SSH_PROOF_SUMMARY=' . $summaryPath);
+    putenv('WPRISM_SSH_PROOF_PLAN=' . $planPath);
+    putenv('WPRISM_SSH_PROOF_WP_LOG=' . $wpLog);
+    $wprism = $root . '/cli/wprism';
     $materialize = ssh_proof_run([
-        PHP_BINARY, $duo, '--envs-file=' . $overlay, 'env', 'materialize', 'branch',
+        PHP_BINARY, $wprism, '--envs-file=' . $overlay, 'env', 'materialize', 'branch',
         '--from', 'production', '--branch', 'feature', '--format=json',
     ], $repo, true);
     $materializeLines = preg_split('/\r?\n/', $materialize) ?: [];
@@ -423,21 +423,21 @@ PHP);
 
     $wpRequests = $providerRequests($wpLog);
     $wpLines = array_map(static fn(array $request): string => implode(' ', array_map('strval', $request)), $wpRequests);
-    $compileLines = array_values(array_filter($wpLines, static fn(string $line): bool => str_contains($line, ' duo compile ')));
+    $compileLines = array_values(array_filter($wpLines, static fn(string $line): bool => str_contains($line, ' wprism compile ')));
     ssh_proof_ok(count($compileLines) === 2, 'target compile runs once for frozen materialization and once for final verification');
     ssh_proof_ok(count(array_filter($wpLines, static fn(string $line): bool => str_contains($line, ' promotion-begin '))) === 1, 'promotion-begin is issued once under the frozen owner');
-    ssh_proof_ok(count(array_filter($wpLines, static fn(string $line): bool => str_contains($line, 'duo apply '))) === 1, 'apply is issued once through the frozen callback');
+    ssh_proof_ok(count(array_filter($wpLines, static fn(string $line): bool => str_contains($line, 'wprism apply '))) === 1, 'apply is issued once through the frozen callback');
     ssh_proof_ok(count(array_filter($wpLines, static fn(string $line): bool => str_contains($line, ' plan '))) === 1, 'final convergence checks the exact frozen artifact');
     ssh_proof_ok(str_contains($compileLines[0] ?? '', 'materialize-' . $operation . '.json'), 'initial compile path is operation-canonical');
     ssh_proof_ok(str_contains($compileLines[1] ?? '', 'materialize-verify-' . $operation . '.json'), 'verification compile path is operation-canonical');
     foreach ($wpLines as $line) {
-        if (str_contains($line, 'promotion-begin') || str_contains($line, 'duo apply ') || str_contains($line, ' lifecycle-')) {
-            ssh_proof_ok(str_contains($line, 'duo-env-promotion-' . $operation), 'promotion phase carries deterministic operation owner');
+        if (str_contains($line, 'promotion-begin') || str_contains($line, 'wprism apply ') || str_contains($line, ' lifecycle-')) {
+            ssh_proof_ok(str_contains($line, 'wprism-env-promotion-' . $operation), 'promotion phase carries deterministic operation owner');
         }
     }
 
     $reap = ssh_proof_run([
-        PHP_BINARY, $duo, '--envs-file=' . $overlay, 'env', 'reap', 'branch', '--format=json',
+        PHP_BINARY, $wprism, '--envs-file=' . $overlay, 'env', 'reap', 'branch', '--format=json',
     ], $repo, true);
     $reapLines = preg_split('/\r?\n/', $reap) ?: [];
     $reapReceipt = null;
@@ -455,5 +455,5 @@ PHP);
     ssh_proof_ok($feature === ssh_proof_git($repo, ['rev-parse', 'HEAD']) && ssh_proof_git($repo, ['branch', '--show-current']) === 'feature', 'materialize and reap leave the source checkout/ref untouched');
     echo "PASS: SSH attach/materialize public-path regression\n";
 } finally {
-    foreach (['PATH', 'DUO_SSH_PROOF_EXPORT', 'DUO_SSH_PROOF_ARTIFACT', 'DUO_SSH_PROOF_SUMMARY', 'DUO_SSH_PROOF_PLAN', 'DUO_SSH_PROOF_WP_LOG'] as $name) putenv($name);
+    foreach (['PATH', 'WPRISM_SSH_PROOF_EXPORT', 'WPRISM_SSH_PROOF_ARTIFACT', 'WPRISM_SSH_PROOF_SUMMARY', 'WPRISM_SSH_PROOF_PLAN', 'WPRISM_SSH_PROOF_WP_LOG'] as $name) putenv($name);
 }

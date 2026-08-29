@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for pure manifest-declared taxonomy-pattern
- * resolution (DUO-3348 slice 47).
+ * resolution (issue #3348 slice 47).
  */
 declare(strict_types=1);
 
@@ -29,7 +29,7 @@ $assertThrows = static function (callable $fn, string $needle, string $label) us
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\TaxonomyPatternResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\TaxonomyPatternResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -49,7 +49,7 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\TaxonomyPatternResolver;
+use WPrism\TaxonomyPatternResolver;
 
 $manifests = [
     [
@@ -164,14 +164,14 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->taxonomy_pattern_rules() === $rules
         && $policy->pattern_object_type('pa_color') === ['product', 'product_variation']
         && $policy->pattern_update_count_callback('pa_color') === 'wc_update_product_terms'
         && $policy->taxonomy_object_keyspace('pa_color', ['product']) === 'term'
-        && Duo\Policy::taxonomy_pattern_matches('^pa_', 'pa_color') === TaxonomyPatternResolver::matches('^pa_', 'pa_color'),
+        && WPrism\Policy::taxonomy_pattern_matches('^pa_', 'pa_color') === TaxonomyPatternResolver::matches('^pa_', 'pa_color'),
     'Policy retains byte-equivalent public facades and keyspace resolution over the pure resolver'
 );
 $policy->manifests[0]['taxonomy_patterns'][0]['match'] = '^changed_';
@@ -200,7 +200,7 @@ final class TaxonomyPatternWpdbFixture {
     }
 }
 
-$scopePolicy = new Duo\Policy();
+$scopePolicy = new WPrism\Policy();
 $scopePolicy->manifests = [[
     'name' => 'woocommerce',
     'taxonomy_patterns' => [[
@@ -339,12 +339,12 @@ foreach ([[null, false], [false, null], [null, true], [true, null], [false, true
     );
 }
 
-$exactPatternHierarchy = static function (?bool $exactHierarchy, bool $patternHierarchy): Duo\Policy {
+$exactPatternHierarchy = static function (?bool $exactHierarchy, bool $patternHierarchy): WPrism\Policy {
     $exactRule = ['class' => 'authored', 'object_type' => ['product']];
     if ($exactHierarchy !== null) {
         $exactRule['hierarchical'] = $exactHierarchy;
     }
-    $policy = new Duo\Policy();
+    $policy = new WPrism\Policy();
     $policy->manifests = [[
         'name' => 'taxonomy-owner',
         'taxonomies' => ['pa_color' => $exactRule],
@@ -364,7 +364,7 @@ $check(
     'exact hierarchy facts take strict precedence while an omitted exact fact falls through to the reviewed pattern fact'
 );
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = [
     ['name' => 'woocommerce', 'taxonomies' => [
         'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount', 'hierarchical' => true],

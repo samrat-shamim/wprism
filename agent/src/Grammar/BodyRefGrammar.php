@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/JsonRefs.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
@@ -173,7 +173,7 @@ final class BodyRefGrammar {
         if ($section !== null) {
             if (!is_array($section) || array_is_list($section) || $section === []) {
                 throw new \RuntimeException(
-                    "duo: $label " . self::SECTION . ' must be a non-empty object keyed by post type, each value '
+                    "wprism: $label " . self::SECTION . ' must be a non-empty object keyed by post type, each value '
                     . 'an object declaring {json_refs} — an empty section declares a capability the adapter does '
                     . 'not use'
                 );
@@ -195,7 +195,7 @@ final class BodyRefGrammar {
             }
             if (!is_array($section[(string) $postType] ?? null)) {
                 throw new \RuntimeException(
-                    "duo: $label declares post_types." . (string) $postType . '.body=' . self::BODY_MODE
+                    "wprism: $label declares post_types." . (string) $postType . '.body=' . self::BODY_MODE
                     . ' but no ' . self::SECTION . '.' . (string) $postType . ' entry — the mode exists to rebind '
                     . 'declared reference paths inside the document, so a json body with no paths is `verbatim` '
                     . 'with an extra refusal surface. Declare the paths, or declare body=verbatim'
@@ -205,7 +205,7 @@ final class BodyRefGrammar {
     }
 
     /**
-     * This section's value grammar, published for `duo manifest-validate
+     * This section's value grammar, published for `wprism manifest-validate
      * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
      *
      * THE GAP THIS CLOSES was measured by walking the authoring path as a
@@ -233,8 +233,8 @@ final class BodyRefGrammar {
             ],
             'sentinels' => 'a declared json_refs path => a list of literal string values that pass through '
                 . 'capture and apply untouched, because they are in-band markers rather than ids',
-            'validated_by' => 'Duo\\BodyRefGrammar::validate_body_refs(), and each json_refs entry by '
-                . 'Duo\\ReferenceRules::value_rule() — the same JSONPath dialect, keyspace grammar and '
+            'validated_by' => 'WPrism\\BodyRefGrammar::validate_body_refs(), and each json_refs entry by '
+                . 'WPrism\\ReferenceRules::value_rule() — the same JSONPath dialect, keyspace grammar and '
                 . 'overlapping-path refusal `post_meta`/`options` already use',
         ];
     }
@@ -294,7 +294,7 @@ final class BodyRefGrammar {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: $label declares post_types." . (string) $postType . ".body='" . self::BODY_MODE
+                "wprism: $label declares post_types." . (string) $postType . ".body='" . self::BODY_MODE
                 . "', which the engine feature '" . self::FEATURE . "' gates — declare it in this manifest's "
                 . 'top-level "engine_features" list (which itself requires spec_version 3, spec/repo-format.md '
                 . '§ v3.2). An engine that does not implement the feature refuses the adapter by feature name '
@@ -311,14 +311,14 @@ final class BodyRefGrammar {
         $mode = is_array($postTypes[$postType] ?? null) ? ($postTypes[$postType]['body'] ?? null) : null;
         if ($mode !== self::BODY_MODE) {
             throw new \RuntimeException(
-                "duo: $where names a post type this manifest does not declare as post_types.$postType.body="
+                "wprism: $where names a post type this manifest does not declare as post_types.$postType.body="
                 . self::BODY_MODE . ' — body reference paths refine a body MODE, so paths with no json body '
                 . 'beneath them would never run. The codec\'s post type is checked against THIS manifest and not '
                 . 'the loaded pin set, so one adapter cannot redirect another adapter\'s body'
             );
         }
         if (!is_array($decl) || array_is_list($decl)) {
-            throw new \RuntimeException("duo: $where must be an object declaring {json_refs} and optional {sentinels}");
+            throw new \RuntimeException("wprism: $where must be an object declaring {json_refs} and optional {sentinels}");
         }
         $unknown = array_diff(
             array_map('strval', array_keys($decl)),
@@ -327,7 +327,7 @@ final class BodyRefGrammar {
         if ($unknown !== []) {
             sort($unknown, SORT_STRING);
             throw new \RuntimeException(
-                "duo: $where declares [" . implode(', ', $unknown) . '] — a body reference declaration is exactly '
+                "wprism: $where declares [" . implode(', ', $unknown) . '] — a body reference declaration is exactly '
                 . '{json_refs} plus an optional {sentinels}. `key_refs` in particular is NOT admitted: an id-KEYED '
                 . 'map inside a post body has no measured demand, and this engine does not claim a shape it has '
                 . 'never seen'
@@ -336,7 +336,7 @@ final class BodyRefGrammar {
         $refs = $decl['json_refs'] ?? null;
         if (!is_array($refs) || !array_is_list($refs) || $refs === []) {
             throw new \RuntimeException(
-                "duo: $where.json_refs must be a non-empty list of {path, kind} entries"
+                "wprism: $where.json_refs must be a non-empty list of {path, kind} entries"
             );
         }
         // ONE dialect. Everything about the triple — path syntax, keyspace name,
@@ -356,7 +356,7 @@ final class BodyRefGrammar {
         $sentinels = $decl['sentinels'];
         if (!is_array($sentinels) || array_is_list($sentinels) || $sentinels === []) {
             throw new \RuntimeException(
-                "duo: $where.sentinels must be a non-empty object keyed by a declared json_refs path, each value a "
+                "wprism: $where.sentinels must be a non-empty object keyed by a declared json_refs path, each value a "
                 . 'non-empty list of the literal strings that path legitimately holds instead of a reference'
             );
         }
@@ -364,19 +364,19 @@ final class BodyRefGrammar {
             $path = (string) $path;
             if (!isset($declaredPaths[$path])) {
                 throw new \RuntimeException(
-                    "duo: $where.sentinels names path '$path', which none of this post type's json_refs entries "
+                    "wprism: $where.sentinels names path '$path', which none of this post type's json_refs entries "
                     . 'declares — a sentinel set over an undeclared path is never consulted, which is exactly the '
                     . 'declared-but-never-applied failure the reference grammar refuses one level down'
                 );
             }
             if (!is_array($literals) || !array_is_list($literals) || $literals === []) {
-                throw new \RuntimeException("duo: $where.sentinels['$path'] must be a non-empty list of strings");
+                throw new \RuntimeException("wprism: $where.sentinels['$path'] must be a non-empty list of strings");
             }
             $seen = [];
             foreach ($literals as $i => $literal) {
                 if (!is_string($literal) || $literal === '') {
                     throw new \RuntimeException(
-                        "duo: $where.sentinels['$path'][$i] must be a non-empty string — a sentinel is a LITERAL "
+                        "wprism: $where.sentinels['$path'][$i] must be a non-empty string — a sentinel is a LITERAL "
                         . 'the plugin branches on, so it is compared identically and never coerced'
                     );
                 }
@@ -385,13 +385,13 @@ final class BodyRefGrammar {
                 // on which check ran first.
                 if (preg_match('/^[0-9]+$/D', $literal) === 1) {
                     throw new \RuntimeException(
-                        "duo: $where.sentinels['$path'][$i] is the numeric literal '$literal' — a sentinel exists "
+                        "wprism: $where.sentinels['$path'][$i] is the numeric literal '$literal' — a sentinel exists "
                         . 'to name a value that is NOT a reference, and a numeric one is indistinguishable from '
                         . 'the id this path resolves'
                     );
                 }
                 if (isset($seen[$literal])) {
-                    throw new \RuntimeException("duo: $where.sentinels['$path'] repeats '$literal'");
+                    throw new \RuntimeException("wprism: $where.sentinels['$path'] repeats '$literal'");
                 }
                 $seen[$literal] = true;
             }
@@ -444,7 +444,7 @@ final class BodyRefGrammar {
             $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
             throw new \RuntimeException(
-                "duo: $context declares body=" . self::BODY_MODE . ' but its post_content is not a JSON document ('
+                "wprism: $context declares body=" . self::BODY_MODE . ' but its post_content is not a JSON document ('
                 . $e->getMessage() . ') — the mode decodes the body to reach declared reference paths, so a body '
                 . 'it cannot decode is either the wrong body mode or content that predates the plugin version the '
                 . "adapter's version_range claims"
@@ -452,7 +452,7 @@ final class BodyRefGrammar {
         }
         if (!is_array($decoded)) {
             throw new \RuntimeException(
-                "duo: $context declares body=" . self::BODY_MODE . ' but its post_content decodes to '
+                "wprism: $context declares body=" . self::BODY_MODE . ' but its post_content decodes to '
                 . get_debug_type($decoded) . ' rather than a JSON object or array — a reference PATH needs a '
                 . 'container to address'
             );
@@ -473,13 +473,13 @@ final class BodyRefGrammar {
             return;
         }
         throw new \RuntimeException(
-            "duo: $context declares body=" . self::BODY_MODE . ' but its post_content does not survive a '
+            "wprism: $context declares body=" . self::BODY_MODE . ' but its post_content does not survive a '
             . 'decode/re-encode round trip unchanged — apply re-encodes the document, so capturing this body would '
             . 'change the post\'s bytes on a target where nothing was substituted. Refusing before substitution. '
             . 'The measured causes are a JSON object whose keys are "0","1","2"… (which decodes to a PHP list and '
             . 're-encodes as a JSON ARRAY), an empty object {} (which re-encodes as []), and an encoder that did '
             // Written WITHOUT the call parentheses on purpose: this file is in
-            // `duo manifest-validate`'s boot() load set, and that command's
+            // `wprism manifest-validate`'s boot() load set, and that command's
             // WordPress-free guard (regress_manifest_validate.sh:212) scans for
             // `wp_*(` in non-comment lines. A refusal that NAMES a WordPress
             // function is prose, not a reach — but the guard cannot tell a
@@ -506,7 +506,7 @@ final class BodyRefGrammar {
         $secretLabel = Secrets::hard_match_deep($decoded);
         if ($secretLabel !== null) {
             throw new \RuntimeException(
-                "duo: $context contains a $secretLabel; refusing to capture json authored configuration"
+                "wprism: $context contains a $secretLabel; refusing to capture json authored configuration"
             );
         }
         self::walk($decoded, $rule, function (mixed $value, array $ref, string $locator) use (
@@ -553,9 +553,9 @@ final class BodyRefGrammar {
                 // Casting it here would write a source-local id onto the target
                 // in the declared type and call it a success.
                 throw new \RuntimeException(
-                    "duo: $context repository body path '$locator' holds " . var_export($value, true)
+                    "wprism: $context repository body path '$locator' holds " . var_export($value, true)
                     . ' where a {{...}} reference token was declared — canonical state that still carries a '
-                    . 'source-local id at a declared reference path is `wp duo lint`\'s unrewritten_registered_ref '
+                    . 'source-local id at a declared reference path is `wp wprism lint`\'s unrewritten_registered_ref '
                     . 'finding, and applying it would bind this body to whatever entity happens to hold that id here'
                 );
             }
@@ -634,7 +634,7 @@ final class BodyRefGrammar {
                     $value = $container[$key];
                     if (is_array($value)) {
                         throw new \RuntimeException(
-                            "duo: body_refs path '" . (string) $ref['path'] . "' resolved to a container at "
+                            "wprism: body_refs path '" . (string) $ref['path'] . "' resolved to a container at "
                             . "'$locator' rather than a scalar reference — a reference path addresses ONE id, so "
                             . 'this declaration addresses the wrong level of the document'
                         );
@@ -694,7 +694,7 @@ final class BodyRefGrammar {
         $numeric = is_int($value) || (is_string($value) && preg_match('/^[0-9]+$/D', $value) === 1);
         if (!$numeric) {
             throw new \RuntimeException(
-                "duo: $context body path '$locator' holds " . var_export($value, true) . ', which is neither a '
+                "wprism: $context body path '$locator' holds " . var_export($value, true) . ', which is neither a '
                 . 'positive id nor a declared sentinel for this path — a reference path that meets a literal it '
                 . 'was not told about cannot tell "the adapter forgot a sentinel" from "this is a reference after '
                 . 'all", and the two have opposite remedies. Remedy: add the literal to body_refs.<type>.sentinels'
@@ -705,7 +705,7 @@ final class BodyRefGrammar {
             return;
         }
         throw new \RuntimeException(
-            "duo: $context body path '$locator' declares "
+            "wprism: $context body path '$locator' declares "
             . ($declared === 'string' ? 'cast=string' : 'no cast (the integer default)')
             . ', but this source stores it as ' . get_debug_type($value) . ' — apply writes the DECLARED type, so '
             . 'capturing this value would change the body\'s bytes on a target where nothing was substituted. '
@@ -733,7 +733,7 @@ final class BodyRefGrammar {
         $encoded = json_encode($decoded, self::ENCODE_FLAGS);
         if (!is_string($encoded)) {
             throw new \RuntimeException(
-                "duo: $context json body could not be re-encoded (" . json_last_error_msg() . ')'
+                "wprism: $context json body could not be re-encoded (" . json_last_error_msg() . ')'
             );
         }
 

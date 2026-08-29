@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Stable, value-free explanation of one entity row in a freshly-observed plan.
@@ -10,7 +10,7 @@ namespace Duo;
  * this class prevents an explanation from becoming a second planner.
  */
 final class PlanExplanation {
-    public const FORMAT = 'duo-explain/v1';
+    public const FORMAT = 'wprism-explain/v1';
 
     /** @var list<string> */
     private const BUCKETS = [
@@ -49,7 +49,7 @@ final class PlanExplanation {
                     'message' => 'the selector did not resolve against the freshly-observed plan',
                     'remediation' => 'do not reuse a selector from a different repository or target state',
                 ]],
-                'duo: explain selector did not match a current plan row'
+                'wprism: explain selector did not match a current plan row'
             );
         }
         if (count($matches) !== 1) {
@@ -62,7 +62,7 @@ final class PlanExplanation {
                     'message' => 'more than one current plan row has the selected identity',
                     'remediation' => 'repair repository or identity state so the plan has one canonical owner',
                 ]],
-                'duo: explain selector matched more than one current plan row'
+                'wprism: explain selector matched more than one current plan row'
             );
         }
         return [
@@ -89,7 +89,7 @@ final class PlanExplanation {
                         'message' => 'explain accepts entity action rows only',
                         'remediation' => 'select create, update, adopt, unchanged, drift, conflict, collision, delete, delete_conflict, or deleted',
                     ]],
-                    'duo: explain selector names an unsupported plan bucket'
+                    'wprism: explain selector names an unsupported plan bucket'
                 );
             }
             throw self::invalidSelector();
@@ -137,7 +137,7 @@ final class PlanExplanation {
                     'message' => 'the plan row and immutable compiled repository disagree',
                     'remediation' => 'discard stale plan output and explain only a freshly-compiled current row',
                 ]],
-                'duo: explain selector has no compiled entity or tombstone source'
+                'wprism: explain selector has no compiled entity or tombstone source'
             );
         }
 
@@ -186,7 +186,7 @@ final class PlanExplanation {
     /** @return list<string> */
     public static function render(array $report): array {
         if (($report['format'] ?? null) !== self::FORMAT) {
-            throw new \RuntimeException('duo: cannot render an unsupported explanation format');
+            throw new \RuntimeException('wprism: cannot render an unsupported explanation format');
         }
         $action = (array) ($report['action'] ?? []);
         $source = (array) ($report['source'] ?? []);
@@ -250,7 +250,7 @@ final class PlanExplanation {
                 'message' => 'the selector must contain one supported bucket and one bounded canonical entity key',
                 'remediation' => 'copy the row bucket and uuid from a freshly-observed plan',
             ]],
-            'duo: explain selector must be <bucket>:<entity-key>'
+            'wprism: explain selector must be <bucket>:<entity-key>'
         );
     }
 
@@ -423,7 +423,7 @@ final class PlanExplanation {
             $postType = (string) ($data['type'] ?? '');
             $details = $policy->post_type_rule_details($postType);
             if ($details['rule'] === null && in_array($postType, (array) ($policy->site['policy']['post_types'] ?? []), true)) {
-                $details = ['rule' => ['class' => 'authored'], 'source' => 'site.duo.json'];
+                $details = ['rule' => ['class' => 'authored'], 'source' => 'site.wprism.json'];
             }
             $append('entity', 'post_types.' . self::safeName($postType),
                 (string) ($details['rule']['class'] ?? 'authored'), [(string) ($details['source'] ?? 'repo-format')]);
@@ -447,7 +447,7 @@ final class PlanExplanation {
             $taxonomy = (string) ($data['taxonomy'] ?? '');
             $details = $policy->taxonomy_rule_details($taxonomy);
             if ($details['rule'] === null && in_array($taxonomy, (array) ($policy->site['policy']['taxonomies'] ?? []), true)) {
-                $details = ['rule' => ['class' => 'authored'], 'source' => 'site.duo.json'];
+                $details = ['rule' => ['class' => 'authored'], 'source' => 'site.wprism.json'];
             }
             $append('entity', 'taxonomies.' . self::safeName($taxonomy),
                 (string) ($details['rule']['class'] ?? 'authored'), [(string) ($details['source'] ?? 'repo-format')]);

@@ -66,7 +66,7 @@ for POLYLANG_VERSION in 3.8 3.8.7; do
   [ "$INSTALLED_1" = "$POLYLANG_VERSION" ] || fail "side 1 installed version mismatch: expected $POLYLANG_VERSION, got $INSTALLED_1"
   pass "side 1: polylang $POLYLANG_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "polylang"],
   "policy": {
@@ -86,9 +86,9 @@ EOF
   "${GIT1[@]}" push -qu origin main
 
   seed_polylang_content
-  wp1 duo capture --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
   pass "captured on side 1 (polylang $POLYLANG_VERSION)"
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -101,9 +101,9 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$POLYLANG_VERSION" ] || fail "side 2 installed version mismatch: expected $POLYLANG_VERSION, got $INSTALLED_2"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at polylang $POLYLANG_VERSION"
   assert_no_php_diagnostics "Polylang $POLYLANG_VERSION clean-target apply" "$VMATRIX_APPLY_LOG"
   POLYLANG_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
@@ -111,7 +111,7 @@ EOF
 
   check_polylang_content
 
-  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at polylang $POLYLANG_VERSION: $DIFF_OUT"
@@ -124,12 +124,12 @@ EOF
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
     [ "$(wp1 plugin get polylang --field=version)" = 3.8.7 ] \
       || fail 'Polylang source in-place upgrade did not install exact 3.8.7'
-    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     UPGRADE_POST=$(jq -r '.posts.fr' "siterepo/${PAIR}1/.tmp-polylang-source.json")
     require_fixture_ids UPGRADE_POST
     wp1 post update "$UPGRADE_POST" --post_title='Polylang 3.8 vers 3.8.7 française 東京 🚀' >/dev/null
-    wp1 duo capture --repo=/siterepo
-    wp1 duo lint --repo=/siterepo
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
     "${GIT1[@]}" commit -qm 'capture: polylang 3.8 to 3.8.7 in-place upgrade'
     "${GIT1[@]}" push -q origin main
@@ -137,13 +137,13 @@ EOF
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
     [ "$(wp2 plugin get polylang --field=version)" = 3.8.7 ] \
       || fail 'Polylang target in-place upgrade did not install exact 3.8.7'
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" --format=json \
+    wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" --format=json \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     assert_no_php_diagnostics 'Polylang 3.8 to 3.8.7 upgrade apply' "$VMATRIX_APPLY_LOG"
     UPGRADE_APPLY_JSON=$(awk '/^[{]/ { receipt=$0 } END { print receipt }' "$VMATRIX_APPLY_LOG")
-    require_duo_answered 'Polylang 3.8 to 3.8.7 upgrade apply' json "$UPGRADE_APPLY_JSON"
+    require_wprism_answered 'Polylang 3.8 to 3.8.7 upgrade apply' json "$UPGRADE_APPLY_JSON"
     jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$UPGRADE_APPLY_JSON" >/dev/null \
       || fail 'Polylang 3.8 -> 3.8.7 apply canary was not clean'
     SAVED_POLYLANG_VERSION="$POLYLANG_VERSION"
@@ -156,7 +156,7 @@ EOF
     UPGRADED_TITLE=$(wp2 post list --post_type=post --name=portable-polylang-story-fr --field=post_title)
     [ "$UPGRADED_TITLE" = 'Polylang 3.8 vers 3.8.7 française 東京 🚀' ] \
       || fail "Polylang 3.8.7 did not consume the translated post authored under 3.8: $UPGRADED_TITLE"
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-upgraded-final
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-polylang-upgraded-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-polylang-upgraded-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-polylang-upgraded-final"
     [ -z "$UPGRADE_DIFF" ] \
@@ -178,7 +178,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get polylang --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "3.8.7" ] \
   || fail "negative control premise did not install exact polylang 3.8.7 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "polylang"],
   "policy": {
@@ -197,7 +197,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: polylang negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_polylang_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid Polylang state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -210,7 +210,7 @@ INSTALLED_OOR=$(wp1 plugin get polylang --field=version)
 [ "$INSTALLED_OOR" = "3.7" ] || fail "negative control: expected polylang 3.7 installed, got $INSTALLED_OOR"
 
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse polylang 3.7 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
@@ -244,7 +244,7 @@ SYNTHETIC_UPPER_VERSION=$(wp1 plugin get polylang --field=version)
 [ "$SYNTHETIC_UPPER_VERSION" = '3.8.8' ] \
   || fail "synthetic upper-bound premise did not expose the real plugin header as 3.8.8 (got: $SYNTHETIC_UPPER_VERSION)"
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] \

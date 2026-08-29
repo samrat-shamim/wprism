@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -42,7 +42,7 @@ final class MoveSuitesTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -116,13 +116,13 @@ final class MoveSuitesTest extends TestCase
      */
     private function makeSyntheticRepo(): string
     {
-        $root = (string) tempnam(sys_get_temp_dir(), 'duo-move-suites-');
+        $root = (string) tempnam(sys_get_temp_dir(), 'wprism-move-suites-');
         unlink($root);
         mkdir($root, 0777, true);
         self::$tempRoot = $root;
 
-        self::write($root . '/agent/src/Kernel/Canon.php', "<?php\nnamespace Duo;\nclass Canon {}\n");
-        self::write($root . '/manifests/core.json', "{\"format\":\"duo-manifest/v1\"}\n");
+        self::write($root . '/agent/src/Kernel/Canon.php', "<?php\nnamespace WPrism;\nclass Canon {}\n");
+        self::write($root . '/manifests/core.json', "{\"format\":\"wprism-manifest/v1\"}\n");
         self::write($root . '/docs/guides/internals.md', "See sandbox/tests/regress_thing.php for the proof.\n");
 
         // Substrate: named by every suite, and it stays at the corpus root.
@@ -177,7 +177,7 @@ SH);
 {
   "cases": [
     {"id": "a", "harness": "sandbox/tests/grind_walk.sh"},
-    {"id": "b", "harness": "sandbox/tests/grind_walk.sh", "public_command": "php cli/duo promote target"}
+    {"id": "b", "harness": "sandbox/tests/grind_walk.sh", "public_command": "php cli/wprism promote target"}
   ]
 }
 JSON);
@@ -245,7 +245,7 @@ echo "$repo"
 SH);
 
         // A cwd-`sandbox/` script that names a suite SANDBOX-relatively, the
-        // spelling DUO-3482 taught the literal pass. Modelled on
+        // spelling issue #3482 taught the literal pass. Modelled on
         // regress_grind_r1c_manifest_preserve.sh:12,17. It stays at the corpus
         // root deliberately: class 6b is not gated on the referring file
         // having moved, and a stayer is the case W2 shipped broken.
@@ -520,7 +520,7 @@ MAKE);
     /**
      * A suite that asserts on a path STRING inside another file.
      *
-     * `regress_init_contract.php:994` checks that regress_duo_init.sh contains
+     * `regress_init_contract.php:994` checks that regress_wprism_init.sh contains
      * the literal `php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT"`.
      * The asserting suite, the asserted script and the named helper all land in
      * different directories, so the needle and the line it looks for have to be
@@ -593,7 +593,7 @@ MAKE);
         self::assertSame(2, substr_count($json, '"sandbox/tests/grind/grind_walk.sh"'));
         self::assertStringNotContainsString('"sandbox/tests/grind_walk.sh"', $json);
         // Prose in a neighbouring field is not a path and is left alone.
-        self::assertStringContainsString('"php cli/duo promote target"', $json);
+        self::assertStringContainsString('"php cli/wprism promote target"', $json);
         self::assertIsArray(json_decode($json, true), 'the rewrite must leave valid JSON');
     }
 
@@ -678,7 +678,7 @@ MAKE);
     // ------------------------------------- class 6b: sandbox-relative paths
 
     /**
-     * The defect DUO-3482 names, at product level.
+     * The defect issue #3482 names, at product level.
      *
      * regress_cwd_sandbox.sh cds to `sandbox/` and therefore spells the suite
      * it guards `tests/grind_walk.sh` — a real corpus reference carrying no
@@ -931,7 +931,7 @@ PHP);
     }
 
     /**
-     * DUO-3494: `.php-cs-fixer.dist.php` is an MS_SCAN_FILES member, so
+     * issue #3494: `.php-cs-fixer.dist.php` is an MS_SCAN_FILES member, so
      * ms_compute() scans and rewrites it REGARDLESS of $moved (the comment
      * above the __DIR__ pass at :1875 is why — a file nobody is moving can
      * still name one that moved). Its own `__DIR__ . '/.php-cs-fixer.cache'`
@@ -975,7 +975,7 @@ PHP);
      * `cli/src/Adapter/AdapterDraft.php` binds `$repo = dirname(__DIR__, 3)` in
      * boot() at :390 and separately declares `read_prior_manifest(string $repo,
      * …)` at :435, where `$repo` is a MANAGED SITE's repository. Resolving the
-     * second against the first reported `$repo . '/site.duo.json'` as a
+     * second against the first reported `$repo . '/site.wprism.json'` as a
      * dangling reference to a file that only ever exists on a site.
      */
     public function testAFunctionParameterIsNotResolvedAsARootVariable(): void
@@ -985,7 +985,7 @@ PHP);
 class Draft {
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
     }
     private static function read_prior(string $repo, string $name): void {
         $path = $repo . '/adapters/' . $name . '.json';
@@ -998,11 +998,11 @@ PHP);
         // have bought its precision by disabling the feature.
         $clean = token_get_all(<<<'PHP'
 <?php
-$duoRoot = dirname(__DIR__, 2);
-$canon = $duoRoot . '/agent/src/Kernel/Canon.php';
+$wprismRoot = dirname(__DIR__, 2);
+$canon = $wprismRoot . '/agent/src/Kernel/Canon.php';
 PHP);
         self::assertSame(
-            ['duoRoot' => ''],
+            ['wprismRoot' => ''],
             ms_php_root_vars($clean, 'sandbox/tests', 0)
         );
     }
@@ -1155,7 +1155,7 @@ PHP);
      * That is not hypothetical. #486 deleted the two `offline/reference-scope`
      * wrappers after W3 moved them, left their rows behind (the map is in
      * MS_SCAN_EXCLUDE, so the codemod never rewrites its own input), and the
-     * prover stayed refused from that merge until DUO-3482 found it by hand.
+     * prover stayed refused from that merge until issue #3482 found it by hand.
      * This case runs inside `composer check`, so the next such deletion fails
      * the loop the moment it lands.
      */
@@ -1182,7 +1182,7 @@ PHP);
     public function testEmptyMapAgainstTheRealRepositoryIsAQuietNoOp(): void
     {
         $repo = self::repoRoot();
-        $map = (string) tempnam(sys_get_temp_dir(), 'duo-empty-map-');
+        $map = (string) tempnam(sys_get_temp_dir(), 'wprism-empty-map-');
         file_put_contents($map, "{}\n");
 
         exec('git -C ' . escapeshellarg($repo) . ' status --porcelain 2>&1', $before);
@@ -1199,7 +1199,7 @@ PHP);
 
     public function testProveAgainstTheRealRepositoryWithAnEmptyMapIsGreen(): void
     {
-        $map = (string) tempnam(sys_get_temp_dir(), 'duo-empty-map-');
+        $map = (string) tempnam(sys_get_temp_dir(), 'wprism-empty-map-');
         file_put_contents($map, "{}\n");
         [$status, $output] = $this->runTool(self::repoRoot(), '--prove', '--map=' . $map);
         unlink($map);
@@ -1362,7 +1362,7 @@ PHP);
     }
 
     /**
-     * ms_runtime_created_reason()'s php-cs-fixer-cache entry (DUO-3494),
+     * ms_runtime_created_reason()'s php-cs-fixer-cache entry (issue #3494),
      * isolated from the file-scanning machinery exercised above.
      *
      * The LEADING SLASH in the key is not incidental. ms_rewrite_php()'s

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterChangeScopeDecision;
+use WPrism\Tooling\AdapterChangeScopeDecision;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -15,7 +15,7 @@ final class AdapterChangeScopeCliTest extends TestCase
 {
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -110,8 +110,8 @@ final class AdapterChangeScopeCliTest extends TestCase
             'path' => 'agent/adapter-library/AdapterLibrary.php',
             'reason' => 'adapter_library_change',
         ];
-        yield 'shared runner' => [
-            'path' => 'adapter-package-runner/bin/run.php',
+        yield 'shared package command' => [
+            'path' => 'tools/adapter-package-tests.php',
             'reason' => 'shared_package_infrastructure',
         ];
         yield 'integration' => [

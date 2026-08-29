@@ -29,9 +29,9 @@
 # helper against a recorded PASS document AND a hand-mutated FAIL document),
 # the same one-dedicated-pair model with the pair NAME and both ports
 # parameterized, the same Git-enabled cli image built from
-# `sandbox/init-cli.Dockerfile` and handed to pair.sh through DUO_CLI_IMAGE,
+# `sandbox/init-cli.Dockerfile` and handed to pair.sh through WPRISM_CLI_IMAGE,
 # the same machine-local registry whose SOURCE and TARGET entries both carry
-# the reference provider block, the same `DUO_EXPECTED_SOURCE_SHA` candidate
+# the reference provider block, the same `WPRISM_EXPECTED_SOURCE_SHA` candidate
 # gate, and the same exit trap that destroys exactly this pair and verifies the
 # destruction.
 #
@@ -43,8 +43,8 @@
 #   WALK_THEME_SLUG/_VERSION (twentytwentyone / 2.8)  the pinned theme
 #   WALK_WOO_VERSION      (default 11.0.0)   the pinned WooCommerce artifact
 #   WALK_WPFORMS_VERSION  (default 2.0.0.4)  the pinned subject plugin
-#   DUO_EXPECTED_SOURCE_SHA           bind this run to an exact source commit
-#   DUO_WORDPRESS_ORG_OFFLINE         0|1, forwarded to pair.sh/fetch-artifact
+#   WPRISM_EXPECTED_SOURCE_SHA           bind this run to an exact source commit
+#   WPRISM_WORDPRESS_ORG_OFFLINE         0|1, forwarded to pair.sh/fetch-artifact
 #
 # WooCommerce is installed in every scenario, not only S4: the site under test
 # should look like a real shop that also runs the subject plugin, one
@@ -71,11 +71,11 @@
 # thing but not the spelling, and this walk picked one.
 #
 #   literal                                             where                       source
-#   --allow-unmanaged-plugins                           duo init flag               §3.4
+#   --allow-unmanaged-plugins                           wprism init flag               §3.4
 #   UNMANAGED PLUGIN <slug>/<file>.php [<code>]         init human, advisories      §3.4
 #   active_plugin_without_adapter                       init refusal reason code    §1
 #   adapter_source_uncertified                          init refusal reason code    §1 §3.4
-#   certify it with duo adapter certify                 that blocker's remediation  §3.4
+#   certify it with wprism adapter certify                 that blocker's remediation  §3.4
 #   incomplete_policy_scope                             capture refusal code        §1
 #   scope:post_type:wpforms=runtime                     classify decision           §4
 #   plugin:wpforms-lite                                 assess surface id           §3.6
@@ -98,24 +98,24 @@
 #   certified by <principal> (site trust root); contract attestation unsigned
 #                                                       assess human, once          §3.6
 #   shadowed_by_site                                    not_installed[].reason_code WALK (§3.3 names the word)
-#   duo adapter keygen --out=<file> [--key-id=<id>]     host verb                   §3.5
+#   wprism adapter keygen --out=<file> [--key-id=<id>]     host verb                   §3.5
 #   key-id: <id>                                        keygen stdout, first field  WALK
 #   secret_key_inside_repository                        keygen refusal reason code  WALK (§3.1 names the refusal)
 #   draft_output_exists                                 adapter-draft --out refusal WALK (§3.5 names the refusal)
-#   duo adapter certify <repo> --name= --secret-key-file= --reason= --pin
+#   wprism adapter certify <repo> --name= --secret-key-file= --reason= --pin
 #                                                       host verb                   §3.5
-#   duo adapter pin <repo> --name= --source=site        host verb                   §3.5
-#   duo adapter-draft <repo> --name= --seed= --out=     host verb                   §3.5
+#   wprism adapter pin <repo> --name= --source=site        host verb                   §3.5
+#   wprism adapter-draft <repo> --name= --seed= --out=     host verb                   §3.5
 #   adapters/authorities.json                           site trust root path        §3.1
 #   adapters/certifications/<name>.json                 certificate path            §3.1
-#   duo-adapter-authorities/v1                          authorities file format     §3.1
+#   wprism-adapter-authorities/v1                          authorities file format     §3.1
 #   {"name","source":"site","digest"}                   the pin object              §3.1 §3.3
 #
 # Two spellings this walk deliberately does NOT assert, because the contract
 # names the effect rather than the string: the heading the init advisories
 # print under (§3.4 says "an `advisories` heading"; the walk asserts only the
-# `UNMANAGED PLUGIN` row itself), and the exact prose of `duo adapter certify`'s
-# printed pin object (the walk reads the pin out of `site.duo.json`, which §3.1
+# `UNMANAGED PLUGIN` row itself), and the exact prose of `wprism adapter certify`'s
+# printed pin object (the walk reads the pin out of `site.wprism.json`, which §3.1
 # does fix).
 #
 # Bash + docker + jq + php. Never `make`; never another agent's pair.
@@ -131,7 +131,7 @@ SANDBOX="$(pwd -P)"
 REPO_ROOT="$(cd .. && pwd -P)"
 # shellcheck source=../../bin/artifact-library.sh
 . "$SANDBOX/bin/artifact-library.sh"
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 FIXTURES="$SANDBOX/tests/fixtures/adapter-walk"
 
 MODE=run
@@ -158,7 +158,7 @@ WPFORMS_VERSION="${WALK_WPFORMS_VERSION:-2.0.0.4}"
 # preflight for a reason that has nothing to do with adapters.
 THEME_SLUG="${WALK_THEME_SLUG:-twentytwentyone}"
 THEME_VERSION="${WALK_THEME_VERSION:-2.8}"
-WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+WORDPRESS_OFFLINE="${WPRISM_WORDPRESS_ORG_OFFLINE:-0}"
 
 # The subject plugin's identity, in the three spellings the walk needs. All
 # three are facts about WPForms Lite 2.0.0.4, pinned as an `exercise-fixture`
@@ -174,7 +174,7 @@ WPFORMS_OPTION_PREFIX=wpforms_
 # product printed `wpforms`; the product's spelling is the operator's.
 #
 # CARDINALITY DRIFT, recorded rather than asserted: the live WPForms Lite
-# 2.0.0.5 recon (sandbox/tmp/wpforms-recon/coverage.json) measured `duo
+# 2.0.0.5 recon (sandbox/tmp/wpforms-recon/coverage.json) measured `wprism
 # coverage` reporting SIX distinct families under this token on a fresh
 # install, not one — wpforms(3), wpforms_transient(2), wpforms_constant(1),
 # wpforms_forms(1), wpforms_version(1), wpforms_versions(1). The assertion at
@@ -225,14 +225,14 @@ preflight() {
   fi
   [[ "$PORT1" =~ ^[0-9]+$ && "$PORT2" =~ ^[0-9]+$ && "$PORT1" != "$PORT2" ]] \
     || fail "WALK_PORT1/WALK_PORT2 must be two different numeric host ports (got '$PORT1'/'$PORT2')"
-  case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;; esac
-  [ -f "$DUO" ] || fail "host CLI missing: $DUO"
+  case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail "WPRISM_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;; esac
+  [ -f "$WPRISM" ] || fail "host CLI missing: $WPRISM"
   [ -f "$REPO_ROOT/tools/reference-env-provider.php" ] \
     || fail "the reference environment provider is missing: $REPO_ROOT/tools/reference-env-provider.php"
   [ -f "$SANDBOX/fixtures/$ACME_SLUG/$ACME_SLUG.php" ] \
     || fail "the walk's own fixture plugin is missing: sandbox/fixtures/$ACME_SLUG/$ACME_SLUG.php"
-  [ -f "$SANDBOX/fixtures/$ACME_SLUG/duo-adapter.json" ] \
-    || fail "the fixture plugin bundles no duo-adapter.json; S3 has no bundled adapter source to survey"
+  [ -f "$SANDBOX/fixtures/$ACME_SLUG/wprism-adapter.json" ] \
+    || fail "the fixture plugin bundles no wprism-adapter.json; S3 has no bundled adapter source to survey"
 
   # Exact artifact installs are mandatory — fetch-artifact.sh refuses an
   # unpinned version rather than falling through to the wordpress.org catalog —
@@ -293,12 +293,12 @@ else
   mkdir -p "$SANDBOX/tmp"
   SCRATCH="$(mktemp -d "$SANDBOX/tmp/grind-adapter-walk.XXXXXX")"
 fi
-ENVS_FILE="$SCRATCH/.duo-envs.json"
+ENVS_FILE="$SCRATCH/.wprism-envs.json"
 PROVIDER_CONFIG="$SCRATCH/reference-env-provider.json"
 PROVIDER_STATE="$SCRATCH/provider-state"
 EVIDENCE="$SCRATCH/evidence"
 # The organization's private key. §3.1: private keys never live in the
-# repository, and `duo adapter keygen` refuses a path inside the site repo — so
+# repository, and `wprism adapter keygen` refuses a path inside the site repo — so
 # the walk's key lives in the run's own scratch, outside both site repos, and
 # the walk asserts the refusal of the other placement.
 KEYDIR="$SCRATCH/keys"
@@ -309,30 +309,30 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 COMPOSE_FILES=("$SANDBOX/pair.yml" "$SANDBOX/pair.http.yml" "$SANDBOX/pair.artifacts.yml")
 PAIR_UP_FLAGS=(--http --artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
   COMPOSE_FILES+=("$SANDBOX/pair.wordpress-offline.yml")
   PAIR_UP_FLAGS+=(--wordpress-offline)
 fi
-COMPOSE=(docker compose -p "duo-$PAIR")
+COMPOSE=(docker compose -p "wprism-$PAIR")
 for file in "${COMPOSE_FILES[@]}"; do COMPOSE+=(-f "$file"); done
 PAIR_COMPOSE=("${COMPOSE[@]}")
 # shellcheck source=../../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
 
-# The pair's cli containers need Git: `duo init` proves Git on the target
-# before confirming, and `duo rehearse` reads the production side's HEAD commit
+# The pair's cli containers need Git: `wprism init` proves Git on the target
+# before confirming, and `wprism rehearse` reads the production side's HEAD commit
 # inside its own environment (EnvironmentLifecycle::productionCommit()). The
 # stock wordpress:cli image ships none, so the same evidence-only image
-# `regress_duo_init.sh` and `grind_mup.sh` build is used here —
+# `regress_wprism_init.sh` and `grind_mup.sh` build is used here —
 # `sandbox/init-cli.Dockerfile`, wordpress:cli-php8.3 plus git — and handed to
-# pair.sh through DUO_CLI_IMAGE. Every later `duo` call inherits the variable,
+# pair.sh through WPRISM_CLI_IMAGE. Every later `wprism` call inherits the variable,
 # so the docker transport runs the same image.
-DUO_CLI_IMAGE="${DUO_CLI_IMAGE:-duo-walk-cli-git:${PAIR}}"
-export DUO_CLI_IMAGE
+WPRISM_CLI_IMAGE="${WPRISM_CLI_IMAGE:-wprism-walk-cli-git:${PAIR}}"
+export WPRISM_CLI_IMAGE
 
 run mkdir -p "$PROVIDER_STATE" "$EVIDENCE" "$KEYDIR"
 
@@ -348,7 +348,7 @@ run mkdir -p "$PROVIDER_STATE" "$EVIDENCE" "$KEYDIR"
 # runs to completion with the plugin excluded; and the plugin's own unmanaged
 # rows — a custom-table row and an option written AFTER the checkpoint — are
 # restored by the database checkpoint exactly as the printed boundary says.
-# That last one is the point: the checkpoint boundary is literal for state Duo
+# That last one is the point: the checkpoint boundary is literal for state WPrism
 # does not manage, or "excluded" would mean "unprotected".
 # ---------------------------------------------------------------------------
 scenario_s1() {
@@ -356,36 +356,36 @@ scenario_s1() {
   run mkdir -p "$EVIDENCE/$S"
   scenario_pair "$S" with-subject
   write_registry
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
 
   say "$S — two forms on ${PAIR}1, and the plugin's own tables"
   if dry; then
     plan "wp1 post create --post_type=$WPFORMS_CPT --post_content='<form json>' (x2)"
   else
     wp1 post create --post_type="$WPFORMS_CPT" --post_status=publish \
-      --post_title='Duo walk contact form' --post_name=duo-walk-contact \
-      --post_content='{"id":"1","settings":{"form_title":"Duo walk contact form"},"fields":{"1":{"id":"1","type":"email","label":"Email"}}}' \
+      --post_title='WPrism walk contact form' --post_name=wprism-walk-contact \
+      --post_content='{"id":"1","settings":{"form_title":"WPrism walk contact form"},"fields":{"1":{"id":"1","type":"email","label":"Email"}}}' \
       --porcelain >/dev/null
     wp1 post create --post_type="$WPFORMS_CPT" --post_status=publish \
-      --post_title='Duo walk feedback form' --post_name=duo-walk-feedback \
-      --post_content='{"id":"2","settings":{"form_title":"Duo walk feedback form"},"fields":{"1":{"id":"1","type":"textarea","label":"Notes"}}}' \
+      --post_title='WPrism walk feedback form' --post_name=wprism-walk-feedback \
+      --post_content='{"id":"2","settings":{"form_title":"WPrism walk feedback form"},"fields":{"1":{"id":"1","type":"textarea","label":"Notes"}}}' \
       --porcelain >/dev/null
   fi
 
-  say "$S — duo init ${PAIR}1 refuses an active plugin no adapter declares"
-  duo_refused "$EVIDENCE/$S/init-refused.txt" active_plugin_without_adapter "$HOST_R1" init "${PAIR}1" --yes
+  say "$S — wprism init ${PAIR}1 refuses an active plugin no adapter declares"
+  wprism_refused "$EVIDENCE/$S/init-refused.txt" active_plugin_without_adapter "$HOST_R1" init "${PAIR}1" --yes
   if ! dry; then
     walk_assert_init_line "$EVIDENCE/$S/init-refused.txt" 'UNSUPPORTED PLUGIN' "$WPFORMS_BASENAME" active_plugin_without_adapter \
       || fail "$S: the init refusal does not name $WPFORMS_BASENAME with its typed code"
     grep -Fq -- '--allow-unmanaged-plugins' "$EVIDENCE/$S/init-refused.txt" \
       || fail "$S: §3.4 — the refusal's remediation must now name --allow-unmanaged-plugins"
-    grep -Fq 'duo adapter certify' "$EVIDENCE/$S/init-refused.txt" \
-      || fail "$S: §3.4 — the refusal's remediation must now name duo adapter certify"
+    grep -Fq 'wprism adapter certify' "$EVIDENCE/$S/init-refused.txt" \
+      || fail "$S: §3.4 — the refusal's remediation must now name wprism adapter certify"
   fi
   pass "$S — init refused by name and named both remedies"
 
-  say "$S — duo init ${PAIR}1 --allow-unmanaged-plugins --yes"
-  duo_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --allow-unmanaged-plugins --yes
+  say "$S — wprism init ${PAIR}1 --allow-unmanaged-plugins --yes"
+  wprism_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --allow-unmanaged-plugins --yes
   if ! dry; then
     walk_assert_init_line "$EVIDENCE/$S/init.txt" 'UNMANAGED PLUGIN' "$WPFORMS_BASENAME" active_plugin_without_adapter \
       || fail "$S: §3.4 — --allow-unmanaged-plugins must print UNMANAGED PLUGIN $WPFORMS_BASENAME [active_plugin_without_adapter]"
@@ -393,44 +393,44 @@ scenario_s1() {
     # own confirmation runs the baseline capture, whose scope gate refuses any
     # plugin-registered type with rows that no rule names, so "leave the
     # plugin unmanaged" means "its types stay local" — the same
-    # `scope:post_type:<name>=runtime` rule `duo classify` would write, printed
+    # `scope:post_type:<name>=runtime` rule `wprism classify` would write, printed
     # as an advisory rather than taken silently. The forms CPT must NOT have
     # been taken into authored scope.
     walk_assert_init_line "$EVIDENCE/$S/init.txt" 'UNMANAGED SCOPE' "post_type:$WPFORMS_CPT" unmanaged_scope_left_local \
       || fail "$S: init did not print UNMANAGED SCOPE post_type:$WPFORMS_CPT [unmanaged_scope_left_local] for the plugin's forms type"
-    jq -e --arg t "$WPFORMS_CPT" '[.policy.post_types[]] | index($t) == null' "$HOST_R1/site.duo.json" >/dev/null \
+    jq -e --arg t "$WPFORMS_CPT" '[.policy.post_types[]] | index($t) == null' "$HOST_R1/site.wprism.json" >/dev/null \
       || fail "$S: init took the unmanaged plugin's post type into authored policy scope"
-    jq -e --arg t "$WPFORMS_CPT" '.policy.scope.post_type[$t].class == "runtime"' "$HOST_R1/site.duo.json" >/dev/null \
-      || fail "$S: site.duo.json does not record policy.scope.post_type.$WPFORMS_CPT.class = runtime after --allow-unmanaged-plugins"
+    jq -e --arg t "$WPFORMS_CPT" '.policy.scope.post_type[$t].class == "runtime"' "$HOST_R1/site.wprism.json" >/dev/null \
+      || fail "$S: site.wprism.json does not record policy.scope.post_type.$WPFORMS_CPT.class = runtime after --allow-unmanaged-plugins"
   fi
   baseline_commit "$S"
 
-  say "$S — duo capture ${PAIR}1 is green, and the review queue holds no scope gap"
-  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
-  duo_ok "$EVIDENCE/$S/pending.txt" "$HOST_R1" pending "${PAIR}1" --format=json
+  say "$S — wprism capture ${PAIR}1 is green, and the review queue holds no scope gap"
+  wprism_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/pending.txt" "$HOST_R1" pending "${PAIR}1" --format=json
   if ! dry; then
     grep -Fq "scope:post_type:$WPFORMS_CPT" "$EVIDENCE/$S/pending.txt" \
       && fail "$S: the review queue still carries scope:post_type:$WPFORMS_CPT after init decided it runtime"
-    # The gate itself is proven live in the negative: a site.duo.json WITHOUT
+    # The gate itself is proven live in the negative: a site.wprism.json WITHOUT
     # that rule refuses capture by name. Take the rule away in a scratch copy
     # of the repository's policy and ask the target — nothing on the target
     # moves, and the refusal is the exact one an operator who removed the
     # rule by hand would read.
-    local stripped="$SCRATCH/$S-site.duo.without-scope.json"
+    local stripped="$SCRATCH/$S-site.wprism.without-scope.json"
     jq --arg t "$WPFORMS_CPT" 'del(.policy.scope.post_type[$t]) | if (.policy.scope.post_type // {}) == {} then del(.policy.scope.post_type) else . end | if (.policy.scope // {}) == {} then del(.policy.scope) else . end' \
-      "$HOST_R1/site.duo.json" > "$stripped"
-    cp "$HOST_R1/site.duo.json" "$SCRATCH/$S-site.duo.keep.json"
-    cp "$stripped" "$HOST_R1/site.duo.json"
-    duo_refused "$EVIDENCE/$S/capture-refused.txt" incomplete_policy_scope "$HOST_R1" capture "${PAIR}1" --format=json
+      "$HOST_R1/site.wprism.json" > "$stripped"
+    cp "$HOST_R1/site.wprism.json" "$SCRATCH/$S-site.wprism.keep.json"
+    cp "$stripped" "$HOST_R1/site.wprism.json"
+    wprism_refused "$EVIDENCE/$S/capture-refused.txt" incomplete_policy_scope "$HOST_R1" capture "${PAIR}1" --format=json
     grep -Fq "scope:post_type:$WPFORMS_CPT" "$EVIDENCE/$S/capture-refused.txt" \
       || fail "$S: the capture refusal does not name scope:post_type:$WPFORMS_CPT"
-    cp "$SCRATCH/$S-site.duo.keep.json" "$HOST_R1/site.duo.json"
-    duo_ok "$EVIDENCE/$S/capture-again.txt" "$HOST_R1" capture "${PAIR}1"
+    cp "$SCRATCH/$S-site.wprism.keep.json" "$HOST_R1/site.wprism.json"
+    wprism_ok "$EVIDENCE/$S/capture-again.txt" "$HOST_R1" capture "${PAIR}1"
   fi
   pass "$S — capture is green with the reviewed rule and loud without it, naming the exact scope gap"
 
-  say "$S — duo coverage ${PAIR}1 and duo assess ${PAIR}1"
-  duo_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json
+  say "$S — wprism coverage ${PAIR}1 and wprism assess ${PAIR}1"
+  wprism_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json
   if ! dry; then
     walk_agent_json "$SCRATCH/$S-coverage.raw" > "$EVIDENCE/$S/coverage.json"
     local tables
@@ -488,24 +488,24 @@ scenario_s1() {
       (.declarations.surfaces[] | select(.id == $id))
       | .state_class == "runtime" and .handling == "preserve local"
         and .decided_by == "operator" and (has("next_action") | not)
-    ' "$HOST_R1/.duo/contract/contract.json" >/dev/null \
+    ' "$HOST_R1/.wprism/contract/contract.json" >/dev/null \
       || fail "$S: §3.6 — the accepted contract does not carry the operator's runtime/preserve local decision for plugin:$WPFORMS_SLUG"
     # Every surface the walk did not deliberately decide must have been decided
     # by the platform. An `unresolved` leftover is a surface this walk did not
     # anticipate, and §4 says such a stop is the work list, not a shrug.
     local unresolved
     unresolved="$(jq -r '[.declarations.surfaces[] | select(.decided_by == "unresolved") | .id] | join(", ")' \
-      "$HOST_R1/.duo/contract/contract.json")"
+      "$HOST_R1/.wprism/contract/contract.json")"
     [ -z "$unresolved" ] \
       || fail "$S: the accepted contract still carries unreviewed surface(s) this walk did not anticipate: $unresolved"
   fi
 
   rehearse_preview "$S"
   say "$S — author one page-body edit on the preview, then capture twice"
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
 
   say "$S — the unmanaged plugin's own rows, written AFTER the checkpoint"
@@ -514,11 +514,11 @@ scenario_s1() {
   # option are ordinary target state inside the database checkpoint's boundary,
   # so the printed sentence decides their fate exactly as it decides a managed
   # row's. A survivor here would mean the boundary is literal only for state
-  # Duo manages, which is not what the sentence says.
-  local marker="duo-walk-$S-post-checkpoint"
+  # WPrism manages, which is not what the sentence says.
+  local marker="wprism-walk-$S-post-checkpoint"
   if dry; then
     plan "wp2 db query \"INSERT INTO wp_$WPFORMS_TABLE ...\"   # a row the checkpoint predates"
-    plan "wp2 option update ${WPFORMS_OPTION_PREFIX}duo_walk_marker $marker"
+    plan "wp2 option update ${WPFORMS_OPTION_PREFIX}wprism_walk_marker $marker"
   else
     local prefix
     prefix="$(wp2 db prefix | tr -d '\r\n')"
@@ -527,8 +527,8 @@ scenario_s1() {
     # in `action`, which is what the read-back below matches on.
     wp2 db query "INSERT INTO \`${prefix}${WPFORMS_TABLE}\` (action, data, date) VALUES ('$marker', '[]', NOW())" \
       || fail "$S: could not write a post-checkpoint row into ${prefix}${WPFORMS_TABLE}"
-    wp2 option update "${WPFORMS_OPTION_PREFIX}duo_walk_marker" "$marker"
-    [ "$(wp2 option get "${WPFORMS_OPTION_PREFIX}duo_walk_marker" | tr -d '\r')" = "$marker" ] \
+    wp2 option update "${WPFORMS_OPTION_PREFIX}wprism_walk_marker" "$marker"
+    [ "$(wp2 option get "${WPFORMS_OPTION_PREFIX}wprism_walk_marker" | tr -d '\r')" = "$marker" ] \
       || fail "$S: the post-checkpoint option was not written"
   fi
 
@@ -541,8 +541,8 @@ scenario_s1() {
     [ "$rows" = 0 ] \
       || fail "$S: the claim said '$PLAN_BOUNDARY' but the post-checkpoint row in $WPFORMS_TABLE survived recovery.
 The boundary is literal for unmanaged state too, or this test fails."
-    if wp2 option get "${WPFORMS_OPTION_PREFIX}duo_walk_marker" >/dev/null 2>&1; then
-      fail "$S: the post-checkpoint ${WPFORMS_OPTION_PREFIX}duo_walk_marker option survived recovery, against the printed boundary"
+    if wp2 option get "${WPFORMS_OPTION_PREFIX}wprism_walk_marker" >/dev/null 2>&1; then
+      fail "$S: the post-checkpoint ${WPFORMS_OPTION_PREFIX}wprism_walk_marker option survived recovery, against the printed boundary"
     fi
     local body
     body="$(wp2 post get "$PREVIEW_PAGE_ID" --field=post_content | tr -d '\r')"
@@ -553,7 +553,7 @@ The boundary is literal for unmanaged state too, or this test fails."
     pass "$S — the excluded plugin's post-checkpoint table row and option are both gone, and the page is restored"
   fi
 
-  say "$S — duo assess ${PAIR}2 after recovery"
+  say "$S — wprism assess ${PAIR}2 after recovery"
   post_recovery_check "$S"
   if ! dry; then
     # And the plugin is STILL unmanaged afterwards. A release and a recovery
@@ -585,7 +585,7 @@ scenario_s2() {
   run mkdir -p "$EVIDENCE/$S"
   scenario_pair "$S" with-subject
   write_registry
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
 
   say "$S — one form on ${PAIR}1 to author against"
   # GUIDE VIOLATION, kept deliberately: this hand-writes post_content instead
@@ -612,8 +612,8 @@ scenario_s2() {
     plan "wp1 post create --post_type=$WPFORMS_CPT --post_content='<form json>'"
   else
     wp1 post create --post_type="$WPFORMS_CPT" --post_status=publish \
-      --post_title='Duo walk contact form' --post_name=duo-walk-contact \
-      --post_content='{"id":"1","settings":{"form_title":"Duo walk contact form"},"fields":{"1":{"id":"1","type":"email","label":"Email"}}}' \
+      --post_title='WPrism walk contact form' --post_name=wprism-walk-contact \
+      --post_content='{"id":"1","settings":{"form_title":"WPrism walk contact form"},"fields":{"1":{"id":"1","type":"email","label":"Email"}}}' \
       --porcelain >/dev/null
   fi
 
@@ -623,8 +623,8 @@ scenario_s2() {
   # this scenario would then have to run twice.
   seed_repository "$S"
 
-  say "$S — duo coverage ${PAIR}1 --format=json (the draft's seed)"
-  duo_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json
+  say "$S — wprism coverage ${PAIR}1 --format=json (the draft's seed)"
+  wprism_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json
   local seed="$EVIDENCE/$S/coverage.json"
   if dry; then
     plan "walk_agent_json <coverage raw> > $seed"
@@ -638,15 +638,15 @@ scenario_s2() {
       || fail "$S: coverage reports no invisible option group for the $WPFORMS_OPTION_FAMILY family, so --seed has nothing to propose"
   fi
 
-  say "$S — duo adapter-draft ${PAIR}1 --seed --out=adapters/$WPFORMS_CPT.json"
+  say "$S — wprism adapter-draft ${PAIR}1 --seed --out=adapters/$WPFORMS_CPT.json"
   local draft="$HOST_R1/adapters/$WPFORMS_CPT.json"
   run mkdir -p "$HOST_R1/adapters"
-  duo_ok "$EVIDENCE/$S/adapter-draft.txt" "$HOST_R1" \
+  wprism_ok "$EVIDENCE/$S/adapter-draft.txt" "$HOST_R1" \
     adapter-draft "$HOST_R1" --name="$WPFORMS_CPT" --match="^_?$WPFORMS_OPTION_PREFIX" \
     --seed="$seed" --out="$draft"
   # §3.5: `--out` refuses to overwrite without `--force`. A draft that silently
   # replaced a hand-finished manifest would destroy the operator's own work.
-  duo_refused "$EVIDENCE/$S/adapter-draft-overwrite.txt" draft_output_exists "$HOST_R1" \
+  wprism_refused "$EVIDENCE/$S/adapter-draft-overwrite.txt" draft_output_exists "$HOST_R1" \
     adapter-draft "$HOST_R1" --name="$WPFORMS_CPT" --seed="$seed" --out="$draft"
   if ! dry; then
     [ -s "$draft" ] || fail "$S: adapter-draft --out wrote no draft at $draft"
@@ -679,7 +679,7 @@ scenario_s2() {
   # captured" (agent/src/Policy/ManifestGrammar.php TABLE_CLASSES) — the same
   # declaration manifests/woocommerce.json makes for Action Scheduler's tables.
   # `deletions` declares the form post type deletable (the required post
-  # cascade set, no guards: a Lite form is referenced by nothing Duo manages);
+  # cascade set, no guards: a Lite form is referenced by nothing WPrism manages);
   # without it the target-side capture after `wp post delete` of the authored
   # form refuses "deletion intent for post:wpforms is unsupported" (run 21).
   if dry; then
@@ -716,8 +716,8 @@ scenario_s2() {
     mv "$draft.finished" "$draft"
   fi
 
-  say "$S — duo manifest-validate $HOST_R1/adapters --site=$HOST_R1"
-  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
+  say "$S — wprism manifest-validate $HOST_R1/adapters --site=$HOST_R1"
+  wprism_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
     manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   if ! dry; then
     grep -Fq "[ok] $WPFORMS_CPT" "$EVIDENCE/$S/manifest-validate.txt" \
@@ -728,11 +728,11 @@ scenario_s2() {
   # §1/§3.4: an installed but UNCERTIFIED site adapter still blocks init, and
   # §3.4 moves that blocker's remediation onto the new verb. Asserting it here
   # is what makes certification a step rather than a formality.
-  say "$S — duo init ${PAIR}1 refuses while the adapter is uncertified"
-  duo_refused "$EVIDENCE/$S/init-uncertified.txt" adapter_source_uncertified "$HOST_R1" init "${PAIR}1" --yes
+  say "$S — wprism init ${PAIR}1 refuses while the adapter is uncertified"
+  wprism_refused "$EVIDENCE/$S/init-uncertified.txt" adapter_source_uncertified "$HOST_R1" init "${PAIR}1" --yes
   if ! dry; then
-    grep -Fq 'duo adapter certify' "$EVIDENCE/$S/init-uncertified.txt" \
-      || fail "$S: §3.4 — the uncertified-adapter blocker must name duo adapter certify"
+    grep -Fq 'wprism adapter certify' "$EVIDENCE/$S/init-uncertified.txt" \
+      || fail "$S: §3.4 — the uncertified-adapter blocker must name wprism adapter certify"
   fi
   adapter_catalog "$S" uncertified
   if ! dry; then
@@ -756,20 +756,20 @@ scenario_s2() {
   fi
   pass "$S — the catalog reads site/site_signed/site/$WALK_KEY_ID"
 
-  # This is §3.4's own remediation carried out: "certify it with duo adapter
-  # certify …, then rerun duo init". Rerunning init necessarily means running
+  # This is §3.4's own remediation carried out: "certify it with wprism adapter
+  # certify …, then rerun wprism init". Rerunning init necessarily means running
   # it on a repository whose non-seed content is exactly an adapter, its
   # certificate and its pin, so this step is where that becomes a fact rather
   # than a sentence. No --allow-unmanaged-plugins: the plugin has an owning
   # adapter now, and needing the flag here would mean certification bought
   # nothing.
-  say "$S — duo init ${PAIR}1 --yes (no unmanaged flag: the plugin has a certified adapter now)"
-  duo_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --yes
+  say "$S — wprism init ${PAIR}1 --yes (no unmanaged flag: the plugin has a certified adapter now)"
+  wprism_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --yes
   if ! dry; then
-    jq -e --arg t "$WPFORMS_CPT" '[.policy.post_types[]] | index($t) != null' "$HOST_R1/site.duo.json" >/dev/null \
+    jq -e --arg t "$WPFORMS_CPT" '[.policy.post_types[]] | index($t) != null' "$HOST_R1/site.wprism.json" >/dev/null \
       || fail "$S: init did not take the adapter's authored post type into policy scope"
   fi
-  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
   baseline_commit "$S"
   pass "$S — init and capture are green with the operator's own adapter governing the forms"
 
@@ -798,16 +798,16 @@ scenario_s2() {
   rehearse_preview "$S"
 
   say "$S — author a NEW form on the preview, then capture twice"
-  local formTitle='Duo walk quote request'
+  local formTitle='WPrism walk quote request'
   if dry; then
     plan "wp2 post create --post_type=$WPFORMS_CPT --post_title='$formTitle' --post_content='<form json>'"
   else
     wp2 post create --post_type="$WPFORMS_CPT" --post_status=publish \
-      --post_title="$formTitle" --post_name=duo-walk-quote \
-      --post_content='{"id":"3","settings":{"form_title":"Duo walk quote request"},"fields":{"1":{"id":"1","type":"text","label":"Company"}}}' \
+      --post_title="$formTitle" --post_name=wprism-walk-quote \
+      --post_content='{"id":"3","settings":{"form_title":"WPrism walk quote request"},"fields":{"1":{"id":"1","type":"text","label":"Company"}}}' \
       --porcelain >/dev/null
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   # The new form is on the preview and therefore already on the target; the
@@ -817,11 +817,11 @@ scenario_s2() {
     plan "wp2 post delete <quote-form> --force   # so the release has the form to apply"
   else
     local previewFormId
-    previewFormId="$(wp2 post list --post_type="$WPFORMS_CPT" --name=duo-walk-quote --field=ID | tr -d '\r' | head -1)"
+    previewFormId="$(wp2 post list --post_type="$WPFORMS_CPT" --name=wprism-walk-quote --field=ID | tr -d '\r' | head -1)"
     [ -n "$previewFormId" ] || fail "$S: the preview did not carry the authored form back"
     wp2 post delete "$previewFormId" --force
   fi
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
     wp2 post list --post_type="$WPFORMS_CPT" --field=post_title | tr -d '\r' | grep -Fqx "$formTitle" \
@@ -851,30 +851,30 @@ scenario_s3() {
   write_registry
   install_acme 1 author
   install_acme 2 target
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
 
   say "$S — one catalog item on ${PAIR}1"
   if dry; then
-    plan "wp1 term create $ACME_TAXONOMY 'Duo walk kind' --slug=duo-walk-kind"
-    plan "wp1 post create --post_type=$ACME_CPT --post_title='Duo walk item'"
+    plan "wp1 term create $ACME_TAXONOMY 'WPrism walk kind' --slug=wprism-walk-kind"
+    plan "wp1 post create --post_type=$ACME_CPT --post_title='WPrism walk item'"
   else
-    wp1 term create "$ACME_TAXONOMY" 'Duo walk kind' --slug=duo-walk-kind --porcelain >/dev/null
+    wp1 term create "$ACME_TAXONOMY" 'WPrism walk kind' --slug=wprism-walk-kind --porcelain >/dev/null
     wp1 post create --post_type="$ACME_CPT" --post_status=publish \
-      --post_title='Duo walk item' --post_name=duo-walk-item \
+      --post_title='WPrism walk item' --post_name=wprism-walk-item \
       --post_content='<p>The first catalog item.</p>' --porcelain >/dev/null
   fi
 
   # Same reason as S2: manifest-validate --site, adapter certify and adapter
-  # list all resolve a directory holding site.duo.json, and §4 orders them
+  # list all resolve a directory holding site.wprism.json, and §4 orders them
   # before the init that then has to succeed.
   seed_repository "$S"
 
-  say "$S — wp duo adapter-survey on the target: the bundled source"
-  # The host-side `duo adapter` commands are WordPress-free and cannot read
+  say "$S — wp wprism adapter-survey on the target: the bundled source"
+  # The host-side `wprism adapter` commands are WordPress-free and cannot read
   # WP_PLUGIN_DIR, so the only place the plugin source is visible is the
   # target's own survey. That is not a workaround; it is the boundary the
   # catalog command documents on every run.
-  wp_ok "$SCRATCH/$S-survey.raw" 1 duo adapter-survey --repo=/siterepo --format=json
+  wp_ok "$SCRATCH/$S-survey.raw" 1 wprism adapter-survey --repo=/siterepo --format=json
   if ! dry; then
     walk_agent_json "$SCRATCH/$S-survey.raw" > "$EVIDENCE/$S/adapter-survey.json"
     walk_assert_bundled_uncertified "$EVIDENCE/$S/adapter-survey.json" "$ACME_SLUG" \
@@ -882,8 +882,8 @@ scenario_s3() {
     pass "$S — the bundled adapter is discovered from the active plugin and reads uncertified"
   fi
 
-  say "$S — duo init ${PAIR}1 refuses: the bundled adapter is uncertified"
-  duo_refused "$EVIDENCE/$S/init-uncertified.txt" adapter_source_uncertified "$HOST_R1" init "${PAIR}1" --yes
+  say "$S — wprism init ${PAIR}1 refuses: the bundled adapter is uncertified"
+  wprism_refused "$EVIDENCE/$S/init-uncertified.txt" adapter_source_uncertified "$HOST_R1" init "${PAIR}1" --yes
   if ! dry; then
     grep -Fq "install this adapter as a repository package at adapters/$ACME_SLUG.json" \
       "$EVIDENCE/$S/init-uncertified.txt" \
@@ -893,8 +893,8 @@ scenario_s3() {
 
   say "$S — promote the bundled adapter to adapters/$ACME_SLUG.json"
   run mkdir -p "$HOST_R1/adapters"
-  run cp "$SANDBOX/fixtures/$ACME_SLUG/duo-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"
-  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
+  run cp "$SANDBOX/fixtures/$ACME_SLUG/wprism-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"
+  wprism_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
     manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   keygen_and_certify "$S" "$ACME_SLUG"
   adapter_catalog "$S" certified
@@ -908,7 +908,7 @@ scenario_s3() {
   # The site copy now outranks the bundled one, and the bundled one reports as
   # installed-but-not-loaded with the site copy as its winner. Read from the
   # target, because only the target can see the plugin source at all.
-  wp_ok "$SCRATCH/$S-survey-after.raw" 1 duo adapter-survey --repo=/siterepo --format=json
+  wp_ok "$SCRATCH/$S-survey-after.raw" 1 wprism adapter-survey --repo=/siterepo --format=json
   if ! dry; then
     walk_agent_json "$SCRATCH/$S-survey-after.raw" > "$EVIDENCE/$S/adapter-survey-after.json"
     jq -e --arg n "$ACME_SLUG" '
@@ -922,15 +922,15 @@ scenario_s3() {
     pass "$S — the site copy wins by precedence; the plugin stayed active throughout"
   fi
 
-  say "$S — duo init ${PAIR}1 --yes (the promoted adapter is certified)"
-  duo_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --yes
+  say "$S — wprism init ${PAIR}1 --yes (the promoted adapter is certified)"
+  wprism_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --yes
   if ! dry; then
-    jq -e --arg t "$ACME_CPT" '[.policy.post_types[]] | index($t) != null' "$HOST_R1/site.duo.json" >/dev/null \
+    jq -e --arg t "$ACME_CPT" '[.policy.post_types[]] | index($t) != null' "$HOST_R1/site.wprism.json" >/dev/null \
       || fail "$S: init did not take $ACME_CPT into policy scope from the promoted adapter"
-    jq -e --arg t "$ACME_TAXONOMY" '[.policy.taxonomies[]] | index($t) != null' "$HOST_R1/site.duo.json" >/dev/null \
+    jq -e --arg t "$ACME_TAXONOMY" '[.policy.taxonomies[]] | index($t) != null' "$HOST_R1/site.wprism.json" >/dev/null \
       || fail "$S: init did not take $ACME_TAXONOMY into policy scope from the promoted adapter"
   fi
-  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
   baseline_commit "$S"
 
   assess_both "$S" "${PAIR}1" "$HOST_R1" site-certified
@@ -954,7 +954,7 @@ scenario_s3() {
   local extraJourney
   extraJourney="$(jq -nc --arg id "$ACME_CPT" '
     {id: "acme-index", url: "/?post_type=\($id)", expect_status: 200,
-     expect_contains: "Duo walk item", affected_surfaces: ["post_type:\($id)"]}')"
+     expect_contains: "WPrism walk item", affected_surfaces: ["post_type:\($id)"]}')"
   # The undeclared table is decided the same way S1 decides the plugin's
   # tables: it is that plugin's own runtime index, kept local.
   local surfaceFilter='
@@ -970,26 +970,26 @@ scenario_s3() {
   rehearse_preview "$S"
 
   say "$S — author a catalog item on the preview, then capture twice"
-  local itemTitle='Duo walk second item'
+  local itemTitle='WPrism walk second item'
   if dry; then
     plan "wp2 post create --post_type=$ACME_CPT --post_title='$itemTitle'"
   else
     wp2 post create --post_type="$ACME_CPT" --post_status=publish \
-      --post_title="$itemTitle" --post_name=duo-walk-item-2 \
+      --post_title="$itemTitle" --post_name=wprism-walk-item-2 \
       --post_content='<p>The second catalog item.</p>' --porcelain >/dev/null
   fi
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if dry; then
     plan "wp2 post delete <second item> --force   # so the release has the item to apply"
   else
     local previewItemId
-    previewItemId="$(wp2 post list --post_type="$ACME_CPT" --name=duo-walk-item-2 --field=ID | tr -d '\r' | head -1)"
+    previewItemId="$(wp2 post list --post_type="$ACME_CPT" --name=wprism-walk-item-2 --field=ID | tr -d '\r' | head -1)"
     [ -n "$previewItemId" ] || fail "$S: the preview did not carry the authored catalog item back"
     wp2 post delete "$previewItemId" --force
   fi
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
     wp2 post list --post_type="$ACME_CPT" --field=post_title | tr -d '\r' | grep -Fqx "$itemTitle" \
@@ -1009,7 +1009,7 @@ scenario_s3() {
 # refusal — the shipped copy reports `shadowed_by_site`, the site copy carries
 # the SITE's certification words on every surface it governs (a signed override
 # is `Site-certified`, never `Platform-certified`, because the customer
-# organization's approval is explicitly not a Duo endorsement), and the
+# organization's approval is explicitly not a WPrism endorsement), and the
 # ordinary loop still converges.
 # ---------------------------------------------------------------------------
 scenario_s4() {
@@ -1017,10 +1017,10 @@ scenario_s4() {
   run mkdir -p "$EVIDENCE/$S"
   scenario_pair "$S"
   write_registry
-  seed_shop duo-walk-landing
+  seed_shop wprism-walk-landing
 
-  say "$S — duo init ${PAIR}1 --yes on the ordinary shipped-adapter site"
-  duo_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --yes
+  say "$S — wprism init ${PAIR}1 --yes on the ordinary shipped-adapter site"
+  wprism_ok "$EVIDENCE/$S/init.txt" "$HOST_R1" init "${PAIR}1" --yes
   baseline_commit "$S"
   assess_both "$S" "${PAIR}1" "$HOST_R1" platform-certified
   if ! dry; then
@@ -1038,7 +1038,7 @@ scenario_s4() {
   # real merchant field here previously froze a production omission into the
   # grind fixture instead of testing only override precedence.
   local override="$HOST_R1/adapters/woocommerce.json"
-  local newOption=woocommerce_duo_site_override_probe
+  local newOption=woocommerce_wprism_site_override_probe
   run mkdir -p "$HOST_R1/adapters"
   if dry; then
     plan "jq: cp adapter-packages/woocommerce/package/manifest.json -> adapters/woocommerce.json + options.$newOption = authored"
@@ -1063,29 +1063,29 @@ scenario_s4() {
   # shadow, and every loader-backed verb refuses it — including
   # manifest-validate --site. That is the documented stop, and its remediation
   # must name the override verb rather than only "rename or remove".
-  say "$S — duo manifest-validate refuses the unstated override (shadows_shipped) and names the pin"
-  duo_refused "$EVIDENCE/$S/manifest-validate-shadow.txt" shadows_shipped "$HOST_R1" \
+  say "$S — wprism manifest-validate refuses the unstated override (shadows_shipped) and names the pin"
+  wprism_refused "$EVIDENCE/$S/manifest-validate-shadow.txt" shadows_shipped "$HOST_R1" \
     manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   if ! dry; then
-    grep -Fq 'duo adapter pin' "$EVIDENCE/$S/manifest-validate-shadow.txt" \
-      || fail "$S: §3.3 — the shadow refusal does not name the override verb (duo adapter pin … --source=site)"
+    grep -Fq 'wprism adapter pin' "$EVIDENCE/$S/manifest-validate-shadow.txt" \
+      || fail "$S: §3.3 — the shadow refusal does not name the override verb (wprism adapter pin … --source=site)"
   fi
 
-  say "$S — duo adapter pin ${PAIR}1 --name=woocommerce --source=site (the override)"
-  duo_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" \
+  say "$S — wprism adapter pin ${PAIR}1 --name=woocommerce --source=site (the override)"
+  wprism_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" \
     adapter pin "$HOST_R1" --name=woocommerce --source=site
   if ! dry; then
-    grep -Fq "override: site.duo.json now names the site copy of shipped adapter 'woocommerce'" \
+    grep -Fq "override: site.wprism.json now names the site copy of shipped adapter 'woocommerce'" \
       "$EVIDENCE/$S/adapter-pin.txt" \
       || fail "$S: §3.3 — adapter pin --source=site did not report bootstrapping the override statement"
     jq -e '
       ([.manifests[] | select(type == "object" and .name == "woocommerce" and .source == "site"
         and (.digest | type == "string"))] | length == 1)
       and ([.manifests[] | select(. == "woocommerce")] | length == 0)
-    ' "$HOST_R1/site.duo.json" >/dev/null \
-      || fail "$S: §3.3 — adapter pin did not replace the name-only pin with the explicit {name,source:\"site\",digest} override in site.duo.json"
+    ' "$HOST_R1/site.wprism.json" >/dev/null \
+      || fail "$S: §3.3 — adapter pin did not replace the name-only pin with the explicit {name,source:\"site\",digest} override in site.wprism.json"
   fi
-  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
+  wprism_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
     manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   if ! dry; then
     grep -Fq '[ok] woocommerce' "$EVIDENCE/$S/manifest-validate.txt" \
@@ -1113,7 +1113,7 @@ scenario_s4() {
   # scenario that can make this claim without a conditional: its repository was
   # initialized before the override, so the WooCommerce surfaces are already in
   # policy scope while the adapter governing them is uncertified.
-  say "$S — duo assess ${PAIR}1 with the override pinned but not yet certified"
+  say "$S — wprism assess ${PAIR}1 with the override pinned but not yet certified"
   assess_both "$S" "${PAIR}1" "$HOST_R1" override-uncertified
   if ! dry; then
     local expect got
@@ -1141,12 +1141,12 @@ The adapter exists; telling the operator to install one is telling them to redo 
       || fail "$S: the certified override's catalog row reads '$got', expected '$expect'"
   fi
 
-  # No second `duo init`: this repository is already init-owned, and §3.3's
-  # override is a change to the PIN SET, which `duo capture` reads on its next
+  # No second `wprism init`: this repository is already init-owned, and §3.3's
+  # override is a change to the PIN SET, which `wprism capture` reads on its next
   # run. Re-initializing an initialized repository is a different operation
   # with its own blocker (`existing_configuration`), and asserting it here
   # would be asserting something the override does not need.
-  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
+  wprism_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
   git1 add -A
   commit1 "grind_adapter_walk $S: site override of the shipped woocommerce adapter, certified"
   git1 push -q origin main
@@ -1158,17 +1158,17 @@ The adapter exists; telling the operator to install one is telling them to redo 
     got="$(walk_assess_certification "$ASSESS_JSON" post_type:product release)"
     [ "$got" = "$expect" ] \
       || fail "$S: §3.3 — an overridden surface must read '$expect', not '$got'.
-A signed override is Site-certified, never Platform-certified: the customer organization's approval is explicitly not a Duo endorsement."
+A signed override is Site-certified, never Platform-certified: the customer organization's approval is explicitly not a WPrism endorsement."
     pass "$S — every WooCommerce surface now reads Site-certified under $WALK_KEY_ID"
   fi
 
   contract_cycle "$S" "${PAIR}1" "$HOST_R1" "$LANDING_ID" - '.'
   rehearse_preview "$S"
   say "$S — author a page-body edit on the preview, then capture twice"
-  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  preview_page_edit "$S" wprism-walk-landing '<p>WPrism walk landing page, released through wprism release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
-  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>WPrism walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   recover_cycle "$S"
   post_recovery_check "$S"

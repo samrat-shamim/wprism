@@ -1,9 +1,9 @@
 # SSH rollback certification
 
-DUO-3299 supplies the production-form local merge gate for the verified SSH
-rollback design. DUO-3310 shares the product plan-to-claim builder with this
+issue #3299 supplies the production-form local merge gate for the verified SSH
+rollback design. issue #3310 shares the product plan-to-claim builder with this
 harness, so its crash generations consume the same code/upload/effect inventory
-fields that `duo promote` signs. It remains a local certification harness, not
+fields that `wprism promote` signs. It remains a local certification harness, not
 a hosted-CI shortcut.
 
 Run it from the repository root:

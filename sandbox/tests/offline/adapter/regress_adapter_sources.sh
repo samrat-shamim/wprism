@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Regression — DUO-3314: out-of-tree adapter sources. A site repository may
+# Regression — issue #3314: out-of-tree adapter sources. A site repository may
 # carry `adapters/<name>.json`, which OVERLAYS the shipped manifest library:
 # per-source identity through policy and compilation, loud refusal on
 # shadowing/ambiguous identity before anything loads, no executable
 # privileges for a data-only out-of-tree manifest, and uncertified-by-
-# construction support that stays conspicuous in `duo capabilities`, the plan
-# adapter_dispositions rows, and `duo status`.
+# construction support that stays conspicuous in `wprism capabilities`, the plan
+# adapter_dispositions rows, and `wprism status`.
 #
 # All pure PHP — AdapterSources::discover() is filesystem + JSON, and
 # Policy::load()/RepositoryCompiler::resolved_adapters() were already offline
 # by design (RepositoryCompiler's own docblock: the tree becomes a validated
 # IR "before Tokens, Ledger, Capture, or a target query can be constructed").
 # No docker, no sandbox pair, no WordPress bootstrap. Same idiom as
-# sandbox/tests/offline/adapter/regress_adapter_contract.php (DUO-3222/DUO-3243).
+# sandbox/tests/offline/adapter/regress_adapter_contract.php (issue #3222/issue #3243).
 #
 # Note for future readers: unlike most manifest suites here, this one runs
 # against the REAL shipped manifest bytes rather than a synthetic manifest
@@ -22,11 +22,11 @@
 # because several of its groups mutate a manifest library — deleting its
 # dispositions, breaking its platform boundary — and the shipped one is not
 # theirs to break. It writes only to scratch directories. The copy lives in
-# sandbox/tests/offline/adapter/certification_fixture.php since DUO-3421, shared with the live
+# sandbox/tests/offline/adapter/certification_fixture.php since issue #3421, shared with the live
 # init suite, which mounts the identical library into its Docker pair.
 #
 # That fixture used to re-seal certification evidence against the working tree
-# (DUO-3379), because the checked-in attestation was expired on any branch that
+# (issue #3379), because the checked-in attestation was expired on any branch that
 # edited a bound input. There is no attestation now, so there is nothing to
 # re-seal and no branch state the verdict can depend on.
 set -euo pipefail

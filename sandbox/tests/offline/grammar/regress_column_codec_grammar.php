@@ -10,7 +10,7 @@
  * measured:
  *
  *   A. the section STAGES through spec/repo-format.md § v3.2's channel — three
- *      distinct refusals and one acceptance, with `DUO_SPEC_VERSION` still 3;
+ *      distinct refusals and one acceptance, with `WPRISM_SPEC_VERSION` still 3;
  *   B. its grammar refuses every declaration that would load and then do
  *      nothing, through the REAL `Policy::load()`;
  *   C. the codec keeps its IDENTITY ROUND-TRIP PRECONDITION — it re-encodes to
@@ -37,7 +37,7 @@ require_once __DIR__ . '/../../lib/agent_version.php';
 require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
 $root = dirname(__DIR__, 4);
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Policy/Policy.php';
@@ -46,13 +46,13 @@ require_once $root . '/agent/src/Grammar/Tokens.php';
 require_once $root . '/agent/src/Grammar/ColumnCodecGrammar.php';
 require_once $root . '/agent/src/Capture/TypedTableCapture.php';
 
-use Duo\Canon;
-use Duo\ColumnCodecGrammar;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\TypedTableCapture;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\Canon;
+use WPrism\ColumnCodecGrammar;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\TypedTableCapture;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 // ---------------------------------------------------------------------------
 // The fixture adapter: Redirection 5.9.0, authored end to end.
@@ -133,7 +133,7 @@ $redirection = [
  * @param array<string,array<string,mixed>> $files
  */
 $load = static function (array $files) use ($root): Policy {
-    $dir = sys_get_temp_dir() . '/duo_column_codec_' . bin2hex(random_bytes(8));
+    $dir = sys_get_temp_dir() . '/wprism_column_codec_' . bin2hex(random_bytes(8));
     if (!mkdir($dir, 0700, true) && !is_dir($dir)) {
         throw new RuntimeException("could not create manifest library $dir");
     }
@@ -161,22 +161,22 @@ $variant = static function (array $overlay) use ($redirection): array {
 
 // The claim WP-6.1 exists to demonstrate: a new grammar section shipped with NO
 // version bump. If this ever fails, the section did not ride the channel.
-duo_check_same(3, DUO_SPEC_VERSION, 'DUO_SPEC_VERSION is still 3 — `column_codecs` shipped through engine_features, not a bump');
+wprism_check_same(3, WPRISM_SPEC_VERSION, 'WPRISM_SPEC_VERSION is still 3 — `column_codecs` shipped through engine_features, not a bump');
 
 $policy = $load(['redirection' => $redirection]);
-duo_check_same(
+wprism_check_same(
     ['redirection'],
     array_column($policy->manifests, 'name'),
     'A1: a spec_version 3 manifest declaring the feature AND the section loads through the real loader'
 );
-duo_check_same(
+wprism_check_same(
     ['action_data' => ['container' => 'php_serialized_or_text', 'leaves' => 'text']],
     $policy->column_codec_rules('redirection_items'),
     'A1: the loaded policy projects the declared codec for the table that declared it'
 );
-duo_check_same([], $policy->column_codec_rules('redirection_groups'), 'A1: a table with no codec projects none');
+wprism_check_same([], $policy->column_codec_rules('redirection_groups'), 'A1: a table with no codec projects none');
 
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['redirection' => $variant(['spec_version' => 2, 'engine_features' => null])]),
     RuntimeException::class,
     'A2: a spec_version 2 manifest declaring the section is refused BY SECTION, naming the version that has it',
@@ -185,7 +185,7 @@ duo_check_throws(
 
 $withoutMixedFeature = $redirection;
 $withoutMixedFeature['engine_features'] = ['spec-window/v1', 'typed-column-codecs/v1'];
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['redirection' => $withoutMixedFeature]),
     RuntimeException::class,
     'A6: the heterogeneous framing is a separately gated value-vocabulary change',
@@ -194,14 +194,14 @@ duo_check_throws(
 
 $noFeature = $redirection;
 unset($noFeature['engine_features']);
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['redirection' => $noFeature]),
     RuntimeException::class,
     'A3: at spec_version 3 the key set is CLOSED, so the section without its feature is refused BY KEY',
     "the top-level key 'column_codecs', which this engine does not recognise"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['redirection' => $variant([
         'engine_features' => ['spec-window/v1', 'typed-column-codecs/v9'],
     ])]),
@@ -210,7 +210,7 @@ duo_check_throws(
     "declares engine feature 'typed-column-codecs/v9'"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['redirection' => $variant([
         'engine_features' => ['typed-column-codecs/v1'],
     ])]),
@@ -225,7 +225,7 @@ duo_check_throws(
 
 /** @param array<string,mixed> $codecs */
 $refuse = static function (array $codecs, string $fragment, string $message) use ($load, $variant): void {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): Policy => $load(['redirection' => $variant(['column_codecs' => $codecs])]),
         RuntimeException::class,
         $message,
@@ -267,7 +267,7 @@ $refuse(
 // identity refusal is the one under test rather than B6's.
 $identityTables = $redirection['tables'];
 $identityTables['redirection_groups']['identity'] = ['mode' => 'natural_key', 'column' => 'module_id'];
-duo_check_throws(
+wprism_check_throws(
     static fn(): Policy => $load(['redirection' => $variant([
         'tables' => $identityTables,
         'column_codecs' => [
@@ -299,12 +299,12 @@ $refuse(
     'B11: a bare string codec is refused rather than coerced'
 );
 
-duo_check_same(
+wprism_check_same(
     ['php_serialized', 'php_serialized_or_text'],
     Policy::closed_vocabularies()['column_codec_containers'],
     'B12: the container vocabulary is published from the same const the refusal consults'
 );
-duo_check_same(
+wprism_check_same(
     ['text'],
     Policy::closed_vocabularies()['column_codec_leaves'],
     'B12: the leaf vocabulary is published from the same const the refusal consults'
@@ -322,12 +322,12 @@ $codec = ['container' => 'php_serialized', 'leaves' => 'text'];
 // C1 — the exact input that corrupted before this section existed.
 $withUrl = serialize(['url' => 'https://source.example/go', 'code' => 301]);
 $captured = ColumnCodecGrammar::capture_value($withUrl, $codec, $sourceTokens, 'C1');
-duo_check_same(
+wprism_check_same(
     'a:2:{s:3:"url";s:11:"{{home}}/go";s:4:"code";i:301;}',
     $captured,
     'C1: a substitution that SHORTENS the leaf is re-encoded with a corrected s:<n>: prefix'
 );
-duo_check_same(
+wprism_check_same(
     ['url' => '{{home}}/go', 'code' => 301],
     unserialize($captured, ['allowed_classes' => false]),
     'C1: the captured bytes unserialize — the pre-WP-6.1 capture produced s:25:"{{home}}/go", which did not'
@@ -335,12 +335,12 @@ duo_check_same(
 
 // C2 — the same substitution in the other direction, LENGTHENING the leaf.
 $applied = ColumnCodecGrammar::apply_value($captured, $codec, $targetTokens, 'C2');
-duo_check_same(
+wprism_check_same(
     'a:2:{s:3:"url";s:31:"https://target.example.co.uk/go";s:4:"code";i:301;}',
     $applied,
     'C2: apply to a longer home rebinds the leaf and recomputes the prefix'
 );
-duo_check_same(
+wprism_check_same(
     ['url' => 'https://target.example.co.uk/go', 'code' => 301],
     unserialize($applied, ['allowed_classes' => false]),
     'C2: the applied bytes unserialize on the target'
@@ -351,17 +351,17 @@ duo_check_same(
 // directions. This is the property that makes a mis-decode a refusal rather
 // than a corruption.
 $noRefs = serialize(['note' => 'nothing portable here', 'nested' => ['n' => 7, 'deep' => ['x' => 'y']]]);
-duo_check_same(
+wprism_check_same(
     $noRefs,
     ColumnCodecGrammar::capture_value($noRefs, $codec, $sourceTokens, 'C3'),
     'C3: capture with nothing substituted re-encodes to the exact input bytes'
 );
-duo_check_same(
+wprism_check_same(
     $noRefs,
     ColumnCodecGrammar::apply_value($noRefs, $codec, $targetTokens, 'C3'),
     'C3: apply with nothing substituted re-encodes to the exact input bytes'
 );
-duo_check_same(
+wprism_check_same(
     $captured,
     ColumnCodecGrammar::capture_value(
         ColumnCodecGrammar::apply_value($captured, $codec, $sourceTokens, 'C3'),
@@ -376,7 +376,7 @@ duo_check_same(
 // substitution. Each of these is a way the engine could otherwise have written
 // back a container it mis-read.
 $reject = static function (mixed $bytes, string $fragment, string $message) use ($codec, $sourceTokens): void {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): string => ColumnCodecGrammar::capture_value($bytes, $codec, $sourceTokens, 'C4'),
         RuntimeException::class,
         $message,
@@ -416,7 +416,7 @@ $reject(
 
 // C5 — the secret gate composes, and screens the DECODED value, which is where
 // a credential nested inside a container actually lives.
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => ColumnCodecGrammar::capture_value(
         serialize(['token' => 'AKIAIOSFODNN7EXAMPLE']),
         $codec,
@@ -433,32 +433,32 @@ duo_check_throws(
 // redirects, and NULL for actions such as HTTP errors. The mixed codec is
 // explicit because treating any of those as another is silent corruption.
 $mixed = ['container' => 'php_serialized_or_text', 'leaves' => 'text'];
-duo_check_same(
+wprism_check_same(
     '{{home}}/go',
     ColumnCodecGrammar::capture_value('https://source.example/go', $mixed, $sourceTokens, 'C6'),
     'C6: a plain action target takes the ordinary text path'
 );
-duo_check_same(
+wprism_check_same(
     'https://target.example.co.uk/go',
     ColumnCodecGrammar::apply_value('{{home}}/go', $mixed, $targetTokens, 'C6'),
     'C6: a plain action target rebinds on apply without being serialized'
 );
-duo_check_same(
+wprism_check_same(
     $captured,
     ColumnCodecGrammar::capture_value($withUrl, $mixed, $sourceTokens, 'C6'),
     'C6: a serialized conditional map retains the strict container path'
 );
-duo_check_same(null, ColumnCodecGrammar::capture_value(null, $mixed, $sourceTokens, 'C6'),
+wprism_check_same(null, ColumnCodecGrammar::capture_value(null, $mixed, $sourceTokens, 'C6'),
     'C6: a nullable action keeps SQL NULL distinct from text and serialized data');
-duo_check_same(null, ColumnCodecGrammar::apply_value(null, $mixed, $targetTokens, 'C6'),
+wprism_check_same(null, ColumnCodecGrammar::apply_value(null, $mixed, $targetTokens, 'C6'),
     'C6: apply preserves the nullable arm byte-for-byte');
-duo_check_throws(
+wprism_check_throws(
     static fn(): mixed => ColumnCodecGrammar::capture_value('a:1:{broken', $mixed, $sourceTokens, 'C6'),
     RuntimeException::class,
     'C6: a serialized-looking malformed value refuses instead of falling through as text',
     'malformed or noncanonical PHP-serialized data'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): mixed => ColumnCodecGrammar::capture_value(301, $mixed, $sourceTokens, 'C6'),
     RuntimeException::class,
     'C6: the mixed framing admits no undocumented integer arm',
@@ -470,7 +470,7 @@ duo_check_throws(
 // ===========================================================================
 
 $wpdb = FakeWpdb::install();
-$wpdb->seedTable('wp_duo_map', [
+$wpdb->seedTable('wp_wprism_map', [
     [
         'id' => 1,
         'uuid' => '019200aa-0000-7000-8000-0000000000a1',
@@ -564,45 +564,45 @@ $entities = $boundary->capture_table(
     false,
     $policy->column_codec_rules('redirection_items')
 );
-duo_check_same(4, count($entities), 'D1: serialized, plain-text and NULL action rows all capture');
+wprism_check_same(4, count($entities), 'D1: serialized, plain-text and NULL action rows all capture');
 
 $first = Canon::decode($entities[0]['content']);
-duo_check_same(
+wprism_check_same(
     serialize(['url' => '{{home}}/new-page']),
     $first['columns']['action_data'],
     'D2: the serialized container captured with a corrected length prefix'
 );
-duo_check_same(
+wprism_check_same(
     ['url' => '{{home}}/new-page'],
     unserialize((string) $first['columns']['action_data'], ['allowed_classes' => false]),
     'D2: the captured container unserializes — this is the coordinate the ledger recorded as blocked'
 );
-duo_check_same(
+wprism_check_same(
     '{{red_group:019200aa-0000-7000-8000-0000000000a1}}',
     $first['columns']['group_id'],
     'D3: the sibling ref column is unaffected by the codec and still resolves through the ledger'
 );
-duo_check_same(
+wprism_check_same(
     '/old-page',
     $first['columns']['url'],
     'D3: sibling authored columns stay on the ordinary text path'
 );
-duo_check(
+wprism_check(
     !array_key_exists('last_count', (array) $first['columns']),
     'D3: runtime columns are still excluded'
 );
 
 $second = Canon::decode($entities[1]['content']);
-duo_check_same(
+wprism_check_same(
     serialize(['url' => '/relative-target', 'flags' => ['regex' => false]]),
     $second['columns']['action_data'],
     'D4: a container with nothing portable in it round-trips to the exact source bytes (the identity precondition, through the product path)'
 );
 $third = Canon::decode($entities[2]['content']);
-duo_check_same('{{home}}/plain-target', $third['columns']['action_data'] ?? null,
+wprism_check_same('{{home}}/plain-target', $third['columns']['action_data'] ?? null,
     'D4: Redirection ordinary URL actions use the mixed codec text arm');
 $fourth = Canon::decode($entities[3]['content']);
-duo_check(array_key_exists('action_data', $fourth['columns']) && $fourth['columns']['action_data'] === null,
+wprism_check(array_key_exists('action_data', $fourth['columns']) && $fourth['columns']['action_data'] === null,
     'D4: Redirection error actions preserve the mixed codec NULL arm');
 
 // D5 — the whole point of the primitive: what the target actually receives.
@@ -612,12 +612,12 @@ $targetSide = ColumnCodecGrammar::apply_value(
     $targetTokens,
     'D5'
 );
-duo_check_same(
+wprism_check_same(
     serialize(['url' => 'https://target.example.co.uk/new-page']),
     $targetSide,
     'D5: applied to a target whose home is a different length, the container is re-encoded correctly'
 );
-duo_check_same(
+wprism_check_same(
     ['url' => 'https://target.example.co.uk/new-page'],
     unserialize($targetSide, ['allowed_classes' => false]),
     'D5: Redirection reads back a valid container on the target'
@@ -634,7 +634,7 @@ $again = $boundary->capture_table(
     false,
     $policy->column_codec_rules('redirection_items')
 );
-duo_check_same(
+wprism_check_same(
     array_column($entities, 'content'),
     array_column($again, 'content'),
     'D6: capture is deterministic across runs'
@@ -644,10 +644,10 @@ duo_check_same(
 // `verified_provider_postcondition` (group/item raw writes bypass
 // Red_Module::flush()), and this fixture claims no provider, no apply and no
 // deletion: the primitive closes ONE coordinate, and the ledger says so.
-duo_check(
+wprism_check(
     !array_key_exists('providers', $redirection) && !array_key_exists('actions', $redirection)
         && !array_key_exists('deletions', $redirection),
     'D7: the fixture adapter claims no provider, action or deletion — the second Redirection coordinate stays open'
 );
 
-duo_check_summary('regress_column_codec_grammar');
+wprism_check_summary('regress_column_codec_grammar');

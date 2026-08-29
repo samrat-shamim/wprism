@@ -1,20 +1,20 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
-use Duo\ScopeAdoption;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
+use WPrism\ScopeAdoption;
 
 /**
- * `duo adapter keygen | certify | pin | adopt-scope` — the operator's own
+ * `wprism adapter keygen | certify | pin | adopt-scope` — the operator's own
  * certification authority for the adapters they author (round-3 T6 §3.1,
  * §3.5), and the scope opt-in that follows a pin across a repository set.
  *
@@ -25,10 +25,10 @@ use Duo\ScopeAdoption;
  * `manifests/capabilities/adapter-authorities.json`, which ships empty. An
  * operator could author a site adapter, install it, and use it for
  * capture/plan/apply — and could never make it anything but `uncertified`,
- * so `duo release`/`duo promote` refused it forever ("only certified
+ * so `wprism release`/`wprism promote` refused it forever ("only certified
  * adapters may enter promotion"). The product spec has always said
- * *Site-certified* means "customer-organization approval through Duo's
- * certification protocol, explicitly not a Duo endorsement", signed "under a
+ * *Site-certified* means "customer-organization approval through WPrism's
+ * certification protocol, explicitly not a WPrism endorsement", signed "under a
  * platform **or customer-organization** trust root". These three verbs are
  * the customer-organization half, made reachable.
  *
@@ -38,11 +38,11 @@ use Duo\ScopeAdoption;
  * organization's key approves* **these exact adapter bytes**, and *the
  * engine's own validators accept the manifest's grammar*. It does not
  * attest that the adapter was exercised against a live site, that its
- * deletion semantics were reviewed, or that Duo endorses it. That is why
+ * deletion semantics were reviewed, or that WPrism endorses it. That is why
  * the bundle this class builds carries a single named test
  * (`manifest-grammar`) whose result records `exercised: false` beside the
  * grammar verdict and the operator's own stated reason — the evidence
- * triple T6 §3.5 requires. `duo adapter list` reads `site_signed` and the
+ * triple T6 §3.5 requires. `wprism adapter list` reads `site_signed` and the
  * projection reads `Site-certified`, never `Platform-certified`
  * (T6 §3.2/§3.3).
  *
@@ -53,7 +53,7 @@ use Duo\ScopeAdoption;
  * `--ratification-file`, takes the entry the AUTHOR wrote and puts it through
  * the identical shipped disposition validator — runs the real loader
  * for the `grammar` verdict, assembles the unexercised
- * `duo-site-adapter-certification-bundle/v1` in memory, verifies its own
+ * `wprism-site-adapter-certification-bundle/v1` in memory, verifies its own
  * output through the same validator that re-verifies it at every load, and
  * signs. Nothing of that reaches disk but the certificate — an unexercised
  * bundle's only assets are `environment.json` and `ratification.json`, and
@@ -85,7 +85,7 @@ use Duo\ScopeAdoption;
  * agent-owned certificate.
  *
  * WordPress-free, no environment, no transport: every verb here reads and
- * writes files on the machine running `duo`.
+ * writes files on the machine running `wprism`.
  */
 final class AdapterCertify {
     /** The sub-verbs this class owns; `AdapterCatalog` owns list/inspect/doctor. */
@@ -106,7 +106,7 @@ final class AdapterCertify {
         . 'accept its grammar; nothing was exercised against a live site.';
 
     /**
-     * @param list<string> $args the arguments after `duo adapter`
+     * @param list<string> $args the arguments after `wprism adapter`
      */
     public static function run(array $args): int {
         $verb = $args[0] ?? '';
@@ -123,7 +123,7 @@ final class AdapterCertify {
         } catch (\Throwable $t) {
             // Every refusal below is either an operator input error or the
             // engine's own verbatim message. Both are exit 2 usage/IO in
-            // this command family (`duo adapter`'s existing contract), and
+            // this command family (`wprism adapter`'s existing contract), and
             // the engine's coordinates are surfaced unchanged.
             return self::fail($t->getMessage());
         }
@@ -134,7 +134,7 @@ final class AdapterCertify {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter keygen --out=<secret-key-file> [--key-id=<id>]`
+     * `wprism adapter keygen --out=<secret-key-file> [--key-id=<id>]`
      *
      * @param list<string> $args
      */
@@ -166,14 +166,14 @@ final class AdapterCertify {
         // T6 §3.1: "Private keys never live in the repository." A site repo
         // is committed and published, so a secret written inside one is a
         // published secret the moment anybody runs `git add .` — which
-        // `duo init`'s own next-steps block tells them to do.
+        // `wprism init`'s own next-steps block tells them to do.
         $inside = self::enclosingSiteRepo($resolvedDir);
         if ($inside !== null) {
             // Typed, like every refusal a walk or an operator's script keys
             // on: the bracketed code is the contract (T6 §3.1 names it), the
             // sentence is for the human.
             return self::fail(
-                "[secret_key_inside_repository] --out '$path' is inside the duo site repository $inside — "
+                "[secret_key_inside_repository] --out '$path' is inside the wprism site repository $inside — "
                 . 'private keys never live in a repository that gets committed and published; name a path outside it'
             );
         }
@@ -208,10 +208,10 @@ final class AdapterCertify {
         echo "key-id:     $keyId\n";
         echo 'public-key: ' . base64_encode($public) . "\n";
         echo "secret-key: $path (mode 0600, outside every site repository)\n";
-        echo "\nThis is a CUSTOMER-ORGANIZATION trust root, not a Duo one. Back the secret up where you back up\n"
+        echo "\nThis is a CUSTOMER-ORGANIZATION trust root, not a WPrism one. Back the secret up where you back up\n"
             . "your deploy keys; a lost key cannot re-sign, and a leaked key can certify any adapter in a\n"
             . "repository whose adapters/authorities.json names it.\n";
-        echo "\nNext: duo adapter certify <site-repo> --name=<adapter> --secret-key-file=$path --pin\n";
+        echo "\nNext: wprism adapter certify <site-repo> --name=<adapter> --secret-key-file=$path --pin\n";
 
         return 0;
     }
@@ -221,7 +221,7 @@ final class AdapterCertify {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
+     * `wprism adapter certify <site-repo> --name=<n> --secret-key-file=<f>
      *  [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>]
      *  [--bundle=<bundle.json|dir> --evidence-repo=<dir>] [--pin]
      *  [--adopt-scope]`
@@ -292,7 +292,7 @@ final class AdapterCertify {
         if (!is_file($adapterPath) || is_link($adapterPath)) {
             return self::fail(
                 'no site adapter at ' . AdapterSources::SITE_DIR . "/$name.json in $repo — certification signs an "
-                . 'installed site adapter; install it there first (duo adapter-draft <site-repo> --name=' . $name
+                . 'installed site adapter; install it there first (wprism adapter-draft <site-repo> --name=' . $name
                 . ' --out=' . AdapterSources::SITE_DIR . "/$name.json)"
             );
         }
@@ -326,7 +326,7 @@ final class AdapterCertify {
         if ($grammar['status'] !== 'ok') {
             return self::fail(
                 "site adapter '$name' does not load: {$grammar['message']}\n"
-                . '       certification signs a manifest the engine accepts; run `duo manifest-validate '
+                . '       certification signs a manifest the engine accepts; run `wprism manifest-validate '
                 . AdapterSources::SITE_DIR . " --site=$repo --manifest=$name` and fix it first"
             );
         }
@@ -409,7 +409,7 @@ final class AdapterCertify {
         echo 'evidence:   grammar=ok, exercised=' . ($exercised ? 'true' : 'false')
             . ($exercised ? ', named passing tests and artifacts verified' : ', approval only; no site run') . "\n";
         // Which of the two profiles signed this is not cosmetic: an authored
-        // claim is the site's own argument and `duo adapter recertify` will not
+        // claim is the site's own argument and `wprism adapter recertify` will not
         // re-derive over it (SpecMigration::recertify()), so the operator is
         // told here, where they can still keep the file beside the repository.
         echo 'claim basis: ' . ($exercised
@@ -419,20 +419,20 @@ final class AdapterCertify {
                 : 'AUTHORED (--ratification-file), signed approval only; every certification-only gate stays blocked'))
             . "\n";
         echo 'certificate: ' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR . "/$name.json\n";
-        echo "\npin object for site.duo.json manifests[]:\n";
+        echo "\npin object for site.wprism.json manifests[]:\n";
         echo rtrim(Canon::encode($pinObject)) . "\n";
 
         if ($pinRequested) {
             $changed = self::writePin($repo, $pinObject);
-            echo "\n" . ($changed ? 'wrote' : 'confirmed') . ' the pin in site.duo.json'
+            echo "\n" . ($changed ? 'wrote' : 'confirmed') . ' the pin in site.wprism.json'
                 . " — the certificate binds these exact bytes, so re-run certify after any edit\n";
             // The pin is the site's opt-in act, so it must carry the scope
-            // that act implies — DUO-3495: before this, certify --pin wrote a
-            // pin that extended no scope and `duo capture` silently skipped
+            // that act implies — issue #3495: before this, certify --pin wrote a
+            // pin that extended no scope and `wprism capture` silently skipped
             // every type the newly-certified adapter declares.
             self::adoptScope($repo, $name, $manifest, $adoptScope);
         } else {
-            echo "\nThe adapter stays UNCERTIFIED until this exact object is in site.duo.json manifests[]:\n"
+            echo "\nThe adapter stays UNCERTIFIED until this exact object is in site.wprism.json manifests[]:\n"
                 . ($exercised
                     ? '  exercised evidence without an exact {name,source,digest} pin reads `signed_unpinned`. '
                     : '  this grammar-only approval reads `signed_unexercised`; pinning preserves its identity but does not certify it. ')
@@ -452,10 +452,10 @@ final class AdapterCertify {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
+     * `wprism adapter pin <site-repo> --name=<n> [--source=site|plugin]
      *  [--adopt-scope]`
      *
-     * The host-side, WordPress-free twin of `wp duo manifest-pin`. It runs
+     * The host-side, WordPress-free twin of `wp wprism manifest-pin`. It runs
      * the same `Policy::load()` + `RepositoryCompiler::resolved_adapters()`
      * the target command runs, so the digest is the one the engine will
      * check and not a second hash of the same file.
@@ -495,7 +495,7 @@ final class AdapterCertify {
         $shippedManifestExists = $adapterLibrary->package($name) !== null;
 
         // The override bootstrap (T6 §3.3, AdapterSources::override_pins()):
-        // a site copy of a SHIPPED name loads only once site.duo.json pins that
+        // a site copy of a SHIPPED name loads only once site.wprism.json pins that
         // name with source "site", and the digest that completes the pin can
         // only be read by loading it. So `--source=site` for a shipped name
         // writes the source statement first, loads, then completes the pin
@@ -505,31 +505,31 @@ final class AdapterCertify {
         if ($source === AdapterSources::SITE
             && $shippedManifestExists
             && !self::hasSourcePin($repo, $name, AdapterSources::SITE)) {
-            $before = (string) file_get_contents($repo . '/site.duo.json');
+            $before = (string) file_get_contents($repo . '/site.wprism.json');
             self::writePin($repo, ['name' => $name, 'source' => AdapterSources::SITE]);
-            echo "override: site.duo.json now names the site copy of shipped adapter '$name' (source \"site\"); "
+            echo "override: site.wprism.json now names the site copy of shipped adapter '$name' (source \"site\"); "
                 . "the shipped definition is shadowed\n";
         }
         try {
             $pinObject = self::pinObject($repo, $name, is_string($source) ? $source : null, $adapterLibrary);
         } catch (\Throwable $t) {
             if ($before !== null) {
-                file_put_contents($repo . '/site.duo.json', $before, LOCK_EX);
+                file_put_contents($repo . '/site.wprism.json', $before, LOCK_EX);
             }
             throw $t;
         }
         $changed = self::writePin($repo, $pinObject);
 
-        echo ($changed ? 'wrote' : 'confirmed') . " the pin in $repo/site.duo.json:\n";
+        echo ($changed ? 'wrote' : 'confirmed') . " the pin in $repo/site.wprism.json:\n";
         echo rtrim(Canon::encode($pinObject)) . "\n";
         if (($pinObject['source'] ?? null) === AdapterSources::SITE) {
             echo "\nThis site pin is content-addressed: any edit to " . AdapterSources::SITE_DIR . "/$name.json "
                 . "moves the digest and the pin refuses\n  until it is rewritten. That is the point — rerun "
-                . "`duo adapter pin` (and `duo adapter certify`, if it is certified) after every edit.\n";
+                . "`wprism adapter pin` (and `wprism adapter certify`, if it is certified) after every edit.\n";
         }
         // Same act, same consequence as `certify --pin`: this is where the
         // site opts into an adapter, so this is where the scope it declares
-        // stops being invisible (DUO-3495). Last, so the pin's own trailer
+        // stops being invisible (issue #3495). Last, so the pin's own trailer
         // stays one block.
         self::adoptScope(
             $repo,
@@ -546,14 +546,14 @@ final class AdapterCertify {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter adopt-scope <site-repo>… --name=<n> [--dry-run]`
+     * `wprism adapter adopt-scope <site-repo>… --name=<n> [--dry-run]`
      *
      * ## Why a batch verb exists at all
      *
      * The single-repo scope opt-in rides on the pin (`certify --pin`, `pin`),
      * which is right for the site that authored the adapter and wrong for the
      * fleet that consumes it: adding one adapter to N sites cost N hand edits
-     * of `site.duo.json`, so the operator cost scales with sites × adapters —
+     * of `site.wprism.json`, so the operator cost scales with sites × adapters —
      * the product of the two variables this program grows. This is that same
      * opt-in over a repository SET, as one reviewed invocation.
      *
@@ -567,7 +567,7 @@ final class AdapterCertify {
      * into types nothing can classify.
      *
      * It also declines `--adopt-scope`. Flipping a class the site RECORDED is
-     * a per-site reviewed act — `duo classify` and `duo init
+     * a per-site reviewed act — `wprism classify` and `wprism init
      * --allow-unmanaged-plugins` write byte-identical rules and the grammar
      * carries no provenance key (Policy.php:2794) — and one flag that flipped
      * a recorded decision across a fleet is the multiplied-consequence failure
@@ -576,12 +576,12 @@ final class AdapterCertify {
      * ## The two phases, and what each one guarantees
      *
      * PLAN reads every repository and writes nothing: a bad path, a repository
-     * that does not resolve the adapter, or an unreadable `site.duo.json`
+     * that does not resolve the adapter, or an unreadable `site.wprism.json`
      * refuses the whole invocation with every failing repository named, so the
      * common operator error costs zero writes and one round trip rather than N.
      *
      * WRITE walks the set in argument order and, per repository, RE-READS
-     * `site.duo.json`, re-plans against it, and writes the still-absent nodes
+     * `site.wprism.json`, re-plans against it, and writes the still-absent nodes
      * through `writeScopeRules()` — one `tempnam`+`rename` per repository, the
      * same derived-path discipline `writeCertificate()` and `writePin()` use.
      * So each repository is fully adopted or untouched, and a node that
@@ -606,13 +606,13 @@ final class AdapterCertify {
             return self::fail(
                 '--adopt-scope is not accepted here: overriding a decision a site RECORDED is a per-site '
                 . "reviewed act, and one flag would override it across the whole set.\n"
-                . "       run `duo adapter pin <site-repo> --name=$name --adopt-scope` on each site that needs it"
+                . "       run `wprism adapter pin <site-repo> --name=$name --adopt-scope` on each site that needs it"
             );
         }
         $given = $flags['positional'];
         if ($given === []) {
             return self::fail(
-                'adopt-scope needs at least one <site-repo> argument (each the directory holding site.duo.json)'
+                'adopt-scope needs at least one <site-repo> argument (each the directory holding site.wprism.json)'
             );
         }
 
@@ -639,8 +639,8 @@ final class AdapterCertify {
                 $errors[] = "'$argument' is not a directory";
                 continue;
             }
-            if (!is_file($repo . '/site.duo.json')) {
-                $errors[] = "'$argument' has no site.duo.json — every argument is a duo SITE REPO";
+            if (!is_file($repo . '/site.wprism.json')) {
+                $errors[] = "'$argument' has no site.wprism.json — every argument is a wprism SITE REPO";
                 continue;
             }
             if (isset($identity[$resolved])) {
@@ -673,7 +673,7 @@ final class AdapterCertify {
             }
             if ($manifest === null) {
                 $errors[] = "$repo: the engine resolves no adapter '$name' here — scope follows the pin, so pin it "
-                    . "first: duo adapter pin $repo --name=$name";
+                    . "first: wprism adapter pin $repo --name=$name";
                 continue;
             }
             try {
@@ -745,7 +745,7 @@ final class AdapterCertify {
             }
             if ($extend === [] && $blocked === []) {
                 $settled[] = $repo;
-                echo "  = every surface this adapter declares is already in site.duo.json's authored scope\n";
+                echo "  = every surface this adapter declares is already in site.wprism.json's authored scope\n";
             }
         }
 
@@ -755,22 +755,22 @@ final class AdapterCertify {
         if ($shadowed !== []) {
             echo 'shadowed:   ' . count($shadowed) . ' repo(s) record a decision this command never overwrites — '
                 . "a recorded site rule outranks every manifest\n";
-            echo "  to override one, per site: duo adapter pin <site-repo> --name=$name --adopt-scope\n";
+            echo "  to override one, per site: wprism adapter pin <site-repo> --name=$name --adopt-scope\n";
         }
 
         return 0;
     }
 
     /**
-     * The adoption plan for one repository, read fresh off its `site.duo.json`.
+     * The adoption plan for one repository, read fresh off its `site.wprism.json`.
      *
      * @param array<string,mixed> $manifest
      * @return list<array{kind:string,name:string,state:string,class:?string,pointer:string,spec:string}>
      */
     private static function scopePlan(string $repo, array $manifest): array {
-        $site = json_decode((string) file_get_contents($repo . '/site.duo.json'), true);
+        $site = json_decode((string) file_get_contents($repo . '/site.wprism.json'), true);
         if (!is_array($site)) {
-            throw new \RuntimeException('site.duo.json must be a JSON object');
+            throw new \RuntimeException('site.wprism.json must be a JSON object');
         }
 
         return ScopeAdoption::plan($manifest, $site);
@@ -788,9 +788,9 @@ final class AdapterCertify {
      * of N repositories that is N warnings and no ledger.
      */
     private static function assertScopeWritable(string $repo): void {
-        $file = $repo . '/site.duo.json';
+        $file = $repo . '/site.wprism.json';
         if (!is_writable($repo)) {
-            throw new \RuntimeException("cannot write site.duo.json in $repo: the directory is not writable");
+            throw new \RuntimeException("cannot write site.wprism.json in $repo: the directory is not writable");
         }
         if (!is_writable($file)) {
             throw new \RuntimeException("cannot write $file: the file is not writable");
@@ -829,17 +829,17 @@ final class AdapterCertify {
      * writes only where `policy.scope.<kind>.<name>` is absent and the flat
      * list does not already name the type — i.e. where the site has said
      * nothing — and what it writes is exactly what the operator's own command
-     * just asked for: `duo adapter certify --pin`/`duo adapter pin` IS a
-     * site-authored act, and it edits site.duo.json already. It is also the
-     * same opt-in `duo init` performs for an adapter selected at init time
+     * just asked for: `wprism adapter certify --pin`/`wprism adapter pin` IS a
+     * site-authored act, and it edits site.wprism.json already. It is also the
+     * same opt-in `wprism init` performs for an adapter selected at init time
      * (`InitPlanner::adapter_scope()` merges every declared-authored type into
-     * the proposed `policy.post_types`), which is the whole asymmetry DUO-3495
+     * the proposed `policy.post_types`), which is the whole asymmetry issue #3495
      * reported: an adapter that arrives one minute after init meant nothing.
      *
      * ## Why a recorded class is never flipped without being asked
      *
      * `{"class":"runtime"}` under `policy.scope` is byte-identical whether a
-     * human wrote it with `duo classify` or `duo init --allow-unmanaged-
+     * human wrote it with `wprism classify` or `wprism init --allow-unmanaged-
      * plugins` recorded it for an unmanaged plugin's rowful type, and the
      * grammar has no third key to tell them apart ("scope rules accept class
      * only", Policy.php:2794). So provenance is not recoverable and this does
@@ -850,9 +850,9 @@ final class AdapterCertify {
      * @param array<string,mixed> $manifest the adapter this pin resolves to
      */
     private static function adoptScope(string $repo, string $name, array $manifest, bool $adopt): void {
-        $site = json_decode((string) file_get_contents($repo . '/site.duo.json'), true);
+        $site = json_decode((string) file_get_contents($repo . '/site.wprism.json'), true);
         if (!is_array($site)) {
-            throw new \RuntimeException('duo: site.duo.json must be a JSON object');
+            throw new \RuntimeException('wprism: site.wprism.json must be a JSON object');
         }
         $rows = ScopeAdoption::plan($manifest, $site);
         if ($rows === []) {
@@ -882,38 +882,38 @@ final class AdapterCertify {
 
         if ($added !== []) {
             echo "\nscope: wrote " . count($added) . ' authored scope rule(s) for surface(s) this adapter declares'
-                . " and site.duo.json had not decided\n";
+                . " and site.wprism.json had not decided\n";
             foreach ($added as $row) {
                 echo '  + ' . $row['pointer'] . " = {\"class\": \"authored\"}\n";
             }
         }
         if ($flipped !== []) {
             echo "\nscope: --adopt-scope overrode " . count($flipped)
-                . " decision(s) site.duo.json had already recorded\n";
+                . " decision(s) site.wprism.json had already recorded\n";
             foreach ($flipped as $row) {
                 echo '  ~ ' . $row['pointer'] . ' = {"class": "' . $row['class'] . "\"} -> {\"class\": \"authored\"}\n";
             }
         }
         if ($shadowed !== []) {
-            echo "\nscope: " . count($shadowed) . ' surface(s) this adapter declares stay LOCAL — site.duo.json'
+            echo "\nscope: " . count($shadowed) . ' surface(s) this adapter declares stay LOCAL — site.wprism.json'
                 . " already decided them, and a recorded site rule outranks every manifest\n";
             foreach ($shadowed as $row) {
                 echo '  ! ' . $row['pointer'] . ' = {"class": "' . $row['class'] . '"} — capture will skip '
                     . $row['kind'] . ' ' . $row['name'] . "\n";
             }
-            echo "  to adopt them anyway: duo adapter pin $repo --name=$name --adopt-scope\n";
-            echo '  to decide one on the site: wp duo classify --repo=<repo> --set=\''
+            echo "  to adopt them anyway: wprism adapter pin $repo --name=$name --adopt-scope\n";
+            echo '  to decide one on the site: wp wprism classify --repo=<repo> --set=\''
                 . $shadowed[0]['spec'] . "'\n";
         }
         if ($added === [] && $flipped === [] && $shadowed === []) {
-            echo "\nscope: every surface this adapter declares is already in site.duo.json's authored scope\n";
+            echo "\nscope: every surface this adapter declares is already in site.wprism.json's authored scope\n";
         }
     }
 
     /**
      * The manifest the ENGINE resolves for `$name`, read after the pin is
      * written so precedence, source pins and overrides are already applied —
-     * the same bytes the next `duo capture` will classify with.
+     * the same bytes the next `wprism capture` will classify with.
      *
      * @return array<string,mixed>
      */
@@ -924,7 +924,7 @@ final class AdapterCertify {
     ): array {
         $manifest = self::resolvedManifestOrNull($repo, $name, $adapterLibrary);
         if ($manifest === null) {
-            throw new \RuntimeException("duo: the engine resolved no manifest for adapter '$name' after pinning it");
+            throw new \RuntimeException("wprism: the engine resolved no manifest for adapter '$name' after pinning it");
         }
 
         return $manifest;
@@ -953,7 +953,7 @@ final class AdapterCertify {
     }
 
     /**
-     * Write `{"class": "authored"}` scope rules into site.duo.json.
+     * Write `{"class": "authored"}` scope rules into site.wprism.json.
      *
      * Typed, like `writePin()` and for the same reason: `"policy": {}` and
      * every empty section inside it are JSON OBJECTS, and an associative
@@ -963,12 +963,12 @@ final class AdapterCertify {
      * @param list<array{kind:string,name:string}> $rows
      */
     private static function writeScopeRules(string $repo, array $rows): void {
-        $file = $repo . '/site.duo.json';
+        $file = $repo . '/site.wprism.json';
         $raw = file_get_contents($file);
         if ($raw === false) {
-            throw new \RuntimeException("duo: cannot read $file");
+            throw new \RuntimeException("wprism: cannot read $file");
         }
-        $site = self::typedObject($raw, 'site.duo.json');
+        $site = self::typedObject($raw, 'site.wprism.json');
         $scope = self::objectNode(self::objectNode($site, 'policy'), 'scope');
         foreach ($rows as $row) {
             // The rule shape the scope grammar admits and nothing more:
@@ -1004,12 +1004,12 @@ final class AdapterCertify {
             return $parent->{$key} = new \stdClass();
         }
 
-        throw new \RuntimeException("duo: site.duo.json '$key' must be a JSON object");
+        throw new \RuntimeException("wprism: site.wprism.json '$key' must be a JSON object");
     }
 
-    /** Whether site.duo.json already pins `$name` with the given source. */
+    /** Whether site.wprism.json already pins `$name` with the given source. */
     private static function hasSourcePin(string $repo, string $name, string $source): bool {
-        $raw = @file_get_contents($repo . '/site.duo.json');
+        $raw = @file_get_contents($repo . '/site.wprism.json');
         if (!is_string($raw)) {
             return false;
         }
@@ -1052,7 +1052,7 @@ final class AdapterCertify {
         }
         if ($row === null || !is_string($row['digest'] ?? null) || $row['digest'] === '') {
             throw new \RuntimeException(
-                "duo: the engine resolved no content digest for adapter '$name'; it cannot be pinned"
+                "wprism: the engine resolved no content digest for adapter '$name'; it cannot be pinned"
             );
         }
 
@@ -1064,7 +1064,7 @@ final class AdapterCertify {
     }
 
     /**
-     * Write or replace one pin in `site.duo.json`, leaving every other byte
+     * Write or replace one pin in `site.wprism.json`, leaving every other byte
      * of the operator's file alone.
      *
      * The file is REWRITTEN canonically, which is the same treatment
@@ -1075,26 +1075,26 @@ final class AdapterCertify {
      * @return bool true when the file changed
      */
     private static function writePin(string $repo, array $pin): bool {
-        $file = $repo . '/site.duo.json';
+        $file = $repo . '/site.wprism.json';
         $raw = file_get_contents($file);
         if ($raw === false) {
-            throw new \RuntimeException("duo: cannot read $file");
+            throw new \RuntimeException("wprism: cannot read $file");
         }
-        // Decoded as OBJECTS, not associative arrays. `site.duo.json`
+        // Decoded as OBJECTS, not associative arrays. `site.wprism.json`
         // legitimately carries empty JSON objects (`"policy": {}` is the
         // common case on a fresh init), and PHP erases the `{}` versus `[]`
         // distinction the moment an empty object becomes an empty array —
         // which would rewrite a valid policy block into a list the engine
         // refuses. Only `manifests` is touched; every other node is the
         // operator's own decoded value, re-encoded unchanged. A hand-edited
-        // (valid, non-canonical) site.duo.json is admitted: the write below
+        // (valid, non-canonical) site.wprism.json is admitted: the write below
         // is canonical whatever the input was, and refusing here sent the
         // author to reformat a file this command was about to rewrite (the T6
         // walk's S2 stopped on exactly that).
-        $site = self::typedObject($raw, 'site.duo.json');
+        $site = self::typedObject($raw, 'site.wprism.json');
         $manifests = $site->manifests ?? [];
         if (!is_array($manifests)) {
-            throw new \RuntimeException('duo: site.duo.json manifests must be a JSON array');
+            throw new \RuntimeException('wprism: site.wprism.json manifests must be a JSON array');
         }
 
         $out = [];
@@ -1107,7 +1107,7 @@ final class AdapterCertify {
                     // `PinResolver` refuses later anyway; collapsing it
                     // silently here would hide it until the next load.
                     throw new \RuntimeException(
-                        "duo: site.duo.json already pins '{$pin['name']}' more than once; remove the duplicate first"
+                        "wprism: site.wprism.json already pins '{$pin['name']}' more than once; remove the duplicate first"
                     );
                 }
                 $out[] = $pin;
@@ -1133,7 +1133,7 @@ final class AdapterCertify {
     /**
      * Register the operator's public key in the SITE trust root.
      *
-     * The record shape is exactly the shipped `duo-adapter-authorities/v1`
+     * The record shape is exactly the shipped `wprism-adapter-authorities/v1`
      * grammar `AdapterCertification::validateAuthorityRecord()` enforces —
      * there is no site-only dialect, because a second dialect is a second
      * verifier.
@@ -1156,7 +1156,7 @@ final class AdapterCertify {
         if (is_file($file)) {
             if (is_link($file)) {
                 throw new \RuntimeException(
-                    'duo: ' . self::AUTHORITIES_RELATIVE . ' must be a regular file, not a symbolic link'
+                    'wprism: ' . self::AUTHORITIES_RELATIVE . ' must be a regular file, not a symbolic link'
                 );
             }
             $raw = (string) file_get_contents($file);
@@ -1164,7 +1164,7 @@ final class AdapterCertify {
             if (($document['format'] ?? null) !== AdapterCertification::AUTHORITIES_FORMAT
                 || !is_array($document['keys'] ?? null)) {
                 throw new \RuntimeException(
-                    'duo: ' . self::AUTHORITIES_RELATIVE . ' is not a '
+                    'wprism: ' . self::AUTHORITIES_RELATIVE . ' is not a '
                     . AdapterCertification::AUTHORITIES_FORMAT . ' document'
                 );
             }
@@ -1175,14 +1175,14 @@ final class AdapterCertify {
         if (is_array($record)) {
             if (($record['public_key'] ?? null) !== $encodedKey) {
                 throw new \RuntimeException(
-                    "duo: authority key '$keyId' is already registered in " . self::AUTHORITIES_RELATIVE
+                    "wprism: authority key '$keyId' is already registered in " . self::AUTHORITIES_RELATIVE
                     . ' with a different public key — choose another --key-id, or remove the stale record '
                     . 'deliberately (every certificate it signed stops verifying)'
                 );
             }
             if (($record['status'] ?? null) !== 'trusted') {
                 throw new \RuntimeException(
-                    "duo: authority key '$keyId' is revoked in " . self::AUTHORITIES_RELATIVE
+                    "wprism: authority key '$keyId' is revoked in " . self::AUTHORITIES_RELATIVE
                     . ' and cannot certify adapters'
                 );
             }
@@ -1255,24 +1255,24 @@ final class AdapterCertify {
     public static function writeCertificate(string $repo, string $name, string $certificate): string {
         $root = realpath($repo);
         if ($root === false || !is_dir($root)) {
-            throw new \RuntimeException("duo: site repository is absent or not a directory: $repo");
+            throw new \RuntimeException("wprism: site repository is absent or not a directory: $repo");
         }
         $adapters = $root . '/' . AdapterSources::SITE_DIR;
         if (!is_dir($adapters) || is_link($adapters) || realpath($adapters) !== $adapters) {
-            throw new \RuntimeException('duo: site adapters must be a real adapters directory inside the repository');
+            throw new \RuntimeException('wprism: site adapters must be a real adapters directory inside the repository');
         }
         $directory = $adapters . '/' . AdapterSources::CERTIFICATION_DIR;
         if (!file_exists($directory) && !mkdir($directory, 0755)) {
-            throw new \RuntimeException("duo: cannot create certification directory: $directory");
+            throw new \RuntimeException("wprism: cannot create certification directory: $directory");
         }
         if (!is_dir($directory) || is_link($directory) || realpath($directory) !== $directory) {
             throw new \RuntimeException(
-                'duo: site adapter certifications must be a real certifications directory inside adapters'
+                'wprism: site adapter certifications must be a real certifications directory inside adapters'
             );
         }
         $path = AdapterCertification::certificatePath($root, $name);
         if (dirname($path) !== $directory) {
-            throw new \RuntimeException('duo: derived certification path escapes the canonical site certification directory');
+            throw new \RuntimeException('wprism: derived certification path escapes the canonical site certification directory');
         }
         self::atomicWrite($path, $certificate, 0644);
 
@@ -1289,17 +1289,17 @@ final class AdapterCertify {
      */
     public static function readSecretKey(string $path): string {
         if (!is_file($path) || is_link($path)) {
-            throw new \RuntimeException("duo: --secret-key-file must be a regular non-symlink file: $path");
+            throw new \RuntimeException("wprism: --secret-key-file must be a regular non-symlink file: $path");
         }
         $permissions = fileperms($path);
         if ($permissions === false || (($permissions & 0077) !== 0)) {
             throw new \RuntimeException(
-                "duo: --secret-key-file must not be group/world accessible: $path (chmod 600 it)"
+                "wprism: --secret-key-file must not be group/world accessible: $path (chmod 600 it)"
             );
         }
         $raw = file_get_contents($path);
         if ($raw === false || trim($raw) === '') {
-            throw new \RuntimeException("duo: cannot read --secret-key-file: $path");
+            throw new \RuntimeException("wprism: cannot read --secret-key-file: $path");
         }
         $trimmed = trim($raw);
         $decoded = preg_match('/^[0-9a-f]{128}$/Di', $trimmed) === 1
@@ -1307,7 +1307,7 @@ final class AdapterCertify {
             : base64_decode($trimmed, true);
         if ($decoded === false || strlen($decoded) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
             throw new \RuntimeException(
-                "duo: --secret-key-file does not hold a base64 or hexadecimal Ed25519 secret key: $path"
+                "wprism: --secret-key-file does not hold a base64 or hexadecimal Ed25519 secret key: $path"
             );
         }
 
@@ -1365,7 +1365,7 @@ final class AdapterCertify {
     }
 
     /**
-     * The nearest ancestor directory holding a `site.duo.json`, or null.
+     * The nearest ancestor directory holding a `site.wprism.json`, or null.
      *
      * Walks up rather than testing one level: an operator writing a key to
      * `<repo>/keys/secrets/org.key` is inside the repository just as much as
@@ -1374,7 +1374,7 @@ final class AdapterCertify {
     private static function enclosingSiteRepo(string $directory): ?string {
         $current = $directory;
         while (true) {
-            if (is_file($current . '/site.duo.json')) {
+            if (is_file($current . '/site.wprism.json')) {
                 return $current;
             }
             $parent = dirname($current);
@@ -1391,7 +1391,7 @@ final class AdapterCertify {
      */
     private static function onlySiteRepo(array $positional, string $verb) {
         if ($positional === []) {
-            return self::fail("$verb needs a <site-repo> argument (the directory holding site.duo.json)");
+            return self::fail("$verb needs a <site-repo> argument (the directory holding site.wprism.json)");
         }
         if (count($positional) > 1) {
             return self::fail("$verb takes exactly one <site-repo>, got a second argument '{$positional[1]}'");
@@ -1400,10 +1400,10 @@ final class AdapterCertify {
         if ($resolved === false) {
             return self::fail("'{$positional[0]}' is not a directory");
         }
-        if (!is_file($resolved . '/site.duo.json')) {
+        if (!is_file($resolved . '/site.wprism.json')) {
             return self::fail(
-                "'$resolved' has no site.duo.json — <site-repo> is the duo SITE REPO (the directory holding "
-                . 'site.duo.json)'
+                "'$resolved' has no site.wprism.json — <site-repo> is the wprism SITE REPO (the directory holding "
+                . 'site.wprism.json)'
             );
         }
 
@@ -1432,7 +1432,7 @@ final class AdapterCertify {
      * One argument grammar for all three verbs.
      *
      * A repeated flag is refused rather than last-wins, the posture every
-     * other offline `duo` verb takes: a silently replaced flag signs a
+     * other offline `wprism` verb takes: a silently replaced flag signs a
      * request nobody wrote.
      *
      * @param list<string> $args
@@ -1485,17 +1485,17 @@ final class AdapterCertify {
         try {
             $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+            throw new \RuntimeException("wprism: $label is not valid JSON: " . $e->getMessage());
         }
         if (!$typed instanceof \stdClass) {
-            throw new \RuntimeException("duo: $label must be a JSON object");
+            throw new \RuntimeException("wprism: $label must be a JSON object");
         }
         $canonical = Canon::encode($typed);
         if (hash_equals($canonical, $raw)) {
             return $raw;
         }
         if (@file_put_contents($path, $canonical, LOCK_EX) !== strlen($canonical)) {
-            throw new \RuntimeException("duo: could not rewrite $label canonically at $path");
+            throw new \RuntimeException("wprism: could not rewrite $label canonically at $path");
         }
         echo "rewrote $label canonically (same declarations; the engine reads these bytes exactly)\n";
 
@@ -1516,10 +1516,10 @@ final class AdapterCertify {
         try {
             $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+            throw new \RuntimeException("wprism: $label is not valid JSON: " . $e->getMessage());
         }
         if (!$typed instanceof \stdClass) {
-            throw new \RuntimeException("duo: $label must be a JSON object");
+            throw new \RuntimeException("wprism: $label must be a JSON object");
         }
 
         return $typed;
@@ -1533,14 +1533,14 @@ final class AdapterCertify {
         try {
             $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+            throw new \RuntimeException("wprism: $label is not valid JSON: " . $e->getMessage());
         }
         if (!$typed instanceof \stdClass) {
-            throw new \RuntimeException("duo: $label must be a JSON object");
+            throw new \RuntimeException("wprism: $label must be a JSON object");
         }
         if (!hash_equals(Canon::encode($typed), $raw)) {
             throw new \RuntimeException(
-                "duo: $label is not canonical JSON — the engine reads these bytes exactly; rewrite it canonically"
+                "wprism: $label is not canonical JSON — the engine reads these bytes exactly; rewrite it canonically"
             );
         }
 
@@ -1552,21 +1552,21 @@ final class AdapterCertify {
             return;
         }
         if (!mkdir($path, 0755, true) && !is_dir($path)) {
-            throw new \RuntimeException("duo: cannot create directory $path");
+            throw new \RuntimeException("wprism: cannot create directory $path");
         }
     }
 
     private static function atomicWrite(string $path, string $contents, int $mode): void {
         $directory = dirname($path);
-        $temporary = tempnam($directory, '.duo-certify-');
+        $temporary = tempnam($directory, '.wprism-certify-');
         if ($temporary === false) {
-            throw new \RuntimeException("duo: cannot allocate a temporary file in $directory");
+            throw new \RuntimeException("wprism: cannot allocate a temporary file in $directory");
         }
         try {
             if (file_put_contents($temporary, $contents, LOCK_EX) === false
                 || !chmod($temporary, $mode)
                 || !rename($temporary, $path)) {
-                throw new \RuntimeException("duo: cannot atomically write $path");
+                throw new \RuntimeException("wprism: cannot atomically write $path");
             }
         } finally {
             if (is_file($temporary)) {
@@ -1579,7 +1579,7 @@ final class AdapterCertify {
      * The same bootstrap, for the sibling that shares this file's write
      * discipline.
      *
-     * WP-4.12's `duo adapter recertify` re-signs through
+     * WP-4.12's `wprism adapter recertify` re-signs through
      * `AdapterCertification::sign_site()` and writes through
      * `self::writeCertificate()` — the same producer and the same file this
      * class already owns — so it must load the same engine surface, from the
@@ -1595,7 +1595,7 @@ final class AdapterCertify {
      * Load the engine's pure surface into this WordPress-free process.
      *
      * The same shape as `ManifestValidate::boot()` and `AdapterDraft::boot()`
-     * — resolve the two version constants out of `agent/duo.php`'s own
+     * — resolve the two version constants out of `agent/wprism.php`'s own
      * source (never a literal, so they cannot drift from what
      * `Policy::load()` requires), then require the engine files this command
      * reaches. `AdapterCertification` is the one addition: it is the signer
@@ -1603,27 +1603,27 @@ final class AdapterCertify {
      */
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
         if (!is_file($agent)) {
             throw new \RuntimeException("adapter certify: agent source not found at $agent");
         }
         $source = (string) file_get_contents($agent);
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter certify: could not resolve DUO_AGENT_VERSION');
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter certify: could not resolve WPRISM_AGENT_VERSION');
             }
-            define('DUO_AGENT_VERSION', $m[1]);
+            define('WPRISM_AGENT_VERSION', $m[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter certify: could not resolve DUO_SPEC_VERSION');
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter certify: could not resolve WPRISM_SPEC_VERSION');
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
 
-        $classmap = require $repo . '/agent/duo-classmap.php';
+        $classmap = require $repo . '/agent/wprism-classmap.php';
         if (!is_array($classmap)) {
-            throw new \RuntimeException('adapter certify: agent/duo-classmap.php did not return a map');
+            throw new \RuntimeException('adapter certify: agent/wprism-classmap.php did not return a map');
         }
         $files = [];
         foreach ($classmap as $path) {
@@ -1638,13 +1638,13 @@ final class AdapterCertify {
             // ScopeAdoption is the agent's own reading of "which surfaces
             // does this manifest declare authored" — the same one init
             // applies to a selected adapter. A second copy here would be a
-            // second product (DUO-3495).
+            // second product (issue #3495).
             'ScopeAdoption',
         ] as $class) {
             $file = $files[$class] ?? null;
             if (!is_string($file)) {
                 throw new \RuntimeException(
-                    'adapter certify: agent source ' . $class . '.php is absent from agent/duo-classmap.php'
+                    'adapter certify: agent source ' . $class . '.php is absent from agent/wprism-classmap.php'
                 );
             }
             require_once $repo . '/agent/' . $file;
@@ -1652,7 +1652,7 @@ final class AdapterCertify {
     }
 
     private static function fail(string $message): int {
-        fwrite(STDERR, "duo adapter: $message\n");
+        fwrite(STDERR, "wprism adapter: $message\n");
 
         return 2;
     }

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Code/CodeSourceLock.php';
@@ -14,12 +14,12 @@ final class InitRepositoryBoundary {
     public static function normalize(string $repo): string {
         $repo = rtrim(trim($repo), '/');
         if ($repo === '' || $repo === '/' || !str_starts_with($repo, '/')) {
-            throw new \RuntimeException('duo: init requires an absolute, non-root repository path');
+            throw new \RuntimeException('wprism: init requires an absolute, non-root repository path');
         }
         if (preg_match('#(?:^|/)\.{1,2}(?:/|$)#', $repo) === 1
             || str_contains($repo, '//')
             || preg_match('/[\x00-\x1F\x7F]/', $repo) === 1) {
-            throw new \RuntimeException('duo: init requires a normalized repository path without traversal or control bytes');
+            throw new \RuntimeException('wprism: init requires a normalized repository path without traversal or control bytes');
         }
         return $repo;
     }
@@ -63,20 +63,20 @@ final class InitRepositoryBoundary {
     public static function bind(string $repo): array {
         $blocker = self::root_blocker($repo);
         if ($blocker !== null) {
-            throw new \RuntimeException('duo: init cannot bind repository root: ' . $blocker['reason']);
+            throw new \RuntimeException('wprism: init cannot bind repository root: ' . $blocker['reason']);
         }
         $before = self::freshLstat($repo);
         $previous = getcwd();
         if ($before === false || !is_string($previous) || $previous === '') {
-            throw new \RuntimeException('duo: init could not inspect its repository process boundary');
+            throw new \RuntimeException('wprism: init could not inspect its repository process boundary');
         }
         if (!@chdir($repo)) {
-            throw new \RuntimeException('duo: init could not bind the reviewed repository directory');
+            throw new \RuntimeException('wprism: init could not bind the reviewed repository directory');
         }
         try {
             $bound = self::freshLstat('.');
             if ($bound === false || !self::sameDirectoryIdentity($before, $bound)) {
-                throw new \RuntimeException('duo: init repository root changed while it was being bound');
+                throw new \RuntimeException('wprism: init repository root changed while it was being bound');
             }
             self::assert_binding($repo, $bound);
             return [
@@ -101,7 +101,7 @@ final class InitRepositoryBoundary {
         if ($blocker !== null || $lexical === false || $bound === false
             || !self::sameDirectoryIdentity($expected, $lexical)
             || !self::sameDirectoryIdentity($expected, $bound)) {
-            throw new \RuntimeException('duo: init repository root changed after review; no lexical child path will be followed');
+            throw new \RuntimeException('wprism: init repository root changed after review; no lexical child path will be followed');
         }
     }
 
@@ -114,7 +114,7 @@ final class InitRepositoryBoundary {
             $blockers[] = [
                 'code' => 'git_unavailable', 'extension' => 'git', 'kind' => 'repository',
                 'reason' => 'Git is unavailable on the target that owns the site repository',
-                'remediation' => 'install Git on the target, then rerun duo init',
+                'remediation' => 'install Git on the target, then rerun wprism init',
             ];
             return ['mode' => 'unavailable', 'version' => $version, 'blockers' => $blockers];
         }
@@ -170,8 +170,8 @@ final class InitRepositoryBoundary {
         }
 
         $allowed = array_fill_keys([
-            '.', '..', '.duo', '.duo-env-values.json', '.duo-envs.json', '.git', '.gitattributes', '.gitignore', 'adapters',
-            'code', 'media', 'site.duo.json', 'state', 'state.capture.lock', 'state.capture-receipt',
+            '.', '..', '.wprism', '.wprism-env-values.json', '.wprism-envs.json', '.git', '.gitattributes', '.gitignore', 'adapters',
+            'code', 'media', 'site.wprism.json', 'state', 'state.capture.lock', 'state.capture-receipt',
             self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
         ], true);
         $unexpected = [];
@@ -205,7 +205,7 @@ final class InitRepositoryBoundary {
                 $blockers[] = [
                     'code' => 'invalid_git_worktree', 'extension' => '.git', 'kind' => 'repository',
                     'reason' => 'the repository contains Git metadata but is not a usable worktree',
-                    'remediation' => 'repair or remove the invalid Git metadata, then rerun duo init',
+                    'remediation' => 'repair or remove the invalid Git metadata, then rerun wprism init',
                 ];
                 return ['mode' => 'invalid', 'version' => $version, 'blockers' => $blockers];
             }
@@ -227,12 +227,12 @@ final class InitRepositoryBoundary {
     public static function initialize_git(string $repo): void {
         $result = self::runProcess(['git', 'init', '--initial-branch=main', $repo]);
         if ($result['exit'] !== 0 || self::git_probe($repo)['mode'] !== 'existing-worktree') {
-            throw new \RuntimeException('duo: init could not create and verify the target Git worktree');
+            throw new \RuntimeException('wprism: init could not create and verify the target Git worktree');
         }
     }
 
     /**
-     * The root-anchored ignore lines a published lock requires (DUO-3499).
+     * The root-anchored ignore lines a published lock requires (issue #3499).
      *
      * Root-anchored and repository-root only, because the code half enforces
      * the placement asymmetrically: a `.gitignore` under `code/wp-content/` is
@@ -249,7 +249,7 @@ final class InitRepositoryBoundary {
         $lines = [];
         foreach ($lockRows as $row) {
             if (!is_array($row) || !is_string($row['root'] ?? null) || !is_string($row['component'] ?? null)) {
-                throw new \RuntimeException('duo: init cannot ignore a malformed locked component');
+                throw new \RuntimeException('wprism: init cannot ignore a malformed locked component');
             }
             $lines[CodeSourceLock::gitignore_line($row['root'], $row['component'])] = true;
         }
@@ -259,39 +259,39 @@ final class InitRepositoryBoundary {
 
     /**
      * @param list<string> $lockedLines the locked components' ignore lines,
-     *        published in the same owned-file transaction as Duo's own local
+     *        published in the same owned-file transaction as WPrism's own local
      *        artifacts so a repository never exists with a lock that declares
-     *        a component Git is still tracking (DUO-3499)
+     *        a component Git is still tracking (issue #3499)
      * @return ?array{previous:?string,published:string}
      */
     public static function ensure_gitignore(string $repo, string $expectedIdentity, array $lockedLines = []): ?array {
         $path = $repo . '/.gitignore';
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException('duo: init refuses a non-file .gitignore boundary');
+            throw new \RuntimeException('wprism: init refuses a non-file .gitignore boundary');
         }
         $previous = is_file($path) ? Canon::read_file($path) : null;
         $identity = $previous === null ? 'absent' : InitOwnedArtifacts::regular_file_identity($path, '.gitignore');
         if ($expectedIdentity === '' || !hash_equals($expectedIdentity, $identity)) {
-            throw new \RuntimeException('duo: init .gitignore boundary changed after proposal review');
+            throw new \RuntimeException('wprism: init .gitignore boundary changed after proposal review');
         }
         $required = [
-            '/.tmp*', '/.duo/', '/.duo-envs.json', '/.duo-init-code-*', '/.*.duo-init-*',
+            '/.tmp*', '/.wprism/', '/.wprism-envs.json', '/.wprism-init-code-*', '/.*.wprism-init-*',
             '/' . self::ATTEMPT_FILE, '/' . self::ATTEMPT_NEXT_FILE,
             '/state.capture.lock', '/state.capture-staging/', '/state.capture-backup/',
             '/state.capture-intent', '/state.capture-receipt', '/state.capture-intent.tmp.*',
             '/state.capture-receipt.tmp.*', '/state.capture-intent.previous',
             '/state.capture-intent.next', '/state.capture-receipt.previous',
-            '/state.capture-receipt.next', '/.duo-env-values.json',
+            '/state.capture-receipt.next', '/.wprism-env-values.json',
         ];
         $next = $previous ?? '';
         $legacyRules = [
-            '.tmp*', '.duo/', '.duo-envs.json', '.duo-init-code-*', '.*.duo-init-*',
+            '.tmp*', '.wprism/', '.wprism-envs.json', '.wprism-init-code-*', '.*.wprism-init-*',
             self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
             'state.capture.lock', 'state.capture-staging/', 'state.capture-backup/',
             'state.capture-intent', 'state.capture-receipt', 'state.capture-intent.tmp.*',
             'state.capture-receipt.tmp.*', 'state.capture-intent.previous',
             'state.capture-intent.next', 'state.capture-receipt.previous',
-            'state.capture-receipt.next', '.duo-env-values.json',
+            'state.capture-receipt.next', '.wprism-env-values.json',
         ];
         foreach ($legacyRules as $legacyRule) {
             $next = (string) preg_replace(
@@ -315,10 +315,10 @@ final class InitRepositoryBoundary {
             if ($next !== '') {
                 $next .= "\n";
             }
-            $next .= "# Duo local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
+            $next .= "# WPrism local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
         }
         if ($missingLocked !== []) {
-            // Its own block and its own heading: these lines are not Duo's
+            // Its own block and its own heading: these lines are not WPrism's
             // local scratch, they are the operator-visible consequence of the
             // reviewed classification, and the remedy for each one is in the
             // lock rather than in this file.
@@ -328,7 +328,7 @@ final class InitRepositoryBoundary {
             if ($next !== '') {
                 $next .= "\n";
             }
-            $next .= '# Duo code lock: these components are declared in ' . CodeSourceLock::PATH
+            $next .= '# WPrism code lock: these components are declared in ' . CodeSourceLock::PATH
                 . ", not carried in Git\n" . implode("\n", $missingLocked) . "\n";
         }
         return InitOwnedArtifacts::publish_owned_file($path, $next, $identity, '.gitignore');
@@ -338,12 +338,12 @@ final class InitRepositoryBoundary {
     public static function ensure_gitattributes(string $repo, string $expectedIdentity): ?array {
         $path = $repo . '/.gitattributes';
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException('duo: init refuses a non-file .gitattributes boundary');
+            throw new \RuntimeException('wprism: init refuses a non-file .gitattributes boundary');
         }
         $previous = is_file($path) ? Canon::read_file($path) : null;
         $identity = $previous === null ? 'absent' : InitOwnedArtifacts::regular_file_identity($path, '.gitattributes');
         if ($expectedIdentity === '' || !hash_equals($expectedIdentity, $identity)) {
-            throw new \RuntimeException('duo: init .gitattributes boundary changed after proposal review');
+            throw new \RuntimeException('wprism: init .gitattributes boundary changed after proposal review');
         }
         $required = 'media/** filter=lfs diff=lfs merge=lfs -text';
         $lines = $previous === null ? [] : preg_split('/\r?\n/', $previous);
@@ -357,7 +357,7 @@ final class InitRepositoryBoundary {
         if ($next !== '') {
             $next .= "\n";
         }
-        $next .= "# Duo content-addressed media uses Git LFS\n$required\n";
+        $next .= "# WPrism content-addressed media uses Git LFS\n$required\n";
 
         return InitOwnedArtifacts::publish_owned_file($path, $next, $identity, '.gitattributes');
     }
@@ -371,7 +371,7 @@ final class InitRepositoryBoundary {
             $blockers[] = [
                 'code' => 'git_lfs_unavailable', 'extension' => 'media/**', 'kind' => 'repository',
                 'reason' => 'the captured site has media but Git LFS is unavailable on the target that owns the repository',
-                'remediation' => 'install Git LFS on the target, then rerun duo init; media binaries are never handed to ordinary Git',
+                'remediation' => 'install Git LFS on the target, then rerun wprism init; media binaries are never handed to ordinary Git',
             ];
         }
         $config = $repo . '/.git/config';
@@ -400,13 +400,13 @@ final class InitRepositoryBoundary {
         }
         $config = $repo . '/.git/config';
         if (is_link($config) || !is_file($config)) {
-            throw new \RuntimeException('duo: init Git LFS requires an ordinary repository-local Git config');
+            throw new \RuntimeException('wprism: init Git LFS requires an ordinary repository-local Git config');
         }
         $previous = Canon::read_file($config);
         $identity = InitOwnedArtifacts::regular_file_identity($config, 'Git local config');
         if ($expectedConfigIdentity !== 'initialize-on-confirm'
             && !hash_equals($expectedConfigIdentity, $identity)) {
-            throw new \RuntimeException('duo: init Git local config changed after proposal review');
+            throw new \RuntimeException('wprism: init Git local config changed after proposal review');
         }
         $result = self::runProcess(['git', '-C', $repo, 'lfs', 'install', '--local', '--skip-repo']);
         if ($result['exit'] !== 0) {
@@ -418,19 +418,19 @@ final class InitRepositoryBoundary {
                     'Git local config'
                 );
             }
-            throw new \RuntimeException('duo: init could not configure repository-local Git LFS');
+            throw new \RuntimeException('wprism: init could not configure repository-local Git LFS');
         }
         $published = InitOwnedArtifacts::regular_file_identity($config, 'Git local config');
         $env = self::runProcess(['git', '-C', $repo, 'lfs', 'env']);
-        $attribute = self::runProcess(['git', '-C', $repo, 'check-attr', 'filter', '--', 'media/.duo-lfs-probe']);
+        $attribute = self::runProcess(['git', '-C', $repo, 'check-attr', 'filter', '--', 'media/.wprism-lfs-probe']);
         if ($env['exit'] !== 0 || $attribute['exit'] !== 0
-            || trim($attribute['stdout']) !== 'media/.duo-lfs-probe: filter: lfs') {
+            || trim($attribute['stdout']) !== 'media/.wprism-lfs-probe: filter: lfs') {
             InitOwnedArtifacts::compensate_owned_file(
                 $config,
                 ['previous' => $previous, 'published' => $published],
                 'Git local config'
             );
-            throw new \RuntimeException('duo: init could not verify repository-local Git LFS and the media attribute');
+            throw new \RuntimeException('wprism: init could not verify repository-local Git LFS and the media attribute');
         }
 
         return ['previous' => $previous, 'published' => $published];

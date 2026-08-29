@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/ScopeContract.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Code/CodeResolver.php';
 
-/** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
+/** Explicit non-error terminal for `wprism rebase --interactive` cancellation. */
 final class RefreshFieldResolutionCancelled extends \RuntimeException {}
 
 /**
@@ -34,7 +34,7 @@ final class RefreshFieldResolutionRunFailed extends \RuntimeException {
  * then hands three normalized inputs to the semantic planner:
  *
  *   B: git merge-base(branch HEAD, verified production ref)
- *   P: a live `duo-refresh-production/v1` export
+ *   P: a live `wprism-refresh-production/v1` export
  *   W: the branch's compiled repository
  *
  * RefreshPlan is deliberately a separate, pure semantic boundary.  Its exact
@@ -43,11 +43,11 @@ final class RefreshFieldResolutionRunFailed extends \RuntimeException {
  * never falls back to raw Git three-way state merging.
  */
 final class Refresh {
-    private const EXPORT_FORMAT = 'duo-refresh-production/v1';
-    private const PLAN_FORMAT = 'duo-refresh-plan/v1';
-    private const MATERIALIZATION_FORMAT = 'duo-refresh-materialization/v1';
-    private const FIELD_DIFF_FORMAT = 'duo-refresh-field-diff/v1';
-    private const FIELD_RESOLUTION_FORMAT = 'duo-refresh-field-resolution/v1';
+    private const EXPORT_FORMAT = 'wprism-refresh-production/v1';
+    private const PLAN_FORMAT = 'wprism-refresh-plan/v1';
+    private const MATERIALIZATION_FORMAT = 'wprism-refresh-materialization/v1';
+    private const FIELD_DIFF_FORMAT = 'wprism-refresh-field-diff/v1';
+    private const FIELD_RESOLUTION_FORMAT = 'wprism-refresh-field-resolution/v1';
     private const MAX_REFRESH_STDERR_BYTES = 8388608;
     // Remote media export is bounded in bytes and in wall time. Five minutes
     // accommodates a 1 GiB stream over a slow control link; it is an internal
@@ -155,7 +155,7 @@ final class Refresh {
         $again = self::readProduction($transport, (string) $context['production_commit'], $scopeContract);
         if (($again['snapshot_hash'] ?? null) !== ($context['production_snapshot_hash'] ?? null)) {
             throw new \RuntimeException(
-                'production changed after refresh planning; no candidate branch was created (run duo refresh/rebase again)'
+                'production changed after refresh planning; no candidate branch was created (run wprism refresh/rebase again)'
             );
         }
 
@@ -166,7 +166,7 @@ final class Refresh {
             'base_commit' => $context['base_commit'],
             'branch_commit' => $context['branch_commit'],
             'created_at' => gmdate('c'),
-            'format' => 'duo-refresh-run/v1',
+            'format' => 'wprism-refresh-run/v1',
             'kind' => 'rebase',
             'new_branch' => $newBranch,
             'original_branch' => $context['branch_name'],
@@ -205,7 +205,7 @@ final class Refresh {
                 self::assertNoUnmerged($worktree);
                 $journal->append($runId, 'code-rebased', ['head' => self::gitStdout($worktree, ['rev-parse', 'HEAD'])]);
             } else {
-                // duo-scope-contract/v1 explicitly excludes code and
+                // wprism-scope-contract/v1 explicitly excludes code and
                 // lifecycle. Keep the branch commit's code bytes/ancestry;
                 // only the scoped state overlay below may change paths.
                 $journal->append($runId, 'code-preserved', [
@@ -235,7 +235,7 @@ final class Refresh {
                 || ($receipt['plan_hash'] ?? null) !== $context['plan_hash']
                 || ($receipt['resolved'] ?? null) !== true) {
                 throw new \RuntimeException(
-                    'semantic planner did not return a resolved duo-refresh-materialization/v1 receipt; candidate worktree retained for recovery'
+                    'semantic planner did not return a resolved wprism-refresh-materialization/v1 receipt; candidate worktree retained for recovery'
                 );
             }
             if ($fieldResolution !== null && (!hash_equals(
@@ -274,7 +274,7 @@ final class Refresh {
         } catch (\Throwable $e) {
             // Do not remove the worktree after a partial local operation: the
             // immutable run/event journal is the recovery receipt.  It can be
-            // safely discarded with `duo rebase <env> --abort=<run-id>`; the
+            // safely discarded with `wprism rebase <env> --abort=<run-id>`; the
             // source branch/ref has not been touched.
             try {
                 $journal->append($runId, 'stopped', ['reason' => $e->getMessage()]);
@@ -385,7 +385,7 @@ final class Refresh {
                 $plan = self::planner('normalizePlan', [$plan]);
                 if (!is_array($plan) || ($plan['format'] ?? null) !== self::PLAN_FORMAT
                     || !self::isHash($plan['plan_hash'] ?? null)) {
-                    throw new \RuntimeException('semantic planner returned an invalid duo-refresh-plan/v1 plan');
+                    throw new \RuntimeException('semantic planner returned an invalid wprism-refresh-plan/v1 plan');
                 }
                 self::assertPlanContext($plan, $planContext);
                 $context = $planContext;
@@ -457,17 +457,17 @@ final class Refresh {
         ?array $scopeContract = null
     ): array {
         self::assertTargetHead($transport, $productionCommit);
-        // Boot only core + the protected Duo agent. Ordinary WP-CLI plugin,
+        // Boot only core + the protected WPrism agent. Ordinary WP-CLI plugin,
         // theme, or user-MU bootstrap runs before RefreshExport can open its
         // READ ONLY transaction and can execute arbitrary production DML;
         // that would make a nominal observation mutate the target before our
         // server-enforced boundary even exists. Reuse the proven control
         // bootstrap that shadows user MU code and skips regular plugins and
-        // themes while leaving manifest-owned providers available to Duo.
-        $wpArgs = ['duo', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json'];
+        // themes while leaving manifest-owned providers available to WPrism.
+        $wpArgs = ['wprism', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json'];
         if ($scopeContract !== null) {
             $request = [
-                'format' => 'duo-scope-request/v1',
+                'format' => 'wprism-scope-request/v1',
                 'scope_hash' => (string) ($scopeContract['scope_hash'] ?? ''),
                 'selectors' => $scopeContract['selectors'] ?? null,
             ];
@@ -475,12 +475,12 @@ final class Refresh {
                 || preg_match('/^[a-f0-9]{64}$/D', $request['scope_hash']) !== 1) {
                 throw new \RuntimeException('refresh scope contract is malformed');
             }
-            $wpArgs[] = '--scope-request-b64=' . base64_encode(\Duo\Canon::encode($request));
+            $wpArgs[] = '--scope-request-b64=' . base64_encode(\WPrism\Canon::encode($request));
         }
         if (!method_exists($transport, 'captureWpToFile')) {
             throw new \RuntimeException('refresh-export requires a transport with bounded response spooling');
         }
-        $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-export-');
+        $spool = tempnam(sys_get_temp_dir(), 'wprism-refresh-export-');
         if (!is_string($spool)) {
             throw new \RuntimeException('refresh-export could not reserve a bounded local response spool');
         }
@@ -492,7 +492,7 @@ final class Refresh {
             $result = $transport->captureWpToFile(
                 CodeDeploy::controlArgs($wpArgs),
                 $spool,
-                \Duo\MediaPayloadAuthority::MAX_ARTIFACT_DOCUMENT_BYTES,
+                \WPrism\MediaPayloadAuthority::MAX_ARTIFACT_DOCUMENT_BYTES,
                 self::MAX_REFRESH_STDERR_BYTES,
                 self::REFRESH_EXPORT_TIMEOUT_NS
             );
@@ -510,8 +510,8 @@ final class Refresh {
             if (!is_array($identity)) {
                 throw new \RuntimeException('refresh-export bounded transport did not return its spool identity');
             }
-            $rawOutput = \Duo\MediaPayloadAuthority::readArtifactDocument($spool, $identity);
-            \Duo\MediaPayloadAuthority::assertRefreshEnvelope($rawOutput);
+            $rawOutput = \WPrism\MediaPayloadAuthority::readArtifactDocument($spool, $identity);
+            \WPrism\MediaPayloadAuthority::assertRefreshEnvelope($rawOutput);
             $raw = json_decode(trim($rawOutput), true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $e) {
             throw new \RuntimeException('refresh-export returned invalid JSON: ' . $e->getMessage());
@@ -524,11 +524,11 @@ final class Refresh {
         if ($scopeContract !== null) {
             $scope = $production['scope'] ?? null;
             if (!is_array($scope)
-                || ($scope['format'] ?? null) !== 'duo-refresh-scope/v1'
+                || ($scope['format'] ?? null) !== 'wprism-refresh-scope/v1'
                 || ($scope['out_of_scope'] ?? null) !== 'omitted_not_absent'
                 || !hash_equals((string) $scopeContract['scope_hash'], (string) ($scope['scope_hash'] ?? ''))
-                || \Duo\Canon::encode($scope['selectors'] ?? null) !== \Duo\Canon::encode($scopeContract['selectors'] ?? null)
-                || \Duo\Canon::encode($scope['source'] ?? null) !== \Duo\Canon::encode($scopeContract['source'] ?? null)) {
+                || \WPrism\Canon::encode($scope['selectors'] ?? null) !== \WPrism\Canon::encode($scopeContract['selectors'] ?? null)
+                || \WPrism\Canon::encode($scope['source'] ?? null) !== \WPrism\Canon::encode($scopeContract['source'] ?? null)) {
                 throw new \RuntimeException('production scoped refresh export does not match its immutable contract');
             }
         } elseif (array_key_exists('scope', $production)) {
@@ -541,7 +541,7 @@ final class Refresh {
     /** @param mixed $export */
     private static function assertProductionExportShape(mixed $export): void {
         if (!is_array($export) || ($export['format'] ?? null) !== self::EXPORT_FORMAT || !self::isHash($export['snapshot_hash'] ?? null)) {
-            throw new \RuntimeException('refresh-export must return duo-refresh-production/v1 with a SHA-256 snapshot_hash');
+            throw new \RuntimeException('refresh-export must return wprism-refresh-production/v1 with a SHA-256 snapshot_hash');
         }
         foreach (['records', 'media', 'policy', 'repository'] as $key) {
             if (!is_array($export[$key] ?? null)) {
@@ -563,13 +563,13 @@ final class Refresh {
                 throw new \RuntimeException('refresh-export has an invalid media entry');
             }
             try {
-                $parsed = \Duo\MediaPayloadAuthority::parseMediaName($key);
+                $parsed = \WPrism\MediaPayloadAuthority::parseMediaName($key);
                 if (!hash_equals($parsed['sha256'], $media['sha256'])) {
                     throw new \RuntimeException('media name/hash mismatch');
                 }
-                $mediaBytes = \Duo\MediaPayloadAuthority::addToAggregate(
+                $mediaBytes = \WPrism\MediaPayloadAuthority::addToAggregate(
                     $mediaBytes,
-                    \Duo\MediaPayloadAuthority::canonicalBase64DecodedLength(
+                    \WPrism\MediaPayloadAuthority::canonicalBase64DecodedLength(
                         $media['base64'],
                         'refresh-export media payload'
                     )
@@ -578,10 +578,10 @@ final class Refresh {
                 throw new \RuntimeException("refresh-export media '$key' does not match its SHA-256");
             }
         }
-        \Duo\MediaPayloadAuthority::assertRefreshExportHeadroom($mediaBytes);
+        \WPrism\MediaPayloadAuthority::assertRefreshExportHeadroom($mediaBytes);
         foreach ($export['media'] as $key => $media) {
             try {
-                \Duo\MediaPayloadAuthority::decodeArtifactMedia((string) $key, $media);
+                \WPrism\MediaPayloadAuthority::decodeArtifactMedia((string) $key, $media);
             } catch (\Throwable $failure) {
                 throw new \RuntimeException("refresh-export media '$key' does not match its SHA-256");
             }
@@ -603,7 +603,7 @@ final class Refresh {
             // must not become production deletion authority while Git says
             // the production ref has different bytes.
             . ' && git -C ' . $repo
-            . ' ls-files --others --ignored --exclude-standard -- site.duo.json state media code manifests'
+            . ' ls-files --others --ignored --exclude-standard -- site.wprism.json state media code manifests'
             // ...except the component trees the production ref's own lock
             // declares, which are ignored BY DESIGN and are identified bytes
             // rather than unidentified ones (lockedTreePathspecs()). The
@@ -638,10 +638,10 @@ final class Refresh {
      * ## Why an ignored tree can be excluded at all
      *
      * The gate's rule is "no bytes that `--production-ref` does not identify",
-     * not "no ignored files". Since DUO-3499 a split repository deliberately
+     * not "no ignored files". Since issue #3499 a split repository deliberately
      * keeps each locked component on disk and out of Git
      * (`/code/wp-content/plugins/woocommerce/` in `.gitignore`), and the
-     * identification of those bytes is the TRACKED `code/duo-code.lock.json`
+     * identification of those bytes is the TRACKED `code/wprism-code.lock.json`
      * at that same ref: every entry carries a `tree_sha256` over the whole
      * component subtree, and the compile gate refuses a mismatch as
      * `code_component_digest_mismatch` and an absent tree as
@@ -654,8 +654,8 @@ final class Refresh {
      * still refuses, with the message unchanged.
      *
      * Before this, `ls-files --others --ignored -- … code` listed every locked
-     * tree on every split repository, so the default init since DUO-3499 could
-     * never rehearse or refresh at all: the first `duo rehearse` refused
+     * tree on every split repository, so the default init since issue #3499 could
+     * never rehearse or refresh at all: the first `wprism rehearse` refused
      * "production target repository has tracked, untracked, or ignored
      * canonical changes" (grind_adapter_walk.sh S1 on a 3-component split).
      *
@@ -663,7 +663,7 @@ final class Refresh {
      *
      * `$expected` is the commit `prepare()` resolved with
      * `resolveCommit($root, $productionRef)`, so the object is in this checkout
-     * and `<commit>:code/duo-code.lock.json` is literally "the lock at that
+     * and `<commit>:code/wprism-code.lock.json` is literally "the lock at that
      * ref". No extra target round trip is spent re-reading bytes Git already
      * addresses by oid, and nothing is weakened if the target is somewhere
      * else entirely: this same function then refuses on the HEAD equality
@@ -691,7 +691,7 @@ final class Refresh {
      * (fully vendored) declaration, a lock absent at that ref, or a lock that
      * does not parse all yield no exclusions, so the ignored files are reported
      * and the caller refuses exactly as it does today. A repository whose
-     * `.gitignore` and lock disagree is DUO-3499's own
+     * `.gitignore` and lock disagree is issue #3499's own
      * `code_component_unlocked` — the compile gate's refusal to make, not this
      * one's to guess around.
      *
@@ -703,7 +703,7 @@ final class Refresh {
         } catch (\Throwable $t) {
             return [];
         }
-        $site = self::run(['git', '-C', $root, 'cat-file', '-p', $expected . ':site.duo.json']);
+        $site = self::run(['git', '-C', $root, 'cat-file', '-p', $expected . ':site.wprism.json']);
         if (($site['exit'] ?? 1) !== 0) {
             return [];
         }
@@ -714,10 +714,10 @@ final class Refresh {
         // one lock path in v1, and a declaration naming another one is not a
         // split this gate knows how to trust.
         if (!is_array($code) || ($code['format'] ?? null) !== 2
-            || ($code['lock'] ?? null) !== \Duo\CodeSourceLock::PATH) {
+            || ($code['lock'] ?? null) !== \WPrism\CodeSourceLock::PATH) {
             return [];
         }
-        $lock = self::run(['git', '-C', $root, 'cat-file', '-p', $expected . ':' . \Duo\CodeSourceLock::PATH]);
+        $lock = self::run(['git', '-C', $root, 'cat-file', '-p', $expected . ':' . \WPrism\CodeSourceLock::PATH]);
         if (($lock['exit'] ?? 1) !== 0) {
             return [];
         }
@@ -725,18 +725,18 @@ final class Refresh {
             // parse() runs assert_lock(), so `root` is one of ROOTS and
             // `component` is one safe path segment before either reaches a
             // pathspec — the lock can never name a tree outside code/wp-content.
-            $parsed = \Duo\CodeSourceLock::parse(trim((string) $lock['stdout']));
+            $parsed = \WPrism\CodeSourceLock::parse(trim((string) $lock['stdout']));
         } catch (\Throwable $t) {
             return [];
         }
         $trees = [];
         foreach ((array) ($parsed['components'] ?? []) as $entry) {
             // gitignore_line() is the spelling that PUT the tree out of Git in
-            // the first place (init and `duo code-classify` both write it), so
+            // the first place (init and `wprism code-classify` both write it), so
             // taking it back apart here — leading `/` off, trailing `/` kept —
             // means the excluded path and the ignored path cannot drift.
             $trees[] = substr(
-                \Duo\CodeSourceLock::gitignore_line((string) $entry['root'], (string) $entry['component']),
+                \WPrism\CodeSourceLock::gitignore_line((string) $entry['root'], (string) $entry['component']),
                 1
             );
         }
@@ -748,17 +748,17 @@ final class Refresh {
      *
      * ## Why a checkout is not enough
      *
-     * Since DUO-3499 a split repository declares `code.format: 2` and keeps each
-     * locked component OUT of Git — `code/duo-code.lock.json` is tracked, the
+     * Since issue #3499 a split repository declares `code.format: 2` and keeps each
+     * locked component OUT of Git — `code/wprism-code.lock.json` is tracked, the
      * bytes are not. `git worktree add --detach` therefore produces a checkout
      * with no `code/wp-content` at all (on the reported repository,
      * `git ls-files code/wp-content` returns 0), and `RepositoryCompiler`
      * correctly refuses it:
      *
-     *   [code_source_missing] code/wp-content — site.duo.json opts into code
+     *   [code_source_missing] code/wp-content — site.wprism.json opts into code
      *   materialization but code/wp-content is missing
      *
-     * That is grind_adapter_walk.sh S1 on a 3-component split (DUO-3523): the
+     * That is grind_adapter_walk.sh S1 on a 3-component split (issue #3523): the
      * host was compiling a checkout it had never populated. Every worktree this
      * class compiles has the same hole, so every one of them is materialized
      * here — base, branch, production-code (prepare():332-334) and the rebase
@@ -774,7 +774,7 @@ final class Refresh {
      * stripped and the operator cannot tell a cold cache from a drifted tree
      * from an unreadable lock. Materializing HERE keeps the refusal typed,
      * because CommandRefusalException propagates in-process. (The boundary
-     * itself is DUO-3524, filed rather than fixed here.)
+     * itself is issue #3524, filed rather than fixed here.)
      *
      * ## What it does not do
      *
@@ -786,7 +786,7 @@ final class Refresh {
      * commit: the resolver writes only under `code/wp-content`, the worktree is
      * disposable, and the lock still governs what those bytes must hash to.
      *
-     * Resolution is ONLINE, exactly as `duo code-resolve` and the deploy
+     * Resolution is ONLINE, exactly as `wprism code-resolve` and the deploy
      * code-resolve phase are: the components are digest-pinned by the lock and
      * every archive is verified against `archive_sha256` and `tree_sha256` on
      * unpack, so reaching the host cache and then wp.org adds no trust. A cold
@@ -806,14 +806,14 @@ final class Refresh {
         // that renders them. The refresh/rebase/rehearse callers pass them to
         // CodeResolveCommand's own renderer, so a split refresh reports the
         // same `RESOLVED/UNCHANGED` rows and the same `N materialized, M
-        // unchanged` summary as `duo code-resolve` and the deploy phase — one
+        // unchanged` summary as `wprism code-resolve` and the deploy phase — one
         // vocabulary for one piece of work.
         return ['lock' => $lock['path'], 'rows' => $resolver->resolve($worktree, $lock['components'], false)];
     }
 
     private static function rebaseCodeOnly(string $worktree, string $production, string $base, string $runDir): void {
         $attributes = $runDir . '/state-merge.attributes';
-        $bytes = "state/** merge=duo-refresh-ours\nmedia/** merge=duo-refresh-ours\n";
+        $bytes = "state/** merge=wprism-refresh-ours\nmedia/** merge=wprism-refresh-ours\n";
         if (file_put_contents($attributes, $bytes, LOCK_EX) !== strlen($bytes)) {
             throw new \RuntimeException('could not write temporary state merge attributes');
         }
@@ -823,8 +823,8 @@ final class Refresh {
         // conflict behavior and stop here for human recovery.
         self::git($worktree, [
             '-c', 'core.attributesFile=' . $attributes,
-            '-c', 'merge.duo-refresh-ours.name=Duo refresh state placeholder',
-            '-c', 'merge.duo-refresh-ours.driver=true',
+            '-c', 'merge.wprism-refresh-ours.name=WPrism refresh state placeholder',
+            '-c', 'merge.wprism-refresh-ours.driver=true',
             'rebase', '--onto', $production, $base,
         ]);
     }
@@ -859,7 +859,7 @@ final class Refresh {
             }
         }
         if ($status !== '') {
-            self::git($worktree, ['commit', '-m', 'duo refresh rebase ' . $planHash]);
+            self::git($worktree, ['commit', '-m', 'wprism refresh rebase ' . $planHash]);
         }
     }
 
@@ -917,7 +917,7 @@ final class Refresh {
 
     /** Keep host operational state inside Git metadata, never in the tracked checkout. */
     private static function journalRoot(string $root): string {
-        return self::gitStdout($root, ['rev-parse', '--path-format=absolute', '--git-common-dir']) . '/duo-refresh';
+        return self::gitStdout($root, ['rev-parse', '--path-format=absolute', '--git-common-dir']) . '/wprism-refresh';
     }
 
     private static function assertCleanAttachedBranch(string $root): string {
@@ -976,7 +976,7 @@ final class Refresh {
         if (($context['advisory'] ?? null) === true || array_key_exists('production_source', $context)) {
             throw new \RuntimeException(
                 'a merge-check plan is advisory and carries no production authority; '
-                . 'run duo rebase <production-env> --production-ref=<ref> to materialize'
+                . 'run wprism rebase <production-env> --production-ref=<ref> to materialize'
             );
         }
     }
@@ -1141,7 +1141,7 @@ final class RefreshRunJournal {
     public function writeFieldDiff(array $diff): string {
         $hash = $diff['diff_hash'] ?? null;
         if (!is_string($hash) || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1
-            || ($diff['format'] ?? null) !== 'duo-refresh-field-diff/v1') {
+            || ($diff['format'] ?? null) !== 'wprism-refresh-field-diff/v1') {
             throw new \RuntimeException('cannot journal an invalid redacted field diff');
         }
         // Do not trust a superficially-shaped result from a planner seam.
@@ -1202,7 +1202,7 @@ final class RefreshRunJournal {
             $events = glob($dir . '/events/*.json') ?: [];
             sort($events, SORT_STRING);
             $seq = count($events) + 1;
-            $record = ['data' => $data, 'event' => $event, 'format' => 'duo-refresh-event/v1', 'sequence' => $seq, 'timestamp' => gmdate('c')];
+            $record = ['data' => $data, 'event' => $event, 'format' => 'wprism-refresh-event/v1', 'sequence' => $seq, 'timestamp' => gmdate('c')];
             $this->writeImmutable(sprintf('%s/events/%04d-%s.json', $dir, $seq, preg_replace('/[^a-z0-9-]/', '-', $event)), $record);
         } finally {
             flock($lock, LOCK_UN);

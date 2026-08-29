@@ -5,8 +5,8 @@
  * Eighteen suites needed a `Policy` instance to test something else — a
  * grammar, an action selection, an effects inventory — and built one by handing
  * `Policy::from_snapshot()` the smallest envelope it would accept. That
- * envelope used to be `duo-policy-snapshot/v4`, whose
- * `duo-adapter-sources/v1` record let a manifest absent from `out_of_tree` take
+ * envelope used to be `wprism-policy-snapshot/v4`, whose
+ * `wprism-adapter-sources/v1` record let a manifest absent from `out_of_tree` take
  * shipped authority with no proof at all, so any synthetic manifest name
  * loaded for free. v4 is now refused by name
  * (`Policy::from_snapshot()`), and v2 makes that shipped claim fail-closed:
@@ -26,13 +26,13 @@
  */
 declare(strict_types=1);
 
-namespace DuoTest;
+namespace WPrismTest;
 
 final class FrozenPolicy
 {
     /** The one wire generation `Policy::from_snapshot()` reads. */
-    public const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v6';
-    public const ADAPTER_SOURCES_FORMAT = 'duo-adapter-sources/v2';
+    public const SNAPSHOT_FORMAT = 'wprism-policy-snapshot/v6';
+    public const ADAPTER_SOURCES_FORMAT = 'wprism-adapter-sources/v2';
 
     private static ?string $library = null;
 
@@ -45,7 +45,7 @@ final class FrozenPolicy
         if (self::$library !== null) {
             return self::$library;
         }
-        $dir = sys_get_temp_dir() . '/duo_frozen_policy_' . bin2hex(random_bytes(6));
+        $dir = sys_get_temp_dir() . '/wprism_frozen_policy_' . bin2hex(random_bytes(6));
         if (!mkdir($dir, 0700, true) && !is_dir($dir)) {
             fwrite(STDERR, "FAIL: cannot create scratch manifest library $dir\n");
             exit(1);
@@ -87,7 +87,7 @@ final class FrozenPolicy
                 // refuses before the provenance proof runs. Nothing to publish.
                 continue;
             }
-            file_put_contents($dir . '/' . $name . '.json', \Duo\Canon::encode($manifest));
+            file_put_contents($dir . '/' . $name . '.json', \WPrism\Canon::encode($manifest));
         }
         return [
             'adapter_sources' => self::adapterSources(),
@@ -109,8 +109,8 @@ final class FrozenPolicy
      */
     public static function adapterLibrary(
         ?string $library = null,
-        ?\Duo\AdapterLibrary $activeLibrary = null
-    ): \Duo\AdapterLibrary
+        ?\WPrism\AdapterLibrary $activeLibrary = null
+    ): \WPrism\AdapterLibrary
     {
         $dir = rtrim($library ?? self::library(), '/');
         foreach (['capabilities', 'dispositions', 'interpreters', 'providers', 'regenerators'] as $relative) {
@@ -120,31 +120,31 @@ final class FrozenPolicy
             }
         }
 
-        $active = $activeLibrary ?? \Duo\Policy::adapter_library_context();
+        $active = $activeLibrary ?? \WPrism\Policy::adapter_library_context();
         copy($active->platformBoundaryPath(), "$dir/capabilities/platform.json");
         copy($active->authoritiesPath(), "$dir/capabilities/adapter-authorities.json");
         file_put_contents("$dir/dispositions/profiles.json", "{}\n");
 
         $anchor = "$dir/frozen-fixture-anchor.json";
         if (!is_file($anchor)) {
-            file_put_contents($anchor, \Duo\Canon::encode([
+            file_put_contents($anchor, \WPrism\Canon::encode([
                 'name' => 'frozen-fixture-anchor',
                 'option_autoload' => 'preserve',
                 'options' => [],
-                'spec_version' => defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 3,
+                'spec_version' => defined('WPRISM_SPEC_VERSION') ? WPRISM_SPEC_VERSION : 3,
             ]));
         }
 
         $expectedRuntime = ['interpreters' => [], 'providers' => [], 'regenerators' => []];
         foreach (glob("$dir/*.json") ?: [] as $manifestPath) {
-            $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($manifestPath));
+            $manifest = \WPrism\Canon::decode(\WPrism\Canon::read_file($manifestPath));
             if (!is_array($manifest) || !is_string($manifest['name'] ?? null) || $manifest['name'] === '') {
                 continue;
             }
             $name = $manifest['name'];
             file_put_contents(
                 "$dir/dispositions/$name.json",
-                \Duo\Canon::encode(self::disposition($manifest))
+                \WPrism\Canon::encode(self::disposition($manifest))
             );
             try {
                 $package = $active->package($name);
@@ -200,7 +200,7 @@ final class FrozenPolicy
             }
         }
 
-        return \Duo\AdapterLibrary::fromLegacyFlatDirectory($dir);
+        return \WPrism\AdapterLibrary::fromLegacyFlatDirectory($dir);
     }
 
     /** Build and load the common frozen-policy vehicle in one explicit step. */
@@ -208,8 +208,8 @@ final class FrozenPolicy
         array $manifests,
         array $site,
         ?string $library = null,
-        ?\Duo\AdapterLibrary $activeLibrary = null
-    ): \Duo\Policy
+        ?\WPrism\AdapterLibrary $activeLibrary = null
+    ): \WPrism\Policy
     {
         return self::fromEnvelope(
             self::envelope($manifests, $site, $library),
@@ -222,10 +222,10 @@ final class FrozenPolicy
     public static function fromEnvelope(
         array $snapshot,
         ?string $library = null,
-        ?\Duo\AdapterLibrary $activeLibrary = null
-    ): \Duo\Policy
+        ?\WPrism\AdapterLibrary $activeLibrary = null
+    ): \WPrism\Policy
     {
-        return \Duo\Policy::from_snapshot(
+        return \WPrism\Policy::from_snapshot(
             $snapshot,
             self::adapterLibrary($library, $activeLibrary)
         );

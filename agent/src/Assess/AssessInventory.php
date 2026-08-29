@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Init/InitPlanner.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
-// DUO-3504: pattern_groups() reads PATTERN_KEYS through this class's own
+// issue #3504: pattern_groups() reads PATTERN_KEYS through this class's own
 // accessor rather than restating `option_patterns`, so it is required here in
 // its own right (rule 1) and not by way of Policy.php's transitive load.
 require_once __DIR__ . '/../Policy/PolicyRuleResolver.php';
@@ -19,7 +19,7 @@ require_once __DIR__ . '/../Review/Coverage.php';
 require_once __DIR__ . '/../Review/Pending.php';
 
 /**
- * The one read-only pass `duo assess` runs on a target (round-3 MUP §4.5).
+ * The one read-only pass `wprism assess` runs on a target (round-3 MUP §4.5).
  *
  * It answers "what is here, and what does the pinned policy already say about
  * it" in a single document, so the host does not have to compose five agent
@@ -37,7 +37,7 @@ require_once __DIR__ . '/../Review/Pending.php';
  * with `COUNT(*)`, it groups `wp_posts`/`wp_term_taxonomy` by their type
  * columns, and it reads plugin/theme headers, which are code metadata rather
  * than site content. The one place content-shaped bytes reach the document is
- * `pending.rows`, which is byte-identical to what `wp duo pending
+ * `pending.rows`, which is byte-identical to what `wp wprism pending
  * --format=json` already publishes (a review queue is useless without its
  * `ref_hint`); this command deliberately does not invent a second, different
  * redaction boundary for the same queue.
@@ -66,7 +66,7 @@ require_once __DIR__ . '/../Review/Pending.php';
  * which is the boundary doctrine working rather than being violated.
  */
 final class AssessInventory {
-    public const FORMAT = 'duo-assess-inventory/v1';
+    public const FORMAT = 'wprism-assess-inventory/v1';
 
     /** MUP §4.6: the same default listing bound `PlanView` uses. */
     public const PENDING_ROW_LIMIT = 50;
@@ -90,13 +90,13 @@ final class AssessInventory {
      * second, non-manifest token into a field whose consumers key it against
      * manifest names.
      *
-     * DUO-3504 narrowed this from "no adapter's rule WON" to "no adapter
+     * issue #3504 narrowed this from "no adapter's rule WON" to "no adapter
      * DECLARES it". A site scope rule outranks every manifest for
      * classification and must keep doing so, but it does not un-declare the
-     * surface — and `duo adapter certify --pin` writes one for every type the
-     * adapter it just certified declares (DUO-3495,
+     * surface — and `wprism adapter certify --pin` writes one for every type the
+     * adapter it just certified declares (issue #3495,
      * cli/src/Adapter/AdapterCertify.php:588-609), so the old reading made
-     * `duo assess` credit the platform for a site-certified adapter's own
+     * `wprism assess` credit the platform for a site-certified adapter's own
      * CPT. `declarant()` below asks `Policy::declaring_manifest()` before it
      * settles for this value.
      */
@@ -108,7 +108,7 @@ final class AssessInventory {
      * projections take it.
      *
      * @param array<string,mixed> $options
-     * @return array<string,mixed> a `duo-assess-inventory/v1` document
+     * @return array<string,mixed> a `wprism-assess-inventory/v1` document
      */
     public static function report(Policy $policy, array $options = []): array {
         $repo = isset($options['repo']) ? (string) $options['repo'] : '';
@@ -144,8 +144,8 @@ final class AssessInventory {
      * The policy an assessment projects against, and the adoption block that
      * says which one it was.
      *
-     * An init-owned repository is assessed as it stands: its own site.duo.json
-     * (`adoption` null). An ADOPTION SEED is assessed as `duo init` would
+     * An init-owned repository is assessed as it stands: its own site.wprism.json
+     * (`adoption` null). An ADOPTION SEED is assessed as `wprism init` would
      * propose it: the proposal's config — the adapters init selects for the
      * active plugins and theme, the scope it proposes, the types it leaves
      * local — is written under a private temporary directory and loaded as
@@ -191,15 +191,15 @@ final class AssessInventory {
                 'ready' => ($proposal['ready'] ?? false) === true,
             ]];
         }
-        $dir = rtrim(sys_get_temp_dir(), '/') . '/duo-assess-preview-' . bin2hex(random_bytes(6));
+        $dir = rtrim(sys_get_temp_dir(), '/') . '/wprism-assess-preview-' . bin2hex(random_bytes(6));
         if (!@mkdir($dir, 0700, true) && !is_dir($dir)) {
-            throw new \RuntimeException("duo: assess could not create the adoption preview directory $dir");
+            throw new \RuntimeException("wprism: assess could not create the adoption preview directory $dir");
         }
         register_shutdown_function(static function () use ($dir): void {
-            @unlink($dir . '/site.duo.json');
+            @unlink($dir . '/site.wprism.json');
             @rmdir($dir);
         });
-        Canon::write_file($dir . '/site.duo.json', Canon::encode($config));
+        Canon::write_file($dir . '/site.wprism.json', Canon::encode($config));
         $policy = Policy::load($dir, null, true, $repo, $adapterLibrary);
         $leftLocal = [];
         foreach ((array) ($config['policy']['scope'] ?? []) as $kind => $rules) {
@@ -217,7 +217,7 @@ final class AssessInventory {
         return [$policy, [
             'mode' => 'seed',
             'preview' => 'init-proposal',
-            'reason' => 'the repository is an adoption seed; surfaces are projected against the policy duo init would propose',
+            'reason' => 'the repository is an adoption seed; surfaces are projected against the policy wprism init would propose',
             'adapters' => $adapters,
             'scope' => [
                 'post_types' => array_values(array_map('strval', (array) ($config['policy']['post_types'] ?? []))),
@@ -258,7 +258,7 @@ final class AssessInventory {
                     'message' => 'the WordPress/PHP/database stack probe returned no facts',
                     'remediation' => 'run assess-inventory through wp-cli on the target environment',
                 ]],
-                'duo: assess-inventory refused because TargetProbe::probe_target() reported no target'
+                'wprism: assess-inventory refused because TargetProbe::probe_target() reported no target'
             );
         }
         $coverage = is_array($facts['coverage'] ?? null) ? $facts['coverage'] : [];
@@ -268,11 +268,11 @@ final class AssessInventory {
         $liveCounts = self::live_counts($policy);
         $document = [
             'format' => self::FORMAT,
-            'spec_version' => defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0,
-            'agent_version' => defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown',
+            'spec_version' => defined('WPRISM_SPEC_VERSION') ? (int) WPRISM_SPEC_VERSION : 0,
+            'agent_version' => defined('WPRISM_AGENT_VERSION') ? (string) WPRISM_AGENT_VERSION : 'unknown',
             'target' => self::target($probe),
             'plugins' => self::plugins($probe),
-            // The `plugin:<slug>` surface rows `duo assess` mints (round-3 T6
+            // The `plugin:<slug>` surface rows `wprism assess` mints (round-3 T6
             // §3.6). A sibling top-level key rather than a member nested under
             // `plugins`, which is a JSON LIST every host consumer already
             // iterates (cli/src/Assess/StackInventory.php:208,247 and
@@ -378,7 +378,7 @@ final class AssessInventory {
                     'message' => 'the WordPress URL API is unavailable in this process',
                     'remediation' => 'run assess-inventory through wp-cli on the target environment',
                 ]],
-                'duo: assess-inventory refused because ' . $function . '() is not defined'
+                'wprism: assess-inventory refused because ' . $function . '() is not defined'
             );
         }
         return (string) $function();
@@ -412,7 +412,7 @@ final class AssessInventory {
                     'message' => 'the WordPress plugin inventory API is unavailable in this process',
                     'remediation' => 'run assess-inventory through wp-cli on the target environment',
                 ]],
-                'duo: assess-inventory refused because get_plugins() is not defined'
+                'wprism: assess-inventory refused because get_plugins() is not defined'
             );
         }
         $active = array_map('strval', (array) ($probe['active_plugins'] ?? []));
@@ -450,7 +450,7 @@ final class AssessInventory {
      *   - `basename` is WordPress's own `<dir>/<file>.php`, the same key and
      *     the same meaning the `plugins` rows above already use;
      *   - `slug` is the directory, which is what the host builds
-     *     `plugin:<slug>` from and what a bundled `duo-adapter.json` anchors
+     *     `plugin:<slug>` from and what a bundled `wprism-adapter.json` anchors
      *     to;
      *   - `file` is the entry file.
      *
@@ -509,7 +509,7 @@ final class AssessInventory {
                     'message' => 'the WordPress theme inventory API is unavailable in this process',
                     'remediation' => 'run assess-inventory through wp-cli on the target environment',
                 ]],
-                'duo: assess-inventory refused because wp_get_themes() is not defined'
+                'wprism: assess-inventory refused because wp_get_themes() is not defined'
             );
         }
         $activeTheme = is_array($probe['active_theme'] ?? null) ? $probe['active_theme'] : [];
@@ -545,7 +545,7 @@ final class AssessInventory {
         // the same value for a shipped adapter, but a site-certified claim is
         // projected before its final digest exists (AdapterCertification::
         // derivedDisposition says so), so reading the claim left every
-        // Site-certified adapter without a digest and `duo assess` refusing
+        // Site-certified adapter without a digest and `wprism assess` refusing
         // `assess_report_unbuildable` on exactly the repositories T6 exists
         // for (grind_adapter_walk.sh S2).
         $resolvedDigests = [];
@@ -769,7 +769,7 @@ final class AssessInventory {
 
     /**
      * The same `declarant:class` groups for declarations made by PATTERN
-     * rather than by exact key (DUO-3504).
+     * rather than by exact key (issue #3504).
      *
      * `declared_names()` above enumerates exact keys only, so an adapter that
      * classifies its options by namespace — `option_patterns`, the fallback
@@ -825,7 +825,7 @@ final class AssessInventory {
      */
     private static function section_source(Policy $policy, string $section, string $name): ?string {
         if (isset($policy->site['policy'][$section][$name])) {
-            return 'site.duo.json';
+            return 'site.wprism.json';
         }
         $core = null;
         foreach ($policy->manifests as $manifest) {
@@ -901,8 +901,8 @@ final class AssessInventory {
      * when a pinned manifest wrote it, otherwise whichever pinned adapter
      * DECLARES the surface, otherwise `core`.
      *
-     * The second step is the DUO-3504 fix and it is additive — the rule that
-     * won is untouched, and `site.duo.json` still never appears in this field
+     * The second step is the issue #3504 fix and it is additive — the rule that
+     * won is untouched, and `site.wprism.json` still never appears in this field
      * (the consumer keys it against manifest names). What changed is that a
      * site rule shadowing a manifest declaration no longer costs the adapter
      * the credit for declaring it: `certify --pin` writes exactly such a rule

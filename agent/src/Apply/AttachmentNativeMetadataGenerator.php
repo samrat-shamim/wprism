@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
@@ -90,7 +90,7 @@ final class AttachmentNativeMetadataAuthority {
  *
  * Core 6.9.2/7.0.3/7.1 saves partial image metadata after every generated
  * sub-size. A throw or process loss can therefore otherwise leave both files
- * and postmeta half-updated. Duo runs the reviewed core generator inside a
+ * and postmeta half-updated. WPrism runs the reviewed core generator inside a
  * rollback-only DB transaction and short-circuits only the two exact core
  * intermediate postmeta writes. Exact always-on callbacks from certified
  * adapters are quarantined and restored around Core (with Woo's one relevant
@@ -290,19 +290,19 @@ final class AttachmentNativeMetadataGenerator {
         if (!array_is_list($this->adapterManifests)
             || count($this->adapterManifests) > 32
             || count(array_unique($this->adapterManifests, SORT_STRING)) !== count($this->adapterManifests)) {
-            throw new \RuntimeException('duo: native attachment metadata adapter authority is malformed');
+            throw new \RuntimeException('wprism: native attachment metadata adapter authority is malformed');
         }
         foreach ($this->adapterManifests as $manifest) {
             if (!is_string($manifest)
                 || $manifest === ''
                 || strlen($manifest) > 191
                 || preg_match('/^[a-z0-9][a-z0-9._-]*$/D', $manifest) !== 1) {
-                throw new \RuntimeException('duo: native attachment metadata adapter authority is malformed');
+                throw new \RuntimeException('wprism: native attachment metadata adapter authority is malformed');
             }
         }
         if (in_array('polylang', $this->adapterManifests, true)
             && ($authority->compiled_artifact_hash() === null || $authority->compiled_manifest_hash() === null)) {
-            throw new \RuntimeException('duo: Polylang attachment metadata authority lacks its compiled artifact identity');
+            throw new \RuntimeException('wprism: Polylang attachment metadata authority lacks its compiled artifact identity');
         }
     }
 
@@ -315,17 +315,17 @@ final class AttachmentNativeMetadataGenerator {
     }
 
     public function __clone(): void {
-        throw new \RuntimeException('duo: native attachment metadata generator cannot be cloned');
+        throw new \RuntimeException('wprism: native attachment metadata generator cannot be cloned');
     }
 
     /** @return array<string,mixed> */
     public function __serialize(): array {
-        throw new \RuntimeException('duo: native attachment metadata generator cannot be serialized');
+        throw new \RuntimeException('wprism: native attachment metadata generator cannot be serialized');
     }
 
     /** @param array<string,mixed> $data */
     public function __unserialize(array $data): void {
-        throw new \RuntimeException('duo: native attachment metadata generator cannot be unserialized');
+        throw new \RuntimeException('wprism: native attachment metadata generator cannot be unserialized');
     }
 
     /**
@@ -356,7 +356,7 @@ final class AttachmentNativeMetadataGenerator {
             ob_start(static function (string $chunk) use (&$outputBytes): string {
                 $outputBytes += strlen($chunk);
                 if ($outputBytes > self::MAX_OUTPUT_BYTES) {
-                    throw new \RuntimeException('duo: native attachment metadata preflight emitted excessive output');
+                    throw new \RuntimeException('wprism: native attachment metadata preflight emitted excessive output');
                 }
                 return '';
             }, 4096);
@@ -374,7 +374,7 @@ final class AttachmentNativeMetadataGenerator {
                     $this->registered_sizes_witness($sourceWidth, $sourceHeight)['hash']
                 )) {
                     throw new \RuntimeException(
-                        'duo: native attachment metadata registered image-size roster changed during markerless preflight'
+                        'wprism: native attachment metadata registered image-size roster changed during markerless preflight'
                     );
                 }
             }
@@ -415,7 +415,7 @@ final class AttachmentNativeMetadataGenerator {
             if ($primary !== null) $parts[] = 'original=' . self::failure_fingerprint($primary);
             array_push($parts, ...$cleanupFailures);
             throw new \RuntimeException(
-                'duo: native attachment metadata markerless preflight failed; ' . implode('; ', $parts),
+                'wprism: native attachment metadata markerless preflight failed; ' . implode('; ', $parts),
                 0,
                 $primary
             );
@@ -425,7 +425,7 @@ final class AttachmentNativeMetadataGenerator {
     /** @return array<mixed> bounded native metadata */
     public function generate(int $attachmentId, string $stageFile): array {
         if ($attachmentId <= 0) {
-            throw new \RuntimeException('duo: native attachment metadata generation requires a positive attachment id');
+            throw new \RuntimeException('wprism: native attachment metadata generation requires a positive attachment id');
         }
         $this->currentAttachmentId = $attachmentId;
         $this->assert_stage_file($stageFile);
@@ -442,7 +442,7 @@ final class AttachmentNativeMetadataGenerator {
                 || !in_array($metaKey, ['_wp_attachment_metadata', '_wp_attached_file'], true)
                 || !is_string($metaKey)) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata attempted an undeclared intermediate metadata mutation'
+                    'wprism: native attachment metadata attempted an undeclared intermediate metadata mutation'
                 );
             }
             return true;
@@ -459,7 +459,7 @@ final class AttachmentNativeMetadataGenerator {
                 || !hash_equals($stageFile, $file)
                 || $objectId !== $attachmentId) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata reached an unexpected big-image threshold call shape'
+                    'wprism: native attachment metadata reached an unexpected big-image threshold call shape'
                 );
             }
             // The compiled _wp_attached_file and blob are authored identity.
@@ -492,12 +492,12 @@ final class AttachmentNativeMetadataGenerator {
                 throw new \ErrorException($message, 0, $severity, $file, $line);
             });
             // A null return means PHP's default handler was active, not that
-            // Duo failed to install its throwing boundary.
+            // WPrism failed to install its throwing boundary.
             $handlerInstalled = true;
             ob_start(static function (string $chunk) use (&$outputBytes): string {
                 $outputBytes += strlen($chunk);
                 if ($outputBytes > self::MAX_OUTPUT_BYTES) {
-                    throw new \RuntimeException('duo: native attachment metadata emitted excessive output');
+                    throw new \RuntimeException('wprism: native attachment metadata emitted excessive output');
                 }
                 return '';
             }, 4096);
@@ -511,7 +511,7 @@ final class AttachmentNativeMetadataGenerator {
             $transactionContinuityStarted = true;
             $mime = ($this->lockTarget)($attachmentId);
             if (!is_string($mime) || $mime === '' || strlen($mime) > 191) {
-                throw new \RuntimeException('duo: native attachment metadata target lock returned a malformed MIME type');
+                throw new \RuntimeException('wprism: native attachment metadata target lock returned a malformed MIME type');
             }
             $lockedClassification = $this->classify_stage_file($stageFile, $mime);
             $lockedSizes = ['hash' => hash('sha256', serialize([])), 'sizes' => []];
@@ -523,24 +523,24 @@ final class AttachmentNativeMetadataGenerator {
                 if ($repeatClassification !== $lockedClassification
                     || !hash_equals($registeredSizesWitness['hash'], $lockedSizes['hash'])) {
                     throw new \RuntimeException(
-                        'duo: native attachment metadata source or size roster changed at its transaction boundary'
+                        'wprism: native attachment metadata source or size roster changed at its transaction boundary'
                     );
                 }
             }
             if (!add_filter('update_post_metadata', $guard, PHP_INT_MIN, 5)) {
-                throw new \RuntimeException('duo: native attachment metadata could not install its no-write guard');
+                throw new \RuntimeException('wprism: native attachment metadata could not install its no-write guard');
             }
             $guardInstalled = true;
             $this->assert_guard_topology($guard);
             if ($lockedClassification['kind'] === 'raster') {
                 if (!add_filter('big_image_size_threshold', $bigImageGuard, PHP_INT_MIN, 4)) {
-                    throw new \RuntimeException('duo: native attachment metadata could not install its identity-preserving big-image guard');
+                    throw new \RuntimeException('wprism: native attachment metadata could not install its identity-preserving big-image guard');
                 }
                 $bigImageGuardInstalled = true;
                 $this->assert_single_guard_topology('big_image_size_threshold', $bigImageGuard, 4);
                 $metadata = wp_generate_attachment_metadata($attachmentId, $stageFile);
                 if ($metadata === false || is_wp_error($metadata) || !is_array($metadata)) {
-                    throw new \RuntimeException('duo: native attachment metadata generator reported failure');
+                    throw new \RuntimeException('wprism: native attachment metadata generator reported failure');
                 }
             } else {
                 // Exact Core 6.9.2-7.1 generic branch: no delegate, only the
@@ -555,7 +555,7 @@ final class AttachmentNativeMetadataGenerator {
             PlainData::assert($metadata, 'native attachment metadata result');
             $encoded = serialize($metadata);
             if (strlen($encoded) > self::MAX_METADATA_BYTES) {
-                throw new \RuntimeException('duo: native attachment metadata result exceeds its bounded byte limit');
+                throw new \RuntimeException('wprism: native attachment metadata result exceeds its bounded byte limit');
             }
             $this->assert_guard_topology($guard);
             if ($bigImageGuardInstalled) {
@@ -629,7 +629,7 @@ final class AttachmentNativeMetadataGenerator {
             if ($primary !== null) $parts[] = 'original=' . self::failure_fingerprint($primary);
             array_push($parts, ...$cleanupFailures);
             throw new \RuntimeException(
-                'duo: native attachment metadata generation failed in its isolated staging boundary; '
+                'wprism: native attachment metadata generation failed in its isolated staging boundary; '
                 . implode('; ', $parts),
                 0,
                 $primary
@@ -650,7 +650,7 @@ final class AttachmentNativeMetadataGenerator {
             'wp_get_registered_image_subsizes',
         ] as $function) {
             if (!function_exists($function)) {
-                throw new \RuntimeException('duo: native attachment metadata runtime is incomplete');
+                throw new \RuntimeException('wprism: native attachment metadata runtime is incomplete');
             }
         }
     }
@@ -665,7 +665,7 @@ final class AttachmentNativeMetadataGenerator {
     private function quarantine_reviewed_adapter_callbacks(): array {
         global $wp_filter;
         if (!is_array($wp_filter)) {
-            throw new \RuntimeException('duo: native attachment metadata filter registry is malformed');
+            throw new \RuntimeException('wprism: native attachment metadata filter registry is malformed');
         }
         $authorized = array_fill_keys($this->adapterManifests, true);
         $callbacks = [];
@@ -679,14 +679,14 @@ final class AttachmentNativeMetadataGenerator {
                 : null;
             if (!is_array($rows)) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata refuses an unreviewed callback topology ('
+                    'wprism: native attachment metadata refuses an unreviewed callback topology ('
                     . self::bounded_name_fingerprint($hook) . ')'
                 );
             }
             foreach ($rows as $priority => $entries) {
                 if (!is_int($priority) || !is_array($entries) || $entries === []) {
                     throw new \RuntimeException(
-                        'duo: native attachment metadata refuses a malformed callback topology ('
+                        'wprism: native attachment metadata refuses a malformed callback topology ('
                         . self::bounded_name_fingerprint($hook) . ')'
                     );
                 }
@@ -698,7 +698,7 @@ final class AttachmentNativeMetadataGenerator {
                         || $entry['accepted_args'] < 0
                         || $entry['accepted_args'] > 16) {
                         throw new \RuntimeException(
-                            'duo: native attachment metadata refuses a malformed callback entry ('
+                            'wprism: native attachment metadata refuses a malformed callback entry ('
                             . self::bounded_name_fingerprint($hook) . ')'
                         );
                     }
@@ -714,14 +714,14 @@ final class AttachmentNativeMetadataGenerator {
                     }
                     if (count($matches) !== 1 || isset($matched[$matches[0]])) {
                         throw new \RuntimeException(
-                            'duo: native attachment metadata refuses an unreviewed callback topology ('
+                            'wprism: native attachment metadata refuses an unreviewed callback topology ('
                             . self::bounded_name_fingerprint($hook) . ')'
                         );
                     }
                     $id = $matches[0];
                     if ((self::ADAPTER_CALLBACKS[$id]['presence'] ?? null) === 'conditional-refuse') {
                         throw new \RuntimeException(
-                            'duo: native attachment metadata refuses a request-conditional certified-adapter callback topology ('
+                            'wprism: native attachment metadata refuses a request-conditional certified-adapter callback topology ('
                             . self::bounded_name_fingerprint($hook) . ')'
                         );
                     }
@@ -742,7 +742,7 @@ final class AttachmentNativeMetadataGenerator {
                 && isset($authorized[$rule['manifest'] ?? ''])
                 && !isset($matched[$id])) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata lacks a required certified-adapter callback topology ('
+                    'wprism: native attachment metadata lacks a required certified-adapter callback topology ('
                     . self::bounded_name_fingerprint((string) ($rule['hook'] ?? '')) . ')'
                 );
             }
@@ -755,7 +755,7 @@ final class AttachmentNativeMetadataGenerator {
             foreach ($callbacks as $row) {
                 if (!remove_filter($row['hook'], $row['callback'], $row['priority'])) {
                     throw new \RuntimeException(
-                        'duo: native attachment metadata could not quarantine a certified-adapter callback'
+                        'wprism: native attachment metadata could not quarantine a certified-adapter callback'
                     );
                 }
                 $removed[] = $row;
@@ -768,7 +768,7 @@ final class AttachmentNativeMetadataGenerator {
                 'matched' => $matched,
             ]);
             throw new \RuntimeException(
-                'duo: native attachment metadata could not establish its certified-adapter callback isolation; '
+                'wprism: native attachment metadata could not establish its certified-adapter callback isolation; '
                 . 'original=' . self::failure_fingerprint($failure)
                 . ($cleanup === [] ? '' : '; cleanup=' . implode(',', $cleanup)),
                 0,
@@ -845,7 +845,7 @@ final class AttachmentNativeMetadataGenerator {
      * Exact WooCommerce 11.0.0/11.0.1 admin bootstrap registers this pair on
      * one object in every WP-CLI process (class source sha256 9429ae47…). The
      * filters mutate paths only for the downloadable-product request, which a
-     * Duo apply must never impersonate; the ordinary empty CLI request is
+     * WPrism apply must never impersonate; the ordinary empty CLI request is
      * safe only after both callbacks are quarantined as one closed unit.
      *
      * @param list<array{hook:string,priority:int,accepted_args:int,callback:callable,rule:string}> $callbacks
@@ -866,7 +866,7 @@ final class AttachmentNativeMetadataGenerator {
             'woocommerce-download-filename',
         ]) {
             throw new \RuntimeException(
-                'duo: native attachment metadata refuses a partial WooCommerce downloadable-upload callback topology'
+                'wprism: native attachment metadata refuses a partial WooCommerce downloadable-upload callback topology'
             );
         }
         $upload = $pair['woocommerce-download-upload-dir'];
@@ -876,7 +876,7 @@ final class AttachmentNativeMetadataGenerator {
             || !is_array($filename)
             || ($filename[0] ?? null) !== $upload[0]) {
             throw new \RuntimeException(
-                'duo: native attachment metadata refuses split WooCommerce downloadable-upload callback authority'
+                'wprism: native attachment metadata refuses split WooCommerce downloadable-upload callback authority'
             );
         }
         // Superglobals are mutable process state: read through the dynamic
@@ -886,12 +886,12 @@ final class AttachmentNativeMetadataGenerator {
         $request = $GLOBALS[$postRegistryKey] ?? null;
         if (!is_array($request)) {
             throw new \RuntimeException(
-                'duo: native attachment metadata cannot audit WooCommerce downloadable-upload request state'
+                'wprism: native attachment metadata cannot audit WooCommerce downloadable-upload request state'
             );
         }
         if (array_key_exists('type', $request)) {
             throw new \RuntimeException(
-                'duo: native attachment metadata refuses an active WooCommerce downloadable-upload request topology'
+                'wprism: native attachment metadata refuses an active WooCommerce downloadable-upload request topology'
             );
         }
     }
@@ -913,20 +913,20 @@ final class AttachmentNativeMetadataGenerator {
         }
         if (!function_exists('PLL')) {
             throw new \RuntimeException(
-                'duo: native attachment metadata cannot prove Polylang no-language state'
+                'wprism: native attachment metadata cannot prove Polylang no-language state'
             );
         }
         $runtime = PLL();
         $model = is_object($runtime) ? ($runtime->model ?? null) : null;
         if (!is_object($model) || !is_callable([$model, 'has_languages'])) {
             throw new \RuntimeException(
-                'duo: native attachment metadata cannot audit Polylang language state'
+                'wprism: native attachment metadata cannot audit Polylang language state'
             );
         }
         $hasLanguages = $model->has_languages();
         if (!is_bool($hasLanguages) || $hasLanguages) {
             throw new \RuntimeException(
-                'duo: native attachment metadata refuses absent Polylang sync callbacks while languages are present'
+                'wprism: native attachment metadata refuses absent Polylang sync callbacks while languages are present'
             );
         }
         $this->polylangNoLanguagesObserved = true;
@@ -939,25 +939,25 @@ final class AttachmentNativeMetadataGenerator {
         if ($this->nativeRebuildHandoffConsumed) {
             if ($this->currentAttachmentId === null
                 || isset($this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId])) {
-                throw new \RuntimeException('duo: Polylang no-language handoff was replayed for the same attachment attempt');
+                throw new \RuntimeException('wprism: Polylang no-language handoff was replayed for the same attachment attempt');
             }
             $this->nativeRebuildAuthorizedAttachmentIds[$this->currentAttachmentId] = true;
             return;
         }
         $context = $this->authority->post_commit_context();
         if (!is_array($context)) {
-            throw new \RuntimeException('duo: Polylang no-language handoff is not sealed to a post-commit attachment attempt');
+            throw new \RuntimeException('wprism: Polylang no-language handoff is not sealed to a post-commit attachment attempt');
         }
         self::assert_attempt_context($context);
         $compiledArtifactHash = $this->authority->compiled_artifact_hash();
         if ($compiledArtifactHash !== null
             && !hash_equals($compiledArtifactHash, $context['artifact_hash'])) {
-            throw new \RuntimeException('duo: Polylang no-language handoff does not match the compiled artifact identity');
+            throw new \RuntimeException('wprism: Polylang no-language handoff does not match the compiled artifact identity');
         }
         $compiledManifestHash = $this->authority->compiled_manifest_hash();
         if ($compiledManifestHash !== null
             && !hash_equals($compiledManifestHash, $context['manifest_hash'])) {
-            throw new \RuntimeException('duo: Polylang no-language handoff does not match the compiled manifest identity');
+            throw new \RuntimeException('wprism: Polylang no-language handoff does not match the compiled manifest identity');
         }
         $this->nativeRebuildHandoffConsumed = true;
         if ($this->currentAttachmentId !== null) {
@@ -972,7 +972,7 @@ final class AttachmentNativeMetadataGenerator {
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['artifact_hash'] ?? '')) !== 1
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['roster_hash'] ?? '')) !== 1
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($context['manifest_hash'] ?? '')) !== 1) {
-            throw new \RuntimeException('duo: Polylang no-language handoff attempt identity is malformed');
+            throw new \RuntimeException('wprism: Polylang no-language handoff attempt identity is malformed');
         }
     }
 
@@ -984,7 +984,7 @@ final class AttachmentNativeMetadataGenerator {
         if ($missing === []) return;
         if (count($missing) !== count($syncIds)) {
             throw new \RuntimeException(
-                'duo: native attachment metadata refuses a partial Polylang post-meta callback topology'
+                'wprism: native attachment metadata refuses a partial Polylang post-meta callback topology'
             );
         }
         $this->assert_polylang_no_languages();
@@ -1014,7 +1014,7 @@ final class AttachmentNativeMetadataGenerator {
         $metadataSize = $metadata['sizes']['woocommerce_thumbnail'];
         if (!is_array($size) || !is_array($metadataSize)) {
             throw new \RuntimeException(
-                'duo: native attachment metadata cannot reproduce WooCommerce uncropped size authority'
+                'wprism: native attachment metadata cannot reproduce WooCommerce uncropped size authority'
             );
         }
         $metadataSize['uncropped'] = $size['height'] === 0;
@@ -1025,7 +1025,7 @@ final class AttachmentNativeMetadataGenerator {
     private function assert_closed_filter_topology(): void {
         global $wp_filter;
         if (!is_array($wp_filter)) {
-            throw new \RuntimeException('duo: native attachment metadata filter registry is malformed');
+            throw new \RuntimeException('wprism: native attachment metadata filter registry is malformed');
         }
         foreach (self::CLOSED_FILTERS as $hook) {
             if (!isset($wp_filter[$hook])) continue;
@@ -1034,7 +1034,7 @@ final class AttachmentNativeMetadataGenerator {
                 : null;
             if (!is_array($callbacks) || $callbacks !== []) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata refuses an unreviewed callback topology ('
+                    'wprism: native attachment metadata refuses an unreviewed callback topology ('
                     . self::bounded_name_fingerprint($hook) . ')'
                 );
             }
@@ -1049,7 +1049,7 @@ final class AttachmentNativeMetadataGenerator {
                 : null;
             if (!is_array($callbacks) || $callbacks !== []) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata refuses an unreviewed image-size option callback topology ('
+                    'wprism: native attachment metadata refuses an unreviewed image-size option callback topology ('
                     . self::bounded_name_fingerprint($hook) . ')'
                 );
             }
@@ -1065,13 +1065,13 @@ final class AttachmentNativeMetadataGenerator {
             || count($callbacks) !== 1
             || !is_array($priority)
             || count($priority) !== 1) {
-            throw new \RuntimeException('duo: native attachment metadata no-write guard topology changed');
+            throw new \RuntimeException('wprism: native attachment metadata no-write guard topology changed');
         }
         $entry = array_values($priority)[0];
         if (!is_array($entry)
             || ($entry['function'] ?? null) !== $guard
             || ($entry['accepted_args'] ?? null) !== 5) {
-            throw new \RuntimeException('duo: native attachment metadata no-write guard identity changed');
+            throw new \RuntimeException('wprism: native attachment metadata no-write guard identity changed');
         }
     }
 
@@ -1088,13 +1088,13 @@ final class AttachmentNativeMetadataGenerator {
             || count($callbacks) !== 1
             || !is_array($priority)
             || count($priority) !== 1) {
-            throw new \RuntimeException('duo: native attachment metadata guard topology changed');
+            throw new \RuntimeException('wprism: native attachment metadata guard topology changed');
         }
         $entry = array_values($priority)[0];
         if (!is_array($entry)
             || ($entry['function'] ?? null) !== $guard
             || ($entry['accepted_args'] ?? null) !== $acceptedArgs) {
-            throw new \RuntimeException('duo: native attachment metadata guard identity changed');
+            throw new \RuntimeException('wprism: native attachment metadata guard identity changed');
         }
     }
 
@@ -1106,7 +1106,7 @@ final class AttachmentNativeMetadataGenerator {
         if (!is_array($sizes)
             || array_is_list($sizes)
             || count($sizes) > self::MAX_REGISTERED_SIZES) {
-            throw new \RuntimeException('duo: native attachment metadata registered image-size roster is malformed or oversized');
+            throw new \RuntimeException('wprism: native attachment metadata registered image-size roster is malformed or oversized');
         }
         $aggregate = 0;
         $outputPixels = 0;
@@ -1133,7 +1133,7 @@ final class AttachmentNativeMetadataGenerator {
                         && is_string($row['crop'][1] ?? null)
                         && in_array($row['crop'][0], ['left', 'center', 'right'], true)
                         && in_array($row['crop'][1], ['top', 'center', 'bottom'], true)))) {
-                throw new \RuntimeException('duo: native attachment metadata registered image-size row is malformed');
+                throw new \RuntimeException('wprism: native attachment metadata registered image-size row is malformed');
             }
             $width = $row['width'] === 0
                 ? min(
@@ -1150,13 +1150,13 @@ final class AttachmentNativeMetadataGenerator {
             $pixels = $width * $height;
             if ($pixels > self::MAX_OUTPUT_PIXELS - $outputPixels) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata registered image sizes exceed their aggregate pixel-work bound'
+                    'wprism: native attachment metadata registered image sizes exceed their aggregate pixel-work bound'
                 );
             }
             $outputPixels += $pixels;
         }
         if ($aggregate > 32768) {
-            throw new \RuntimeException('duo: native attachment metadata registered image-size names exceed their byte bound');
+            throw new \RuntimeException('wprism: native attachment metadata registered image-size names exceed their byte bound');
         }
         return ['hash' => hash('sha256', serialize($sizes)), 'sizes' => $sizes];
     }
@@ -1170,23 +1170,23 @@ final class AttachmentNativeMetadataGenerator {
     /** @return array{int,int} exact bounded source dimensions */
     private function assert_media_environment(string $mime, string $stageFile): array {
         if ($mime === '' || strlen($mime) > 191) {
-            throw new \RuntimeException('duo: native attachment metadata received a malformed MIME authority');
+            throw new \RuntimeException('wprism: native attachment metadata received a malformed MIME authority');
         }
         $classification = $this->classify_stage_file($stageFile, $mime);
         if ($classification['kind'] !== 'raster') {
-            throw new \RuntimeException('duo: native attachment metadata expected a reviewed raster authority');
+            throw new \RuntimeException('wprism: native attachment metadata expected a reviewed raster authority');
         }
         if (!$this->displayable_image($mime, $stageFile)) {
-            throw new \RuntimeException('duo: native attachment metadata refuses a non-displayable raster image');
+            throw new \RuntimeException('wprism: native attachment metadata refuses a non-displayable raster image');
         }
         $dimensions = $this->assert_bounded_source_image($stageFile);
         $editor = wp_get_image_editor($stageFile);
         if (is_wp_error($editor)) {
-            throw new \RuntimeException('duo: native attachment metadata could not select a core image editor');
+            throw new \RuntimeException('wprism: native attachment metadata could not select a core image editor');
         }
         if (get_class($editor) !== 'WP_Image_Editor_GD') {
             throw new \RuntimeException(
-                'duo: native attachment metadata refuses a non-GD image editor; '
+                'wprism: native attachment metadata refuses a non-GD image editor; '
                 . 'multi-frame/delegate work is outside the bounded pixel authority'
             );
         }
@@ -1200,21 +1200,21 @@ final class AttachmentNativeMetadataGenerator {
         } catch (\Throwable $failure) {
             if (str_contains($failure->getMessage(), 'raster container')) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata image container is truncated, malformed, or carries trailing bytes',
+                    'wprism: native attachment metadata image container is truncated, malformed, or carries trailing bytes',
                     0,
                     $failure
                 );
             }
             if (str_contains($failure->getMessage(), 'raster dimensions or decoder MIME exceed')) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata source dimensions exceed the bounded GD pixel authority',
+                    'wprism: native attachment metadata source dimensions exceed the bounded GD pixel authority',
                     0,
                     $failure
                 );
             }
             if (str_contains($failure->getMessage(), 'unbounded Core image, audio, video, or PDF metadata branch')) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata refuses an unsupported or MIME/extension-mismatched media class',
+                    'wprism: native attachment metadata refuses an unsupported or MIME/extension-mismatched media class',
                     0,
                     $failure
                 );
@@ -1236,7 +1236,7 @@ final class AttachmentNativeMetadataGenerator {
             || $height > self::MAX_IMAGE_DIMENSION
             || $width * $height > self::MAX_SOURCE_PIXELS) {
             throw new \RuntimeException(
-                'duo: native attachment metadata source dimensions exceed the bounded GD pixel authority'
+                'wprism: native attachment metadata source dimensions exceed the bounded GD pixel authority'
             );
         }
         return [$width, $height];
@@ -1252,7 +1252,7 @@ final class AttachmentNativeMetadataGenerator {
             || !is_int($stat['size'] ?? null)
             || $stat['size'] < 0
             || $stat['size'] > MediaPayloadAuthority::MAX_FILE_BYTES) {
-            throw new \RuntimeException('duo: native attachment metadata staging input is missing, special, or oversized');
+            throw new \RuntimeException('wprism: native attachment metadata staging input is missing, special, or oversized');
         }
     }
 

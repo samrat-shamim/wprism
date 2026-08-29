@@ -1,4 +1,4 @@
-# Contributing to duo-wp
+# Contributing to wprism
 
 [`AGENTS.md`](AGENTS.md) is the authority for everything below and is the file
 to read before your first edit. This page is the short contributor path into it;
@@ -71,7 +71,7 @@ you argue with one.
 8. **Some things stay byte-identical** unless the issue is explicitly about
    changing them: canonical JSON, refusal envelopes and their messages, WP-CLI
    output, lock ordering, adapter `package/` bytes, platform-library identity
-   inputs, and the version defines in `agent/duo.php`.
+   inputs, and the version defines in `agent/wprism.php`.
 9. **Fix the root cause** — no silent fallbacks, no compat shims.
 10. **Comments are rationale-dense**: state the constraint and the evidence
     (file:line, measured number, error string), not the mechanics.

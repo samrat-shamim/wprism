@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Canonical serialization (spec v0): UTF-8, LF, keys sorted at every level,
@@ -12,7 +12,7 @@ namespace Duo;
  */
 final class Canon {
     /**
-     * DUO-3214(b) / task #123: alphabetical key-sorting is only safe when no
+     * issue #3214(b) / task #123: alphabetical key-sorting is only safe when no
      * consumer reads a value's raw PHP array iteration order — WooCommerce's
      * variation-title generator reads the parent's `_product_attributes`
      * array order directly, so this sort permanently reordered it on every
@@ -97,7 +97,7 @@ final class Canon {
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
         );
         if ($json === false) {
-            throw new \RuntimeException('duo: unencodable data: ' . json_last_error_msg());
+            throw new \RuntimeException('wprism: unencodable data: ' . json_last_error_msg());
         }
         return $json . "\n";
     }
@@ -105,7 +105,7 @@ final class Canon {
     public static function decode(string $json) {
         $v = json_decode($json, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException('duo: invalid JSON: ' . json_last_error_msg());
+            throw new \RuntimeException('wprism: invalid JSON: ' . json_last_error_msg());
         }
         return $v;
     }
@@ -115,7 +115,7 @@ final class Canon {
     }
 
     /**
-     * The HASH BASIS for drift/plan comparison and Ledger's duo_state —
+     * The HASH BASIS for drift/plan comparison and Ledger's wprism_state —
      * deliberately NOT the same bytes post_file() above produces. A
      * post_type may classify certain FIELDS 'derived' (Policy::field_class(),
      * task #88 — the product_variation post_title case, #72's confirmed
@@ -157,7 +157,7 @@ final class Canon {
      * product_variation, an attachment, or any adopted installer page —
      * producing a spurious hash mismatch with nothing to do with any
      * derived field (found empirically: adopted Shop/Cart/Checkout pages
-     * and the WooCommerce placeholder attachment showed up in `duo plan`
+     * and the WooCommerce placeholder attachment showed up in `wprism plan`
      * drift right alongside the variations, despite declaring no derived
      * fields at all). Round-tripping through encode()/decode() FIRST
      * forces every empty sub-structure to the SAME PHP type (json_decode
@@ -179,11 +179,11 @@ final class Canon {
     /** @return array{0: array, 1: string} [front, body] */
     public static function parse_post_file(string $text): array {
         if (!str_starts_with($text, "---\n")) {
-            throw new \RuntimeException('duo: bad post file (missing front matter fence)');
+            throw new \RuntimeException('wprism: bad post file (missing front matter fence)');
         }
         $end = strpos($text, "\n---\n", 3);
         if ($end === false) {
-            throw new \RuntimeException('duo: bad post file (unterminated front matter)');
+            throw new \RuntimeException('wprism: bad post file (unterminated front matter)');
         }
         $front = self::decode(substr($text, 4, $end - 3));
         $body  = substr($text, $end + 5);
@@ -196,10 +196,10 @@ final class Canon {
     public static function write_file(string $path, string $content): void {
         $dir = dirname($path);
         if (!is_dir($dir) && !mkdir($dir, 0777, true) && !is_dir($dir)) {
-            throw new \RuntimeException("duo: cannot create directory $dir");
+            throw new \RuntimeException("wprism: cannot create directory $dir");
         }
         if (file_put_contents($path, $content) === false) {
-            throw new \RuntimeException("duo: cannot write $path");
+            throw new \RuntimeException("wprism: cannot write $path");
         }
     }
 
@@ -213,14 +213,14 @@ final class Canon {
      * warning had already been printed by then, into the middle of whatever
      * document the caller was building, which is how a `--format=json`
      * answer became unparseable over a file the engine was about to refuse
-     * cleanly anyway. Since DUO-3339 that path is reached on every
+     * cleanly anyway. Since issue #3339 that path is reached on every
      * `Policy::load()` for a plugin-bundled adapter, i.e. over a file no
      * operator authored.
      */
     public static function read_file(string $path): string {
         $c = @file_get_contents($path);
         if ($c === false) {
-            throw new \RuntimeException("duo: cannot read $path");
+            throw new \RuntimeException("wprism: cannot read $path");
         }
         return $c;
     }

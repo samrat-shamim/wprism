@@ -26,7 +26,7 @@
 # platform/adoption work, not to this estate file.
 base="$(basename "$0")"
 real="/usr/bin/$base"
-if [ "${WORDPRESS_DB_HOST:-}" = "duo-shared-mysql" ]; then
+if [ "${WORDPRESS_DB_HOST:-}" = "wprism-shared-mysql" ]; then
   if [ "${1:-}" = "--no-defaults" ]; then
     shift
     exec "$real" --no-defaults --skip-ssl "$@"

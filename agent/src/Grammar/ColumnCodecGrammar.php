@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // This collaborator is loaded by ManifestValidator at load time and by the
 // typed-table capture/apply boundaries at runtime, both of which may reach it
@@ -119,7 +119,7 @@ final class ColumnCodecGrammar {
     public const CODEC_KEYS = ['container', 'leaves'];
 
     /**
-     * This section's value grammar, published for `duo manifest-validate
+     * This section's value grammar, published for `wprism manifest-validate
      * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
      *
      * `refines` carries the half a shape cannot: a codec may address only an
@@ -140,7 +140,7 @@ final class ColumnCodecGrammar {
             'refines' => 'never the table\'s slug_column and never an identity column (identity.column, '
                 . 'identity.columns[] or a composite_ref tuple): a decoded container has no filename '
                 . 'spelling, and a derived uuid may not depend on this engine\'s serializer',
-            'validated_by' => 'Duo\\ColumnCodecGrammar::validate_column_codecs()',
+            'validated_by' => 'WPrism\\ColumnCodecGrammar::validate_column_codecs()',
         ];
     }
 
@@ -171,7 +171,7 @@ final class ColumnCodecGrammar {
         $section = $manifest[self::SECTION];
         if (!is_array($section) || array_is_list($section) || $section === []) {
             throw new \RuntimeException(
-                "duo: $label column_codecs must be a non-empty object keyed by unprefixed table name, each value an "
+                "wprism: $label column_codecs must be a non-empty object keyed by unprefixed table name, each value an "
                 . 'object keyed by column name — an empty section declares a capability the adapter does not use'
             );
         }
@@ -181,13 +181,13 @@ final class ColumnCodecGrammar {
             $where = "$label column_codecs.$table";
             if (!is_array($columns) || array_is_list($columns) || $columns === []) {
                 throw new \RuntimeException(
-                    "duo: $where must be a non-empty object keyed by column name, each value a codec declaration"
+                    "wprism: $where must be a non-empty object keyed by column name, each value a codec declaration"
                 );
             }
             $decl = $tables[$table] ?? null;
             if (!is_array($decl) || ($decl['class'] ?? null) !== 'authored_snapshot') {
                 throw new \RuntimeException(
-                    "duo: $where names a table this manifest does not declare as class=authored_snapshot — a column "
+                    "wprism: $where names a table this manifest does not declare as class=authored_snapshot — a column "
                     . 'codec addresses one of this adapter\'s own captured row tables, so a codec for a table '
                     . 'declared elsewhere (or not at all) would decode bytes nothing here reads'
                 );
@@ -240,41 +240,41 @@ final class ColumnCodecGrammar {
         $rule = $columnRules[$column] ?? null;
         if (!is_array($rule) || ($rule['class'] ?? null) !== 'authored') {
             throw new \RuntimeException(
-                "duo: $where names a column that is not a declared authored columns{} entry — a codec decodes "
+                "wprism: $where names a column that is not a declared authored columns{} entry — a codec decodes "
                 . 'CAPTURED bytes, and a ref, runtime, derived or env column is never carried into canonical state, '
                 . 'so the declaration would have nothing to act on'
             );
         }
         if ($slugColumn === $column) {
             throw new \RuntimeException(
-                "duo: $where names this table's slug_column — a slug is the human-readable half of a canonical "
+                "wprism: $where names this table's slug_column — a slug is the human-readable half of a canonical "
                 . 'filename and must stay a plain scalar; a decoded container has no filename spelling'
             );
         }
         if (in_array($column, $identityColumns, true)) {
             throw new \RuntimeException(
-                "duo: $where names an identity column — identity is derived from the column's own value, so "
+                "wprism: $where names an identity column — identity is derived from the column's own value, so "
                 . 'decoding and re-encoding it would make the derived uuid depend on this engine\'s serializer '
                 . 'rather than on the authored fact'
             );
         }
         if (!is_array($codec) || array_is_list($codec)) {
             throw new \RuntimeException(
-                "duo: $where must be an object declaring exactly {container, leaves}"
+                "wprism: $where must be an object declaring exactly {container, leaves}"
             );
         }
         $keys = array_keys($codec);
         sort($keys, SORT_STRING);
         if ($keys !== self::CODEC_KEYS) {
             throw new \RuntimeException(
-                "duo: $where declares [" . implode(', ', array_map('strval', $keys)) . '] but a column codec is '
+                "wprism: $where declares [" . implode(', ', array_map('strval', $keys)) . '] but a column codec is '
                 . 'exactly {container, leaves} — both are required because a codec with an implied container is a '
                 . 'declaration whose meaning changes the next time the engine grows one'
             );
         }
         if (!in_array($codec['container'], self::CONTAINERS, true)) {
             throw new \RuntimeException(
-                "duo: $where declares container=" . var_export($codec['container'], true)
+                "wprism: $where declares container=" . var_export($codec['container'], true)
                 . ' but the column container vocabulary is closed and engine-owned ('
                 . implode(', ', self::CONTAINERS) . ') — only the engine can decode a container, so a new one is '
                 . 'an engine change with its own engine feature, not a manifest declaration'
@@ -283,7 +283,7 @@ final class ColumnCodecGrammar {
         if ($codec['container'] === 'php_serialized_or_text'
             && !in_array(self::MIXED_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
             throw new \RuntimeException(
-                "duo: $where declares container='php_serialized_or_text', which the engine feature '"
+                "wprism: $where declares container='php_serialized_or_text', which the engine feature '"
                 . self::MIXED_FEATURE . "' gates — declare it in this manifest's top-level \"engine_features\" "
                 . 'list. An engine that does not implement the feature refuses the adapter by feature name '
                 . 'instead of treating a scalar as serialized bytes or a serialized map as opaque text'
@@ -291,7 +291,7 @@ final class ColumnCodecGrammar {
         }
         if (!in_array($codec['leaves'], self::LEAVES, true)) {
             throw new \RuntimeException(
-                "duo: $where declares leaves=" . var_export($codec['leaves'], true)
+                "wprism: $where declares leaves=" . var_export($codec['leaves'], true)
                 . ' but the leaf codec vocabulary is closed and engine-owned (' . implode(', ', self::LEAVES)
                 . ') — "text" is the ordinary home/uploads URL and query-reference pass'
             );
@@ -305,7 +305,7 @@ final class ColumnCodecGrammar {
      * ContentAttributeRuleResolver's precedence for block/shortcode attribute
      * registries and for the same reason: how a plugin frames its own column is
      * a structural fact about that plugin, not a site-local policy choice, so
-     * there is no `site.duo.json` override and the later pin simply replaces the
+     * there is no `site.wprism.json` override and the later pin simply replaces the
      * earlier declaration whole.
      *
      * @param list<array<string,mixed>> $manifests
@@ -340,7 +340,7 @@ final class ColumnCodecGrammar {
             $label = Secrets::hard_match_deep($decoded['value']);
             if ($label !== null) {
                 throw new \RuntimeException(
-                    "duo: secret guard tripped — $where contains a $label but is classified authored; refusing "
+                    "wprism: secret guard tripped — $where contains a $label but is classified authored; refusing "
                     . "to capture it into state/.\nIf this is really a secret, reclassify the column "
                     . 'runtime/derived/env instead of authored.'
                 );
@@ -355,7 +355,7 @@ final class ColumnCodecGrammar {
         $label = Secrets::hard_match_deep($decoded['value']);
         if ($label !== null) {
             throw new \RuntimeException(
-                "duo: secret guard tripped — $where decodes to a value containing a $label but is classified "
+                "wprism: secret guard tripped — $where decodes to a value containing a $label but is classified "
                 . "authored; refusing to capture it into state/.\n"
                 . 'If this is really a secret, reclassify the column runtime/derived/env instead of authored.'
             );
@@ -410,7 +410,7 @@ final class ColumnCodecGrammar {
             // NULL on this environment is a fact about the declaration being
             // wrong here, not a value to cast into shape.
             throw new \RuntimeException(
-                "duo: $where declares the '$container' column codec but the $side value is "
+                "wprism: $where declares the '$container' column codec but the $side value is "
                 . get_debug_type($bytes) . ', not a string — a container codec decodes stored bytes'
             );
         }
@@ -421,7 +421,7 @@ final class ColumnCodecGrammar {
         $reencoded = is_object($decoded) ? null : @serialize($decoded);
         if ($reencoded !== $bytes) {
             throw new \RuntimeException(
-                "duo: $where declares the '$container' column codec, but re-encoding the $side value does not "
+                "wprism: $where declares the '$container' column codec, but re-encoding the $side value does not "
                 . 'reproduce its bytes exactly, so the decode cannot be trusted — refusing BEFORE any substitution '
                 . 'rather than writing back a container this engine may have mis-read. Either the value is not '
                 . "canonical $container data, or the column is misdeclared"
@@ -429,7 +429,7 @@ final class ColumnCodecGrammar {
         }
         if (!is_array($decoded)) {
             throw new \RuntimeException(
-                "duo: $where declares the '$container' column codec but the $side value decodes to "
+                "wprism: $where declares the '$container' column codec but the $side value decodes to "
                 . get_debug_type($decoded) . ' — a column codec exists to reach the string leaves INSIDE a '
                 . 'container; a scalar column is already tokenized correctly without one'
             );

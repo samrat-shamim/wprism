@@ -11,8 +11,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../agent/src/Policy/PolicyLoadFinalizer.php';
 
-use Duo\Policy;
-use Duo\PolicyLoadFinalizer;
+use WPrism\Policy;
+use WPrism\PolicyLoadFinalizer;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -25,7 +25,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 $check(
     class_exists(Policy::class, false)
         && class_exists(PolicyLoadFinalizer::class, false)
-        && !class_exists(\Duo\RepositoryCompiler::class, false),
+        && !class_exists(\WPrism\RepositoryCompiler::class, false),
     'direct finalizer load closes the Policy aggregate grammar graph without loading RepositoryCompiler'
 );
 
@@ -61,7 +61,7 @@ try {
 } catch (RuntimeException $e) {
     $check(
         str_contains($e->getMessage(), 'contradictory rules for options.shared_option')
-            && !class_exists(\Duo\RepositoryCompiler::class, false),
+            && !class_exists(\WPrism\RepositoryCompiler::class, false),
         'cross-manifest refusal remains before pin validation and does not load RepositoryCompiler'
     );
 } catch (Throwable $e) {

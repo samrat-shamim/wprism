@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// DUO-3443: every engine source file must name the engine classes it loads.
+// issue #3443: every engine source file must name the engine classes it loads.
 // The product has no autoloader; the bootstrap order is not a standalone-load
 // contract.  This scanner is deliberately conservative about PHP syntax and
 // deliberately explicit about today's pre-existing gaps.
@@ -18,13 +18,13 @@ function check(bool $condition, string $message): void {
 
 // The scanner below proves the declared edges. This direct partial load proves
 // the product consequence: the authority's public type contract is usable
-// without relying on duo.php's production include order or the classmap.
+// without relying on wprism.php's production include order or the classmap.
 require_once $src . '/Apply/AttachmentNativeMetadataGenerator.php';
 check(
-    class_exists(\Duo\AttachmentNativeMetadataGenerator::class, false)
-        && class_exists(\Duo\CompiledRepository::class, false)
-        && class_exists(\Duo\AttachmentFilesystemTransaction::class, false)
-        && class_exists(\Duo\AttachmentMaterializer::class, false),
+    class_exists(\WPrism\AttachmentNativeMetadataGenerator::class, false)
+        && class_exists(\WPrism\CompiledRepository::class, false)
+        && class_exists(\WPrism\AttachmentFilesystemTransaction::class, false)
+        && class_exists(\WPrism\AttachmentMaterializer::class, false),
     'AttachmentNativeMetadataGenerator standalone load brings in every non-local authority dependency'
 );
 
@@ -65,7 +65,7 @@ function executable_source(string $source): string {
     return $out;
 }
 
-/** Resolve Duo imports before matching static calls; mask foreign lookalikes. */
+/** Resolve WPrism imports before matching static calls; mask foreign lookalikes. */
 function review_executable_source(string $source): string {
     $code = executable_source($source);
     foreach (namespace_aliases($source) as $alias => $target) {
@@ -173,12 +173,12 @@ function token_text(mixed $token): string {
 function normalized_engine_name(string $name): ?string {
     $name = ltrim($name, '\\');
     if (str_starts_with($name, 'namespace\\')) {
-        $name = 'Duo\\' . substr($name, strlen('namespace\\'));
+        $name = 'WPrism\\' . substr($name, strlen('namespace\\'));
     }
-    if (str_starts_with($name, 'Duo\\')) {
-        $name = substr($name, 4);
+    if (str_starts_with($name, 'WPrism\\')) {
+        $name = substr($name, strlen('WPrism\\'));
     } elseif (str_contains($name, '\\')) {
-        // A qualified non-Duo name is not an engine class merely because its
+        // A qualified non-WPrism name is not an engine class merely because its
         // final component happens to match one of ours.
         return null;
     }
@@ -216,12 +216,12 @@ function namespace_aliases(string $source): array {
             $targetName = trim($targetName, "\\");
             $local = $alias ?? basename(str_replace('\\', '/', $targetName));
             if ($local !== '') {
-                // Preserve non-Duo imports as a negative entry.  Otherwise a
+                // Preserve non-WPrism imports as a negative entry.  Otherwise a
                 // local alias such as `use Vendor\Canon; Canon::run()` would
-                // be mistaken for Duo\Canon merely because the leaf matches.
+                // be mistaken for WPrism\Canon merely because the leaf matches.
                 if ($forceExternal) {
                     $aliases[$local] = null;
-                } elseif ($targetName === 'Duo' || (str_starts_with($targetName, 'Duo\\') && normalized_engine_name($targetName) === null)) {
+                } elseif ($targetName === 'WPrism' || (str_starts_with($targetName, 'WPrism\\') && normalized_engine_name($targetName) === null)) {
                     $aliases[$local] = '@namespace:' . $targetName . '\\';
                 } else {
                     $aliases[$local] = normalized_engine_name($targetName);
@@ -385,7 +385,10 @@ function references(string $source, array $known, array $aliases = []): array {
         $name = null;
         $aliasResolved = false;
         if (array_key_exists($rawName, $aliases)) {
-            $name = $aliases[$rawName];
+            $aliasTarget = $aliases[$rawName];
+            $name = is_string($aliasTarget) && str_starts_with($aliasTarget, '@namespace:')
+                ? normalized_engine_name(rtrim(substr($aliasTarget, strlen('@namespace:')), '\\'))
+                : $aliasTarget;
             $aliasResolved = true;
         } elseif (str_contains($rawName, '\\')) {
             [$head, $tail] = explode('\\', $rawName, 2);
@@ -452,7 +455,7 @@ function find_gaps(array $sources, array $classFiles, array $knownGaps): array {
             if (isset($knownGaps[$key])) {
                 continue;
             }
-            $gaps[$key] = "$basename references Duo\\$name (declared in " . implode(', ', $declaringFiles) . ".php) without require_once";
+            $gaps[$key] = "$basename references WPrism\\$name (declared in " . implode(', ', $declaringFiles) . ".php) without require_once";
         }
     }
     return $gaps;
@@ -460,8 +463,8 @@ function find_gaps(array $sources, array $classFiles, array $knownGaps): array {
 
 $synthetic = <<<'PHP'
 <?php
-namespace Duo;
-use Duo\Policy as PolicyAlias;
+namespace WPrism;
+use WPrism\Policy as PolicyAlias;
 // require_once __DIR__ . '/CommentOnly.php';
 $literal = "require_once __DIR__ . '/StringOnly.php';";
 function synthetic(Foo $value): Bar {
@@ -475,42 +478,42 @@ $syntheticRefs = references($synthetic, $syntheticKnown, namespace_aliases($synt
 check(isset($syntheticRefs['Policy'], $syntheticRefs['Foo'], $syntheticRefs['Bar']), 'scanner misses a type, alias, or static class reference');
 check(direct_requires($synthetic) === [], 'scanner counted a require_once hidden in a comment or string');
 $foreign = '<?php new \\Vendor\\Canon();';
-check(references($foreign, ['Canon' => []]) === [], 'scanner collapsed a non-Duo qualified class to an engine leaf');
-$foreignImport = '<?php namespace Duo; use Vendor\\Canon; Canon::run();';
-check(references($foreignImport, ['Canon' => []], namespace_aliases($foreignImport)) === [], 'scanner collapsed an imported non-Duo class to an engine leaf');
-$foreignAlias = '<?php namespace Duo; use Vendor\\Canon as CanonAlias; CanonAlias::run();';
-check(references($foreignAlias, ['Canon' => []], namespace_aliases($foreignAlias)) === [], 'scanner collapsed an aliased non-Duo class to an engine leaf');
-$foreignGroup = '<?php namespace Duo; use Vendor\\{Canon as C}; C::run();';
-check(references($foreignGroup, ['Canon' => []], namespace_aliases($foreignGroup)) === [], 'scanner collapsed a grouped non-Duo class to an engine leaf');
-$duoGroup = '<?php namespace Duo; use Duo\\{Canon as C}; C::run();';
-check(isset(references($duoGroup, ['Canon' => []], namespace_aliases($duoGroup))['Canon']), 'scanner missed a grouped Duo import');
-$relative = '<?php namespace Duo; namespace\\Canon::run(); new namespace\\Canon();';
+check(references($foreign, ['Canon' => []]) === [], 'scanner collapsed a non-WPrism qualified class to an engine leaf');
+$foreignImport = '<?php namespace WPrism; use Vendor\\Canon; Canon::run();';
+check(references($foreignImport, ['Canon' => []], namespace_aliases($foreignImport)) === [], 'scanner collapsed an imported non-WPrism class to an engine leaf');
+$foreignAlias = '<?php namespace WPrism; use Vendor\\Canon as CanonAlias; CanonAlias::run();';
+check(references($foreignAlias, ['Canon' => []], namespace_aliases($foreignAlias)) === [], 'scanner collapsed an aliased non-WPrism class to an engine leaf');
+$foreignGroup = '<?php namespace WPrism; use Vendor\\{Canon as C}; C::run();';
+check(references($foreignGroup, ['Canon' => []], namespace_aliases($foreignGroup)) === [], 'scanner collapsed a grouped non-WPrism class to an engine leaf');
+$wprismGroup = '<?php namespace WPrism; use WPrism\\{Canon as C}; C::run();';
+check(isset(references($wprismGroup, ['Canon' => []], namespace_aliases($wprismGroup))['Canon']), 'scanner missed a grouped WPrism import');
+$relative = '<?php namespace WPrism; namespace\\Canon::run(); new namespace\\Canon();';
 check(isset(references($relative, ['Canon' => []])['Canon']), 'scanner missed namespace-relative class references');
 $member = '<?php $value::Policy(); self::Policy(); static::Policy(); parent::Policy(); Canon::Policy();';
 $memberRefs = references($member, ['Canon' => [], 'Policy' => []]);
 check(array_keys($memberRefs) === ['Canon'], 'scanner treated member names after :: as engine classes');
 $namedArgument = '<?php call(Policy: true);';
 check(references($namedArgument, ['Policy' => []]) === [], 'scanner treated a named argument label as an engine class');
-$directAlias = '<?php namespace Duo; use Duo\\DatabaseMutationException as D; new D();';
-check(isset(references($directAlias, ['DatabaseMutationException' => []], namespace_aliases($directAlias))['DatabaseMutationException']), 'scanner missed a direct Duo alias containing "as" in its class name');
-$commaImports = '<?php namespace Duo; use Duo\\Canon, Duo\\Policy as P; Canon::run(); P::run();';
+$directAlias = '<?php namespace WPrism; use WPrism\\DatabaseMutationException as D; new D();';
+check(isset(references($directAlias, ['DatabaseMutationException' => []], namespace_aliases($directAlias))['DatabaseMutationException']), 'scanner missed a direct WPrism alias containing "as" in its class name');
+$commaImports = '<?php namespace WPrism; use WPrism\\Canon, WPrism\\Policy as P; Canon::run(); P::run();';
 $commaRefs = references($commaImports, ['Canon' => [], 'Policy' => []], namespace_aliases($commaImports));
 check(isset($commaRefs['Canon'], $commaRefs['Policy']), 'scanner missed one of multiple direct imports');
-$constImport = '<?php namespace Duo; use const Vendor\\Canon; echo Canon;';
+$constImport = '<?php namespace WPrism; use const Vendor\\Canon; echo Canon;';
 check(references($constImport, ['Canon' => []], namespace_aliases($constImport)) === [], 'scanner treated a const import as an engine class');
-$duoConstImport = '<?php namespace Duo; use const Duo\\Canon; echo Canon;';
-check(references($duoConstImport, ['Canon' => []], namespace_aliases($duoConstImport)) === [], 'scanner treated a Duo const import as an engine class');
-$duoConstAlias = '<?php namespace Duo; use const Duo\\Canon as C; echo C;';
-check(references($duoConstAlias, ['Canon' => []], namespace_aliases($duoConstAlias)) === [], 'scanner treated an aliased Duo const import as an engine class');
-$duoConstGroup = '<?php namespace Duo; use const Duo\\{Canon as C}; echo C;';
-check(references($duoConstGroup, ['Canon' => []], namespace_aliases($duoConstGroup)) === [], 'scanner treated a grouped Duo const import as an engine class');
-$mixedConstGroup = '<?php namespace Duo; use Duo\\{Canon, const Policy as P}; echo P;';
+$wprismConstImport = '<?php namespace WPrism; use const WPrism\\Canon; echo Canon;';
+check(references($wprismConstImport, ['Canon' => []], namespace_aliases($wprismConstImport)) === [], 'scanner treated a WPrism const import as an engine class');
+$wprismConstAlias = '<?php namespace WPrism; use const WPrism\\Canon as C; echo C;';
+check(references($wprismConstAlias, ['Canon' => []], namespace_aliases($wprismConstAlias)) === [], 'scanner treated an aliased WPrism const import as an engine class');
+$wprismConstGroup = '<?php namespace WPrism; use const WPrism\\{Canon as C}; echo C;';
+check(references($wprismConstGroup, ['Canon' => []], namespace_aliases($wprismConstGroup)) === [], 'scanner treated a grouped WPrism const import as an engine class');
+$mixedConstGroup = '<?php namespace WPrism; use WPrism\\{Canon, const Policy as P}; echo P;';
 check(references($mixedConstGroup, ['Canon' => [], 'Policy' => []], namespace_aliases($mixedConstGroup)) === [], 'scanner treated a mixed grouped const import as an engine class');
-$functionImport = '<?php namespace Duo; use function Vendor\\Canon; Canon();';
+$functionImport = '<?php namespace WPrism; use function Vendor\\Canon; Canon();';
 check(references($functionImport, ['Canon' => []], namespace_aliases($functionImport)) === [], 'scanner treated a function import as an engine class');
-$mixedFunctionGroup = '<?php namespace Duo; use Duo\\{Canon, function Policy as P}; P();';
+$mixedFunctionGroup = '<?php namespace WPrism; use WPrism\\{Canon, function Policy as P}; P();';
 check(references($mixedFunctionGroup, ['Canon' => [], 'Policy' => []], namespace_aliases($mixedFunctionGroup)) === [], 'scanner treated a mixed grouped function import as an engine class');
-$namespaceAlias = '<?php namespace Duo; use Duo as D; D\\Canon::run();';
+$namespaceAlias = '<?php namespace WPrism; use WPrism as D; D\\Canon::run();';
 check(isset(references($namespaceAlias, ['Canon' => []], namespace_aliases($namespaceAlias))['Canon']), 'scanner missed a namespace prefix alias');
 $syntheticWithRequire = $synthetic . "\nrequire_once __DIR__ . '/Policy.php';\n";
 check(direct_requires($syntheticWithRequire) === ['Policy' => true], 'scanner failed to parse a tokenized require_once path');
@@ -544,7 +547,7 @@ foreach ($files as $file) {
 
 // These are existing, separately tracked gaps.  The list is deliberately
 // explicit: a new file/class pair is not silently grandfathered in.  Each
-// group is a future self-require slice, while DUO-3442/3444 remain separately
+// group is a future self-require slice, while issue #3442/3444 remain separately
 // actionable defects rather than being hidden by this guard.
 $knownGapsByFile = [
     'AdapterObservation' => ['AdapterSources', 'Canon', 'CommandRefusalException', 'Journal', 'Pending', 'Policy'],
@@ -561,14 +564,14 @@ $knownGapsByFile = [
     'Blocks' => ['Policy', 'Shortcodes', 'Tokens'],
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
-    // DUO-3499 closed the CodeCompilationException gap: Cli::code_inventory()
+    // issue #3499 closed the CodeCompilationException gap: Cli::code_inventory()
     // require_once's CodeDescriptorCompiler.php, which declares it, so the
     // allowlist entry became a no-longer-observed gap and this two-sided
     // ratchet correctly refused to keep it.
     // EffectDeclarationCoverage joins the same slice as Journal and Coverage:
     // requiring it from Cli.php would pull the real Policy.php in at file
     // scope, and the JSON-refusal suites load Cli.php against a pre-declared
-    // \Duo\Policy stub — the shadow-block idiom agent/duo.php:106-138 names.
+    // \WPrism\Policy stub — the shadow-block idiom agent/wprism.php:106-138 names.
     'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'Coverage', 'Db', 'Deploy', 'EffectDeclarationCoverage', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     // The reader deliberately tests this bridge at runtime rather than
     // requiring it: an unavailable bridge is a stable artifact diagnostic.
@@ -593,7 +596,7 @@ $knownGapsByFile = [
     // `Policy` arrives with the guarded manifests_dir() relocated here from the
     // deleted CapabilityRegistry: the call is behind `class_exists(Policy::class)`
     // precisely so a partially-loaded offline context that never includes
-    // Policy.php falls through to DUO_MANIFESTS_DIR instead of fatalling, so it
+    // Policy.php falls through to WPRISM_MANIFESTS_DIR instead of fatalling, so it
     // is allowlisted exactly as CapabilityRegistry's identical guard was.
     'ManifestDispositions' => ['Canon', 'Policy'],
     'MenuMaterializer' => ['Db', 'Ledger', 'PlainData', 'Policy', 'Tokens'],
@@ -677,7 +680,7 @@ foreach ([
     $mutatedGaps = find_gaps($mutated, $classFiles, $knownGaps);
     check(isset($mutatedGaps["$file::$dependency"]), "scanner missed mutated $file::$dependency gap");
 }
-fwrite(STDOUT, "ok: mutations for DUO-3440/3441/3442 are detected before the explicit baseline allowlist\n");
+fwrite(STDOUT, "ok: mutations for issue #3440/3441/3442 are detected before the explicit baseline allowlist\n");
 
 if ($gaps !== []) {
     foreach ($gaps as $key => $reason) {
@@ -690,10 +693,10 @@ check(count($classFiles) >= 80, 'scanner discovered too few engine declarations'
 fwrite(STDOUT, 'ok: every agent/src engine class reference is self-required or declared locally; ' . count($classFiles) . " declarations checked\n");
 
 // ---------------------------------------------------------------------------
-// DUO-3481 (WP-11): directional layer lint.
+// issue #3481 (WP-11): directional layer lint.
 //
 // Everything above answers "does this file load what it names".  It says
-// nothing about direction.  agent/src is 225 files across 17 module
+// nothing about direction.  agent/src is 260 files across 18 module
 // directories with no autoloader and no package boundary, and the reference
 // graph above puts most of them in one strongly connected component, so the
 // boundary doctrine in docs/adapter-boundary.md ("engine
@@ -702,7 +705,7 @@ fwrite(STDOUT, 'ok: every agent/src engine class reference is self-required or d
 // agent/src file sits on exactly one rung of an ordered ladder, and a
 // reference from a lower rung to a higher one is a violation.
 //
-// DUO-3493: the rung comes straight from tools/modules.json, not a second,
+// issue #3493: the rung comes straight from tools/modules.json, not a second,
 // separately hand-maintained tools/layers.json.  ROUND 3 TRAIN 1 already made
 // directory equal module (Canon.php now lives under agent/src/Kernel/, not
 // directly under agent/src), so a file's layer was never information independent
@@ -712,7 +715,7 @@ fwrite(STDOUT, 'ok: every agent/src engine class reference is self-required or d
 // path=>layer map matched that expansion exactly (zero mismatches), which is
 // what docs/modules/README.md rule 2 predicted ("a directory-level dependency
 // lint replace the file-level map") and named as a deferred follow-up.
-// Keeping both was the friction DUO-3493 tracked: one new agent/src file
+// Keeping both was the friction issue #3493 tracked: one new agent/src file
 // needed a hand entry in each of two registries, checked by two independent
 // gates that could silently disagree -- and one already had: the Apply
 // module's own file_count sat at 26 against a 27-entry files list until the
@@ -760,7 +763,7 @@ function layer_source_paths(string $src): array {
 }
 
 /**
- * DUO-3493: pure derivation of tools/layers.json's old {path => layer} shape
+ * issue #3493: pure derivation of tools/layers.json's old {path => layer} shape
  * from tools/modules.json's agent modules -- no check()/exit call, so the
  * mutation self-test below can feed it a deliberately broken structure and
  * inspect what it reports instead of the process dying mid-suite. `repeated`
@@ -815,7 +818,7 @@ check(isset($modulesDecoded['agent']['modules']) && is_array($modulesDecoded['ag
 // file_count is read by nobody else -- it is prose a human skims in the
 // module table, exactly the kind of decorative fact that drifts silently.
 // It already had: Apply's file_count sat at 26 against a 27-entry files list
-// until this check was added (DUO-3493). A mismatch names the module and the
+// until this check was added (issue #3493). A mismatch names the module and the
 // fix is always the same: set file_count to count(files) in the same edit.
 foreach ($modulesDecoded['agent']['modules'] as $moduleName => $module) {
     $files = (is_array($module) && isset($module['files']) && is_array($module['files'])) ? $module['files'] : null;
@@ -895,10 +898,10 @@ check(
 );
 check(
     review_side_effects(
-        '<?php namespace Duo; use Duo\\Ledger as EvidenceLedger; EvidenceLedger::set($u, $t, $k, $id);'
+        '<?php namespace WPrism; use WPrism\\Ledger as EvidenceLedger; EvidenceLedger::set($u, $t, $k, $id);'
     ) === ['ledger mutation/initialization']
         && review_unapproved_mixed_calls(
-            '<?php namespace Duo; use Duo\\Ledger as EvidenceLedger; EvidenceLedger::set($u, $t, $k, $id);'
+            '<?php namespace WPrism; use WPrism\\Ledger as EvidenceLedger; EvidenceLedger::set($u, $t, $k, $id);'
         ) === ['Ledger::set'],
     'Review read-only guard can be bypassed through a same-namespace class alias'
 );
@@ -909,10 +912,10 @@ check(
             . 'Journal::report_read_only($policy); Policy::load($repo); Snapshot::keyspace_gaps($policy);'
         ) === []
         && review_side_effects(
-            '<?php namespace Duo; use Vendor\\Ledger; Ledger::set($u, $t, $k, $id);'
+            '<?php namespace WPrism; use Vendor\\Ledger; Ledger::set($u, $t, $k, $id);'
         ) === []
         && review_unapproved_mixed_calls(
-            '<?php namespace Duo; use Vendor\\Ledger; Ledger::set($u, $t, $k, $id);'
+            '<?php namespace WPrism; use Vendor\\Ledger; Ledger::set($u, $t, $k, $id);'
         ) === [],
     'Review read-only guard rejects comments, strings, or approved read calls'
 );
@@ -939,14 +942,14 @@ foreach ($assignedLayers as $path => $layer) {
 $strayNotes = array_values(array_diff(array_keys($layerNotes), $layerPaths));
 check($strayNotes === [], 'tools/modules.json layer_notes describe files no module assigns: ' . implode(', ', $strayNotes));
 
-// Mutation self-test (DUO-3493): prove the four checks above -- unassigned,
+// Mutation self-test (issue #3493): prove the four checks above -- unassigned,
 // vanished, repeated, file_count -- would actually catch the failure mode two
 // independently hand-maintained registries invited: a file quietly dropped
 // from (or duplicated across) modules.json's module `files` lists.
 $mutationProbeModule = 'Kernel';
 $mutationProbeFile = 'Canon.php';
 $mutationProbePath = "src/$mutationProbeModule/$mutationProbeFile";
-check(isset($assignedLayers[$mutationProbePath]), "DUO-3493 mutation probe assumes $mutationProbePath is assigned; tools/modules.json's Kernel module moved or lost Canon.php");
+check(isset($assignedLayers[$mutationProbePath]), "issue #3493 mutation probe assumes $mutationProbePath is assigned; tools/modules.json's Kernel module moved or lost Canon.php");
 
 // (a) Dropped from its module: the derived map loses the path entirely, so
 // it would surface as "assigns no module to src/Kernel/Canon.php" against

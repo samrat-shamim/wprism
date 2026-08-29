@@ -67,7 +67,7 @@ agent/
 ```
 
 Here `agent/` denotes the staged and installed agent root
-`WPMU_PLUGIN_DIR/duo/`; `agent/adapter-library/` is not an authoring source and
+`WPMU_PLUGIN_DIR/wprism/`; `agent/adapter-library/` is not an authoring source and
 must not be manufactured as scratch under the checkout's real `agent/`.
 Assembly copies only files admitted by the package and platform schemas. An
 undeclared PHP file, symlink, special node, path escape, test, fixture, evidence
@@ -76,14 +76,14 @@ file, or authoring document is a build refusal, not an extra archive member.
 `cli/src/Onboarding/Adopt.php` builds this projection through the package
 assembler, rejects non-allowlisted members, and tars exactly `agent recovery`.
 Recovery continues to ship as its own public runtime and to be staged under
-`repo_path/.duo/control/recovery-runtime/`; it is not part of an adapter
+`repo_path/.wprism/control/recovery-runtime/`; it is not part of an adapter
 package.
 
 The package library is embedded in the agent root for atomicity. Separate
 deployed engine, adapter, and platform roots would allow
 a request to observe an engine from one release with library bytes from
-another. A complete `duo/` root rename instead publishes the engine and its
-allowlisted library together. The top-level `duo-loader.php` remains a separate
+another. A complete `wprism/` root rename instead publishes the engine and its
+allowlisted library together. The top-level `wprism-loader.php` remains a separate
 WordPress-required surface.
 
 ## Runtime resolution
@@ -92,7 +92,7 @@ The installed agent resolves exactly its embedded `adapter-library/`. There is
 no runtime compatibility search and no silent fallback.
 
 Production no longer has a process-global manifest-directory selector, sibling
-flat-library search, or `/duo-manifests` fallback. Interpreter, provider,
+flat-library search, or `/wprism-manifests` fallback. Interpreter, provider,
 regenerator, disposition, identity, catalog, certification, and frozen-policy
 reads resolve through an explicit `AdapterLibrary`; the installed production
 context is the embedded projection.
@@ -143,7 +143,7 @@ The forward transaction was:
    unresolved legacy environment override, or unresolved revocation document.
 3. Construct `agent_new` completely, including `adapter-library/`, before
    recording its final publish-source identity.
-4. Record the old agent, loader, `.duo` authority, and legacy flat-manifest
+4. Record the old agent, loader, `.wprism` authority, and legacy flat-manifest
    identity or absence.
 5. Publish the new agent root, then the loader. The new agent can immediately
    read the matching embedded library; until the agent move, the old agent can
@@ -151,14 +151,14 @@ The forward transaction was:
 6. Retire `WPMU_PLUGIN_DIR/manifests` by moving it to the transaction's owned
    backup. This is a journaled retirement whose required new live state is
    absence, not a replacement flat directory.
-7. Publish the staged `.duo` authority and its recovery runtime.
+7. Publish the staged `.wprism` authority and its recovery runtime.
 8. In fresh processes, verify the exact agent version, exact embedded library,
    policy load, recovery authority, and transactional doctor. Also prove that
    the legacy path is not selected.
 9. Publish the existing mutation-free commit barrier. Only after the host has
    observed it may cleanup delete old roots and the retired flat library.
 
-Before that barrier, rollback restores `.duo`, restores the flat library,
+Before that barrier, rollback restores `.wprism`, restores the flat library,
 restores the loader, and restores the old agent. The critical dependency is
 that the flat library is live before the old agent becomes live. If a move or
 its immutable post-move proof is incomplete, retain the lock and journal for
@@ -180,21 +180,21 @@ For package layout to legacy layout, the bridge transaction:
    lock and journal.
 2. Publishes the flat legacy library while the package-layout agent is still
    live and ignores it.
-3. Publishes the legacy agent, then loader, then `.duo` authority.
+3. Publishes the legacy agent, then loader, then `.wprism` authority.
 4. Verifies the legacy agent resolves that exact flat library before commit.
 5. Cleans the old package-layout agent only after the commit barrier.
 
-Rollback of that reverse attempt restores `.duo` and loader, restores the
+Rollback of that reverse attempt restores `.wprism` and loader, restores the
 package-layout agent, and only then removes the newly published flat library.
 Thus each live agent always has its own library generation. Running the old
-checkout's unmodified `duo adopt` is not the reverse-migration procedure.
+checkout's unmodified `wprism adopt` is not the reverse-migration procedure.
 Retirement of the bridge and prior artifact requires an explicit dated fleet
 decision after the rollback window closes.
 
 ## Durable revocation control
 
 Operator revocations live at
-`WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json`, outside the replaceable
+`WPMU_PLUGIN_DIR/wprism-control/adapter-revocations.json`, outside the replaceable
 agent and its embedded library. Live and frozen verification read that explicit
 control document alongside the installed `AdapterLibrary`. A target still
 holding the historical flat-library document must first carry a byte-identical
@@ -204,8 +204,8 @@ runtime directory override or fallback exists.
 
 ## Sandbox and archive evidence
 
-The pair estate exports `DUO_AGENT_SRC`, `DUO_ADAPTER_PACKAGES_SRC`, and
-`DUO_PLATFORM_SRC`, persists them to Compose configuration, and checks
+The pair estate exports `WPRISM_AGENT_SRC`, `WPRISM_ADAPTER_PACKAGES_SRC`, and
+`WPRISM_PLATFORM_SRC`, persists them to Compose configuration, and checks
 dirtiness across those three candidate roots. Both web containers mount the
 same selected Git worktree, and candidate evidence is bound to cleanliness
 across every shipped input.

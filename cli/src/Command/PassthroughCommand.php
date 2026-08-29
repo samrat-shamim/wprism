@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
@@ -34,7 +34,7 @@ final class PassthroughCommand {
                 );
             }
         }
-        return $driver->streamWp(array_merge(['duo', $verb, '--repo=' . $driver->repoPath()], $extra));
+        return $driver->streamWp(array_merge(['wprism', $verb, '--repo=' . $driver->repoPath()], $extra));
     }
 
     /**
@@ -111,7 +111,7 @@ final class PassthroughCommand {
                 $extra,
                 'stdin_isolation_unavailable',
                 'this PHP host cannot isolate and bound secret input delivery',
-                'enable PHP process/stream functions or run wp duo env-set directly on the target'
+                'enable PHP process/stream functions or run wp wprism env-set directly on the target'
             );
         }
         if (!$stdinIsTty()) {
@@ -129,7 +129,7 @@ final class PassthroughCommand {
             $handoffActive = false;
             return self::streamWpInput(
                 $driver,
-                array_merge(['duo', 'env-set', '--repo=' . $driver->repoPath()], $extra),
+                array_merge(['wprism', 'env-set', '--repo=' . $driver->repoPath()], $extra),
                 $line,
                 $handoffActive,
                 $monotonicTime,
@@ -217,7 +217,7 @@ final class PassthroughCommand {
             if (!$restored) {
                 fwrite(
                     STDERR,
-                    "duo: env-set: terminal echo could not be restored; run `stty echo` now\n"
+                    "wprism: env-set: terminal echo could not be restored; run `stty echo` now\n"
                 );
             }
         }
@@ -238,7 +238,7 @@ final class PassthroughCommand {
         try {
             $exitCode = self::streamWpInput(
                 $driver,
-                array_merge(['duo', 'env-set', '--repo=' . $driver->repoPath()], $extra),
+                array_merge(['wprism', 'env-set', '--repo=' . $driver->repoPath()], $extra),
                 $line,
                 $handoffActive,
                 $monotonicTime,
@@ -251,7 +251,7 @@ final class PassthroughCommand {
         if (is_int($deferredSignal)) {
             fwrite(
                 STDERR,
-                "duo: env-set: target completed with exit $exitCode after deferred signal $deferredSignal\n"
+                "wprism: env-set: target completed with exit $exitCode after deferred signal $deferredSignal\n"
             );
         }
         return $exitCode;
@@ -349,7 +349,7 @@ final class PassthroughCommand {
             $seconds = rtrim(rtrim(sprintf('%.3f', $outcomeTimeoutSeconds), '0'), '.');
             fwrite(
                 STDERR,
-                "duo: env-set: target outcome timed out after {$seconds}s; the remote write may still complete. "
+                "wprism: env-set: target outcome timed out after {$seconds}s; the remote write may still complete. "
                     . 'Retry the identical --stdin value: env-set is idempotent, and plan remains red until '
                     . "the live value matches the target-local intended binding.\n"
             );
@@ -490,7 +490,7 @@ final class PassthroughCommand {
             if (!$restored) {
                 fwrite(
                     STDERR,
-                    "duo: env-set: terminal echo could not be restored; run `stty echo` now\n"
+                    "wprism: env-set: terminal echo could not be restored; run `stty echo` now\n"
                 );
                 exit(128 + $caught);
             }
@@ -498,7 +498,7 @@ final class PassthroughCommand {
             if ($handoffActive && defined('SIGTSTP') && $caught === constant('SIGTSTP')) {
                 fwrite(
                     STDERR,
-                    "duo: env-set: suspension received after secret handoff; suspending the local wait; the target may continue\n"
+                    "wprism: env-set: suspension received after secret handoff; suspending the local wait; the target may continue\n"
                 );
                 // Foreground Ctrl-Z stops the local child/transport too. Stop
                 // the wrapper so shell job control owns one coherent local
@@ -509,7 +509,7 @@ final class PassthroughCommand {
                 }
                 fwrite(
                     STDERR,
-                    "duo: env-set: could not preserve suspension after secret handoff; waiting for the target outcome\n"
+                    "wprism: env-set: could not preserve suspension after secret handoff; waiting for the target outcome\n"
                 );
                 return;
             }
@@ -519,7 +519,7 @@ final class PassthroughCommand {
                     $deferredSignal = $caught;
                     fwrite(
                         STDERR,
-                        "duo: env-set: signal $caught received after secret handoff; waiting for the target outcome\n"
+                        "wprism: env-set: signal $caught received after secret handoff; waiting for the target outcome\n"
                     );
                 }
                 return;
@@ -566,7 +566,7 @@ final class PassthroughCommand {
         $echoMasked = !$setTerminalEcho(true);
         fwrite(
             STDERR,
-            "duo: env-set: terminal echo could not be disabled again after an interrupt; secret input was stopped\n"
+            "wprism: env-set: terminal echo could not be disabled again after an interrupt; secret input was stopped\n"
         );
         exit(128 + $caught);
     }
@@ -659,11 +659,11 @@ final class PassthroughCommand {
                     $extra,
                     'scope_contract_invalid',
                     'the local scope contract is malformed, tampered, or unsupported',
-                    'generate a fresh contract with duo scope --contract and retry the command'
+                    'generate a fresh contract with wprism scope --contract and retry the command'
                 );
             }
         }
-        return $driver->streamWp(array_merge(['duo', $verb, '--repo=' . $driver->repoPath()], $forward));
+        return $driver->streamWp(array_merge(['wprism', $verb, '--repo=' . $driver->repoPath()], $forward));
     }
 
     public static function hasJsonFlag(array $extra): bool {
@@ -704,7 +704,7 @@ final class PassthroughCommand {
         if (CommandOutput::wantsAgentRefusalJson($verb, $extra) || self::hasJsonFlag($extra)) {
             return CommandOutput::renderRefusalJson($verb, $reasonCode, $message, $remediation);
         }
-        fwrite(STDERR, "duo: $verb: $message; $remediation\n");
+        fwrite(STDERR, "wprism: $verb: $message; $remediation\n");
         return 2;
     }
 
@@ -723,19 +723,19 @@ final class PassthroughCommand {
         if ($bytes === false || strlen($bytes) > 4 * 1024 * 1024) {
             throw new \RuntimeException('cannot read bounded local scope contract');
         }
-        $decoded = \Duo\Canon::decode($bytes);
+        $decoded = \WPrism\Canon::decode($bytes);
         if (!is_array($decoded)) {
             throw new \RuntimeException('scope contract must be one object');
         }
-        $contract = \Duo\ScopeContract::from_array($decoded);
+        $contract = \WPrism\ScopeContract::from_array($decoded);
         $request = [
-            'format' => 'duo-scope-request/v1',
+            'format' => 'wprism-scope-request/v1',
             'scope_hash' => (string) $contract['scope_hash'],
             'selectors' => $contract['selectors'],
         ];
         return [
             'contract' => $contract,
-            'request_b64' => base64_encode(\Duo\Canon::encode($request)),
+            'request_b64' => base64_encode(\WPrism\Canon::encode($request)),
         ];
     }
 }

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Immutable typed view of the durable `promotion_session` checkpoint.
@@ -145,7 +145,7 @@ final class PromotionSessionJournal {
         }
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) {
-            throw new \RuntimeException('duo: malformed promotion session record; refusing to guess checkpoint ownership');
+            throw new \RuntimeException('wprism: malformed promotion session record; refusing to guess checkpoint ownership');
         }
         return self::assertSession($decoded);
     }
@@ -162,7 +162,7 @@ final class PromotionSessionJournal {
         if (!hash_equals($owner, $record->owner())
             || !hash_equals($artifactHash, $record->artifactHash())) {
             throw new \RuntimeException(
-                'duo: promotion session belongs to a different owner/artifact; refusing cross-session inspection'
+                'wprism: promotion session belongs to a different owner/artifact; refusing cross-session inspection'
             );
         }
         return $record;
@@ -174,7 +174,7 @@ final class PromotionSessionJournal {
             ? wp_json_encode($payload)
             : json_encode($payload, JSON_UNESCAPED_SLASHES);
         if (!is_string($encoded)) {
-            throw new \RuntimeException('duo: promotion session could not be encoded');
+            throw new \RuntimeException('wprism: promotion session could not be encoded');
         }
         Ledger::kv_set(self::KEY, $encoded);
     }
@@ -219,7 +219,7 @@ final class PromotionSessionJournal {
             || $expected->begunAt() !== $next->begunAt()
             || ($expected->sessionId() ?? '') !== ($next->sessionId() ?? '')) {
             throw new \RuntimeException(
-                'duo: promotion session transition cannot change its owner, artifact, or generation'
+                'wprism: promotion session transition cannot change its owner, artifact, or generation'
             );
         }
         $expectedPayload = $expected->toArray();
@@ -231,13 +231,13 @@ final class PromotionSessionJournal {
             ];
             foreach ($scopedKeys as $key) {
                 if (($expectedPayload[$key] ?? null) !== ($nextPayload[$key] ?? null)) {
-                    throw new \RuntimeException('duo: scoped promotion session authority metadata is immutable');
+                    throw new \RuntimeException('wprism: scoped promotion session authority metadata is immutable');
                 }
             }
         }
         $current = self::read();
         if ($current === null || !self::same($current, $expected)) {
-            throw new \RuntimeException('duo: promotion session changed before its typed transition');
+            throw new \RuntimeException('wprism: promotion session changed before its typed transition');
         }
         self::write($next);
     }
@@ -275,7 +275,7 @@ final class PromotionSessionJournal {
         if (!hash_equals($this->owner, $current->owner())
             || !hash_equals($this->artifactHash, $current->artifactHash())) {
             throw new \RuntimeException(
-                'duo: promotion session belongs to a different owner/artifact; refusing cross-session inspection'
+                'wprism: promotion session belongs to a different owner/artifact; refusing cross-session inspection'
             );
         }
         return $current;

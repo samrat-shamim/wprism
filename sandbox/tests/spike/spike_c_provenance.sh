@@ -22,7 +22,7 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 if ! wp_c core is-installed >/dev/null 2>&1; then
-  wp_c core install --url="$C" --title="Duo C" --admin_user=admin --admin_password=admin \
+  wp_c core install --url="$C" --title="WPrism C" --admin_user=admin --admin_password=admin \
     --admin_email=admin@example.test --skip-email
 fi
 
@@ -64,30 +64,30 @@ say "enable HPOS (wc_orders custom table) — must run before any order exists"
 wp_c wc hpos enable || fail "could not enable HPOS (custom order tables)"
 
 say "store setup (baseline writes; journaled as cli => review)"
-wp_c option update woocommerce_store_address '1 Duo Way' >/dev/null
-wp_c option update woocommerce_store_city 'Duotown' >/dev/null
+wp_c option update woocommerce_store_address '1 WPrism Way' >/dev/null
+wp_c option update woocommerce_store_city 'WPrismtown' >/dev/null
 wp_c option update woocommerce_store_postcode '10115' >/dev/null
 wp_c option update woocommerce_default_country 'DE:BE' >/dev/null
 wp_c option update woocommerce_currency 'EUR' >/dev/null
 wp_c option update woocommerce_coming_soon 'no' >/dev/null 2>&1 || true
 wp_c option update --format=json woocommerce_cod_settings \
   '{"enabled":"yes","title":"COD","description":"","instructions":"","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null
-PID=$(wp_c wc product create --name='Duo Widget' --type=simple --virtual=true \
+PID=$(wp_c wc product create --name='WPrism Widget' --type=simple --virtual=true \
   --regular_price=10 --manage_stock=true --stock_quantity=5 --status=publish \
   --user=admin --porcelain)
 pass "product $PID created with stock 5"
 
 say "reset journal — scenario traffic starts here"
-wp_c duo journal-reset >/dev/null
+wp_c wprism journal-reset >/dev/null
 
 say "scenario 1: ADMIN authored actions over authenticated REST"
-APP_PASS=$(wp_c user application-password create admin duo-spike --porcelain)
+APP_PASS=$(wp_c user application-password create admin wprism-spike --porcelain)
 CITY=$(curl -fsu "admin:$APP_PASS" -X PUT "$C/wp-json/wc/v3/settings/general/woocommerce_store_city" \
   -H 'Content-Type: application/json' -d '{"value":"Berlin"}' | jq -r '.value')
 [ "$CITY" = "Berlin" ] || fail "admin REST settings write failed"
 NAME=$(curl -fsu "admin:$APP_PASS" -X PUT "$C/wp-json/wc/v3/products/$PID" \
-  -H 'Content-Type: application/json' -d '{"name":"Duo Widget Pro"}' | jq -r '.name')
-[ "$NAME" = "Duo Widget Pro" ] || fail "admin REST product write failed"
+  -H 'Content-Type: application/json' -d '{"name":"WPrism Widget Pro"}' | jq -r '.name')
+[ "$NAME" = "WPrism Widget Pro" ] || fail "admin REST product write failed"
 pass "admin REST writes done (store city, product rename)"
 
 say "scenario 2: ANONYMOUS Store API checkout (runtime writes)"
@@ -105,8 +105,8 @@ STOCK=$(wp_c wc product get "$PID" --field=stock_quantity --user=admin)
 pass "anonymous order #$ORDER_ID placed; stock 5 -> 3"
 
 say "journal report vs manifest ground truth"
-wp_c duo journal-report --manifests=core,woocommerce
-REPORT=$(wp_c duo journal-report --manifests=core,woocommerce --json | tail -1)
+wp_c wprism journal-report --manifests=core,woocommerce
+REPORT=$(wp_c wprism journal-report --manifests=core,woocommerce --json | tail -1)
 
 check_row() { # jq filter, description
   echo "$REPORT" | jq -e "$1" >/dev/null || fail "$2"
@@ -124,17 +124,17 @@ DISAGREE_ROWS=$(echo "$REPORT" | jq -r '[.rows[] | select(.verdict=="disagree")]
 pass "key rows agree; agreement on manifest-classified writes: ${AGREE}% (disagreeing row groups: $DISAGREE_ROWS — mixed-class requests, e.g. transients written during admin REST, exactly design finding #2)"
 
 say "journal overhead (30 anonymous front-page requests, on vs off)"
-# DUO_JOURNAL (wp-config.php) is sourced from WORDPRESS_CONFIG_EXTRA and
+# WPRISM_JOURNAL (wp-config.php) is sourced from WORDPRESS_CONFIG_EXTRA and
 # eval()'d fresh every request straight from the container's environment —
 # neither `wp config set` nor editing the file can override it without
 # recreating the container (verified: PHP's define() keeps the first value
-# and just warns on the second; the file has no literal DUO_JOURNAL line to
+# and just warns on the second; the file has no literal WPRISM_JOURNAL line to
 # edit in the first place). Journal::boot() checks this option as a live
 # kill switch for exactly this measurement instead.
 t_on=$(for _ in $(seq 1 30); do curl -so /dev/null -w '%{time_total}\n' "$C/"; done | awk '{s+=$1} END {printf "%.1f", s/NR*1000}')
-wp_c option update duo_journal_disabled 1 >/dev/null
+wp_c option update wprism_journal_disabled 1 >/dev/null
 t_off=$(for _ in $(seq 1 30); do curl -so /dev/null -w '%{time_total}\n' "$C/"; done | awk '{s+=$1} END {printf "%.1f", s/NR*1000}')
-wp_c option delete duo_journal_disabled >/dev/null
+wp_c option delete wprism_journal_disabled >/dev/null
 echo "avg request: journal ON ${t_on}ms vs OFF ${t_off}ms"
 
 printf '\n\033[1;32m✔ SPIKE C PASSED\033[0m\n'

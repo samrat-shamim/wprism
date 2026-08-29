@@ -1,7 +1,7 @@
 <?php
 /**
- * Offline regression for the shared site.duo.json validation sequence
- * (DUO-3348 slice 29).
+ * Offline regression for the shared site.wprism.json validation sequence
+ * (issue #3348 slice 29).
  *
  * Policy::load() and Policy::from_snapshot() used to carry duplicate calls to
  * the same eight pure site-policy grammars. This suite drives the extracted
@@ -10,8 +10,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../../../agent/src/Policy/SitePolicyValidator.php';
@@ -20,10 +20,10 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Canon;
-use Duo\Policy;
-use Duo\SitePolicyValidator;
-use DuoTest\FrozenPolicy;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\SitePolicyValidator;
+use WPrismTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -55,7 +55,7 @@ $baseSite = [
 ];
 
 try {
-    SitePolicyValidator::validate($baseSite, 'site.duo.json', Policy::CLASSES, ['block', 'warn']);
+    SitePolicyValidator::validate($baseSite, 'site.wprism.json', Policy::CLASSES, ['block', 'warn']);
     $check(true, 'valid legacy site policy is accepted');
 } catch (Throwable $e) {
     $check(false, 'valid legacy site policy is accepted (threw: ' . $e->getMessage() . ')');
@@ -88,7 +88,7 @@ $badEnv['policy']['options'] = [
     'acme_secret' => ['class' => 'env'],
 ];
 $assertThrows(
-    fn() => SitePolicyValidator::validate($badEnv, 'frozen site.duo.json', Policy::CLASSES, ['block', 'warn']),
+    fn() => SitePolicyValidator::validate($badEnv, 'frozen site.wprism.json', Policy::CLASSES, ['block', 'warn']),
     'needs an explicit boolean',
     'site validation preserves frozen refusal labels/order'
 );
@@ -98,7 +98,7 @@ $badSubKeys['policy']['options'] = [
     'acme_runtime' => ['class' => 'runtime', 'sub_keys' => []],
 ];
 $assertThrows(
-    fn() => SitePolicyValidator::validate($badSubKeys, 'frozen site.duo.json', Policy::CLASSES, ['block', 'warn']),
+    fn() => SitePolicyValidator::validate($badSubKeys, 'frozen site.wprism.json', Policy::CLASSES, ['block', 'warn']),
     'declares options.acme_runtime.sub_keys but it is not a non-empty object',
     'site validation reaches the SubKeyGrammar site-policy gate'
 );
@@ -106,7 +106,7 @@ $assertThrows(
 $badPolicyType = $baseSite;
 $badPolicyType['policy'] = 'not-an-object';
 try {
-    SitePolicyValidator::validate($badPolicyType, 'site.duo.json', Policy::CLASSES, ['block', 'warn']);
+    SitePolicyValidator::validate($badPolicyType, 'site.wprism.json', Policy::CLASSES, ['block', 'warn']);
     $check(false, 'scalar site policy remains a typed refusal');
 } catch (TypeError $e) {
     $check(true, 'scalar site policy remains a typed refusal');
@@ -147,7 +147,7 @@ $check(
 
 $snapshot = FrozenPolicy::envelope([manifest_a()], $baseSite + [
     'manifests' => ['a'],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]);
 try {
     manifest_fixture_policy_from_snapshot($snapshot);
@@ -156,11 +156,11 @@ try {
     $check(false, 'Policy::from_snapshot() reaches the extracted site validator (threw: ' . $e->getMessage() . ')');
 }
 
-$root = sys_get_temp_dir() . '/duo_regress_site_policy_validator_' . bin2hex(random_bytes(4));
+$root = sys_get_temp_dir() . '/wprism_regress_site_policy_validator_' . bin2hex(random_bytes(4));
 $manifests = $root . '/manifests';
 mkdir($manifests, 0777, true);
 manifest_fixture_code($manifests);
-Canon::write_file($root . '/site.duo.json', Canon::encode($snapshot['site']));
+Canon::write_file($root . '/site.wprism.json', Canon::encode($snapshot['site']));
 Canon::write_file($manifests . '/a.json', Canon::encode(manifest_a()));
 $adapterLibrary = manifest_fixture_adapter_library($manifests);
 try {

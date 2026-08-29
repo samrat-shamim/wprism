@@ -1,18 +1,18 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/PassthroughCommand.php';
 require_once __DIR__ . '/../Refresh/Refresh.php';
 require_once __DIR__ . '/../Refresh/RefreshFieldDiff.php';
-// DUO-3523: rendered here, so this file requires it. `require_once` and safe
-// in every load order: cli/duo pulls CodeResolveCommand.php in with
-// `require_once` too (cli/duo:98, and DeployCommand.php:43 before it), and the
-// only dependency of that file which cli/duo plain-`require`s —
-// EnvironmentDriver.php — is already loaded by cli/duo:17.
+// issue #3523: rendered here, so this file requires it. `require_once` and safe
+// in every load order: cli/wprism pulls CodeResolveCommand.php in with
+// `require_once` too (cli/wprism:98, and DeployCommand.php:43 before it), and the
+// only dependency of that file which cli/wprism plain-`require`s —
+// EnvironmentDriver.php — is already loaded by cli/wprism:17.
 require_once __DIR__ . '/CodeResolveCommand.php';
 
 /** Host command boundary for semantic refresh planning and field-diff output. */
@@ -29,7 +29,7 @@ final class RefreshCommand {
             $json = ($flags['--format'] ?? null) === 'json';
             if (!isset($flags['--production-ref'])
                 || array_diff(array_keys($flags), ['--production-ref', '--scope-contract', '--field-diff', '--format']) !== []) {
-                throw new \RuntimeException('duo refresh requires --production-ref=<ref>, with optional --scope-contract=<local-path>, --field-diff, and --format=json');
+                throw new \RuntimeException('wprism refresh requires --production-ref=<ref>, with optional --scope-contract=<local-path>, --field-diff, and --format=json');
             }
             if ($fieldDiff && isset($flags['--scope-contract'])) {
                 $refusal = self::refusal('scoped_unsupported');
@@ -40,7 +40,7 @@ final class RefreshCommand {
             } elseif ($json) {
                 // `--format=json` without `--field-diff` used to be refused
                 // outright, so this branch had no refusal of its own. It now
-                // publishes the already-canonical duo-refresh-plan/v1, and a
+                // publishes the already-canonical wprism-refresh-plan/v1, and a
                 // machine caller that gets a refusal instead must be told
                 // which artifact was unavailable — not handed the argument
                 // refusal for arguments that were in fact valid.
@@ -64,19 +64,19 @@ final class RefreshCommand {
                     throw new \RuntimeException('field-level resolution is unavailable for this refresh plan');
                 }
                 if ($json) {
-                    echo \Duo\Canon::encode($result['field_diff']);
+                    echo \WPrism\Canon::encode($result['field_diff']);
                     return 0;
                 }
                 self::renderFieldDiff($result['field_diff']);
                 return 0;
             }
             if ($json) {
-                // The plan is ALREADY canonical duo-refresh-plan/v1 and
+                // The plan is ALREADY canonical wprism-refresh-plan/v1 and
                 // already hash-bound (RefreshPlan::normalizePlan()); it is
                 // emitted verbatim rather than re-projected, so a CI job and
                 // the immutable journal record read the identical bytes.
                 // Canon::encode() terminates with LF (Canon.php:102).
-                echo \Duo\Canon::encode($result['plan']);
+                echo \WPrism\Canon::encode($result['plan']);
                 return 0;
             }
             self::renderPlan($result);
@@ -86,11 +86,11 @@ final class RefreshCommand {
                 return CommandOutput::renderRefusalJson('refresh', $refusal['reason'], $refusal['message'], $refusal['remediation']);
             }
             if ($fieldDiff) {
-                fwrite(STDERR, 'duo: refresh: ' . $refusal['message'] . "\n");
-                fwrite(STDERR, 'duo: refresh: remedy: ' . $refusal['remediation'] . "\n");
+                fwrite(STDERR, 'wprism: refresh: ' . $refusal['message'] . "\n");
+                fwrite(STDERR, 'wprism: refresh: remedy: ' . $refusal['remediation'] . "\n");
                 return 1;
             }
-            fwrite(STDERR, 'duo: refresh: ' . $e->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: refresh: ' . $e->getMessage() . "\n");
             return 1;
         }
     }
@@ -128,21 +128,21 @@ final class RefreshCommand {
         $flags = [];
         foreach ($extra as $arg) {
             if ($arg === '--field-diff') {
-                if (isset($flags[$arg])) throw new \RuntimeException("duo refresh: duplicate flag '$arg'");
+                if (isset($flags[$arg])) throw new \RuntimeException("wprism refresh: duplicate flag '$arg'");
                 $flags[$arg] = true;
                 continue;
             }
             if (!is_string($arg) || !str_starts_with($arg, '--') || !str_contains($arg, '=')) {
-                throw new \RuntimeException('duo refresh: expected --field-diff or --name=value flags');
+                throw new \RuntimeException('wprism refresh: expected --field-diff or --name=value flags');
             }
             [$name, $value] = explode('=', $arg, 2);
             if (!in_array($name, ['--production-ref', '--scope-contract', '--format'], true) || $value === '') {
-                throw new \RuntimeException("duo refresh: unsupported or empty flag '$arg'");
+                throw new \RuntimeException("wprism refresh: unsupported or empty flag '$arg'");
             }
             if ($name === '--format' && $value !== 'json') {
-                throw new \RuntimeException('duo refresh: --format must be json');
+                throw new \RuntimeException('wprism refresh: --format must be json');
             }
-            if (isset($flags[$name])) throw new \RuntimeException("duo refresh: duplicate flag '$name'");
+            if (isset($flags[$name])) throw new \RuntimeException("wprism refresh: duplicate flag '$name'");
             $flags[$name] = $value;
         }
         return $flags;
@@ -164,7 +164,7 @@ final class RefreshCommand {
             'plan_unavailable' => [
                 'reason' => 'plan_unavailable',
                 'message' => 'the semantic refresh plan is unavailable for this request',
-                'remediation' => 'verify the production target is reachable, clean, at --production-ref, and supports refresh-export, then rerun duo refresh --format=json',
+                'remediation' => 'verify the production target is reachable, clean, at --production-ref, and supports refresh-export, then rerun wprism refresh --format=json',
             ],
             default => [
                 'reason' => 'invalid_arguments',

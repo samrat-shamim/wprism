@@ -1,7 +1,7 @@
 {
-    "claim_digest": "sha256:62c373c0343be231d14c3a5e1f22a363dbe299793846209dc57e8538b4cb281f",
+    "claim_digest": "sha256:08e89af4371da259274717ff50df858fc40067f1c3be6be836c9121fbfaddee6",
     "covered_resources": [
-        "encrypted database checkpoint /siterepo/.duo/checkpoints/promote-1.sql.enc"
+        "encrypted database checkpoint /siterepo/.wprism/checkpoints/promote-1.sql.enc"
     ],
     "does_not_restore": [
         "emails already sent",
@@ -14,7 +14,7 @@
         "provider effect bundles — no inverse effect operation is authorized in this profile",
         "declared external effect \"code-lifecycle-window\" — restored by \"code release\", which the operator-directed profile does not restore"
     ],
-    "format": "duo-recovery-claim/v1",
+    "format": "wprism-recovery-claim/v1",
     "maximum_loss_boundary": "writes committed after the checkpoint this release takes immediately before mutation; the instant that checkpoint pins is printed beside this claim",
     "profile": "operator-directed",
     "restores": [

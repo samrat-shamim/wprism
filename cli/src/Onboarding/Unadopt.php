@@ -1,26 +1,26 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/Transport.php';
 
 /** Ownership-checked, evidence-preserving removal of the adopted control plane. */
 final class Unadopt {
-    public const PLAN_FORMAT = 'duo-unadopt-plan/v1';
-    public const RECEIPT_FORMAT = 'duo-unadopt-archive/v1';
+    public const PLAN_FORMAT = 'wprism-unadopt-plan/v1';
+    public const RECEIPT_FORMAT = 'wprism-unadopt-archive/v1';
 
     /** @return array<string,mixed> */
     public static function plan(AdoptionTransport $transport, string $archive): array {
         $archive = self::normalizeArchive($archive);
         $repo = rtrim($transport->repoPath(), '/');
         if ($repo === '' || $repo === '/' || !str_starts_with($repo, '/')) {
-            throw new \RuntimeException('duo: unadopt requires an absolute non-root repository path');
+            throw new \RuntimeException('wprism: unadopt requires an absolute non-root repository path');
         }
         $muResult = $transport->captureWp(['eval', 'echo WPMU_PLUGIN_DIR;']);
         $mu = rtrim(trim($muResult['stdout']), '/');
         if ($muResult['exit'] !== 0 || $mu === '' || $mu === '/' || !str_starts_with($mu, '/')) {
-            throw new \RuntimeException('duo: unadopt could not discover the installed MU-plugin directory');
+            throw new \RuntimeException('wprism: unadopt could not discover the installed MU-plugin directory');
         }
         self::assertDisjointArchive($archive, $repo, $mu);
 
@@ -28,7 +28,7 @@ final class Unadopt {
         if ($probe['exit'] !== 0) {
             $detail = trim($probe['stderr'] !== '' ? $probe['stderr'] : $probe['stdout']);
             throw new \RuntimeException(
-                'duo: unadopt ownership preflight failed'
+                'wprism: unadopt ownership preflight failed'
                 . ($detail !== '' ? ': ' . $detail : '')
             );
         }
@@ -40,17 +40,17 @@ final class Unadopt {
         }
         foreach (['agent_version', 'agent_sha256', 'loader_sha256', 'control_sha256', 'site_identity'] as $key) {
             if (!isset($rows[$key]) || trim($rows[$key]) === '') {
-                throw new \RuntimeException("duo: unadopt ownership probe omitted $key");
+                throw new \RuntimeException("wprism: unadopt ownership probe omitted $key");
             }
         }
         foreach (['agent_sha256', 'loader_sha256', 'control_sha256'] as $key) {
             if (preg_match('/^[a-f0-9]{64}$/D', $rows[$key]) !== 1) {
-                throw new \RuntimeException("duo: unadopt ownership probe returned malformed $key");
+                throw new \RuntimeException("wprism: unadopt ownership probe returned malformed $key");
             }
         }
         if ($rows['site_identity'] !== 'absent'
             && preg_match('/^[a-f0-9]{64}$/D', $rows['site_identity']) !== 1) {
-            throw new \RuntimeException('duo: unadopt ownership probe returned a malformed site boundary');
+            throw new \RuntimeException('wprism: unadopt ownership probe returned a malformed site boundary');
         }
 
         $plan = [
@@ -60,19 +60,19 @@ final class Unadopt {
             'repository' => $repo,
             'mu_plugins' => $mu,
             'surfaces' => [
-                ['kind' => 'directory', 'name' => 'agent', 'path' => $mu . '/duo', 'sha256' => $rows['agent_sha256']],
-                ['kind' => 'file', 'name' => 'loader', 'path' => $mu . '/duo-loader.php', 'sha256' => $rows['loader_sha256']],
-                ['kind' => 'directory', 'name' => 'control', 'path' => $repo . '/.duo', 'sha256' => $rows['control_sha256']],
+                ['kind' => 'directory', 'name' => 'agent', 'path' => $mu . '/wprism', 'sha256' => $rows['agent_sha256']],
+                ['kind' => 'file', 'name' => 'loader', 'path' => $mu . '/wprism-loader.php', 'sha256' => $rows['loader_sha256']],
+                ['kind' => 'directory', 'name' => 'control', 'path' => $repo . '/.wprism', 'sha256' => $rows['control_sha256']],
             ],
             'preserved_in_place' => [
-                $repo . '/site.duo.json',
+                $repo . '/site.wprism.json',
                 $repo . '/code',
                 $repo . '/media',
                 $repo . '/state',
                 $repo . '/.git',
                 $repo . '/.gitattributes',
                 $repo . '/.gitignore',
-                $mu . '/duo-control',
+                $mu . '/wprism-control',
             ],
             'site_identity' => $rows['site_identity'],
         ];
@@ -116,11 +116,11 @@ final class Unadopt {
             }
             $absence = $transport->captureWp([
                 'eval',
-                'echo defined("DUO_AGENT_VERSION") ? "duo-present" : "duo-absent";',
+                'echo defined("WPRISM_AGENT_VERSION") ? "wprism-present" : "wprism-absent";',
             ]);
-            if ($absence['exit'] !== 0 || trim($absence['stdout']) !== 'duo-absent') {
+            if ($absence['exit'] !== 0 || trim($absence['stdout']) !== 'wprism-absent') {
                 $absence['stderr'] .= ($absence['stderr'] !== '' ? "\n" : '')
-                    . 'Duo remained loaded after its MU loader was staged out';
+                    . 'WPrism remained loaded after its MU loader was staged out';
                 self::rollback($transport, $fresh, $token, $absence);
                 $staged = false;
                 return self::fromTransport('control-plane absence verification', $absence);
@@ -152,7 +152,7 @@ final class Unadopt {
                     $detail = trim($rollbackError->getMessage());
                     throw new \RuntimeException(
                         ($interrupted instanceof \Throwable ? $interrupted->getMessage() . "\n" : '')
-                        . 'duo: unadopt rollback could not be confirmed'
+                        . 'wprism: unadopt rollback could not be confirmed'
                         . ($detail !== '' ? ': ' . $detail : ''),
                         0,
                         $interrupted
@@ -174,9 +174,9 @@ final class Unadopt {
             'surfaces' => array_map(
                 static fn(array $surface): array => [
                     'archive_path' => match ($surface['name']) {
-                        'agent' => 'mu-plugins/duo',
-                        'loader' => 'mu-plugins/duo-loader.php',
-                        'control' => 'repository/.duo',
+                        'agent' => 'mu-plugins/wprism',
+                        'loader' => 'mu-plugins/wprism-loader.php',
+                        'control' => 'repository/.wprism',
                     },
                     'name' => $surface['name'],
                     'sha256' => $surface['sha256'],
@@ -192,29 +192,29 @@ final class Unadopt {
         $fingerprint = self::fingerprintPhp();
         $recognize = '$loader = @file_get_contents($argv[1]); $agent = @file_get_contents($argv[2]); '
             . '$runtime = $argv[3]; if (!is_string($loader) || !is_string($agent) '
-            . '|| strpos($loader, "require_once __DIR__ . \'/duo/duo.php\';") === false '
-            . '|| preg_match("/define\\(\\s*\'DUO_AGENT_VERSION\'\\s*,\\s*\'([^\']+)\'\\s*\\)/", $agent, $m) !== 1 '
+            . '|| strpos($loader, "require_once __DIR__ . \'/wprism/wprism.php\';") === false '
+            . '|| preg_match("/define\\(\\s*\'WPRISM_AGENT_VERSION\'\\s*,\\s*\'([^\']+)\'\\s*\\)/", $agent, $m) !== 1 '
             . '|| !is_file($runtime) || is_link($runtime)) { exit(1); } echo $m[1];';
         $archiveParent = dirname($archive);
         return 'set -eu' . "\n"
             . 'mu=' . $q($mu) . '; repo=' . $q($repo) . '; archive=' . $q($archive) . "\n"
-            . 'agent="$mu/duo"; loader="$mu/duo-loader.php"; control="$repo/.duo"' . "\n"
+            . 'agent="$mu/wprism"; loader="$mu/wprism-loader.php"; control="$repo/.wprism"' . "\n"
             . '[ -d "$agent" ] && [ ! -L "$agent" ] && [ -f "$loader" ] && [ ! -L "$loader" ] '
-                . '&& [ -d "$control" ] && [ ! -L "$control" ] || { echo "installed Duo surfaces are absent or unsafe" >&2; exit 1; }' . "\n"
-            . '[ ! -e "$mu/.duo-adopt-lock" ] && [ ! -L "$mu/.duo-adopt-lock" ] '
-                . '&& [ ! -e "$mu/.duo-unadopt-lock" ] && [ ! -L "$mu/.duo-unadopt-lock" ] '
+                . '&& [ -d "$control" ] && [ ! -L "$control" ] || { echo "installed WPrism surfaces are absent or unsafe" >&2; exit 1; }' . "\n"
+            . '[ ! -e "$mu/.wprism-adopt-lock" ] && [ ! -L "$mu/.wprism-adopt-lock" ] '
+                . '&& [ ! -e "$mu/.wprism-unadopt-lock" ] && [ ! -L "$mu/.wprism-unadopt-lock" ] '
                 . '|| { echo "a control-plane transaction is active or requires recovery" >&2; exit 1; }' . "\n"
             . '[ ! -e "$archive" ] && [ ! -L "$archive" ] || { echo "archive destination already exists" >&2; exit 1; }' . "\n"
             . 'php -r ' . $q('$p = $argv[1]; $r = realpath($p); exit(is_string($r) && $r === $p && is_dir($p) && !is_link($p) ? 0 : 1);')
                 . ' ' . $q($archiveParent) . ' || { echo "archive parent must be an existing normalized ordinary directory" >&2; exit 1; }' . "\n"
-            . 'version=$(php -r ' . $q($recognize) . ' "$loader" "$agent/duo.php" "$control/control/recovery-runtime/rollback-control.php") '
-                . '|| { echo "the installed paths do not identify a complete Duo control plane" >&2; exit 1; }' . "\n"
+            . 'version=$(php -r ' . $q($recognize) . ' "$loader" "$agent/wprism.php" "$control/control/recovery-runtime/rollback-control.php") '
+                . '|| { echo "the installed paths do not identify a complete WPrism control plane" >&2; exit 1; }' . "\n"
             . 'agent_hash=$(php -r ' . $q($fingerprint) . ' "$agent" directory) || { echo "agent tree contains an unreadable, linked, or special node" >&2; exit 1; }' . "\n"
             . 'loader_hash=$(php -r ' . $q($fingerprint) . ' "$loader" file) || { echo "loader is unreadable" >&2; exit 1; }' . "\n"
             . 'control_hash=$(php -r ' . $q($fingerprint) . ' "$control" directory) || { echo "control tree contains an unreadable, linked, or special node" >&2; exit 1; }' . "\n"
-            . 'site_identity=absent; if [ -e "$repo/site.duo.json" ] || [ -L "$repo/site.duo.json" ]; then '
-                . '[ -f "$repo/site.duo.json" ] && [ ! -L "$repo/site.duo.json" ] || { echo "site.duo.json boundary is unsafe" >&2; exit 1; }; '
-                . 'site_identity=$(php -r ' . $q($fingerprint) . ' "$repo/site.duo.json" file); fi' . "\n"
+            . 'site_identity=absent; if [ -e "$repo/site.wprism.json" ] || [ -L "$repo/site.wprism.json" ]; then '
+                . '[ -f "$repo/site.wprism.json" ] && [ ! -L "$repo/site.wprism.json" ] || { echo "site.wprism.json boundary is unsafe" >&2; exit 1; }; '
+                . 'site_identity=$(php -r ' . $q($fingerprint) . ' "$repo/site.wprism.json" file); fi' . "\n"
             . 'printf "agent_version=%s\\nagent_sha256=%s\\nloader_sha256=%s\\ncontrol_sha256=%s\\nsite_identity=%s\\n" '
                 . '"$version" "$agent_hash" "$loader_hash" "$control_hash" "$site_identity"';
     }
@@ -231,9 +231,9 @@ final class Unadopt {
         $fingerprint = self::fingerprintPhp();
         return 'set -eu' . "\n"
             . 'mu=' . $q($mu) . '; repo=' . $q($repo) . '; archive=' . $q($archive) . '; token=' . $q($token) . "\n"
-            . 'agent="$mu/duo"; loader="$mu/duo-loader.php"; control="$repo/.duo"' . "\n"
-            . 'agent_old="$mu/.duo-unadopt-agent-$token"; loader_old="$mu/.duo-loader-unadopt-$token"; control_old="$repo/.duo-unadopt-$token"' . "\n"
-            . 'lock="$mu/.duo-unadopt-lock"; txn="$lock/transaction"' . "\n"
+            . 'agent="$mu/wprism"; loader="$mu/wprism-loader.php"; control="$repo/.wprism"' . "\n"
+            . 'agent_old="$mu/.wprism-unadopt-agent-$token"; loader_old="$mu/.wprism-loader-unadopt-$token"; control_old="$repo/.wprism-unadopt-$token"' . "\n"
+            . 'lock="$mu/.wprism-unadopt-lock"; txn="$lock/transaction"' . "\n"
             . 'fingerprint() { php -r ' . $q($fingerprint) . ' "$1" "$2"; }' . "\n"
             . 'expected_agent=' . $q($agentHash) . '; expected_loader=' . $q($loaderHash)
                 . '; expected_control=' . $q($controlHash) . "\n"
@@ -242,8 +242,8 @@ final class Unadopt {
                 . 'if [ "$moved_control" -eq 1 ]; then [ ! -e "$control" ] && [ ! -L "$control" ] && [ "$(fingerprint "$control_old" directory)" = "$expected_control" ] && mv "$control_old" "$control" || failed=1; fi; '
                 . 'if [ "$moved_agent" -eq 1 ]; then [ ! -e "$agent" ] && [ ! -L "$agent" ] && [ "$(fingerprint "$agent_old" directory)" = "$expected_agent" ] && mv "$agent_old" "$agent" || failed=1; fi; '
                 . 'if [ "$moved_loader" -eq 1 ]; then [ ! -e "$loader" ] && [ ! -L "$loader" ] && [ "$(fingerprint "$loader_old" file)" = "$expected_loader" ] && mv "$loader_old" "$loader" || failed=1; fi; '
-                . 'if [ "$failed" -eq 0 ]; then rm -rf "$lock"; else echo "duo unadopt: rollback retained exact backups and lock for operator recovery" >&2; rc=1; fi; '
-                . 'echo "duo unadopt: archive retained at $archive" >&2; fi; exit "$rc"; }' . "\n"
+                . 'if [ "$failed" -eq 0 ]; then rm -rf "$lock"; else echo "wprism unadopt: rollback retained exact backups and lock for operator recovery" >&2; rc=1; fi; '
+                . 'echo "wprism unadopt: archive retained at $archive" >&2; fi; exit "$rc"; }' . "\n"
             . 'trap finish EXIT' . "\n"
             . 'for path in "$archive" "$agent_old" "$loader_old" "$control_old" "$lock"; do [ ! -e "$path" ] && [ ! -L "$path" ] || { echo "transaction path collision: $path" >&2; exit 1; }; done' . "\n"
             . '[ "$(fingerprint "$agent" directory)" = "$expected_agent" ] '
@@ -252,15 +252,15 @@ final class Unadopt {
                 . '|| { echo "reviewed control-plane bytes changed before archive" >&2; exit 1; }' . "\n"
             . 'mkdir "$lock"; mkdir "$txn"; printf "%s\\n" "$token" > "$txn/token"; printf "%s\\n" "$archive" > "$txn/archive"' . "\n"
             . 'mkdir "$archive"; chmod 700 "$archive"; mkdir "$archive/mu-plugins" "$archive/repository"' . "\n"
-            . 'cp -Rp "$agent" "$archive/mu-plugins/duo"; cp -p "$loader" "$archive/mu-plugins/duo-loader.php"; cp -Rp "$control" "$archive/repository/.duo"' . "\n"
-            . '[ "$(fingerprint "$archive/mu-plugins/duo" directory)" = "$expected_agent" ] '
-                . '&& [ "$(fingerprint "$archive/mu-plugins/duo-loader.php" file)" = "$expected_loader" ] '
-                . '&& [ "$(fingerprint "$archive/repository/.duo" directory)" = "$expected_control" ] '
+            . 'cp -Rp "$agent" "$archive/mu-plugins/wprism"; cp -p "$loader" "$archive/mu-plugins/wprism-loader.php"; cp -Rp "$control" "$archive/repository/.wprism"' . "\n"
+            . '[ "$(fingerprint "$archive/mu-plugins/wprism" directory)" = "$expected_agent" ] '
+                . '&& [ "$(fingerprint "$archive/mu-plugins/wprism-loader.php" file)" = "$expected_loader" ] '
+                . '&& [ "$(fingerprint "$archive/repository/.wprism" directory)" = "$expected_control" ] '
                 . '|| { echo "archive copy did not preserve the reviewed control-plane bytes" >&2; exit 1; }' . "\n"
             . 'printf %s ' . $q($receiptBytes) . ' > "$archive/receipt.json"; chmod 600 "$archive/receipt.json"; sync' . "\n"
             . 'printf "%s\\n" "$expected_agent" > "$txn/agent.sha256"; printf "%s\\n" "$expected_loader" > "$txn/loader.sha256"; printf "%s\\n" "$expected_control" > "$txn/control.sha256"; : > "$txn/archive-ready"; sync' . "\n"
             . 'mv "$loader" "$loader_old"; moved_loader=1; mv "$agent" "$agent_old"; moved_agent=1; mv "$control" "$control_old"; moved_control=1; : > "$txn/staged"; sync' . "\n"
-            . 'success=1; echo duo-unadopt-staged';
+            . 'success=1; echo wprism-unadopt-staged';
     }
 
     /** @param array<string,mixed> $plan */
@@ -276,8 +276,8 @@ final class Unadopt {
         $siteIdentity = (string) $plan['site_identity'];
         return 'set -eu' . "\n"
             . 'mu=' . $q($mu) . '; repo=' . $q($repo) . '; archive=' . $q($archive) . '; token=' . $q($token) . "\n"
-            . 'agent="$mu/duo"; loader="$mu/duo-loader.php"; control="$repo/.duo"; lock="$mu/.duo-unadopt-lock"; txn="$lock/transaction"' . "\n"
-            . 'agent_old="$mu/.duo-unadopt-agent-$token"; loader_old="$mu/.duo-loader-unadopt-$token"; control_old="$repo/.duo-unadopt-$token"' . "\n"
+            . 'agent="$mu/wprism"; loader="$mu/wprism-loader.php"; control="$repo/.wprism"; lock="$mu/.wprism-unadopt-lock"; txn="$lock/transaction"' . "\n"
+            . 'agent_old="$mu/.wprism-unadopt-agent-$token"; loader_old="$mu/.wprism-loader-unadopt-$token"; control_old="$repo/.wprism-unadopt-$token"' . "\n"
             . 'fingerprint() { php -r ' . $q($fingerprint) . ' "$1" "$2"; }' . "\n"
             . '[ -d "$txn" ] && [ ! -L "$txn" ] && [ -f "$txn/staged" ] && [ ! -L "$txn/staged" ] || { echo "staged unadopt journal is missing or unsafe" >&2; exit 1; }' . "\n"
             . '[ ! -e "$agent" ] && [ ! -L "$agent" ] && [ ! -e "$loader" ] && [ ! -L "$loader" ] && [ ! -e "$control" ] && [ ! -L "$control" ] || { echo "a live control-plane path reappeared before commit" >&2; exit 1; }' . "\n"
@@ -285,13 +285,13 @@ final class Unadopt {
                 . '&& [ "$(fingerprint "$loader_old" file)" = ' . $q($loaderHash) . ' ] '
                 . '&& [ "$(fingerprint "$control_old" directory)" = ' . $q($controlHash) . ' ] '
                 . '|| { echo "staged control-plane backup changed before commit" >&2; exit 1; }' . "\n"
-            . '[ "$(fingerprint "$archive/mu-plugins/duo" directory)" = ' . $q($agentHash) . ' ] '
-                . '&& [ "$(fingerprint "$archive/mu-plugins/duo-loader.php" file)" = ' . $q($loaderHash) . ' ] '
-                . '&& [ "$(fingerprint "$archive/repository/.duo" directory)" = ' . $q($controlHash) . ' ] '
+            . '[ "$(fingerprint "$archive/mu-plugins/wprism" directory)" = ' . $q($agentHash) . ' ] '
+                . '&& [ "$(fingerprint "$archive/mu-plugins/wprism-loader.php" file)" = ' . $q($loaderHash) . ' ] '
+                . '&& [ "$(fingerprint "$archive/repository/.wprism" directory)" = ' . $q($controlHash) . ' ] '
                 . '&& [ "$(cat "$archive/receipt.json")" = ' . $q(rtrim($receiptBytes, "\n")) . ' ] '
                 . '|| { echo "selected evidence archive changed before commit" >&2; exit 1; }' . "\n"
             . self::siteAssertionShell($repo, $siteIdentity, $fingerprint, $q)
-            . 'rm -rf "$control_old" "$agent_old"; rm -f "$loader_old"; rm -rf "$lock"; sync; echo duo-unadopt-complete';
+            . 'rm -rf "$control_old" "$agent_old"; rm -f "$loader_old"; rm -rf "$lock"; sync; echo wprism-unadopt-complete';
     }
 
     /** @param array<string,mixed> $plan */
@@ -305,14 +305,14 @@ final class Unadopt {
         $controlHash = (string) $plan['surfaces'][2]['sha256'];
         return 'set -eu' . "\n"
             . 'mu=' . $q($mu) . '; repo=' . $q($repo) . '; token=' . $q($token) . "\n"
-            . 'agent="$mu/duo"; loader="$mu/duo-loader.php"; control="$repo/.duo"; lock="$mu/.duo-unadopt-lock"; txn="$lock/transaction"' . "\n"
-            . 'agent_old="$mu/.duo-unadopt-agent-$token"; loader_old="$mu/.duo-loader-unadopt-$token"; control_old="$repo/.duo-unadopt-$token"' . "\n"
+            . 'agent="$mu/wprism"; loader="$mu/wprism-loader.php"; control="$repo/.wprism"; lock="$mu/.wprism-unadopt-lock"; txn="$lock/transaction"' . "\n"
+            . 'agent_old="$mu/.wprism-unadopt-agent-$token"; loader_old="$mu/.wprism-loader-unadopt-$token"; control_old="$repo/.wprism-unadopt-$token"' . "\n"
             . 'fingerprint() { php -r ' . $q($fingerprint) . ' "$1" "$2"; }' . "\n"
             . '[ -d "$txn" ] && [ ! -L "$txn" ] && [ -f "$txn/staged" ] && [ ! -L "$txn/staged" ] || { echo "unadopt rollback journal is missing or unsafe" >&2; exit 1; }' . "\n"
             . '[ ! -e "$control" ] && [ "$(fingerprint "$control_old" directory)" = ' . $q($controlHash) . ' ] && mv "$control_old" "$control" || { echo "control evidence changed before rollback" >&2; exit 1; }' . "\n"
             . '[ ! -e "$agent" ] && [ "$(fingerprint "$agent_old" directory)" = ' . $q($agentHash) . ' ] && mv "$agent_old" "$agent" || { echo "agent changed before rollback" >&2; exit 1; }' . "\n"
             . '[ ! -e "$loader" ] && [ "$(fingerprint "$loader_old" file)" = ' . $q($loaderHash) . ' ] && mv "$loader_old" "$loader" || { echo "loader changed before rollback" >&2; exit 1; }' . "\n"
-            . 'rm -rf "$lock"; sync; echo duo-unadopt-rolled-back';
+            . 'rm -rf "$lock"; sync; echo wprism-unadopt-rolled-back';
     }
 
     /** @param array<string,mixed> $plan @param array{exit:int,stdout:string,stderr:string} &$failure */
@@ -328,7 +328,7 @@ final class Unadopt {
         }
         $detail = trim($rollback['stderr'] !== '' ? $rollback['stderr'] : $rollback['stdout']);
         $failure['stderr'] .= ($failure['stderr'] !== '' ? "\n" : '')
-            . 'duo: unadopt rollback could not be confirmed'
+            . 'wprism: unadopt rollback could not be confirmed'
             . ($detail !== '' ? ': ' . $detail : '');
     }
 
@@ -340,11 +340,11 @@ final class Unadopt {
         callable $q
     ): string {
         if ($siteIdentity === 'absent') {
-            return '[ ! -e "$repo/site.duo.json" ] && [ ! -L "$repo/site.duo.json" ] || { echo "site.duo.json appeared before commit" >&2; exit 1; }' . "\n";
+            return '[ ! -e "$repo/site.wprism.json" ] && [ ! -L "$repo/site.wprism.json" ] || { echo "site.wprism.json appeared before commit" >&2; exit 1; }' . "\n";
         }
-        return '[ -f "$repo/site.duo.json" ] && [ ! -L "$repo/site.duo.json" ] '
-            . '&& [ "$(php -r ' . $q($fingerprint) . ' "$repo/site.duo.json" file)" = '
-            . $q($siteIdentity) . ' ] || { echo "site.duo.json changed before commit" >&2; exit 1; }' . "\n";
+        return '[ -f "$repo/site.wprism.json" ] && [ ! -L "$repo/site.wprism.json" ] '
+            . '&& [ "$(php -r ' . $q($fingerprint) . ' "$repo/site.wprism.json" file)" = '
+            . $q($siteIdentity) . ' ] || { echo "site.wprism.json changed before commit" >&2; exit 1; }' . "\n";
     }
 
     private static function fingerprintPhp(): string {
@@ -384,7 +384,7 @@ PHP;
             || str_contains($archive, '//')
             || preg_match('#(?:^|/)\.{1,2}(?:/|$)#', $archive) === 1
             || preg_match('/[\x00-\x1F\x7F]/', $archive) === 1) {
-            throw new \RuntimeException('duo: unadopt --archive-to must be a normalized absolute non-root path');
+            throw new \RuntimeException('wprism: unadopt --archive-to must be a normalized absolute non-root path');
         }
         return $archive;
     }
@@ -393,7 +393,7 @@ PHP;
         foreach ([$repo, $mu] as $root) {
             $root = rtrim($root, '/');
             if ($archive === $root || str_starts_with($archive . '/', $root . '/')) {
-                throw new \RuntimeException('duo: unadopt archive must be outside the repository and MU-plugin roots');
+                throw new \RuntimeException('wprism: unadopt archive must be outside the repository and MU-plugin roots');
             }
         }
     }

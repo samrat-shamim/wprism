@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/CommandOutput.php';
@@ -29,11 +29,11 @@ final class AdoptCommand {
      */
     public static function run(EnvironmentDriver $transport, array $extra, string $sourceRoot): int {
         if ($extra !== []) {
-            fwrite(STDERR, "duo: adopt accepts no extra arguments\n");
+            fwrite(STDERR, "wprism: adopt accepts no extra arguments\n");
             return 1;
         }
         if (!$transport instanceof AdoptionTransport) {
-            fwrite(STDERR, "duo: adopt requires a transport with explicit control-plane transfer authority\n");
+            fwrite(STDERR, "wprism: adopt requires a transport with explicit control-plane transfer authority\n");
             return 1;
         }
 
@@ -55,7 +55,7 @@ final class AdoptCommand {
             }
             echo 'eligibility ' . $eligibility->toArray()['digest'] . "\n";
             if (!$eligibility->ready()) {
-                fwrite(STDERR, "duo: adopt refused because the target is not safely eligible; no bootstrap write was attempted\n");
+                fwrite(STDERR, "wprism: adopt refused because the target is not safely eligible; no bootstrap write was attempted\n");
                 return 1;
             }
         }
@@ -77,7 +77,7 @@ final class AdoptCommand {
                 $publicKey = $authority->publicKeyBase64();
                 $recoveryConfig = $transport->recoveryConfig();
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'duo: adopt: ' . $error->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: adopt: ' . $error->getMessage() . "\n");
                 return 1;
             }
         }
@@ -99,7 +99,7 @@ final class AdoptCommand {
             }
         );
         if ($result['exit'] !== 0) {
-            fwrite(STDERR, "duo: adopt failed during {$result['phase']}\n");
+            fwrite(STDERR, "wprism: adopt failed during {$result['phase']}\n");
             CommandOutput::renderTransportDetail($result);
             if (is_array($doctor)) {
                 DoctorCommand::render($doctor);
@@ -108,12 +108,12 @@ final class AdoptCommand {
         }
 
         $repoAction = $result['repo_created']
-            ? 'created seed site.duo.json'
-            : 'retained existing site.duo.json';
+            ? 'created seed site.wprism.json'
+            : 'retained existing site.wprism.json';
         echo "adopt: installed agent {$result['version']} + embedded adapter library + rollback authority; $repoAction\n";
         echo "adopt phase: doctor (verified before commit)\n";
         if (!is_array($doctor)) {
-            fwrite(STDERR, "duo: adopt: committed transaction has no doctor verification result\n");
+            fwrite(STDERR, "wprism: adopt: committed transaction has no doctor verification result\n");
             return 1;
         }
         DoctorCommand::render($doctor);

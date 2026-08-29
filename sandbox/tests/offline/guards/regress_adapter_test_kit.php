@@ -26,7 +26,7 @@
  *      assembly time and exist nowhere else in the tree (clauses B, I), and
  *      `tools/adapter-kit.json`'s digests track them, so an edit to
  *      `FakeWpdb.php` moves a reviewable line instead of quietly shipping a
- *      kit that disagrees with the harness Duo's own suites run against
+ *      kit that disagrees with the harness WPrism's own suites run against
  *      (clauses A, F — `make release-gate` fails the same way).
  *   2. IT RUNS WHERE IT LANDS. The generated skeleton executes with `php` and
  *      nothing else, from a directory with no `agent/` above it and no repo
@@ -60,7 +60,7 @@ ob_start();
 require_once __DIR__ . '/../../../../tools/adapter-kit.php';
 ob_end_clean();
 
-use Duo\Tooling\AdapterKit;
+use WPrism\Tooling\AdapterKit;
 
 $repo = dirname(__DIR__, 4);
 
@@ -68,7 +68,7 @@ $repo = dirname(__DIR__, 4);
 $scratchRoots = [];
 
 $makeScratch = static function (string $label) use (&$scratchRoots): string {
-    $base = rtrim(sys_get_temp_dir(), '/') . '/duo-adapter-kit-' . $label . '-' . getmypid() . '-' . bin2hex(random_bytes(4));
+    $base = rtrim(sys_get_temp_dir(), '/') . '/wprism-adapter-kit-' . $label . '-' . getmypid() . '-' . bin2hex(random_bytes(4));
     if (!mkdir($base, 0o700, true) && !is_dir($base)) {
         throw new RuntimeException('cannot create scratch ' . $base);
     }
@@ -113,23 +113,23 @@ $committedRaw = (string) file_get_contents($repo . '/' . AdapterKit::MANIFEST_PA
 // tool's own message, never as a fatal that replaces FAIL/PASS with exit 255.
 try {
     $generatedRaw = AdapterKit::render(AdapterKit::manifest($repo));
-    duo_check_same(
+    wprism_check_same(
         $generatedRaw,
         $committedRaw,
         'tools/adapter-kit.json is the current projection of the tree (remedy: php tools/adapter-kit.php --write)'
     );
     if ($committedRaw !== $generatedRaw) {
         foreach (AdapterKit::drift($committedRaw, $generatedRaw) as $row) {
-            duo_check_detail($row);
+            wprism_check_detail($row);
         }
     }
 } catch (Throwable $projectionError) {
-    duo_check(false, 'tools/adapter-kit.json is the current projection of the tree (the projection refused)');
-    duo_check_detail(get_class($projectionError) . ': ' . $projectionError->getMessage());
+    wprism_check(false, 'tools/adapter-kit.json is the current projection of the tree (the projection refused)');
+    wprism_check_detail(get_class($projectionError) . ': ' . $projectionError->getMessage());
 }
 
 $manifest = json_decode($committedRaw, true, 512, JSON_THROW_ON_ERROR);
-duo_check_same(AdapterKit::FORMAT, $manifest['format'], 'the manifest declares the kit wire generation');
+wprism_check_same(AdapterKit::FORMAT, $manifest['format'], 'the manifest declares the kit wire generation');
 
 /** @var list<array<string,mixed>> $members */
 $members = $manifest['members'];
@@ -152,21 +152,21 @@ $kit = $kitRoot . '/kit';
 $written = [];
 try {
     $written = AdapterKit::assemble($repo, $kit);
-    duo_check(true, 'the kit assembles from the live tree');
+    wprism_check(true, 'the kit assembles from the live tree');
 } catch (Throwable $assembleError) {
-    duo_check(false, 'the kit assembles from the live tree');
+    wprism_check(false, 'the kit assembles from the live tree');
     foreach (explode("\n", $assembleError->getMessage()) as $line) {
-        duo_check_detail($line);
+        wprism_check_detail($line);
     }
-    duo_check_detail('clauses B, C and D below now report against a kit that was never written');
+    wprism_check_detail('clauses B, C and D below now report against a kit that was never written');
 }
 
-duo_check_same(
+wprism_check_same(
     count($members) + 1,
     count($written),
     'assemble() writes every manifest member plus MANIFEST.json'
 );
-duo_check(
+wprism_check(
     is_file($kit . '/' . AdapterKit::KIT_MANIFEST),
     'the assembled kit carries its own MANIFEST.json, so a recipient can tell one revision from another'
 );
@@ -176,11 +176,11 @@ foreach ($members as $member) {
     $path = (string) $member['path'];
     $file = $kit . '/' . $path;
     if (!is_file($file)) {
-        duo_check(false, "kit member $path was written");
+        wprism_check(false, "kit member $path was written");
         continue;
     }
     $bytes = (string) file_get_contents($file);
-    duo_check_same(
+    wprism_check_same(
         [$member['bytes'], $member['sha256']],
         [strlen($bytes), hash('sha256', $bytes)],
         "kit member $path is exactly the bytes tools/adapter-kit.json pins"
@@ -190,7 +190,7 @@ foreach ($members as $member) {
     }
     $copiedCount++;
     $source = $repo . '/' . $member['source'];
-    duo_check_same(
+    wprism_check_same(
         hash_file('sha256', $source),
         hash('sha256', $bytes),
         "kit member $path is the live {$member['source']}, not a parallel copy"
@@ -199,7 +199,7 @@ foreach ($members as $member) {
 // Seven from WP-2.6, plus WP-2.7's lib/ConformanceVector.php — a third party who
 // can prove a round trip on a pair but cannot replay it offline is back to
 // spending a pair per iteration, which is the cost this kit exists to remove.
-duo_check_same(8, $copiedCount, 'the kit packages the eight live harness files WP-2.6 and WP-2.7 name');
+wprism_check_same(8, $copiedCount, 'the kit packages the eight live harness files WP-2.6 and WP-2.7 name');
 
 // The six lib files and the two conformance files, by name: a silent drop
 // (say frozen_policy.php) would still leave clauses A and B green.
@@ -216,7 +216,7 @@ foreach (
         'conformance/asserts.sh',
     ] as $required
 ) {
-    duo_check(in_array($required, $paths, true), "the kit carries $required");
+    wprism_check(in_array($required, $paths, true), "the kit carries $required");
 }
 
 // ---------------------------------------------------------------- clause C
@@ -229,17 +229,17 @@ $ancestor = $kit;
 $repoReal = realpath($repo);
 while (($parent = dirname($ancestor)) !== $ancestor) {
     $ancestor = $parent;
-    duo_check(
+    wprism_check(
         !is_file($ancestor . '/agent/src/Kernel/CommandRefusal.php') && realpath($ancestor) !== $repoReal,
-        "no Duo checkout above the assembled kit at $ancestor, so the run proves standalone execution"
+        "no WPrism checkout above the assembled kit at $ancestor, so the run proves standalone execution"
     );
 }
 
 $skeleton = $kit . '/' . AdapterKit::skeletonSuitePath(AdapterKit::DEFAULT_ADAPTER);
-duo_check(is_file($skeleton), 'the kit generated a runnable skeleton suite');
+wprism_check(is_file($skeleton), 'the kit generated a runnable skeleton suite');
 
 // A deliberately bare environment: PATH only. No composer autoloader, no
-// WordPress, no DUO_* variable, and a cwd outside the repository — if the kit
+// WordPress, no WPRISM_* variable, and a cwd outside the repository — if the kit
 // needed any of those, this is where it says so.
 $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
 $process = proc_open(
@@ -250,7 +250,7 @@ $process = proc_open(
     ['PATH' => (string) getenv('PATH')]
 );
 if (!is_resource($process)) {
-    duo_check(false, 'the skeleton suite could be started');
+    wprism_check(false, 'the skeleton suite could be started');
     $stdout = $stderr = '';
     $exit = 127;
 } else {
@@ -261,20 +261,20 @@ if (!is_resource($process)) {
     $exit = proc_close($process);
 }
 
-duo_check_same(0, $exit, 'the generated skeleton exits 0 under `php` alone, with PATH as its whole environment');
-duo_check_same('', trim($stderr), 'the generated skeleton emits nothing on stderr — a warning is not a pass');
-duo_check(
+wprism_check_same(0, $exit, 'the generated skeleton exits 0 under `php` alone, with PATH as its whole environment');
+wprism_check_same('', trim($stderr), 'the generated skeleton emits nothing on stderr — a warning is not a pass');
+wprism_check(
     str_contains($stdout, 'PASS: example adapter kit skeleton'),
     'the generated skeleton prints check.php\'s PASS line'
 );
-duo_check_same(
+wprism_check_same(
     4,
     substr_count($stdout, "\nok: ") + (str_starts_with($stdout, 'ok: ') ? 1 : 0),
     'all four skeleton assertions ran — a suite that stops asserting is the other silent green'
 );
 if ($exit !== 0 || trim($stderr) !== '') {
-    duo_check_detail('stdout: ' . trim($stdout));
-    duo_check_detail('stderr: ' . trim($stderr));
+    wprism_check_detail('stdout: ' . trim($stdout));
+    wprism_check_detail('stderr: ' . trim($stderr));
 }
 
 // The skeleton must not reach out of the kit: `__DIR__ . '/../..'` or any
@@ -283,12 +283,12 @@ foreach (['skeleton/regress_example_kit.php', 'skeleton/example-adapter.php'] as
     $bytes = is_file($kit . '/' . $generatedPath)
         ? (string) file_get_contents($kit . '/' . $generatedPath)
         : '<absent> ' . $repo;
-    duo_check(
+    wprism_check(
         !str_contains($bytes, $repo) && !str_contains($bytes, 'sandbox/tests'),
         "$generatedPath names no path from the repository it was assembled in"
     );
     $external = AdapterKit::resolveTargets($paths, $generatedPath, AdapterKit::dependencyTargets($generatedPath, $bytes));
-    duo_check_same([], $external['external'], "$generatedPath requires only other kit members");
+    wprism_check_same([], $external['external'], "$generatedPath requires only other kit members");
 }
 
 // ---------------------------------------------------------------- clause D
@@ -299,11 +299,11 @@ foreach (['skeleton/regress_example_kit.php', 'skeleton/example-adapter.php'] as
 // The require is guarded rather than bare: a kit that failed to assemble must
 // still leave this suite reporting FAIL/PASS on its own exit code, not a fatal.
 if (!is_file($kit . '/lib/FakeWpdb.php')) {
-    duo_check(false, 'the shipped FakeWpdb refuses an uninterpretable statement instead of answering null');
-    duo_check_detail('the kit holds no lib/FakeWpdb.php to assert against');
+    wprism_check(false, 'the shipped FakeWpdb refuses an uninterpretable statement instead of answering null');
+    wprism_check_detail('the kit holds no lib/FakeWpdb.php to assert against');
 } else {
     require_once $kit . '/lib/FakeWpdb.php';
-    $wpdb = new \DuoTest\FakeWpdb();
+    $wpdb = new \WPrismTest\FakeWpdb();
     $wpdb->seedTable('wp_kit_probe', [['id' => 1, 'title' => 'a']]);
     // The probe is a LEFT JOIN with a TWO-condition ON, and the second
     // condition is what makes it a probe. A single-condition LEFT equi-join
@@ -316,7 +316,7 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
     // statement it did not understand.
     $probe = 'SELECT f.id FROM wp_kit_probe AS f '
         . "LEFT JOIN wp_posts AS p ON p.ID = f.id AND p.post_type = 'page'";
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $wpdb->get_results($probe . ' WHERE p.ID IS NULL', ARRAY_A),
         LogicException::class,
         'the shipped FakeWpdb refuses an uninterpretable statement instead of answering null',
@@ -327,15 +327,15 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
     // a failed assertion rather than escape as a fatal.
     try {
         $wpdb->get_results($probe, ARRAY_A);
-        duo_check(false, 'the refusal names the statement it could not interpret');
-        duo_check_detail('nothing was thrown — the statement was answered');
+        wprism_check(false, 'the refusal names the statement it could not interpret');
+        wprism_check_detail('nothing was thrown — the statement was answered');
     } catch (Throwable $e) {
-        duo_check(
+        wprism_check(
             $e instanceof LogicException && str_contains($e->getMessage(), 'LEFT JOIN'),
             'the refusal names the statement it could not interpret, so the author can act on it'
         );
         if (!($e instanceof LogicException) || !str_contains($e->getMessage(), 'LEFT JOIN')) {
-            duo_check_detail(get_class($e) . ': ' . $e->getMessage());
+            wprism_check_detail(get_class($e) . ': ' . $e->getMessage());
         }
     }
 }
@@ -345,22 +345,22 @@ if (!is_file($kit . '/lib/FakeWpdb.php')) {
 // here, independently of AdapterKit::adoptionTar(), so a bug in that reader
 // cannot make this clause agree with itself.
 $adoptSource = (string) file_get_contents($repo . '/' . AdapterKit::ADOPT_PATH);
-duo_check(
+wprism_check(
     str_contains($adoptSource, "escapeshellarg(\$localArchive) . ' agent recovery'"),
     'Adopt.php tars exactly `agent recovery`; adapter bytes are embedded beneath the atomic agent release'
 );
-duo_check_same(
+wprism_check_same(
     ['agent', 'recovery'],
     AdapterKit::adoptionTar($repo),
     'the kit reads that composition out of Adopt.php rather than restating it'
 );
-duo_check_same(
+wprism_check_same(
     ['agent', 'recovery'],
     $manifest['adoption_tar']['components'],
     'tools/adapter-kit.json records the tar a managed site receives, so a change to it lands in this diff'
 );
 foreach (['sandbox', 'tools', 'tests', 'kit'] as $absent) {
-    duo_check(
+    wprism_check(
         !in_array($absent, $manifest['adoption_tar']['components'], true),
         "`$absent` is no part of the adoption archive — the kit is a developer artifact, not site payload"
     );
@@ -372,7 +372,7 @@ foreach (['sandbox', 'tools', 'tests', 'kit'] as $absent) {
 // Read with token_get_all(), not a regex over the bytes: a docblock may
 // legitimately CITE a sandbox file as evidence for a claim
 // (cli/src/Assess/AssessReport.php:419 cites grind_lib.sh's leak gate;
-// agent/duo.php's load-order comment says "require blocks in agent/src and
+// agent/wprism.php's load-order comment says "require blocks in agent/src and
 // every sandbox…"), and a citation loads nothing. The tokenizer is what tells
 // a prose "require" from the language construct.
 $loadEvidence = static function (string $php): array {
@@ -385,7 +385,7 @@ $loadEvidence = static function (string $php): array {
             continue;
         }
         if (in_array($token[0], [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)
-            && str_contains((string) $token[1], 'DuoTest')
+            && str_contains((string) $token[1], 'WPrismTest')
         ) {
             $found[] = 'names the harness namespace: ' . trim((string) $token[1]);
             continue;
@@ -433,7 +433,7 @@ foreach (['agent', 'cli', 'recovery'] as $shipped) {
         }
     };
     $walk($repo . '/' . $shipped);
-    duo_check_same([], $hits, "nothing under $shipped/ loads the kit or the harness it packages");
+    wprism_check_same([], $hits, "nothing under $shipped/ loads the kit or the harness it packages");
 }
 
 // ---------------------------------------------------------------- clause F
@@ -470,7 +470,7 @@ $synthesize($synthetic);
 $syntheticCheck = $synthetic . '/sandbox/tests/lib/check.php';
 try {
     $baseline = AdapterKit::manifest($synthetic);
-    duo_check_same(
+    wprism_check_same(
         AdapterKit::render(AdapterKit::manifest($repo)),
         AdapterKit::render($baseline),
         'a byte-identical tree projects a byte-identical manifest — the projection is a pure function of the sources'
@@ -478,11 +478,11 @@ try {
 
     file_put_contents($syntheticCheck, "\n// a one-line edit to a packaged harness file\n", FILE_APPEND);
     $edited = AdapterKit::manifest($synthetic);
-    duo_check(
+    wprism_check(
         $digestOf($baseline, 'lib/check.php') !== $digestOf($edited, 'lib/check.php'),
         'editing a packaged harness file moves its digest, so `make release-gate` asks for a regeneration'
     );
-    duo_check_same(
+    wprism_check_same(
         $digestOf($baseline, 'lib/FakeWpdb.php'),
         $digestOf($edited, 'lib/FakeWpdb.php'),
         'and moves only that one — the digests are per-member, not a whole-kit checksum nobody can read'
@@ -491,9 +491,9 @@ try {
     // The synthetic tree is a copy of the real packaged files, so a real tree
     // whose projection refuses (clause A) refuses here too. Report it; do not
     // let it become a fatal.
-    duo_check(false, 'the synthetic tree projects a manifest at all');
-    duo_check_detail(get_class($projectionError) . ': ' . $projectionError->getMessage());
-    duo_check_detail('clause F cannot compare digests until the projection stops refusing');
+    wprism_check(false, 'the synthetic tree projects a manifest at all');
+    wprism_check_detail(get_class($projectionError) . ': ' . $projectionError->getMessage());
+    wprism_check_detail('clause F cannot compare digests until the projection stops refusing');
 }
 
 // ---------------------------------------------------------------- clause G
@@ -507,7 +507,7 @@ file_put_contents(
     "\nrequire_once __DIR__ . '/../../../agent/src/Kernel/Secrets.php';\n",
     FILE_APPEND
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => AdapterKit::manifest($synthetic2),
     RuntimeException::class,
     'an undeclared out-of-kit require in a packaged file refuses the build',
@@ -525,7 +525,7 @@ file_put_contents(
     $stale,
     str_replace("require_once __DIR__ . '/../../../agent/src/Kernel/CommandRefusal.php';", '', $staleBytes)
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => AdapterKit::manifest($synthetic3),
     RuntimeException::class,
     'a declared external dependency nothing reaches for any more refuses the build',
@@ -545,7 +545,7 @@ file_put_contents(
         (string) file_get_contents($adoptCopy)
     )
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => AdapterKit::adoptionTar($synthetic4),
     RuntimeException::class,
     'an unreadable adoption tar line refuses rather than recording a guess',
@@ -556,7 +556,7 @@ duo_check_throws(
 // Assembling over an existing kit is refused: a directory holding half of
 // yesterday's kit and half of today's is the fork this tool exists to prevent,
 // and it is the state a `--assemble` into a working directory produces.
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => AdapterKit::assemble($repo, $kit),
     RuntimeException::class,
     'assembling into a non-empty directory is refused',
@@ -565,13 +565,13 @@ duo_check_throws(
 
 // A rejected slug never reaches the filesystem, so a kit cannot be assembled
 // under a name that is not a legal class-name or file-name fragment.
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => AdapterKit::assemble($repo, $kitRoot . '/bad', 'Not A Slug'),
     RuntimeException::class,
     'an unusable adapter slug is refused before anything is written',
     'is not usable as a file and class name'
 );
-duo_check(!is_dir($kitRoot . '/bad'), 'and the refusal left no directory behind');
+wprism_check(!is_dir($kitRoot . '/bad'), 'and the refusal left no directory behind');
 
 // ---------------------------------------------------------------- clause I
 // There is no second copy of a packaged file in the tree. This is the
@@ -638,7 +638,7 @@ $scan = static function (string $dir, string $root) use (&$scan, $sizes, &$dupli
     }
 };
 $scan($repo, $repo);
-duo_check_same(
+wprism_check_same(
     [],
     $duplicates,
     'no packaged harness file has a second copy in the tree — the kit is assembled from the one original'
@@ -650,7 +650,7 @@ duo_check_same(
 // one declared original, a nested-checkout dir (`.git` pointer file) with a
 // byte-identical copy, and a plain dir with another: only the plain dir's
 // copy is a duplicate. Before the pruning clause, this scan reported both.
-$dupRoot = sys_get_temp_dir() . '/duo_kit_nested_checkout_' . bin2hex(random_bytes(8));
+$dupRoot = sys_get_temp_dir() . '/wprism_kit_nested_checkout_' . bin2hex(random_bytes(8));
 $declaredSource = null;
 foreach ($members as $member) {
     if ($member['origin'] === 'copied') {
@@ -667,7 +667,7 @@ copy($repo . '/' . $declaredSource, $dupRoot . '/plain/nested/copy.php');
 file_put_contents($dupRoot . '/sibling-worktree/.git', "gitdir: /elsewhere\n");
 $duplicates = [];
 $scan($dupRoot, $dupRoot);
-duo_check_same(
+wprism_check_same(
     ['plain/nested/copy.php duplicates ' . $declaredSource],
     $duplicates,
     'a nested checkout (a directory carrying a .git entry) is outside the tree the scan judges; a plain directory is not'
@@ -684,6 +684,6 @@ duo_check_same(
 })($dupRoot);
 
 // Scratch removal is the registered shutdown handler's job, so it happens on
-// the red path too; duo_check_summary() exits, and an exit() runs shutdown
+// the red path too; wprism_check_summary() exits, and an exit() runs shutdown
 // functions.
-duo_check_summary('adapter test kit');
+wprism_check_summary('adapter test kit');

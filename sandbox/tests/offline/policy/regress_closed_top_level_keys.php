@@ -9,7 +9,7 @@
  * `ManifestValidator` did not consult it, so a manifest carrying
  * `totally_made_up_section` and a transposed `optoins` validated `[ok]` and was
  * then unsignable: measured, both halves, in `regress_spec_v3_dry_run.php` under
- * rule V3-KEYS, and reproduced here through `duo manifest-validate` itself. The
+ * rule V3-KEYS, and reproduced here through `wprism manifest-validate` itself. The
  * cost of that silence is the one `ManifestGrammar.php:50-56` already states one
  * level down for a table `class` value — an unrecognised declaration that means
  * nothing is indistinguishable from a deliberate one, which is how a whole
@@ -19,13 +19,13 @@
  * WHY IT PROBES TWO ENGINES, AND TWO TREES
  * ----------------------------------------
  * WP-4.12 changed the answer to this heading and it is worth reading in full,
- * because the suite's shape is a consequence of it. While `DUO_SPEC_VERSION`
+ * because the suite's shape is a consequence of it. While `WPRISM_SPEC_VERSION`
  * was 2 the rule — gated at `spec_version: 3` — was unreachable on the shipped
  * engine by construction: § v3.1 refused a v3 manifest wholesale one step
  * before the key check, so the rule's behaviour could only be read at a
  * synthetic engine. THE FLIP MOVED THE ENGINE ONTO THE GATE. The rule is now
  * live through the product path, PART 3 measures it in one run of the real
- * `duo manifest-validate`, and what needs the window to stay reachable is the
+ * `wprism manifest-validate`, and what needs the window to stay reachable is the
  * OPEN era: `$open` is `CLOSED_KEY_SET_SINCE - 1`, the version the 15 legacy
  * manifests still declare. Paid Memberships Pro now deliberately declares v3
  * to consume a post-flag engine feature; that adapter identity change belongs
@@ -38,20 +38,20 @@
  *
  * Two engines and two trees, each answering what the other cannot:
  *
- *   - a CHILD PROCESS of this file that defines `DUO_SPEC_VERSION` as N+1 before
+ *   - a CHILD PROCESS of this file that defines `WPRISM_SPEC_VERSION` as N+1 before
  *     loading the same shipped grammar (PART 2). A spec version is a `define()`
  *     and a PHP process holds one of those — the argument
  *     `regress_spec_window.php` states for the identical technique. Cheap, so
  *     the whole verdict matrix runs here.
  *   - a COPY of the shipped trees whose two `define()` lines and
  *     `platform.json` restatement are moved together, AGENTS.md rule 8's atomic
- *     pair, driven by the real `duo manifest-validate` (PART 3). Slower, so it
+ *     pair, driven by the real `wprism manifest-validate` (PART 3). Slower, so it
  *     runs the one case that cannot be seen on the shipped engine at all: what
  *     the NEXT bump does to the open era.
  *
  * WHAT THE PARTS PROVE
  * --------------------
- *   PART 1 — the shipped engine. Every one of the 16 shipped manifests still
+ *   PART 1 — the shipped engine. Every one of the 17 shipped manifests still
  *   loads, and a `$open` manifest declaring `totally_made_up_section` and
  *   `optoins` still loads: the open era is unchanged across the flip, which is
  *   what makes this rider digest-neutral. The partition and the validator's
@@ -94,7 +94,7 @@ $repo = dirname(__DIR__, 4);
  * @return array<string,mixed>
  */
 function closed_keys_report(int $supported): array {
-    $partition = \Duo\AdapterCertification::topLevelKeyPartition();
+    $partition = \WPrism\AdapterCertification::topLevelKeyPartition();
     $arms = array_merge(
         $partition['entity_sections'],
         $partition['field_sections'],
@@ -108,7 +108,7 @@ function closed_keys_report(int $supported): array {
     // while the engine implemented one, and WP-6.1's additions sort ahead of it
     // while claiming different keys, so the probe would have declared a feature
     // that does not admit the very key the declaration is written in.
-    $implemented = \Duo\AdapterContractGrammar::implemented_features();
+    $implemented = \WPrism\AdapterContractGrammar::implemented_features();
     // The feature that CLAIMS `engine_features`, asked rather than assumed.
     // This was `$implemented[0]` while the engine had one feature; WP-6.2 added
     // `invalidate-vocabulary/v1`, which claims NO key (it widens a value
@@ -117,17 +117,17 @@ function closed_keys_report(int $supported): array {
     // which is not the verdict this part is about.
     $feature = 'none/v0';
     foreach ($implemented as $candidate) {
-        $claims = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$candidate]]);
+        $claims = \WPrism\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$candidate]]);
         if (in_array('engine_features', $claims, true)) {
             $feature = $candidate;
             break;
         }
     }
-    $featureKeys = \Duo\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]);
+    $featureKeys = \WPrism\AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$feature]]);
 
     $verdict = static function (array $manifest): ?string {
         try {
-            \Duo\AdapterContractGrammar::validate_adapter_contract($manifest);
+            \WPrism\AdapterContractGrammar::validate_adapter_contract($manifest);
             return null;
         } catch (\Throwable $e) {
             return $e->getMessage();
@@ -175,7 +175,7 @@ function closed_keys_report(int $supported): array {
             'totally_made_up_section' => ['acme_thing' => ['class' => 'authored']],
         ]),
         'one_unknown' => $named(['totally_made_up_section' => ['acme_thing' => ['class' => 'authored']]]),
-        // What `duo adapter-draft` actually hands an author (AdapterDraft.php:379).
+        // What `wprism adapter-draft` actually hands an author (AdapterDraft.php:379).
         'draft_sidecar' => $named(['_draft' => ['proposals' => [], 'evidence' => []]]),
         // The growth rule, both halves. `engine_features` is in NO arm of the
         // partition, so the first of these is admitted ONLY by the feature that
@@ -200,8 +200,8 @@ function closed_keys_report(int $supported): array {
     return [
         'engine_supported' => $supported,
         'partition' => $arms,
-        'admitted_base' => \Duo\AdapterContractGrammar::admitted_top_level_keys([]),
-        'admitted_with_feature' => \Duo\AdapterContractGrammar::admitted_top_level_keys(
+        'admitted_base' => \WPrism\AdapterContractGrammar::admitted_top_level_keys([]),
+        'admitted_with_feature' => \WPrism\AdapterContractGrammar::admitted_top_level_keys(
             ['engine_features' => [$feature]]
         ),
         'feature' => $feature,
@@ -213,36 +213,36 @@ function closed_keys_report(int $supported): array {
 
 // ---------------------------------------------------------------------------
 // CHILD MODE. `php <this file> --probe <N>` loads the SHIPPED grammar under a
-// synthetic DUO_SPEC_VERSION and prints the verdict matrix as JSON. It runs
+// synthetic WPRISM_SPEC_VERSION and prints the verdict matrix as JSON. It runs
 // before check.php is required and exits before any assertion, so the child
 // contributes no counted checks and no output the corpus diagnostics guard
 // reads.
 // ---------------------------------------------------------------------------
 $closedKeysArgv = is_array($_SERVER['argv'] ?? null) ? array_map('strval', $_SERVER['argv']) : [];
 if (($closedKeysArgv[1] ?? '') === '--probe') {
-    define('DUO_SPEC_VERSION', (int) ($closedKeysArgv[2] ?? 0));
-    if (!defined('DUO_AGENT_VERSION')) {
-        define('DUO_AGENT_VERSION', '0.0.0');
+    define('WPRISM_SPEC_VERSION', (int) ($closedKeysArgv[2] ?? 0));
+    if (!defined('WPRISM_AGENT_VERSION')) {
+        define('WPRISM_AGENT_VERSION', '0.0.0');
     }
     require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
     require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
-    echo json_encode(closed_keys_report(DUO_SPEC_VERSION), JSON_UNESCAPED_SLASHES), "\n";
+    echo json_encode(closed_keys_report(WPRISM_SPEC_VERSION), JSON_UNESCAPED_SLASHES), "\n";
     exit(0);
 }
 
 require_once __DIR__ . '/../../lib/check.php';
 
-// The engine's own defines, read out of agent/duo.php the way every other
+// The engine's own defines, read out of agent/wprism.php the way every other
 // offline suite that needs them does — never a literal, so this file says
 // nothing about which integer N happens to be.
-$duoSource = (string) file_get_contents($repo . '/agent/duo.php');
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $duoSource, $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+$wprismSource = (string) file_get_contents($repo . '/agent/wprism.php');
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $wprismSource, $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_SPEC_VERSION', (int) $m[1]);
-preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $agentMatch);
-define('DUO_AGENT_VERSION', (string) ($agentMatch[1] ?? '0.0.0'));
+define('WPRISM_SPEC_VERSION', (int) $m[1]);
+preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $wprismSource, $agentMatch);
+define('WPRISM_AGENT_VERSION', (string) ($agentMatch[1] ?? '0.0.0'));
 
 require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Kernel/OptionState.php';
@@ -253,10 +253,10 @@ require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
 require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterContractGrammar;
-use Duo\AdapterLibrary;
-use Duo\Canon;
+use WPrism\AdapterCertification;
+use WPrism\AdapterContractGrammar;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
 
 /** One indented report row, indented so the diagnostics guard cannot read it as a PHP notice. */
 $report = static function (string $line): void {
@@ -306,7 +306,7 @@ $removeTree = static function (string $dir) use (&$removeTree): void {
     @rmdir($dir);
 };
 
-$N = DUO_SPEC_VERSION;
+$N = WPRISM_SPEC_VERSION;
 $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
 // WP-4.12 — THE FLIP separated two numbers this suite used to treat as one.
 // `$N` is the version the ENGINE runs at; `$open` is the last version at which
@@ -314,7 +314,7 @@ $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
 // (`CLOSED_KEY_SET_SINCE`) and not of the engine. Before the flip they were
 // $N and $N, because the gate sat one above the engine. Now the engine IS the
 // gate, so every "the open era is open" measurement below stamps `$open` — the
-// version 15 of the 16 shipped manifests still declare, reachable on this
+// version 2 that seven of the 17 shipped manifests still declare, reachable on this
 // engine only because § v3.1's window accepts N-1.
 //
 // Worth stating because it expires: at N = 4 the window's floor is 3, which is
@@ -335,20 +335,20 @@ echo "\nPART 1 — the SHIPPED engine: every accepted manifest version is closed
 // ===========================================================================
 
 $shipped = closed_keys_report($open);
-$report('engine DUO_SPEC_VERSION: ' . $N . '; probes stamped v' . $open
+$report('engine WPRISM_SPEC_VERSION: ' . $N . '; probes stamped v' . $open
     . '; partition: ' . count($shipped['partition']) . ' keys');
 $report('implemented engine features: ' . implode(', ', AdapterContractGrammar::implemented_features()));
 
-duo_check(
+wprism_check(
     str_contains((string) $shipped['verdicts']['typo_and_invented'], "'optoins'")
         && str_contains((string) $shipped['verdicts']['typo_and_invented'], "'totally_made_up_section'"),
     'v' . $open . ' IS CLOSED: a legacy manifest declaring an invented section and a transposed `options` '
         . 'key refuses both by name instead of silently omitting managed state'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $shipped['verdicts']['draft_sidecar'],
-    'the recognised `duo adapter-draft` `_draft` sidecar remains admissible at v' . $open
+    'the recognised `wprism adapter-draft` `_draft` sidecar remains admissible at v' . $open
 );
 
 // Digest neutrality, measured over the library rather than argued.
@@ -367,18 +367,18 @@ foreach ($library as $name => $manifest) {
         $refused[$name] = $e->getMessage();
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $refused,
     'every one of the ' . count($library) . ' shipped manifests still passes the contract grammar — the closed '
         . 'key set refuses none of the library'
 );
-duo_check_same(
-    [DUO_SPEC_VERSION - 1 => true, DUO_SPEC_VERSION => true],
+wprism_check_same(
+    [WPRISM_SPEC_VERSION - 1 => true, WPRISM_SPEC_VERSION => true],
     $declaredVersions,
     'and the library exercises both admitted versions through deliberate per-adapter feature migrations'
 );
-duo_check_same(
+wprism_check_same(
     [
         'code-snippets',
         'elementor',
@@ -409,7 +409,7 @@ foreach ($library as $manifest) {
 $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
 $outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
-duo_check_same(
+wprism_check_same(
     ['column_codecs', 'declaration_evidence', 'engine_features'],
     $outsidePartition,
     'the shipped keys outside the signer partition are exactly the feature-claimed sections'
@@ -421,7 +421,7 @@ foreach ($library as $name => $manifest) {
         $unadmitted[$name] = $difference;
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $unadmitted,
     'every shipped key is admitted for its declaring manifest, so the closed gate refuses zero adapters'
@@ -432,13 +432,13 @@ $report('in-use union: ' . count($unionKeys) . ' keys; closed set: ' . count($sh
 // ONE SET, NOT TWO — asserted in this process as well as at the release gate,
 // because the gate proves it for the shipped tree and this proves the accessor
 // a reader would reach for answers the same.
-duo_check_same(
+wprism_check_same(
     $shipped['partition'],
     $shipped['admitted_base'],
     'ONE DEFINITION: the validator\'s admitted set with no features declared IS the signer\'s partition, key '
         . 'for key — not a copy that agrees today'
 );
-duo_check_same(
+wprism_check_same(
     count($shipped['partition']),
     count(array_unique($shipped['partition'])),
     'and the three arms are disjoint, so a key\'s arm — which decides what a derived ratification says about '
@@ -447,7 +447,7 @@ duo_check_same(
 
 // Resolution 1: the pair that was broken. `theme` was admitted and its mandatory
 // companion was not, so a theme adapter validated and was then unsignable.
-duo_check(
+wprism_check(
     in_array('theme', $shipped['partition'], true) && in_array('theme_version_range', $shipped['partition'], true),
     'RESOLUTION 1: the partition now knows `theme_version_range` beside `theme` — the companion the shipped '
         . 'grammar already made mandatory'
@@ -468,7 +468,7 @@ $themeAdapter = [
     'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'options' => ['acme_theme_setting' => ['class' => 'authored', 'autoload' => 'yes']],
 ];
-duo_check_same(
+wprism_check_same(
     null,
     $signerVerdict('acme-theme', $themeAdapter),
     '...so a theme adapter is now SIGNABLE: the signer classifies every key it declares, which it could not '
@@ -478,7 +478,7 @@ duo_check_same(
 // admitting one key must not have widened the signer into admitting anything.
 $unclassifiable = $themeAdapter;
 $unclassifiable['totally_made_up_section'] = ['acme_thing' => ['class' => 'authored']];
-duo_check(
+wprism_check(
     str_contains(
         (string) $signerVerdict('acme-theme', $unclassifiable),
         'which this signer cannot classify'
@@ -491,52 +491,52 @@ echo "\nPART 2 — a synthetic N+1 engine: the three verdicts, kept distinct\n";
 // ===========================================================================
 
 $child = $run([PHP_BINARY, __FILE__, '--probe', (string) ($N + 1)]);
-duo_check_same(0, $child['exit'], 'the child probe process exits 0 (stderr: ' . trim($child['stderr']) . ')');
+wprism_check_same(0, $child['exit'], 'the child probe process exits 0 (stderr: ' . trim($child['stderr']) . ')');
 $v3 = json_decode($child['stdout'], true);
-duo_check(is_array($v3), 'and prints one decodable verdict matrix');
+wprism_check(is_array($v3), 'and prints one decodable verdict matrix');
 $v3 = is_array($v3) ? $v3 : ['verdicts' => [], 'per_key' => [], 'partition' => [], 'admitted_base' => []];
 
-$report('synthetic engine DUO_SPEC_VERSION: ' . ($N + 1) . '; closed set: '
+$report('synthetic engine WPRISM_SPEC_VERSION: ' . ($N + 1) . '; closed set: '
     . count((array) $v3['partition']) . ' keys');
 
-duo_check_same(
+wprism_check_same(
     $shipped['partition'],
     $v3['partition'],
     'the set does not move with the engine version: the same partition, read at both eras'
 );
-duo_check_same(null, $v3['verdicts']['bare'], 'a spec_version ' . ($N + 1) . ' manifest declaring only `name` and `spec_version` loads');
+wprism_check_same(null, $v3['verdicts']['bare'], 'a spec_version ' . ($N + 1) . ' manifest declaring only `name` and `spec_version` loads');
 
 // VERDICT 1 — a key nothing claims refuses AS A TYPO, NAMING THE KEY.
 $invented = (string) $v3['verdicts']['typo_and_invented'];
-duo_check(
+wprism_check(
     str_contains($invented, "'optoins'") && str_contains($invented, "'totally_made_up_section'")
         && str_contains($invented, 'does not recognise')
         && str_contains($invented, 'spec/repo-format.md § v3.3'),
     'VERDICT 1 (unclaimed unknown key): the same manifest refuses at v' . $open . ' and v' . ($N + 1)
         . ', naming both offending keys and the rule'
 );
-duo_check(
+wprism_check(
     str_contains($invented, 'correct the spelling'),
     '...and the remedy names the likely cause — a misspelling — rather than only stating the rule'
 );
-duo_check(!str_contains($invented, "\n"), '...and is one line, so it survives a WP-CLI error and a harness that pins it');
-duo_check_detail('unknown-key refusal: ' . $invented);
-duo_check(
+wprism_check(!str_contains($invented, "\n"), '...and is one line, so it survives a WP-CLI error and a harness that pins it');
+wprism_check_detail('unknown-key refusal: ' . $invented);
+wprism_check(
     str_contains((string) $v3['verdicts']['one_unknown'], "the top-level key 'totally_made_up_section'"),
     '...and a single offending key is reported in the singular, so the sentence reads as the author\'s case'
 );
 
 // VERDICT 2 — a key claimed by a declared, IMPLEMENTED feature is ADMITTED.
-duo_check_same(
+wprism_check_same(
     ['engine_features'],
     $v3['feature_keys'],
     'the feature that claims `engine_features` (`' . $v3['feature'] . '`) claims exactly that one key'
 );
-duo_check(
+wprism_check(
     !in_array('engine_features', (array) $v3['partition'], true),
     'and `engine_features` is in NO arm of the partition, which is what makes it the growth rule\'s worked example'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $v3['verdicts']['feature_claimed'],
     'VERDICT 2 (declared + implemented): a manifest declaring `engine_features: ["' . $v3['feature']
@@ -544,7 +544,7 @@ duo_check_same(
 );
 $expectedWithFeature = array_values(array_unique(array_merge((array) $v3['partition'], ['engine_features'])));
 sort($expectedWithFeature, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     $expectedWithFeature,
     $v3['admitted_with_feature'],
     '...and the admitted set for THAT manifest is the partition plus exactly that key — the growth rule adds '
@@ -556,34 +556,34 @@ duo_check_same(
 // this from collapsing into verdict 1, and collapsing them would tell an author
 // to fix a spelling that is correct.
 $unimplemented = (string) $v3['verdicts']['feature_unimplemented'];
-duo_check(
+wprism_check(
     str_contains($unimplemented, "declares engine feature 'acme-thing/v1'")
         && str_contains($unimplemented, 'this engine does not implement it'),
     'VERDICT 3 (declared, unimplemented): refuses naming the FEATURE'
 );
-duo_check(
+wprism_check(
     !str_contains($unimplemented, 'does not recognise') && !str_contains($unimplemented, '§ v3.3'),
     '...and NOT as an unrecognised key: the feature channel answers first, so an author is never told to fix a '
         . 'spelling that is correct'
 );
-duo_check_detail('unimplemented-feature refusal: ' . $unimplemented);
+wprism_check_detail('unimplemented-feature refusal: ' . $unimplemented);
 
 // `_draft`, resolution 2: refused, with the one remedy that is not "declare a
 // feature" — an author may not mint a feature name (§ v3.2), so pointing them at
 // the channel would be pointing them nowhere.
 $draft = (string) $v3['verdicts']['draft_sidecar'];
-duo_check(
+wprism_check(
     str_contains($draft, "the top-level key '_draft'") && str_contains($draft, 'strip the `_draft` key before install'),
     'RESOLUTION 2: `_draft` refuses at v' . ($N + 1) . ' and its remedy is to STRIP it, not to declare anything'
 );
-duo_check(
+wprism_check(
     str_contains($draft, 'unreviewed proposals inside the identity row every certificate covers'),
     '...and says why admitting it would be wrong on the merits, not merely that it is unknown'
 );
-duo_check_detail('draft-sidecar refusal: ' . $draft);
+wprism_check_detail('draft-sidecar refusal: ' . $draft);
 
 // Resolution 1 at the era that has the rule: the theme adapter loads.
-duo_check_same(
+wprism_check_same(
     null,
     $v3['verdicts']['theme_adapter'],
     'RESOLUTION 1 at v' . ($N + 1) . ': a theme adapter declaring `theme` + `theme_version_range` loads, so the '
@@ -598,7 +598,7 @@ foreach ((array) $v3['per_key'] as $key => $verdict) {
         $rejectedMembers[(string) $key] = $verdict;
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $rejectedMembers,
     'all ' . count((array) $v3['per_key']) . ' members of the closed set are admitted individually at v'
@@ -609,9 +609,9 @@ duo_check_same(
 echo "\nPART 3 — the product path, both eras, one fixture directory\n";
 // ===========================================================================
 
-$scratch = sys_get_temp_dir() . '/duo_regress_closed_keys_' . bin2hex(random_bytes(4));
-$mutantRoot = sys_get_temp_dir() . '/duo_regress_closed_keys_v3_' . bin2hex(random_bytes(4));
-$gateRoot = sys_get_temp_dir() . '/duo_regress_closed_keys_gate_' . bin2hex(random_bytes(4));
+$scratch = sys_get_temp_dir() . '/wprism_regress_closed_keys_' . bin2hex(random_bytes(4));
+$mutantRoot = sys_get_temp_dir() . '/wprism_regress_closed_keys_v3_' . bin2hex(random_bytes(4));
+$gateRoot = sys_get_temp_dir() . '/wprism_regress_closed_keys_gate_' . bin2hex(random_bytes(4));
 register_shutdown_function(static function () use ($scratch, $mutantRoot, $gateRoot, $removeTree): void {
     $removeTree($scratch);
     $removeTree($mutantRoot);
@@ -668,32 +668,32 @@ foreach (['acme-at-open', 'acme-at-closed', 'acme-above'] as $name) {
 // WP-4.12 renamed what these two fixtures ARE. They used to be "the engine's
 // own version" and "one past it", because the gate sat above the engine. They
 // are now "the last open version" and "the gate", and the flip is what made
-// BOTH reachable in a single run of the shipped `duo manifest-validate` — the
+// BOTH reachable in a single run of the shipped `wprism manifest-validate` — the
 // end-to-end measurement this suite previously had to build a mutant tree for.
 Canon::write_file($scratch . '/adapter-packages/acme-at-open/package/manifest.json', Canon::encode($fixtureBody('acme-at-open', $open)));
 Canon::write_file($scratch . '/adapter-packages/acme-at-closed/package/manifest.json', Canon::encode($fixtureBody('acme-at-closed', $N)));
 Canon::write_file($scratch . '/adapter-packages/acme-above/package/manifest.json', Canon::encode($fixtureBody('acme-above', $N + 1)));
 
-$shippedRun = $run([PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]);
-duo_check(
+$shippedRun = $run([PHP_BINARY, $repo . '/cli/wprism', 'manifest-validate', $scratch]);
+wprism_check(
     str_contains($shippedRun['stdout'], '[error] acme-at-open')
         && str_contains($shippedRun['stdout'], "'totally_made_up_section'"),
-    'THE FIX, THROUGH THE PRODUCT PATH: on the shipped engine `duo manifest-validate` rejects a v' . $open
+    'THE FIX, THROUGH THE PRODUCT PATH: on the shipped engine `wprism manifest-validate` rejects a v' . $open
         . ' manifest carrying `totally_made_up_section` by name'
 );
-duo_check(
+wprism_check(
     str_contains($shippedRun['stdout'], '[error] acme-at-closed')
         && str_contains($shippedRun['stdout'], "'totally_made_up_section'"),
     'AND THE RULE IS NOW LIVE ON THE SHIPPED ENGINE: the identical declaration at spec_version ' . $N
         . ' is [error], naming the key — before the flip this needed a mutant tree to observe at all'
 );
-duo_check(
+wprism_check(
     str_contains($shippedRun['stdout'], '[error] acme-above')
         && str_contains($shippedRun['stdout'], 'accepts spec_version {' . ($N - 1) . ', ' . $N . '}'),
     '...and the v' . ($N + 1) . ' sibling refuses on the WINDOW (§ v3.1), never on the key set — the window '
         . 'answers before the key set, at every era'
 );
-duo_check($shippedRun['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
+wprism_check($shippedRun['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
 
 // The same fixture bytes at a v3 engine. Both defines move together with
 // platform.json's restatement, AGENTS.md rule 8's atomic pair, because
@@ -701,11 +701,11 @@ duo_check($shippedRun['exit'] !== 0, '...and the run fails, because a pin set ho
 foreach (['agent', 'adapter-packages', 'cli', 'platform', 'recovery'] as $tree) {
     $copyTree($repo . '/' . $tree, $mutantRoot . '/' . $tree);
 }
-$mutantDuo = (string) file_get_contents($mutantRoot . '/agent/duo.php');
-file_put_contents($mutantRoot . '/agent/duo.php', (string) preg_replace(
-    "/define\('DUO_SPEC_VERSION', $N\)/",
-    "define('DUO_SPEC_VERSION', " . ($N + 1) . ')',
-    $mutantDuo
+$mutantWPrism = (string) file_get_contents($mutantRoot . '/agent/wprism.php');
+file_put_contents($mutantRoot . '/agent/wprism.php', (string) preg_replace(
+    "/define\('WPRISM_SPEC_VERSION', $N\)/",
+    "define('WPRISM_SPEC_VERSION', " . ($N + 1) . ')',
+    $mutantWPrism
 ));
 $scratchPlatformPath = $scratch . '/platform/adapter-library/capabilities/platform.json';
 $mutantPlatform = (string) file_get_contents($scratchPlatformPath);
@@ -714,8 +714,8 @@ file_put_contents($scratchPlatformPath, (string) preg_replace(
     '"spec_version": ' . ($N + 1),
     $mutantPlatform
 ));
-$v3Run = $run([PHP_BINARY, $mutantRoot . '/cli/duo', 'manifest-validate', $scratch]);
-duo_check(
+$v3Run = $run([PHP_BINARY, $mutantRoot . '/cli/wprism', 'manifest-validate', $scratch]);
+wprism_check(
     str_contains($v3Run['stdout'], 'spec_version:  ' . ($N + 1)),
     'the copied tree really is a v' . ($N + 1) . ' engine (both defines moved with platform.json)'
 );
@@ -726,28 +726,28 @@ duo_check(
 // version inside the window is below it, and the open era stops existing. That
 // is the honest cost of the acceptance window's floor being exactly N-1, and
 // it is measured here rather than left for a future reader to discover.
-duo_check(
+wprism_check(
     str_contains($v3Run['stdout'], '[error] acme-at-open')
         && str_contains($v3Run['stdout'], 'accepts spec_version {' . $N . ', ' . ($N + 1) . '}'),
     'ONE MORE BUMP CLOSES THE OPEN ERA: on a v' . ($N + 1) . ' engine the v' . $open . ' manifest refuses on '
         . 'the WINDOW — the floor moved past the gate, so no accepted version is below it any more'
 );
-duo_check(
+wprism_check(
     str_contains($v3Run['stdout'], '[error] acme-at-closed')
         && str_contains($v3Run['stdout'], "'totally_made_up_section'"),
     '...while the v' . $N . ' manifest refuses on the KEY SET on that engine too — the rule does not move with '
         . 'the engine version, only the window does'
 );
-duo_check($v3Run['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
-duo_check_detail('v' . ($N + 1) . ' manifest-validate exit ' . $v3Run['exit']);
+wprism_check($v3Run['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
+wprism_check_detail('v' . ($N + 1) . ' manifest-validate exit ' . $v3Run['exit']);
 
 // ===========================================================================
 echo "\nPART 4 — the release gate: one definition, proven to bite\n";
 // ===========================================================================
 
 $gate = $run([PHP_BINARY, $repo . '/tools/wire-surface.php', '--check']);
-duo_check_same(0, $gate['exit'], '`php tools/wire-surface.php --check` — a make release-gate step — passes on the shipped tree');
-duo_check(
+wprism_check_same(0, $gate['exit'], '`php tools/wire-surface.php --check` — a make release-gate step — passes on the shipped tree');
+wprism_check(
     str_contains(
         (string) file_get_contents($repo . '/docs/wire-surface.md'),
         '### R-21 — The top-level manifest key set is closed from `spec_version: 2`, from one definition'
@@ -768,7 +768,7 @@ foreach (['agent', 'adapter-packages', 'cli', 'platform', 'recovery'] as $tree) 
 copy($repo . '/docs/wire-surface.md', $gateRoot . '/docs/wire-surface.md');
 copy($repo . '/tools/wire-surface.php', $gateRoot . '/tools/wire-surface.php');
 $baseline = $run([PHP_BINARY, $gateRoot . '/tools/wire-surface.php', '--check', '--root=' . $gateRoot]);
-duo_check_same(0, $baseline['exit'], 'the unmutated copy passes, so a refusal below is the mutation and not the copy');
+wprism_check_same(0, $baseline['exit'], 'the unmutated copy passes, so a refusal below is the mutation and not the copy');
 
 $certPath = $gateRoot . '/agent/src/Adapter/AdapterCertification.php';
 $certSource = (string) file_get_contents($certPath);
@@ -785,12 +785,12 @@ file_put_contents($grammarPath, str_replace(
     $grammarSource
 ));
 $bitten = $run([PHP_BINARY, $gateRoot . '/tools/wire-surface.php', '--check', '--root=' . $gateRoot]);
-duo_check($bitten['exit'] !== 0, 'THE GATE BITES: a validator holding a key the signer partition does not is refused');
-duo_check(
+wprism_check($bitten['exit'] !== 0, 'THE GATE BITES: a validator holding a key the signer partition does not is refused');
+wprism_check(
     str_contains($bitten['stderr'] . $bitten['stdout'], 'are not the same set')
         && str_contains($bitten['stderr'] . $bitten['stdout'], 'theme_version_range'),
     '...naming the key and the rule — one definition, not two (row R-21)'
 );
-duo_check_detail('gate refusal: ' . trim($bitten['stderr'] . $bitten['stdout']));
+wprism_check_detail('gate refusal: ' . trim($bitten['stderr'] . $bitten['stdout']));
 
-duo_check_summary('closed top-level key set');
+wprism_check_summary('closed top-level key set');

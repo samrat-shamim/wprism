@@ -149,12 +149,12 @@ foreach ([
 require_once __DIR__ . '/../../lib/check.php';
 require_once $xrrRepo . '/cli/src/Adapter/AdapterCertify.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\Orchestrator\AdapterCertify;
-use Duo\Policy;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\Orchestrator\AdapterCertify;
+use WPrism\Policy;
 
 (new ReflectionMethod(AdapterCertify::class, 'boot'))->invoke(null);
 
@@ -266,13 +266,13 @@ $manifest = [
     'option_namespaces' => [['match' => '^xrr_demo_']],
     'options' => ['xrr_demo_layout' => ['class' => 'authored']],
     'post_types' => ['xrr_demo_item' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ];
 Canon::write_file($xrrSite . '/adapters/' . $adapter . '.json', Canon::encode($manifest));
-Canon::write_file($xrrSite . '/site.duo.json', Canon::encode([
+Canon::write_file($xrrSite . '/site.wprism.json', Canon::encode([
     'manifests' => ['core'],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 
 $certificatePath = AdapterCertification::certificatePath($xrrSite, $adapter);
@@ -415,7 +415,7 @@ $slots = [
         'reset' => static function () use ($certificatePath, $certificateRaw): void {
             file_put_contents($certificatePath, $certificateRaw);
         },
-        'refusal' => "duo: site adapter '$adapter' certification has an invalid Ed25519 signature",
+        'refusal' => "wprism: site adapter '$adapter' certification has an invalid Ed25519 signature",
     ],
     'authorities' => [
         'install' => static function (string $signature) use ($authoritiesDocument, $siteId, $siteRootPath): void {
@@ -431,7 +431,7 @@ $slots = [
         'reset' => static function () use ($siteRootPath, $siteRootRaw): void {
             file_put_contents($siteRootPath, $siteRootRaw);
         },
-        'refusal' => "duo: site adapter certification authorities envelope signature does not verify under key "
+        'refusal' => "wprism: site adapter certification authorities envelope signature does not verify under key "
             . "'$siteId'; an unsigned or tampered authorities document is refused, never read as an absent trust"
             . ' root',
     ],
@@ -458,7 +458,7 @@ $slots = [
                 unlink($delegationPath);
             }
         },
-        'refusal' => "duo: site adapter certification delegation '$delegateId' does not verify under delegator "
+        'refusal' => "wprism: site adapter certification delegation '$delegateId' does not verify under delegator "
             . "'$platformId'; an unsigned or tampered delegation is refused, never read as an absent grant",
     ],
     'revocation' => [
@@ -477,7 +477,7 @@ $slots = [
                 unlink($revocationPath);
             }
         },
-        'refusal' => "duo: adapter certification authority revocations do not verify under key '$platformId'; an "
+        'refusal' => "wprism: adapter certification authority revocations do not verify under key '$platformId'; an "
             . 'unsigned or tampered revocation document is refused, never read as an absent one',
     ],
 ];
@@ -496,12 +496,12 @@ $place = static function (string $slot, string $signature) use ($slots, $verdict
 
 echo "\n== the premise: four domains, one key, four live slots ==\n";
 
-duo_check_same(
+wprism_check_same(
     [
-        "duo-site-adapter-certification-signature/v2\0",
-        "duo-adapter-authorities-signature/v1\0",
-        "duo-adapter-authority-delegation-signature/v1\0",
-        "duo-adapter-authority-revocation-signature/v1\0",
+        "wprism-site-adapter-certification-signature/v2\0",
+        "wprism-adapter-authorities-signature/v1\0",
+        "wprism-adapter-authority-delegation-signature/v1\0",
+        "wprism-adapter-authority-revocation-signature/v1\0",
     ],
     array_map(
         static fn(string $name): string => (string) constant(AdapterCertification::class . '::' . $name),
@@ -510,14 +510,14 @@ duo_check_same(
     'the four adapter-side domains are the four this matrix is sized for — a fifth constant would leave a row and '
     . 'a column of this suite unwritten rather than silently covered'
 );
-duo_check_same(
+wprism_check_same(
     $signerKey['fingerprint'],
     hash('sha256', base64_decode((string) $xrrRecord($signerKey['encoded'])['public_key'], true) ?: ''),
     'one key material is installed under both ids, so no placement below can refuse merely because a different '
     . 'key signed it — the ids differ only in the label half the v2 grammar leaves free (:3049)'
 );
 $baseline = $verdict($slots['certification']['drive']);
-duo_check_same(
+wprism_check_same(
     null,
     $baseline,
     'baseline: the sign_site() certificate verifies through verifyFile() before anything is forged ('
@@ -532,12 +532,12 @@ $native = [];
 foreach ($domains as $domain) {
     $preimage = $frame($domain, $statements[$domain]);
     if ($preimage === null) {
-        duo_check(false, "the shipped framer for '$domain' could not frame its OWN statement");
+        wprism_check(false, "the shipped framer for '$domain' could not frame its OWN statement");
         continue;
     }
     $native[$domain] = $sign($preimage);
     $answer = $place($domain, $native[$domain]);
-    duo_check_same(
+    wprism_check_same(
         null,
         $answer,
         "diagonal $domain -> $domain: a signature this suite framed through the shipped framer and signed with "
@@ -546,7 +546,7 @@ foreach ($domains as $domain) {
     );
 }
 
-duo_check_same(
+wprism_check_same(
     $certificate['signature'],
     $native['certification'] ?? null,
     'and the forger reproduces the SHIPPED signer byte for byte on the diagonal — Ed25519 is deterministic, so '
@@ -561,7 +561,7 @@ foreach ($domains as $source) {
             continue;
         }
         $answer = $place($target, $native[$source]);
-        duo_check(
+        wprism_check(
             $answer !== null && str_contains($answer, $slots[$target]['refusal']),
             "HARVEST $source -> $target: the fixed key's genuine $source signature is REFUSED in the $target slot, "
             . 'by that slot\'s own sentence (' . ((string) $answer) . ')'
@@ -585,7 +585,7 @@ foreach ($domains as $source) {
             continue;
         }
         $answer = $place($target, $sign($preimage));
-        duo_check(
+        wprism_check(
             $answer !== null && str_contains($answer, $slots[$target]['refusal']),
             "REFRAME $source -> $target: the $target slot's OWN statement, its OWN key and its OWN document — only "
             . "the domain is $source — is REFUSED, which is the cell a verifier framing with the wrong constant "
@@ -599,7 +599,7 @@ echo "\n== the named gaps, printed rather than absent ==\n";
 foreach (CROSS_DOMAIN_GAPS as $cell => $why) {
     echo "GAP: $cell\n     $why\n";
 }
-duo_check_same(
+wprism_check_same(
     array_keys(CROSS_DOMAIN_GAPS),
     $unexpressible,
     'the cells no shipped framer can express are EXACTLY the ones written down — the ratchet runs both ways, so a '
@@ -613,7 +613,7 @@ foreach ($domains as $target) {
     // the mutation the three named gaps leave open for the authorities domain
     // specifically, and it is closed for all four slots here.
     $answer = $place($target, $sign(Canon::encode($statements[$target])));
-    duo_check(
+    wprism_check(
         $answer !== null && str_contains($answer, $slots[$target]['refusal']),
         "NO-DOMAIN -> $target: a signature over the slot's own canonical statement with NO domain prefix is "
         . 'REFUSED, so the prefix is load-bearing rather than decorative (' . ((string) $answer) . ')'
@@ -649,10 +649,10 @@ $reroot = static function (callable $edit) use (
 $siteToPlatform = $reroot(static function (array &$authority): void {
     $authority['trust_root'] = AdapterCertification::TRUST_ROOT_PLATFORM;
 });
-duo_check(
+wprism_check(
     $siteToPlatform !== null && str_contains(
         $siteToPlatform,
-        "duo: site adapter '$adapter' certification authority/key/fingerprint/trust root does not match the "
+        "wprism: site adapter '$adapter' certification authority/key/fingerprint/trust root does not match the "
         . 'current site authority record'
     ),
     'site -> platform: a site-rooted certificate whose trust_root alone is flipped to `platform`, RE-SIGNED '
@@ -665,10 +665,10 @@ $platformToSite = $reroot(static function (array &$authority) use ($platformId):
     $authority['key_id'] = $platformId;
     $authority['trust_root'] = AdapterCertification::TRUST_ROOT_SITE;
 });
-duo_check(
+wprism_check(
     $platformToSite !== null && str_contains(
         $platformToSite,
-        "duo: authority key '$platformId' is reviewed and shipped by this agent, so a site trust root cannot claim it"
+        "wprism: authority key '$platformId' is reviewed and shipped by this agent, so a site trust root cannot claim it"
     ),
     'platform -> site: the reverse replay is answered one clause EARLIER, by the shipped-wins hoist at '
     . 'AdapterCertification.php:1601-1612 (G2-FIXES m3), which is the more specific sentence R-13 records — so '
@@ -679,20 +679,20 @@ duo_check(
 $thirdRoot = $reroot(static function (array &$authority): void {
     $authority['trust_root'] = 'vendor';
 });
-duo_check(
+wprism_check(
     $thirdRoot !== null && str_contains(
         $thirdRoot,
-        "duo: site adapter '$adapter' certification must name trust root platform or site"
+        "wprism: site adapter '$adapter' certification must name trust root platform or site"
     ),
     'a THIRD trust root word is refused by vocabulary at :1587-1593, before any key is resolved — R-13 reserves '
     . 'that third value for a genuinely new custody model and a certificate may not mint one (' . ((string) $thirdRoot) . ')'
 );
 
-duo_check_same(
+wprism_check_same(
     ['platform', 'site'],
     [AdapterCertification::TRUST_ROOT_PLATFORM, AdapterCertification::TRUST_ROOT_SITE],
     'and the two words the vocabulary admits are the two shipped constants, so the refusal above is about the '
     . 'closed set rather than about a spelling this suite chose'
 );
 
-duo_check_summary('cross-root replay');
+wprism_check_summary('cross-root replay');

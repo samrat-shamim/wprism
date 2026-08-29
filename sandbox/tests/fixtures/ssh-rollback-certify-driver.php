@@ -9,10 +9,10 @@ require dirname(__DIR__, 3) . '/cli/src/Recovery/RollbackAuthority.php';
 require dirname(__DIR__, 3) . '/cli/src/Recovery/VerifiedRollbackProfile.php';
 require dirname(__DIR__, 2) . '/bin/ssh-rollback-certification.php';
 
-use Duo\Orchestrator\RollbackAuthority;
-use Duo\Orchestrator\SshTransport;
-use Duo\Orchestrator\VerifiedRollbackProfile;
-use Duo\Recovery\RollbackControl;
+use WPrism\Orchestrator\RollbackAuthority;
+use WPrism\Orchestrator\SshTransport;
+use WPrism\Orchestrator\VerifiedRollbackProfile;
+use WPrism\Recovery\RollbackControl;
 
 function srd_fail(string $message): never { fwrite(STDERR,"FAIL: $message\n");exit(1); }
 function srd_hash(string $value): string { return hash('sha256',$value); }
@@ -76,27 +76,27 @@ function srd_claim_fields(SshTransport $transport,array $fixture,array $plan,int
     return VerifiedRollbackProfile::claimFields(
         $plan,
         ['claim_ttl_seconds'=>120,'encryption_key_id'=>'ssh-kms-fixture','retention_seconds'=>86400],
-        'controller:duo-3299',
+        'controller:ssh-rollback',
         $created
     );
 }
 
 /** @return array<string,mixed> */
-function srd_code_input(array $status,string $operation): array { $code=$status['code_release'];return['artifact_hash'=>$status['artifact_hash'],'code_release_metadata_sha256'=>$code['metadata_sha256'],'expected_from_pointer_sha256'=>$operation==='select_desired'?$code['prior_pointer_sha256']:$code['desired_pointer_sha256'],'format'=>'duo-code-release-operation/v1','generation'=>$status['generation'],'operation'=>$operation,'owner'=>$status['owner'],'receipt_id'=>$status['receipt_id'],'target_id'=>$status['target_id']]; }
+function srd_code_input(array $status,string $operation): array { $code=$status['code_release'];return['artifact_hash'=>$status['artifact_hash'],'code_release_metadata_sha256'=>$code['metadata_sha256'],'expected_from_pointer_sha256'=>$operation==='select_desired'?$code['prior_pointer_sha256']:$code['desired_pointer_sha256'],'format'=>'wprism-code-release-operation/v1','generation'=>$status['generation'],'operation'=>$operation,'owner'=>$status['owner'],'receipt_id'=>$status['receipt_id'],'target_id'=>$status['target_id']]; }
 /** @return array<string,mixed> */
-function srd_upload_input(array $status,string $operation): array { $up=$status['uploads'];return['artifact_hash'=>$status['artifact_hash'],'desired_inventory_sha256'=>$up['desired_inventory_sha256'],'format'=>'duo-upload-operation/v1','generation'=>$status['generation'],'operation'=>$operation,'owner'=>$status['owner'],'prior_inventory_sha256'=>$up['prior_inventory_sha256'],'receipt_id'=>$status['receipt_id'],'target_id'=>$status['target_id'],'uploads_inventory_sha256'=>$up['metadata_sha256']]; }
+function srd_upload_input(array $status,string $operation): array { $up=$status['uploads'];return['artifact_hash'=>$status['artifact_hash'],'desired_inventory_sha256'=>$up['desired_inventory_sha256'],'format'=>'wprism-upload-operation/v1','generation'=>$status['generation'],'operation'=>$operation,'owner'=>$status['owner'],'prior_inventory_sha256'=>$up['prior_inventory_sha256'],'receipt_id'=>$status['receipt_id'],'target_id'=>$status['target_id'],'uploads_inventory_sha256'=>$up['metadata_sha256']]; }
 /** @return array<string,mixed> */
-function srd_effect_input(array $status): array { $effect=$status['effects'];return['artifact_hash'=>$status['artifact_hash'],'effects_inventory_sha256'=>$effect['effects_inventory_sha256'],'format'=>'duo-effect-operation/v1','generation'=>$status['generation'],'lifecycle_receipts_sha256'=>$effect['metadata_sha256'],'operation'=>'restore_prior','owner'=>$status['owner'],'prior_evidence_sha256'=>$effect['prior_evidence_sha256'],'receipt_id'=>$status['receipt_id'],'target_id'=>$status['target_id']]; }
+function srd_effect_input(array $status): array { $effect=$status['effects'];return['artifact_hash'=>$status['artifact_hash'],'effects_inventory_sha256'=>$effect['effects_inventory_sha256'],'format'=>'wprism-effect-operation/v1','generation'=>$status['generation'],'lifecycle_receipts_sha256'=>$effect['metadata_sha256'],'operation'=>'restore_prior','owner'=>$status['owner'],'prior_evidence_sha256'=>$effect['prior_evidence_sha256'],'receipt_id'=>$status['receipt_id'],'target_id'=>$status['target_id']]; }
 
 /** @return array<string,mixed> */
 function srd_world(SshTransport $transport,array $fixture): array {
-    $query=trim(srd_wp($transport,['db','query','SELECT value FROM duo_cert_state WHERE id=1','--skip-column-names'],'state verification')['stdout']);
+    $query=trim(srd_wp($transport,['db','query','SELECT value FROM wprism_cert_state WHERE id=1','--skip-column-names'],'state verification')['stdout']);
     $schema=trim(srd_wp($transport,['db','query',"SELECT TABLE_NAME,COLUMN_NAME,COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME,ORDINAL_POSITION",'--skip-column-names'],'schema verification')['stdout']);
     $code=trim(srd_remote($transport,'cat '.escapeshellarg($fixture['code_pointer']),'code pointer')['stdout']);
     $uploads=srd_remote($transport,'find '.escapeshellarg($fixture['uploads'])." -type f -exec sha256sum {} + | sort",'upload inventory')['stdout'];
     $effect=srd_remote($transport,'sha256sum '.escapeshellarg($fixture['effect_target'])." | cut -d' ' -f1",'effect inventory')['stdout'];
     $runtime=srd_remote($transport,'find '.escapeshellarg($fixture['control_root'].'/recovery-runtime')." -type f -exec sha256sum {} + | sort",'runtime inventory')['stdout'];
-    $ledger=trim(srd_wp($transport,['db','query','SELECT COUNT(*) FROM duo_cert_lease','--skip-column-names'],'ledger verification')['stdout']);
+    $ledger=trim(srd_wp($transport,['db','query','SELECT COUNT(*) FROM wprism_cert_lease','--skip-column-names'],'ledger verification')['stdout']);
     $selected=$fixture['release_root'].'/'.$code;
     $mutable=trim(srd_remote($transport,'find '.escapeshellarg($selected).' -perm -u=w -print -quit','selected release mutability')['stdout'])!=='';
     return['adapter'=>srd_hash('checkpoint:1-code:1-upload:1-effects:1'),'canonical'=>srd_hash($query),'code'=>srd_hash($code),'database'=>srd_hash($query),'effects'=>trim($effect),'ledger'=>srd_hash($ledger),'mutable_checkout'=>$mutable,'runtime'=>srd_hash($runtime),'schema'=>srd_hash($schema),'target'=>srd_hash($query.$code.$uploads),'uploads'=>srd_hash($uploads)];
@@ -128,7 +128,7 @@ function srd_fresh_verifier(string $envPath,string $artifact,string $name,int $g
 
 /** @return array<string,mixed> */
 function srd_negative_snapshot(SshTransport $transport,array $fixture): array {
-    $paths=[$fixture['control_root'],dirname($fixture['control_root']).'/rollback',$fixture['release_root'],'/home/duo/providers','/home/duo/provider-state'];
+    $paths=[$fixture['control_root'],dirname($fixture['control_root']).'/rollback',$fixture['release_root'],'/home/wprism/providers','/home/wprism/provider-state'];
     $inventory=srd_remote($transport,'find '.implode(' ',array_map('escapeshellarg',$paths))." -type f -exec sha256sum {} + | sort",'negative resource snapshot')['stdout'];
     return['audit'=>RollbackAuthority::audit($transport),'inventory'=>$inventory,'status'=>RollbackAuthority::status($transport),'world'=>srd_world($transport,$fixture)];
 }
@@ -179,7 +179,7 @@ $claim1=$authority->claim(srd_claim_fields($transport,$fixture,(array)($plans['1
 srd_inject('generation-claim','after',$transport,$dbProbe,$envPath,$faultEvidence);
 foreach(['exclusion-acquire','checkpoint-export','checkpoint-verify','prepared-publication','code-upload']as$boundary)srd_boundary($boundary,$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_marker($authority,$transport,'prepared',str_replace('-','_',$boundary)));
 srd_refusal('concurrent-claimant',$transport,$fixture,$negativeEvidence,function()use($authority,$transport){$status=RollbackAuthority::status($transport);$authority->append((string)$status['state'],'state_transition','foreign_claimant',1,'worker-foreign',srd_hash('foreign-claimant'),str_repeat('0',64),srd_time());});
-srd_refusal('failed-maintenance-keepalive',$transport,$fixture,$negativeEvidence,fn()=>$authority->keepalive(srd_time()),fn()=>srd_remote($transport,'touch /home/duo/provider-state/exclusion.json.fail-keepalive','arm failed keepalive'));
+srd_refusal('failed-maintenance-keepalive',$transport,$fixture,$negativeEvidence,fn()=>$authority->keepalive(srd_time()),fn()=>srd_remote($transport,'touch /home/wprism/provider-state/exclusion.json.fail-keepalive','arm failed keepalive'));
 srd_transition($authority,$transport,'promoting','promotion_start');
 srd_boundary('code-pointer',$transport,$dbProbe,$envPath,$faultEvidence,function()use($authority,$transport,$fixture,&$negativeEvidence){
     $input=srd_code_input(RollbackAuthority::status($transport),'select_desired');
@@ -200,10 +200,10 @@ srd_boundary('lifecycle-activate',$transport,$dbProbe,$envPath,$faultEvidence,fu
 $uploadApply=function()use($authority,$transport){$status=RollbackAuthority::status($transport);$authority->runOperation('promoting','storage_apply',1,srd_upload_input($status,'apply_desired'),srd_time(),srd_time());};
 srd_boundary('upload-local-publish',$transport,$dbProbe,$envPath,$faultEvidence,$uploadApply);
 foreach(['upload-offload-publish','upload-derivative-publish']as$boundary)srd_boundary($boundary,$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_marker($authority,$transport,'promoting',str_replace('-','_',$boundary)));
-srd_boundary('authored-database-commit',$transport,$dbProbe,$envPath,$faultEvidence,function()use($authority,$transport){srd_marker($authority,$transport,'promoting','authored_database_commit');srd_wp($transport,['db','query',"UPDATE duo_cert_state SET value='desired'; INSERT INTO duo_cert_lease(id,owner) VALUES(1,'worker-a') ON DUPLICATE KEY UPDATE owner=VALUES(owner)"],'authored database mutation');});
+srd_boundary('authored-database-commit',$transport,$dbProbe,$envPath,$faultEvidence,function()use($authority,$transport){srd_marker($authority,$transport,'promoting','authored_database_commit');srd_wp($transport,['db','query',"UPDATE wprism_cert_state SET value='desired'; INSERT INTO wprism_cert_lease(id,owner) VALUES(1,'worker-a') ON DUPLICATE KEY UPDATE owner=VALUES(owner)"],'authored database mutation');});
 srd_boundary('rebuild',$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_marker($authority,$transport,'promoting','rebuild'));
 srd_transition($authority,$transport,'verifying_new','verifying_new');
-srd_boundary('new-verification',$transport,$dbProbe,$envPath,$faultEvidence,function()use($transport){$a=srd_wp($transport,['db','query','SELECT value FROM duo_cert_state WHERE id=1','--skip-column-names'],'new verification one');$b=srd_wp($transport,['db','query','SELECT value FROM duo_cert_state WHERE id=1','--skip-column-names'],'new verification two');if(!hash_equals(srd_hash($a['stdout']),srd_hash($b['stdout'])))srd_fail('new verifier recaptures differ');});
+srd_boundary('new-verification',$transport,$dbProbe,$envPath,$faultEvidence,function()use($transport){$a=srd_wp($transport,['db','query','SELECT value FROM wprism_cert_state WHERE id=1','--skip-column-names'],'new verification one');$b=srd_wp($transport,['db','query','SELECT value FROM wprism_cert_state WHERE id=1','--skip-column-names'],'new verification two');if(!hash_equals(srd_hash($a['stdout']),srd_hash($b['stdout'])))srd_fail('new verifier recaptures differ');});
 srd_boundary('rollback-pending-publication',$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_transition($authority,$transport,'rollback_pending','verification_failed'));
 $expired=gmdate('Y-m-d\TH:i:s\Z',strtotime((string)RollbackAuthority::status($transport)['claim_expires_at'])+1);
 srd_boundary('operator-takeover',$transport,$dbProbe,$envPath,$faultEvidence,fn()=>$authority->takeover('rescuer',$expired));
@@ -219,9 +219,9 @@ foreach(['database-abort-before','database-import','database-abort-final']as$ind
         $bad=$input;$bad['checkpoint_sha256']=str_repeat('0',64);srd_refusal('checkpoint-substitution',$transport,$fixture,$negativeEvidence,fn()=>$authority->executeOperation('database_restore',1,$bad));
         $checkpoint=dirname($fixture['control_root']).'/rollback/'.$status['receipt_id'].'/artifacts/checkpoint.enc';$checkpointBackup=$checkpoint.'.cert-backup';
         srd_refusal('checkpoint-corruption',$transport,$fixture,$negativeEvidence,fn()=>$authority->executeOperation('database_restore',1,$input),fn()=>srd_remote($transport,'cp '.escapeshellarg($checkpoint).' '.escapeshellarg($checkpointBackup).' && printf corrupt >> '.escapeshellarg($checkpoint),'corrupt checkpoint'),fn()=>srd_remote($transport,'mv '.escapeshellarg($checkpointBackup).' '.escapeshellarg($checkpoint),'restore checkpoint'));
-        $key='/home/duo/provider-state/checkpoint.key';$keyBackup=$key.'.cert-backup';
+        $key='/home/wprism/provider-state/checkpoint.key';$keyBackup=$key.'.cert-backup';
         srd_refusal('unavailable-key',$transport,$fixture,$negativeEvidence,fn()=>$authority->executeOperation('database_restore',1,$input),fn()=>srd_remote($transport,'mv '.escapeshellarg($key).' '.escapeshellarg($keyBackup),'remove checkpoint key'),fn()=>srd_remote($transport,'mv '.escapeshellarg($keyBackup).' '.escapeshellarg($key),'restore checkpoint key'));
-        $provider='/home/duo/providers/ssh-rollback-checkpoint-provider.php';$providerBackup=$provider.'.cert-backup';
+        $provider='/home/wprism/providers/ssh-rollback-checkpoint-provider.php';$providerBackup=$provider.'.cert-backup';
         srd_refusal('unavailable-adapter',$transport,$fixture,$negativeEvidence,fn()=>$authority->executeOperation('database_restore',1,$input),fn()=>srd_remote($transport,'mv '.escapeshellarg($provider).' '.escapeshellarg($providerBackup),'remove checkpoint adapter'),fn()=>srd_remote($transport,'mv '.escapeshellarg($providerBackup).' '.escapeshellarg($provider),'restore checkpoint adapter'));
         $resumer=new RollbackAuthority($transport);$execution=$resumer->executeOperation('database_restore',1,$input);$resumer->completeOperation('rolling_back','database_restore',1,$input,$execution,srd_time());
     });
@@ -239,7 +239,7 @@ $audit1=RollbackAuthority::audit($transport);$authority->releaseExclusion(srd_ti
 // and terminal retention/deletion boundaries that cannot occur in generation
 // one's rolled-back release selection.
 $created2=srd_time();$claim2=$authority->claim(srd_claim_fields($transport,$fixture,(array)($plans['2']??[]),2,$created2),'worker-b',$created2);srd_transition($authority,$transport,'promoting','promotion_start_2');
-$status=RollbackAuthority::status($transport);$authority->runOperation('promoting','code_select',1,srd_code_input($status,'select_desired'),srd_time(),srd_time());$status=RollbackAuthority::status($transport);$authority->runOperation('promoting','storage_apply',1,srd_upload_input($status,'apply_desired'),srd_time(),srd_time());srd_wp($transport,['db','query',"UPDATE duo_cert_state SET value='desired-2'; DELETE FROM duo_cert_lease"],'second authored commit');
+$status=RollbackAuthority::status($transport);$authority->runOperation('promoting','code_select',1,srd_code_input($status,'select_desired'),srd_time(),srd_time());$status=RollbackAuthority::status($transport);$authority->runOperation('promoting','storage_apply',1,srd_upload_input($status,'apply_desired'),srd_time(),srd_time());srd_wp($transport,['db','query',"UPDATE wprism_cert_state SET value='desired-2'; DELETE FROM wprism_cert_lease"],'second authored commit');
 srd_transition($authority,$transport,'verifying_new','verifying_new_2');srd_remote($transport,'chmod -R a-w '.escapeshellarg($fixture['release_root'].'/release-desired-2'),'freeze desired release');$newWorld=srd_world($transport,$fixture);$newVerifier=srd_fresh_verifier($envPath,(string)$claim2['receipt']['artifact_hash'],'new',2);
 srd_boundary('committed-publication',$transport,$dbProbe,$envPath,$faultEvidence,fn()=>srd_transition($authority,$transport,'committed','committed_verified'));
 $audit2=RollbackAuthority::audit($transport);

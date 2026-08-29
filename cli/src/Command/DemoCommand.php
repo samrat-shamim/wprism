@@ -1,19 +1,19 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
 require_once __DIR__ . '/HostProcess.php';
 
-/** Source-checkout, disposable two-site journey over the real Duo commands. */
+/** Source-checkout, disposable two-site journey over the real WPrism commands. */
 final class DemoCommand {
-    private const FORMAT = 'duo-demo-session/v1';
-    private const DEFAULT_NAME = 'duodemo';
+    private const FORMAT = 'wprism-demo-session/v1';
+    private const DEFAULT_NAME = 'wprismdemo';
     private const DEFAULT_SOURCE_PORT = 8781;
     private const DEFAULT_TARGET_PORT = 8782;
     private const WOO_VERSION = '11.0.1';
-    private const CLI_IMAGE = 'duo-demo-cli-git:php8.3';
+    private const CLI_IMAGE = 'wprism-demo-cli-git:php8.3';
     private const LIVE_PROCESS_TIMEOUT_MILLISECONDS = 1800000;
 
     /**
@@ -23,7 +23,7 @@ final class DemoCommand {
     public static function run(array $args, string $sourceRoot, ?callable $phaseHook = null): int {
         $action = array_shift($args);
         if (!is_string($action) || !in_array($action, ['start', 'status', 'capture', 'apply', 'refusal', 'stop'], true)) {
-            fwrite(STDERR, "duo: demo: expected start, status, capture, apply, refusal, or stop\n");
+            fwrite(STDERR, "wprism: demo: expected start, status, capture, apply, refusal, or stop\n");
             return 1;
         }
         try {
@@ -43,7 +43,7 @@ final class DemoCommand {
                 fclose($lock);
             }
         } catch (\Throwable $error) {
-            fwrite(STDERR, 'duo: demo: ' . $error->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: demo: ' . $error->getMessage() . "\n");
             return 1;
         }
     }
@@ -94,7 +94,7 @@ final class DemoCommand {
         $session = self::sessionShape($sourceRoot, $options);
         self::restoreClaimedSession((string) $session['state_file'], (string) $options['name']);
         if (file_exists($session['state_file']) || is_link($session['state_file'])) {
-            throw new \RuntimeException("demo '{$options['name']}' already has a session; run `duo demo status` or `duo demo stop`");
+            throw new \RuntimeException("demo '{$options['name']}' already has a session; run `wprism demo status` or `wprism demo stop`");
         }
         foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file'] as $field) {
             $path = (string) $session[$field];
@@ -131,9 +131,9 @@ final class DemoCommand {
                 ],
                 $sourceRoot,
                 [
-                    'DUO_SOURCE_ROOT' => $sourceRoot,
-                    'DUO_EXPECTED_SOURCE_SHA' => trim(self::mustRun(['git', 'rev-parse', 'HEAD'], $sourceRoot)['stdout']),
-                    'DUO_CLI_IMAGE' => self::CLI_IMAGE,
+                    'WPRISM_SOURCE_ROOT' => $sourceRoot,
+                    'WPRISM_EXPECTED_SOURCE_SHA' => trim(self::mustRun(['git', 'rev-parse', 'HEAD'], $sourceRoot)['stdout']),
+                    'WPRISM_CLI_IMAGE' => self::CLI_IMAGE,
                 ],
                 true,
                 self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
@@ -147,17 +147,17 @@ final class DemoCommand {
             self::prepareSourceRepository($session, $phaseHook);
             self::installWooCommerce($session, $sourceRoot);
             self::seedSourceCatalog($session);
-            self::runDuo($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
+            self::runWPrism($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
             self::git($session['source_repo'], ['add', '-A']);
-            self::git($session['source_repo'], ['-c', 'user.name=duo-demo', '-c', 'user.email=demo@example.test', 'commit', '-m', 'demo: initial WooCommerce catalog']);
+            self::git($session['source_repo'], ['-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test', 'commit', '-m', 'demo: initial WooCommerce catalog']);
             self::git($session['source_repo'], ['push', '-u', 'origin', 'main']);
             self::cloneTargetRepository($session);
-            self::runDuo($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
+            self::runWPrism($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
             self::establishHpos($session, 2);
             self::configureWooQualification($session, 2);
             self::seedTargetProductRuntime($session);
             $revision = trim(self::git($session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
-            self::runDuo(
+            self::runWPrism(
                 $session,
                 $sourceRoot,
                 $session['target_repo'],
@@ -184,7 +184,7 @@ final class DemoCommand {
         echo "  Target: http://localhost:{$options['target_port']}/wp-admin/\n";
         echo "  Login:  admin / admin\n";
         echo "  Repo:   {$session['source_repo']}\n\n";
-        echo "Edit 'Duo Demo Mug' on the SOURCE site, then run:\n";
+        echo "Edit 'WPrism Demo Mug' on the SOURCE site, then run:\n";
         echo '  ' . escapeshellarg(self::demoCli($sourceRoot)) . ' demo capture --name=' . $options['name'] . "\n";
         return 0;
     }
@@ -203,7 +203,7 @@ final class DemoCommand {
     private static function capture(string $sourceRoot, string $name): int {
         $session = self::readSession($sourceRoot, $name);
         self::assertReady($session);
-        self::runDuo($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
+        self::runWPrism($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
         $diff = self::git($session['source_repo'], ['status', '--short']);
         if (trim($diff['stdout']) === '') {
             echo "Capture is byte-identical to the baseline; make an authored change on the source site first.\n";
@@ -226,7 +226,7 @@ final class DemoCommand {
         if ($status !== '') {
             self::git($session['source_repo'], ['add', '-A']);
             self::git($session['source_repo'], [
-                '-c', 'user.name=duo-demo', '-c', 'user.email=demo@example.test',
+                '-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test',
                 'commit', '-m', 'demo: capture authored source change',
             ]);
             $revision = trim(self::git($session['source_repo'], ['rev-parse', 'HEAD'])['stdout']);
@@ -246,12 +246,12 @@ final class DemoCommand {
         }
         self::git($session['source_repo'], ['push', 'origin', $revision . ':refs/heads/main']);
         self::git($session['target_repo'], ['pull', '--ff-only', 'origin', 'main']);
-        self::runDuo($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
+        self::runWPrism($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
         $targetRevision = trim(self::git($session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
         if ($targetRevision !== $revision) {
             throw new \RuntimeException('target checkout does not match the pending source revision');
         }
-        self::runDuo(
+        self::runWPrism(
             $session,
             $sourceRoot,
             $session['target_repo'],
@@ -274,7 +274,7 @@ final class DemoCommand {
         $session = self::readSession($sourceRoot, $name);
         self::assertReady($session);
         $before = self::targetRuntimeSnapshot($session);
-        $result = self::runDuo(
+        $result = self::runWPrism(
             $session,
             $sourceRoot,
             $session['target_repo'],
@@ -294,7 +294,7 @@ final class DemoCommand {
             throw new \RuntimeException('the deliberate refusal changed target runtime state');
         }
         echo trim($detail) . "\n";
-        echo "PASS: Duo refused a caller-supplied target binding and the target order/stock proof stayed unchanged.\n";
+        echo "PASS: WPrism refused a caller-supplied target binding and the target order/stock proof stayed unchanged.\n";
         echo "Next:\n  " . escapeshellarg(self::demoCli($sourceRoot)) . " demo stop --name=$name\n";
         return 0;
     }
@@ -339,15 +339,15 @@ final class DemoCommand {
 
     /** @param array<string,mixed> $session */
     private static function composeEnvBytes(array $session, string $sourceRoot): string {
-        return '# DUO_DEMO_OWNER=' . $session['ownership_token'] . ":compose_env_file\n"
-            . 'DUO_PAIR=' . $session['name'] . "\n"
-            . 'DUO_PORT1=' . $session['source_port'] . "\n"
-            . 'DUO_PORT2=' . $session['target_port'] . "\n"
-            . 'DUO_AGENT_SRC=' . $sourceRoot . "/agent\n"
-            . 'DUO_ADAPTER_PACKAGES_SRC=' . $sourceRoot . "/adapter-packages\n"
-            . 'DUO_PLATFORM_SRC=' . $sourceRoot . "/platform\n"
-            . 'DUO_CLI_IMAGE=' . self::CLI_IMAGE . "\n"
-            . "DUO_DB_HOST=duo-shared-db\n";
+        return '# WPRISM_DEMO_OWNER=' . $session['ownership_token'] . ":compose_env_file\n"
+            . 'WPRISM_PAIR=' . $session['name'] . "\n"
+            . 'WPRISM_PORT1=' . $session['source_port'] . "\n"
+            . 'WPRISM_PORT2=' . $session['target_port'] . "\n"
+            . 'WPRISM_AGENT_SRC=' . $sourceRoot . "/agent\n"
+            . 'WPRISM_ADAPTER_PACKAGES_SRC=' . $sourceRoot . "/adapter-packages\n"
+            . 'WPRISM_PLATFORM_SRC=' . $sourceRoot . "/platform\n"
+            . 'WPRISM_CLI_IMAGE=' . self::CLI_IMAGE . "\n"
+            . "WPRISM_DB_HOST=wprism-shared-db\n";
     }
 
     /** @param array<string,mixed> $session */
@@ -396,14 +396,14 @@ final class DemoCommand {
         if (!is_string($bytes)) {
             throw new \RuntimeException('could not encode demo policy');
         }
-        self::writeNew($session['source_repo'] . '/site.duo.json', $bytes . "\n", 0644);
+        self::writeNew($session['source_repo'] . '/site.wprism.json', $bytes . "\n", 0644);
         self::writeNew($session['source_repo'] . '/.gitignore', Adopt::repositoryGitignoreBytes(), 0644);
         self::writeOverlay($session, $session['source_repo']);
         self::mustRun(['git', 'init', '--initial-branch=main', $session['source_repo']], null);
         self::git($session['source_repo'], ['remote', 'add', 'origin', $session['origin']]);
-        self::git($session['source_repo'], ['add', 'site.duo.json', '.gitignore']);
+        self::git($session['source_repo'], ['add', 'site.wprism.json', '.gitignore']);
         self::git($session['source_repo'], [
-            '-c', 'user.name=duo-demo', '-c', 'user.email=demo@example.test',
+            '-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test',
             'commit', '-m', 'demo: declare WooCommerce managed scope',
         ]);
         self::git($session['source_repo'], ['push', '-u', 'origin', 'main']);
@@ -425,13 +425,13 @@ final class DemoCommand {
         if (!is_string($bytes)) {
             throw new \RuntimeException('could not encode demo environment registry');
         }
-        self::writeNew($repo . '/.duo-envs.json', $bytes . "\n", 0600);
+        self::writeNew($repo . '/.wprism-envs.json', $bytes . "\n", 0600);
     }
 
     /** @param array<string,mixed> $session */
     private static function seedSourceCatalog(array $session): void {
         $php = '$product = new WC_Product_Simple(); '
-            . '$product->set_name("Duo Demo Mug"); $product->set_slug("duo-demo-mug"); '
+            . '$product->set_name("WPrism Demo Mug"); $product->set_slug("wprism-demo-mug"); '
             . '$product->set_regular_price("24.00"); $product->set_manage_stock(true); '
             . '$product->set_stock_quantity(12); $product->set_status("publish"); $product->save(); echo $product->get_id();';
         $result = self::wp($session, 1, ['eval', $php]);
@@ -452,7 +452,7 @@ final class DemoCommand {
 
     /** @param array<string,mixed> $session */
     private static function seedTargetRuntime(array $session): string {
-        $php = '$product = get_page_by_path("duo-demo-mug", OBJECT, "product"); '
+        $php = '$product = get_page_by_path("wprism-demo-mug", OBJECT, "product"); '
             . 'if (!$product) { throw new RuntimeException("demo product missing"); } '
             . '$order = wc_create_order(); $order->add_product(wc_get_product($product->ID), 1); '
             . '$order->calculate_totals(); $order->update_status("processing"); '
@@ -475,7 +475,7 @@ final class DemoCommand {
      */
     private static function seedTargetProductRuntime(array $session): void {
         $php = '$product = new WC_Product_Simple(); '
-            . '$product->set_name("Target-local placeholder"); $product->set_slug("duo-demo-mug"); '
+            . '$product->set_name("Target-local placeholder"); $product->set_slug("wprism-demo-mug"); '
             . '$product->set_regular_price("1.00"); $product->set_manage_stock(true); '
             . '$product->set_stock_quantity(37); $product->set_status("publish"); $product->save(); echo $product->get_id();';
         $result = self::wp($session, 2, ['eval', $php]);
@@ -487,7 +487,7 @@ final class DemoCommand {
     /** @param array<string,mixed> $session */
     private static function targetRuntimeSnapshot(array $session): string {
         $php = '$ids = wc_get_orders(["limit" => -1, "return" => "ids"]); sort($ids, SORT_NUMERIC); '
-            . '$product = get_page_by_path("duo-demo-mug", OBJECT, "product"); '
+            . '$product = get_page_by_path("wprism-demo-mug", OBJECT, "product"); '
             . '$order = count($ids) === 1 ? wc_get_order($ids[0]) : null; '
             . 'if (!$product || !$order) { throw new RuntimeException("demo runtime missing"); } '
             . '$value = ["order_id" => (int) $order->get_id(), "status" => $order->get_status(), '
@@ -559,7 +559,7 @@ final class DemoCommand {
         string $environment,
         string $repository
     ): void {
-        $result = self::runDuo(
+        $result = self::runWPrism(
             $session,
             $sourceRoot,
             $repository,
@@ -586,7 +586,7 @@ final class DemoCommand {
     }
 
     /** @param array<string,mixed> $session @return array{exit:int,stdout:string,stderr:string} */
-    private static function runDuo(
+    private static function runWPrism(
         array $session,
         string $sourceRoot,
         string $cwd,
@@ -595,14 +595,14 @@ final class DemoCommand {
         bool $mustSucceed = true
     ): array {
         $result = self::runProcess(
-            array_merge([$sourceRoot . '/cli/duo'], $args),
+            array_merge([$sourceRoot . '/cli/wprism'], $args),
             $cwd,
             [],
             $passthrough,
             $passthrough ? self::LIVE_PROCESS_TIMEOUT_MILLISECONDS : 30000
         );
         if ($mustSucceed && $result['exit'] !== 0) {
-            throw new \RuntimeException('Duo command failed: ' . implode(' ', $args));
+            throw new \RuntimeException('WPrism command failed: ' . implode(' ', $args));
         }
         return $result;
     }
@@ -652,7 +652,7 @@ final class DemoCommand {
             || ($data['name'] ?? null) !== $name
             || !is_int($data['source_port'] ?? null)
             || !is_int($data['target_port'] ?? null)) {
-            throw new \RuntimeException("demo '$name' is not active; run `duo demo start --name=$name`");
+            throw new \RuntimeException("demo '$name' is not active; run `wprism demo start --name=$name`");
         }
         self::port((string) $data['source_port'], 'stored source port');
         self::port((string) $data['target_port'], 'stored target port');
@@ -1278,13 +1278,13 @@ final class DemoCommand {
     /** @param array<string,mixed> $session */
     private static function ownerMarker(array $session, string $field, ?string $root = null): string {
         return ($root ?? (string) $session[$field])
-            . '/.duo-demo-owner-' . $session['ownership_token'] . '-' . $field;
+            . '/.wprism-demo-owner-' . $session['ownership_token'] . '-' . $field;
     }
 
     /** @param array<string,mixed> $session */
     private static function acquisitionStage(array $session, string $field): string {
         $path = (string) $session[$field];
-        return dirname($path) . '/.duo-demo-acquire-' . $session['ownership_token'] . '-' . $field;
+        return dirname($path) . '/.wprism-demo-acquire-' . $session['ownership_token'] . '-' . $field;
     }
 
     /** @param array<string,mixed> $session */
@@ -1303,7 +1303,7 @@ final class DemoCommand {
     /** @param array<string,mixed> $session */
     private static function deletionClaim(array $session, string $field): string {
         $path = (string) $session[$field];
-        return dirname($path) . '/.duo-demo-remove-' . $session['ownership_token'] . '-' . $field;
+        return dirname($path) . '/.wprism-demo-remove-' . $session['ownership_token'] . '-' . $field;
     }
 
     /** @return array{dev:string,ino:string,type:string} */
@@ -1358,7 +1358,7 @@ final class DemoCommand {
 
     private static function requireTools(array $tools): void {
         foreach ($tools as $tool) {
-            $result = self::runProcess(['sh', '-c', 'command -v "$1"', 'duo-demo', $tool], null);
+            $result = self::runProcess(['sh', '-c', 'command -v "$1"', 'wprism-demo', $tool], null);
             if ($result['exit'] !== 0) {
                 throw new \RuntimeException("required command '$tool' is unavailable");
             }
@@ -1367,7 +1367,7 @@ final class DemoCommand {
 
     /** @return resource */
     private static function lock(string $sourceRoot, string $name) {
-        $path = sys_get_temp_dir() . '/duo-demo-' . hash('sha256', $sourceRoot . "\0" . $name) . '.lock';
+        $path = sys_get_temp_dir() . '/wprism-demo-' . hash('sha256', $sourceRoot . "\0" . $name) . '.lock';
         $handle = @fopen($path, 'c');
         if (!is_resource($handle) || !flock($handle, LOCK_EX | LOCK_NB)) {
             if (is_resource($handle)) {
@@ -1386,7 +1386,7 @@ final class DemoCommand {
     }
 
     private static function demoCli(string $sourceRoot): string {
-        return realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
+        return realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
     }
 
     private static function port(string $value, string $flag): int {

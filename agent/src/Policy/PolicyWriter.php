@@ -1,14 +1,14 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure manifest projection extracted from Policy::export_manifest()
- * (DUO-3348 slice 27).
+ * (issue #3348 slice 27).
  *
  * Policy remains the public facade that loads a site repository and supplies
  * its effective site policy. This collaborator owns only the writer half:
  * selecting matching classification rules and returning the same manifest
- * shaped value that `wp duo policy-to-manifest` serializes. It deliberately
+ * shaped value that `wp wprism policy-to-manifest` serializes. It deliberately
  * receives the section vocabulary from Policy rather than restating it, so a
  * new classification surface cannot become writable in one path and absent
  * from the other.
@@ -40,7 +40,7 @@ final class PolicyWriter {
             foreach ($sitePolicy[$section] ?? [] as $key => $rule) {
                 $matched = @preg_match('/' . $matchRegex . '/', $key);
                 if ($matched === false) {
-                    throw new \RuntimeException("duo: invalid --match regex '$matchRegex'");
+                    throw new \RuntimeException("wprism: invalid --match regex '$matchRegex'");
                 }
                 if ($matched === 1) {
                     $out[$section][$key] = $rule;

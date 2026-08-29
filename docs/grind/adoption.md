@@ -6,10 +6,10 @@ Substrate: [`sandbox/tests/lib/grind_lib.sh`](../../sandbox/tests/lib/grind_lib.
 implements (originally round-3 T7); `make grind-adoption` runs it.
 
 The adapter walk proves that an operator can author and override adapters. This
-grind proves the thing every real user does before that: **adopting Duo
+grind proves the thing every real user does before that: **adopting WPrism
 progressively on a site that already exists** — a brochure site, a shop with
 orders, a multilingual shop, a builder site — starting with the smallest thing
-Duo can do (`duo doctor`, a read-only `duo assess` on the adoption seed) and
+WPrism can do (`wprism doctor`, a read-only `wprism assess` on the adoption seed) and
 adding management one decision at a time, never a big-bang init. Every
 situation ends with the full loop where the site allows it (contract →
 rehearse → edit → capture → merge → release → verify → recover) or with the
@@ -35,7 +35,7 @@ Ten situations, each on a fresh `pair.sh reset` of one dedicated pair:
 ```sh
 bash sandbox/tests/grind/grind_adoption.sh --self-check      # helpers vs fixtures, no docker
 bash sandbox/tests/grind/grind_adoption.sh --dry-run         # every argv, nothing executed
-DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) bash sandbox/tests/grind/grind_adoption.sh
+WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) bash sandbox/tests/grind/grind_adoption.sh
 ADOPT_SITUATIONS=A1,A3 ADOPT_KEEP=1 … bash sandbox/tests/grind/grind_adoption.sh
 ```
 
@@ -45,7 +45,7 @@ Knobs: `ADOPT_PAIR` (default `adopt`), `ADOPT_PORT1/2` (9600/9601),
 `ADOPT_YOAST_OLD_VERSION`, `ADOPT_CF7_VERSION`, `ADOPT_POLYLANG_VERSION`,
 `ADOPT_ELEMENTOR_VERSION`, `ADOPT_ACF_VERSION`, `ADOPT_WPFORMS_VERSION` (all
 must be pins in the owning adapter's `evidence/artifacts.lock.json`). From a linked
-worktree add `DUO_SOURCE_ROOT=$(pwd -P)`. Evidence lands under
+worktree add `WPRISM_SOURCE_ROOT=$(pwd -P)`. Evidence lands under
 `sandbox/tmp/grind-adoption.*/evidence/<situation>/`; the exact PASS string is
 `✔ GRIND_ADOPTION PASSED (<situations>)`.
 
@@ -61,10 +61,10 @@ before the next live run.
 
 Kept as the grind runs; each entry names the situation, the stop, and the fix.
 
-- A1 (first look): `duo doctor` before a site repository exists reports a
-  `[FAIL] repo path has site.duo.json` row — honest, so the grind seeds the
+- A1 (first look): `wprism doctor` before a site repository exists reports a
+  `[FAIL] repo path has site.wprism.json` row — honest, so the grind seeds the
   adoption repository first, then runs doctor and assess.
-- A1 (first look): `duo assess` on an adoption seed refused
+- A1 (first look): `wprism assess` on an adoption seed refused
   `adapter_observation_pending_unreadable` on every fresh site — the strict
   pending observer read the journal table nothing had created yet. Fixed:
   `Pending::journal_installed()` proves presence with a clean `SHOW TABLES`;
@@ -83,9 +83,9 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   and printed — for adapter-owned plugins too (Elementor's `elementor_library`
   is a type the adapter deliberately leaves to the site).
 - A3 (first look): on an adoption seed the seed's pin set is `core` alone, so
-  the first `duo assess` read `plugin:woocommerce — install adapter` and every
+  the first `wprism assess` read `plugin:woocommerce — install adapter` and every
   WooCommerce table as unclassified on a shop the library certifies. The
-  assessment now projects a seed against the policy `duo init` would propose
+  assessment now projects a seed against the policy `wprism init` would propose
   and says so (`adoption:` line; `authority.adoption` in JSON).
 - All grinds: `tools/reference-env-provider.php` (reusable preview slot,
   merged during T6) requires every configured environment to use pair.sh's
@@ -97,7 +97,7 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   keeps product deletion
   fail-closed by design — so the situation authors its catalog change on the
   source instead of preview-then-delete.
-- A4 (first look, host side): `duo assess`'s per-operation `wp duo
+- A4 (first look, host side): `wprism assess`'s per-operation `wp wprism
   capabilities` reads answered the seed's core-only pin set while the
   inventory had been projected against the init proposal, so the catalog
   joined preview surfaces to missing claims (`missing_registry_entry`). The
@@ -119,7 +119,7 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   scope like explicit authored ones (`InitPlanner::adapter_scope`).
 - A4 (init compensation): a failed confirmation on an adoption seed restores
   the seed's bytes, then re-enters recovery to prove the rollback — which
-  refused "preserved a replacement site.duo.json instead of deleting external
+  refused "preserved a replacement site.wprism.json instead of deleting external
   bytes" because the proof pass only recognised the no-prior-version shape,
   turning every failed init on a seed into a retained journal and lock.
   `owned_file_already_compensated()` now recognises the restored prior
@@ -134,7 +134,7 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   refused `release_surface_not_releasable` for the unclassified table.
   Declared `runtime` (an adapter gap fixed at the root, like WooCommerce's
   operational post types in T6).
-- A5 (rehearse): `duo rehearse` materializes the preview through
+- A5 (rehearse): `wprism rehearse` materializes the preview through
   refresh-export under the isolated control bootstrap, where no plugin is
   loaded; Polylang's four taxonomies were in scope (init proposes them now)
   but `adapter-packages/polylang/package/manifest.json` declared no static
@@ -150,7 +150,7 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   `adapter-packages/elementor/package/manifest.json` now
   declares `elementor_library` structurally, so init proposes it into scope.
 
-- A6 (rehearse, sandbox tooling): the rehearsal target's `duo apply` failed
+- A6 (rehearse, sandbox tooling): the rehearsal target's `wprism apply` failed
   its required `provider:elementor-css/regenerate_css` action with
   `file_put_contents(…/uploads/elementor/css/post-1.css): Permission denied`.
   The reference provider publishes the immutable media snapshot 0555 and
@@ -183,15 +183,15 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   shared a URL host, or their authored content carried no home-relative URL.
 - A6 (tooling, operator evidence): the two A6 failures above were both
   JSON-mode `apply_failed` envelopes with the primary sentence redacted
-  (DUO-3404) — the rehearsal runs the target's apply in `--format=json`, so
+  (issue #3404) — the rehearsal runs the target's apply in `--format=json`, so
   the operator never had a human-mode run to reread. `agent/src/Command/
   Cli.php` now writes the redacted throwable chain privately under the target
-  repository's `.duo/refusals/` and the host names that place on a redacted
+  repository's `.wprism/refusals/` and the host names that place on a redacted
   transport envelope; that is how the `wp_navigation` cause was read without
   guesswork.
 - A6 (release, product — Elementor render cache): once the rebind fix let A6
   reach the release, the builder page still failed to show the edited heading.
-  Duo's apply writes `_elementor_data` with raw SQL
+  WPrism's apply writes `_elementor_data` with raw SQL
   (`ApplyFieldMaterializer::upsert_meta`), so Elementor's own save hooks —
   which normally invalidate its per-document render caches — never fire, and
   the `elementor-css` provider's `flush-css --regenerate` re-renders documents
@@ -217,21 +217,21 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   already documents and avoids (sandbox/conformance/checks/elementor.sh,
   checks/fse.sh, spike_a_round_trip.sh). The grind now buffers the page (and
   the ACF read) into a variable before grepping, the same fix those checks
-  use. The Elementor-cache provider change stands on its own merit — Duo's
+  use. The Elementor-cache provider change stands on its own merit — WPrism's
   apply writes `_elementor_data` with raw SQL, bypassing Elementor's
   cache-invalidation hooks, so explicitly invalidating the derived render
   caches with receipt proof is the honest derived-state contract — it was not
   what the render assertion was tripping on.
 - A8 (re-certify an evolved adapter — product, high blast radius): editing an
   already-certified+pinned site adapter (acme-catalog 1.0.0 → 1.1.0) made the
-  WHOLE site unusable — `duo assess` failed with an opaque "unclassified safety
-  gate", `manifest-validate` refused `certificate_invalid`, and `duo adapter
+  WHOLE site unusable — `wprism assess` failed with an opaque "unclassified safety
+  gate", `manifest-validate` refused `certificate_invalid`, and `wprism adapter
   certify --pin` could not even run its pre-flight. Three distinct hard-fails
   on an edited adapter, all contradicting docs/guides/adapter-authoring.md
   ("an edit moves the digest and the claim drops back to uncertified; re-run
-  `duo adapter certify … --pin`"): (1) the companion certificate binds
+  `wprism adapter certify … --pin`"): (1) the companion certificate binds
   superseded bytes and `AdapterCertification::assertAdapterBinding` hard-threw
-  during `Policy::load`; (2) the `site.duo.json` pin's digest no longer matched
+  during `Policy::load`; (2) the `site.wprism.json` pin's digest no longer matched
   and `PinResolver::validate_manifest_pins` hard-threw; (3) `manifest-validate`
   scanned `adapters/authorities.json` (the site trust root) as if it were an
   adapter manifest. Fixes: a valid-but-superseded companion now throws a typed
@@ -249,30 +249,30 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   re-certifies before validating, modelling the documented edit→certify flow.
 - A8 (code release to production — grind flow): once re-certification worked,
   A8's code half (acme-catalog 1.1.0) was exercised end-to-end for the first
-  time and `duo rehearse`'s refresh-export refused: "completed code
+  time and `wprism rehearse`'s refresh-export refused: "completed code
   descriptor/revision does not match the requested repository artifact". The
   grind had updated adopt1's LIVE plugin with a raw `sed` (as an operator
-  might touch a file) but never recorded the new completed code on Duo's
+  might touch a file) but never recorded the new completed code on WPrism's
   finalized-code ledger, so production still reported 1.0.0 while the repo
   requested 1.1.0 — refresh-export correctly refuses to observe a production
   whose completed code differs from the artifact it would rehearse. Fix
-  (grind): edit the repository's code half, then `duo deploy adopt1`, which
+  (grind): edit the repository's code half, then `wprism deploy adopt1`, which
   stages, activates, and finalizes the 1.1.0 code on production (updating the
   ledger descriptor refresh-export reads). Deploy runs AFTER `certify --pin`
-  because `duo compile` requires the site adapter in canonical bytes, which
+  because `wprism compile` requires the site adapter in canonical bytes, which
   certify restores (verified: deploy on a jq-edited, non-canonical adapter
-  refuses `compile_failed / must use Duo canonical JSON bytes`). Product path
+  refuses `compile_failed / must use WPrism canonical JSON bytes`). Product path
   unchanged — the refusal was correct; the grind was modelling a code change
-  that never reached Duo's ledger.
+  that never reached WPrism's ledger.
 - A8 (classmap currency): the new `SupersededSiteAdapterCertificate` class
-  needed `agent/duo-classmap.php` regenerated (`php tools/classmap-generate.php`)
+  needed `agent/wprism-classmap.php` regenerated (`php tools/classmap-generate.php`)
   — runtime is unaffected (the class loads via the explicit require in
   AdapterSources), but `make release-gate`'s classmap-currency gate flags a
   missing entry.
 - A8 (release to a materialize-based target — grind flow): after the code
-  deploy worked, `duo release --plan-only` refused `release_target_not_clean`.
+  deploy worked, `wprism release --plan-only` refused `release_target_not_clean`.
   The grind had reverted adopt2's live acme-catalog to 1.0.0 "so the release
-  has the code to deliver", but `duo rehearse` had already materialized adopt2
+  has the code to deliver", but `wprism rehearse` had already materialized adopt2
   from the source at 1.1.0 — so the revert drifted the target's live code from
   its own 1.1.0 baseline (code_drift + code_revision_stale), which the release
   readiness correctly refuses. A materialize-based release propagates the
@@ -283,8 +283,8 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   the kept pair: release --yes applied cleanly, adopt2 = 1.1.0 + banner). This
   and the two A8 grind-flow fixes above (deploy to production, capture before
   deploy) are free-zone; the product path was refusing correctly each time.
-- A9 (doctor before seed — grind flow): `duo doctor` fails "repo path has
-  site.duo.json" when the path carries none, and A9 ran doctor before
+- A9 (doctor before seed — grind flow): `wprism doctor` fails "repo path has
+  site.wprism.json" when the path carries none, and A9 ran doctor before
   seed_repository created it. Reordered to seed the adoption repository first
   (the order doctor_and_first_look already uses); only the plugin VERSIONS are
   out of range in A9, which is what its assess surfaces.
@@ -295,7 +295,7 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   (woocommerce_attribute_lookup_last_product_id_to_process / _processed_count /
   _regeneration_in_progress). The manifest's attribute_lookup pattern only
   covered the config members (_direct_updates/_enabled/_optimized_updates), so
-  those three were unclassified and `duo init` refused incomplete_state_
+  those three were unclassified and `wprism init` refused incomplete_state_
   discovery. A4/A5's fresh installs never triggered a regeneration, so they
   never surfaced them. `adapter-packages/woocommerce/package/manifest.json`
   now classes the three as
@@ -311,7 +311,7 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   because one feature flag (wc_visual_attribute) is exact-classed authored.
 - A10 (second init over an init-owned repo — grind expectation): a re-init is a
   typed stop that names EVERY payload init would have to own — code, media,
-  state, and site.duo.json. The primary reason code is whichever sorts first
+  state, and site.wprism.json. The primary reason code is whichever sorts first
   (existing_code_payload, since A10's published stack gives the repo a code/
   half), not existing_configuration as the grind assumed. Assert instead that
   existing_configuration is NAMED among them — init recognising the existing
@@ -321,9 +321,9 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   theme (verified: code/wp-content carries contact-form-7, woocommerce,
   twentytwentyone, not the inactive-at-init block theme). Switching the live
   theme to one init never captured makes the state name a template
-  code/wp-content/themes does not carry, and `duo capture` refuses
+  code/wp-content/themes does not carry, and `wprism capture` refuses
   code_state_mismatch — correctly: a release would deploy only the managed theme
   onto a target whose state says the unmanaged one is active. The edge now
   documents the stop (and that switching back to the adopted theme captures
-  cleanly); managing a newly-activated theme is `duo deploy`'s job. Product path
+  cleanly); managing a newly-activated theme is `wprism deploy`'s job. Product path
   unchanged — the earlier grind expectation (capture succeeds) was wrong.

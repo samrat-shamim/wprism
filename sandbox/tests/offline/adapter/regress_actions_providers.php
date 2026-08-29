@@ -1,12 +1,12 @@
 <?php
 /**
- * Offline (no docker, no WordPress bootstrap) regression harness for DUO-3338's
+ * Offline (no docker, no WordPress bootstrap) regression harness for issue #3338's
  * LOAD-TIME half: the structured `actions`/`providers` manifest grammar, the
  * retirement of the free-form `rebuilders` channel, the effect inventory the
  * new channel feeds, the bytes the shipped adapters actually declare, and the
  * digest that binds manifest-shipped code to its adapter identity — provider
- * files (DUO-3338) and, on the same terms and in the same row, regenerator
- * files (DUO-3360). The identity row lives here rather than beside each
+ * files (issue #3338) and, on the same terms and in the same row, regenerator
+ * files (issue #3360). The identity row lives here rather than beside each
  * mechanism because it is ONE row built by TWO implementations that cannot
  * call each other; splitting its coverage is how they would drift apart.
  *
@@ -25,7 +25,7 @@
  * sandbox/tests/offline/adapter/regress_adapter_contract.php.
  *
  * The RUNTIME half of the same contract — negotiation against live plugin
- * state, plugin-sourced `duo_providers` discovery, invocation receipts,
+ * state, plugin-sourced `wprism_providers` discovery, invocation receipts,
  * value-level verification, and the timeout budget — is
  * sandbox/tests/offline/adapter/regress_provider_contract.php, which the .sh wrapper runs
  * alongside this file under the one Makefile target. The two are deliberately
@@ -52,7 +52,7 @@ function is_multisite(): bool {
 
 $root = dirname(__DIR__, 4);
 require_once $root . '/sandbox/tests/lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
 require $root . '/agent/src/Kernel/Db.php';
@@ -73,12 +73,12 @@ require $root . '/agent/src/Promotion/Deploy.php';
 // AdapterSources, and TargetProbe as its own file-scope requires — so a second
 // bare `require` of it here is a redeclaration fatal, not a safety net.
 
-use Duo\Canon;
-use Duo\AdapterLibrary;
-use Duo\NativeActions;
-use Duo\Policy;
-use Duo\Providers;
-use Duo\RepositoryCompiler;
+use WPrism\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\NativeActions;
+use WPrism\Policy;
+use WPrism\Providers;
+use WPrism\RepositoryCompiler;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -111,7 +111,7 @@ function expect_throw(callable $fn, string $needle, string $msg): void {
  * @param array<string, string> $regenerators regenerator name => PHP source
  */
 function fresh_manifests_dir(array $files, array $providers = [], array $regenerators = []): string {
-    $root = sys_get_temp_dir() . '/duo_regress_actions_providers_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_actions_providers_' . bin2hex(random_bytes(4));
     mkdir($root . '/providers', 0777, true);
     mkdir($root . '/regenerators', 0777, true);
     foreach ($files as $name => $content) {
@@ -194,7 +194,7 @@ function probe_effect(string $id): array {
 function probe_manifest(array $overrides = []): array {
     return $overrides + [
         'name' => 'probe',
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'plugin' => 'probe/probe.php',
         'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
         'providers' => [[
@@ -244,7 +244,7 @@ echo "\n== THE regression: the retired free-form `rebuilders` channel no longer 
 // happening and not reporting itself.
 $retired = [
     'name' => 'retired',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'plugin' => 'probe/probe.php',
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'rebuilders' => [
@@ -256,7 +256,7 @@ fresh_manifests_dir(['retired' => $retired]);
 expect_throw(
     fn() => fixture_policy_load(null, ['retired']),
     'declares the retired free-form `rebuilders` channel',
-    'a manifest declaring `rebuilders` is REFUSED at load (this exact shape loaded and executed before DUO-3338)'
+    'a manifest declaring `rebuilders` is REFUSED at load (this exact shape loaded and executed before issue #3338)'
 );
 try {
     fixture_policy_load(null, ['retired']);
@@ -269,7 +269,7 @@ try {
 }
 // An EMPTY rebuilders list is refused too: the-events-calendar.json carried
 // exactly that, and "present but empty" must not be a way to keep the key.
-fresh_manifests_dir(['retired-empty' => ['name' => 'retired-empty', 'spec_version' => DUO_SPEC_VERSION, 'rebuilders' => []]]);
+fresh_manifests_dir(['retired-empty' => ['name' => 'retired-empty', 'spec_version' => WPRISM_SPEC_VERSION, 'rebuilders' => []]]);
 expect_throw(
     fn() => fixture_policy_load(null, ['retired-empty']),
     'retired free-form `rebuilders` channel',
@@ -282,10 +282,10 @@ expect_throw(
     // the adapter-source reconstruction, so the `rebuilders` refusal fires
     // before anything reads the manifest library at all — which is the point.
     fn() => Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v6',
-        'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
+        'format' => 'wprism-policy-snapshot/v6',
+        'adapter_sources' => ['certificates' => [], 'format' => 'wprism-adapter-sources/v2', 'out_of_tree' => []],
         'dispositions' => null,
-        'site' => ['manifests' => ['retired'], 'spec_version' => DUO_SPEC_VERSION, 'policy' => []],
+        'site' => ['manifests' => ['retired'], 'spec_version' => WPRISM_SPEC_VERSION, 'policy' => []],
         'manifests' => [$retired],
     ]),
     'retired free-form `rebuilders` channel',
@@ -405,7 +405,7 @@ $m = probe_manifest();
 $m['actions'][1]['args'] = ['groups' => [['deep']]];
 refuse_probe($m, 'must be a scalar or a list of scalars', 'a list-of-lists provider argument is refused');
 
-// DUO-3369 widened this load-time bound by exactly one shape: a list of FLAT
+// issue #3369 widened this load-time bound by exactly one shape: a list of FLAT
 // objects, for the `list<object>` argument type the capability declaration
 // grammar gained. The depth bound is what moved (from zero object levels to
 // exactly one), not the principle — the negotiated field vocabulary still
@@ -419,9 +419,9 @@ $m['actions'][1]['args'] = ['groups' => [['kind' => 'post:probe', 'id' => 7, 'pu
 // broke.
 try {
     load_probe($m);
-    check(true, 'a list of FLAT objects is a legal provider argument shape at load (DUO-3369 list<object> values)');
+    check(true, 'a list of FLAT objects is a legal provider argument shape at load (issue #3369 list<object> values)');
 } catch (\Throwable $t) {
-    check(false, 'a list of FLAT objects is a legal provider argument shape at load (DUO-3369 list<object> values)'
+    check(false, 'a list of FLAT objects is a legal provider argument shape at load (issue #3369 list<object> values)'
         . ' (refused with: ' . $t->getMessage() . ')');
 }
 $m = probe_manifest();
@@ -438,7 +438,7 @@ $owner = probe_manifest(['name' => 'owner']);
 $owner['actions'] = [];
 $borrower = [
     'name' => 'borrower',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'actions' => [[
         'kind' => 'provider',
         'provider' => 'probe-cache-offline',
@@ -480,7 +480,7 @@ echo "\n== actions: the effect-contract grammar still gates the new channel ==\n
 
 $m = probe_manifest();
 $m['actions'][0]['effects'] = [['id' => 'probe', 'kind' => 'telepathy', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'probe_option']]];
-// DUO-3318 split the old combined "kind/mode is unsupported" refusal into one
+// issue #3318 split the old combined "kind/mode is unsupported" refusal into one
 // message per closed vocabulary, each naming the rejected token and printing
 // the legal set — so this needle now asserts the KIND half specifically, which
 // is what this fixture actually breaks.
@@ -589,7 +589,7 @@ $contract = [
     ],
 ];
 $runtimeManifest = probe_manifest(['engine_features' => [
-    \Duo\ManifestProviderRuntime::FEATURE,
+    \WPrism\ManifestProviderRuntime::FEATURE,
     'spec-window/v1',
 ]]);
 $runtimeManifest['providers'][0]['capabilities'] = ['flush'];
@@ -637,7 +637,7 @@ refuse_probe(
     'the scoped-after strategy is a closed engine vocabulary rather than an adapter-authored callback name'
 );
 
-$runtime = new class($runtimeDeclaration) extends \Duo\ManifestProviderRuntime {
+$runtime = new class($runtimeDeclaration) extends \WPrism\ManifestProviderRuntime {
     protected function invoke_flush(array $args): array {
         return ['before' => ['state' => 'before'], 'after' => ['state' => 'invoke'], 'verified' => true];
     }
@@ -666,13 +666,13 @@ check(
     'core owns capability dispatch, scoped receipt construction, and the declared fresh-reconcile strategy'
 );
 expect_throw(
-    static fn() => new class($runtimeDeclaration) extends \Duo\ManifestProviderRuntime {},
+    static fn() => new class($runtimeDeclaration) extends \WPrism\ManifestProviderRuntime {},
     'requires protected invoke_flush(array): array',
     'a missing behavior method is a construction-time packaging failure, before any provider mutation can run'
 );
 
 // ======================================================================
-echo "\n== providers: the optional `requires` contract, closed on every axis (DUO-3317) ==\n";
+echo "\n== providers: the optional `requires` contract, closed on every axis (issue #3317) ==\n";
 
 // A well-formed requires block loads and travels to negotiation intact.
 $m = probe_manifest();
@@ -806,7 +806,7 @@ echo "\n== the shipped adapters: every committed manifest loads clean and declar
 // close one explicit library. Their self-owned dependency resolution is
 // separately proved from the committed source-package topology: arbitrary
 // copied directories are not a supported adapter runtime layout.
-$shippedRoot = sys_get_temp_dir() . '/duo_regress_actions_providers_shipped_' . bin2hex(random_bytes(4));
+$shippedRoot = sys_get_temp_dir() . '/wprism_regress_actions_providers_shipped_' . bin2hex(random_bytes(4));
 $shipped = $shippedRoot . '/manifests';
 mkdir($shipped . '/providers', 0777, true);
 mkdir($shippedRoot . '/agent/src/Kernel', 0777, true);
@@ -829,9 +829,9 @@ foreach ($sourceLibrary->packages() as $package) {
     }
 }
 $wpCliProviderFiles = [
-    'elementor' => ['elementor-css.php', '\\Duo\\Providers\\ElementorCss'],
-    'ninja-forms' => ['ninja-forms-form-cache.php', '\\Duo\\Providers\\NinjaFormsFormCache'],
-    'yoast' => ['yoast-index.php', '\\Duo\\Providers\\YoastIndex'],
+    'elementor' => ['elementor-css.php', '\\WPrism\\Providers\\ElementorCss'],
+    'ninja-forms' => ['ninja-forms-form-cache.php', '\\WPrism\\Providers\\NinjaFormsFormCache'],
+    'yoast' => ['yoast-index.php', '\\WPrism\\Providers\\YoastIndex'],
 ];
 foreach ($wpCliProviderFiles as $packageName => [$providerFile, $providerClass]) {
     $descriptors = [
@@ -846,7 +846,7 @@ foreach ($wpCliProviderFiles as $packageName => [$providerFile, $providerClass])
             '-d',
             'display_errors=stderr',
             '-r',
-            'require $argv[1]; require $argv[2]; if (!class_exists("Duo\\\\WpCliChildProcess", false) || !class_exists($argv[3], false)) { exit(1); }',
+            'require $argv[1]; require $argv[2]; if (!class_exists("WPrism\\\\WpCliChildProcess", false) || !class_exists($argv[3], false)) { exit(1); }',
             $root . '/agent/src/Adapter/ManifestProviderRuntime.php',
             $root . '/adapter-packages/' . $packageName . '/package/runtime/providers/' . $providerFile,
             $providerClass,
@@ -933,7 +933,7 @@ if ($woo !== null) {
         ],
         'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, product lookup, product-permalink, and review-route actions in order'
     );
-    // DUO-3342 added the second declaration by MIGRATING a dispatch rather than
+    // issue #3342 added the second declaration by MIGRATING a dispatch rather than
     // by adding a repair: the product lookup rebuild reached the same adapter
     // code through post_types.<type>.regen_dependency before this, so the
     // absence of that key is half of what this check is about.
@@ -966,13 +966,13 @@ if ($woo !== null) {
 // custom plugin advertising its own provider, in a manifest that pins no
 // plugin/version_range at all. Negotiation skips the range comparison for such
 // a manifest by design, so the null range has to survive load as a null.
-$agency = $shippedPolicies['duo-agency-cpt'] ?? null;
+$agency = $shippedPolicies['wprism-agency-cpt'] ?? null;
 check($agency !== null, 'the plugin-sourced provider fixture manifest is among the loadable shipped set');
 if ($agency !== null) {
-    $agencyDeclaration = $agency->provider_declarations()['duo-agency-index'] ?? [];
+    $agencyDeclaration = $agency->provider_declarations()['wprism-agency-index'] ?? [];
     check(
         ($agencyDeclaration['source'] ?? null) === 'plugin'
-            && ($agencyDeclaration['plugin'] ?? null) === 'duo-agency-cpt/duo-agency-cpt.php'
+            && ($agencyDeclaration['plugin'] ?? null) === 'wprism-agency-cpt/wprism-agency-cpt.php'
             && array_key_exists('version_range', $agencyDeclaration)
             && $agencyDeclaration['version_range'] === null,
         'a custom plugin may supply its own provider from a manifest with no version_range (the range check is then skipped, not faked)'
@@ -982,7 +982,7 @@ if ($agency !== null) {
         $agency->actions()
     );
     check(
-        $agencySources === ['provider:duo-agency-index/rebuild_project_index', 'native:transient.delete'],
+        $agencySources === ['provider:wprism-agency-index/rebuild_project_index', 'native:transient.delete'],
         'the fixture declares both kinds side by side: its own plugin capability and the engine-owned transient action'
     );
     check(
@@ -1011,7 +1011,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         // The exact derivation Providers::manifest_provider() uses; asserted
         // here rather than hardcoded so a provider file whose class name drifts
         // from its declared id is caught offline instead of at negotiation.
-        $class = '\\Duo\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
+        $class = '\\WPrism\\Providers\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $id)));
         check(class_exists($class), "provider '$id' defines $class");
         if (!class_exists($class)) {
             continue;
@@ -1090,7 +1090,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         $declaredRegenerators[$name][] = $entry;
     }
 }
-// The audit this issue turns on: DUO-3342 retired the WooCommerce lookup
+// The audit this issue turns on: issue #3342 retired the WooCommerce lookup
 // regenerator onto the provider contract, so exactly one shipped manifest
 // still declares one. Asserted rather than assumed, so a manifest that adds or
 // drops a regenerator declaration has to come back through this file.
@@ -1174,7 +1174,7 @@ echo "\n== digest binding: manifest-shipped provider bytes are part of the adapt
 
 $digestManifest = [
     'name' => 'digest',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'plugin' => 'probe/probe.php',
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'providers' => [[
@@ -1191,7 +1191,7 @@ $digestManifest = [
         'args' => [],
     ]],
 ];
-$providerSource = "<?php\nnamespace Duo\\Providers;\nfinal class DigestProbe {\n    public function __construct(\\Duo\\Policy \$policy) {}\n}\n";
+$providerSource = "<?php\nnamespace WPrism\\Providers;\nfinal class DigestProbe {\n    public function __construct(\\WPrism\\Policy \$policy) {}\n}\n";
 $digestDir = fresh_manifests_dir(['digest' => $digestManifest], ['digest-probe' => $providerSource]);
 $digestPolicy = fixture_policy_load(null, ['digest']);
 $adapterBefore = RepositoryCompiler::resolved_adapters($digestPolicy)[0]['digest'];
@@ -1262,18 +1262,18 @@ check(
 );
 
 // ======================================================================
-echo "\n== digest binding: manifest-shipped regenerator bytes are part of the adapter's identity (DUO-3360) ==\n";
+echo "\n== digest binding: manifest-shipped regenerator bytes are part of the adapter's identity (issue #3360) ==\n";
 
 // Same trust boundary as the interpreter and provider entries above:
 // executable code that ships, versions, and pins with its manifest. Until
-// DUO-3360 nothing hashed it, so two regenerator implementations could share
+// issue #3360 nothing hashed it, so two regenerator implementations could share
 // one manifest revision's identity — a certified claim could not tell them
 // apart. The fixture declares one regenerator on TWO post types (the entry
 // must appear once) plus a second on a third (count and order are load-
 // bearing: the row is a list, so Canon::encode() preserves order rather than
 // normalizing it), and a fourth post type declares none.
-$regenSource = static fn(string $class): string => "<?php\nnamespace Duo\\Regenerators;\n"
-    . "final class $class {\n    public function __construct(\\Duo\\Policy \$policy) {}\n"
+$regenSource = static fn(string $class): string => "<?php\nnamespace WPrism\\Regenerators;\n"
+    . "final class $class {\n    public function __construct(\\WPrism\\Policy \$policy) {}\n"
     . "    public function regenerate(int \$localId): void {}\n}\n";
 $regenDependency = static fn(string $name): array => [
     'regen_dependency' => [
@@ -1285,7 +1285,7 @@ $regenDependency = static fn(string $name): array => [
 // declared first and must still sort second.
 $regenManifest = [
     'name' => 'digestregen',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'plugin' => 'probe/probe.php',
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'post_types' => [
@@ -1300,7 +1300,7 @@ $regenManifest = [
 // manifest's digest and nothing else's.
 $quietManifest = [
     'name' => 'digestquiet',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['probe_quiet' => ['class' => 'authored']],
 ];
 $regenDir = fresh_manifests_dir(
@@ -1391,7 +1391,7 @@ check(
     'the digest is deterministic — identical regenerator bytes re-hash identically across two loads'
 );
 
-// A missing file is Policy::regenerators()' loud refusal to make (`duo
+// A missing file is Policy::regenerators()' loud refusal to make (`wprism
 // manifest-validate` drives it offline, before any apply). This layer records
 // identity, so the entry must stay present with a null hash — a silent skip
 // would let deleting the file leave the adapter's identity unmoved.

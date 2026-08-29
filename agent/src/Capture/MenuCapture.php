@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 
@@ -89,8 +89,8 @@ final class MenuCapture {
             $allItems = $wpdb->get_results($wpdb->prepare(
                 "SELECT p.*,
                         (SELECT pm.meta_value FROM {$wpdb->postmeta} pm
-                         WHERE pm.post_id = p.ID AND pm.meta_key = '_duo_uuid'
-                         ORDER BY pm.meta_id ASC LIMIT 1) AS duo_uuid
+                         WHERE pm.post_id = p.ID AND pm.meta_key = '_wprism_uuid'
+                         ORDER BY pm.meta_id ASC LIMIT 1) AS wprism_uuid
                  FROM {$wpdb->posts} p
                  JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
                  WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item'
@@ -103,7 +103,7 @@ final class MenuCapture {
                 // only their pre-existing item identities and total count.
                 $managedItemUuids = [];
                 foreach ($allItems as $ip) {
-                    $itemUuid = (string) ($ip->duo_uuid ?? '');
+                    $itemUuid = (string) ($ip->wprism_uuid ?? '');
                     if ($itemUuid !== '') {
                         $managedItemUuids[$itemUuid] = true;
                     }
@@ -137,7 +137,7 @@ final class MenuCapture {
             $managedItemUuids = [];
             foreach ($allItems as $ip) {
                 $id = (int) $ip->ID;
-                $itemUuid = $itemUuidById[$id] ?? (string) ($ip->duo_uuid ?? '');
+                $itemUuid = $itemUuidById[$id] ?? (string) ($ip->wprism_uuid ?? '');
                 if ($itemUuid !== '') {
                     $managedItemUuids[$itemUuid] = true;
                 }
@@ -161,12 +161,12 @@ final class MenuCapture {
                 if ($type === 'post_type') {
                     $ref = $this->tokens->id_to_token($objectId, 'post')
                         ?? throw new \RuntimeException(
-                            "duo: menu '{$mt->slug}' item $iid points at unmanaged post $objectId"
+                            "wprism: menu '{$mt->slug}' item $iid points at unmanaged post $objectId"
                         );
                 } elseif ($type === 'taxonomy') {
                     $ref = $this->tokens->id_to_token($objectId, 'term')
                         ?? throw new \RuntimeException(
-                            "duo: menu '{$mt->slug}' item $iid points at unmanaged term $objectId"
+                            "wprism: menu '{$mt->slug}' item $iid points at unmanaged term $objectId"
                         );
                 } else {
                     $ref = $this->tokens->tokenize_text((string) ($m['_menu_item_url'] ?? ''));

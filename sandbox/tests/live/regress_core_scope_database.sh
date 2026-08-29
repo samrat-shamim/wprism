@@ -51,12 +51,12 @@ CLI83_IMAGE='wordpress@sha256:2b5e9d4d3e51909dca1aaa4732e9f5e5bf0377c2114dbd8ff3
 MYSQL84_IMAGE='mysql@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb'
 
 # One cell per claimed engine, as
-# `<engine-name> <DUO_DB_ENGINE> <container> <client-binary> <compose-project> <compose-file>`.
+# `<engine-name> <WPRISM_DB_ENGINE> <container> <client-binary> <compose-project> <compose-file>`.
 # The engine NAME is the claim's own spelling, because that is the key the
 # agent looks up exact-case (PlatformCompatibility::assert_supported()).
 ENGINE_CELLS=(
-  "MariaDB mariadb duo-shared-db mariadb duo-db db.yml"
-  "MySQL mysql duo-shared-mysql mysql duo-db-mysql db.mysql.yml"
+  "MariaDB mariadb wprism-shared-db mariadb wprism-db db.yml"
+  "MySQL mysql wprism-shared-mysql mysql wprism-db-mysql db.mysql.yml"
 )
 
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CORE_SCOPE_DATABASE_PAIR '$PAIR'"
@@ -68,21 +68,21 @@ command -v jq >/dev/null || fail 'jq is required'
 command -v docker >/dev/null || fail 'docker is required'
 
 SOURCE_SHA=$(git rev-parse --verify 'HEAD^{commit}') || fail 'database evidence has no resolvable Git HEAD'
-[ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] || fail 'DUO_EXPECTED_SOURCE_SHA is required for exact database evidence'
-[ "$DUO_EXPECTED_SOURCE_SHA" = "$SOURCE_SHA" ] \
-  || fail "expected source $DUO_EXPECTED_SOURCE_SHA does not equal this checkout HEAD $SOURCE_SHA"
+[ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ] || fail 'WPRISM_EXPECTED_SOURCE_SHA is required for exact database evidence'
+[ "$WPRISM_EXPECTED_SOURCE_SHA" = "$SOURCE_SHA" ] \
+  || fail "expected source $WPRISM_EXPECTED_SOURCE_SHA does not equal this checkout HEAD $SOURCE_SHA"
 [ -z "$(git status --porcelain=v1 --untracked-files=all)" ] \
   || fail "database evidence checkout is dirty; commit the exact candidate $SOURCE_SHA first"
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_ARTIFACT_OFFLINE=1
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_ARTIFACT_OFFLINE=1
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
-ENVS_FILE=$(mktemp "${TMPDIR:-/tmp}/duo-core-database.${PAIR}.XXXXXX")
+ENVS_FILE=$(mktemp "${TMPDIR:-/tmp}/wprism-core-database.${PAIR}.XXXXXX")
 mkdir -p "$ARTIFACTS"
 
-compose() { docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml "$@"; }
+compose() { docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml -f pair.wordpress-offline.yml "$@"; }
 wp1() { compose run --rm -T cli1 wp "$@"; }
 wp2() { compose run --rm -T cli2 wp "$@"; }
 
@@ -120,7 +120,7 @@ cleanup() {
   # rule), so this suite brings it down when it is done rather than leaving it
   # for the next sweep to trip over. db.yml's own server is fleet-shared and is
   # deliberately left alone.
-  docker compose -p duo-db-mysql -f db.mysql.yml down -v >/dev/null 2>&1
+  docker compose -p wprism-db-mysql -f db.mysql.yml down -v >/dev/null 2>&1
   if [ "$status" -eq 0 ] && [ "$destroy_status" -ne 0 ]; then
     status=$destroy_status
   fi
@@ -135,20 +135,20 @@ write_env_file() {
 }
 
 prepare_repo() {
-  cp tests/fixtures/core_lifecycle_site.duo.json "$R1/site.duo.json"
-  cp tests/fixtures/core_lifecycle_site.duo.json "$R2/site.duo.json"
+  cp tests/fixtures/core_lifecycle_site.wprism.json "$R1/site.wprism.json"
+  cp tests/fixtures/core_lifecycle_site.wprism.json "$R2/site.wprism.json"
   cp site-repo.gitignore.template "$R1/.gitignore"
   cp site-repo.gitignore.template "$R2/.gitignore"
   wp1 site empty --yes >/dev/null
   wp2 site empty --yes >/dev/null
-  wp1 option update duo_database_mutation_canary untouched >/dev/null
+  wp1 option update wprism_database_mutation_canary untouched >/dev/null
   write_env_file
 }
 
-duo_json() { # <wp-runner> <label> <duo arguments...>
+wprism_json() { # <wp-runner> <label> <wprism arguments...>
   local runner="$1" label="$2" output payload
   shift 2
-  if ! output=$("$runner" duo "$@" --format=json 2>&1); then
+  if ! output=$("$runner" wprism "$@" --format=json 2>&1); then
     fail "$label failed: $output"
   fi
   payload=$(awk 'NF { line=$0 } END { print line }' <<<"$output")
@@ -215,10 +215,10 @@ pass 'every claimed database engine has an exercise cell, and every image is exa
 # error quoted beside it, never speculatively.
 
 say 'audit §5: the wordpress account authenticates on every claimed engine'
-# db.yml FIRST and unconditionally: it is the sole creator of the `duo-shared`
+# db.yml FIRST and unconditionally: it is the sole creator of the `wprism-shared`
 # network (db.yml:37-39 declares it without `external: true`), and every other
 # compose file in this lane attaches to it as external.
-docker compose -p duo-db -f db.yml up -d >/dev/null
+docker compose -p wprism-db -f db.yml up -d >/dev/null
 for cell in "${ENGINE_CELLS[@]}"; do
   read -r _ _ _ _ cell_project cell_file <<<"$cell"
   docker compose -p "$cell_project" -f "$cell_file" up -d >/dev/null
@@ -226,7 +226,7 @@ done
 
 for cell in "${ENGINE_CELLS[@]}"; do
   read -r cell_engine cell_env cell_container cell_client _ _ <<<"$cell"
-  export DUO_DB_ENGINE="$cell_env" DUO_WP_IMAGE="$WP71_IMAGE" DUO_CLI_IMAGE="$CLI83_IMAGE"
+  export WPRISM_DB_ENGINE="$cell_env" WPRISM_WP_IMAGE="$WP71_IMAGE" WPRISM_CLI_IMAGE="$CLI83_IMAGE"
   destroy_owned_pair
   bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
   prepare_repo
@@ -271,17 +271,17 @@ for cell in "${ENGINE_CELLS[@]}"; do
   # upsert would exercise the syntax and not the semantics.
   say "audit §1/§2: $cell_engine promotion lease acquire, renew and release"
   # php, not shasum/sha256sum: this suite already requires php for the host
-  # `duo doctor` calls, and the two GNU/BSD digest binaries disagree on name
+  # `wprism doctor` calls, and the two GNU/BSD digest binaries disagree on name
   # and output shape between the machines these live runs happen on.
   ARTIFACT_HASH=$(php -r 'echo hash("sha256", $argv[1]);' "core-scope-database-$cell_env")
-  ACQUIRE=$(duo_json wp1 "$cell_engine lease acquire" promotion-begin \
+  ACQUIRE=$(wprism_json wp1 "$cell_engine lease acquire" promotion-begin \
     --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
   jq -e --arg hash "$ARTIFACT_HASH" '.artifact_hash == $hash and (.expires_at | type) == "number"' \
     <<<"$ACQUIRE" >/dev/null || fail "$cell_engine lease acquire returned an unexpected summary: $ACQUIRE"
   # The second begin lands on the ON DUPLICATE KEY UPDATE branch — the upsert
   # actually UPDATING on conflict, which is audit §1's first required
   # assertion, reached through the CAS rather than beside it.
-  RENEW=$(duo_json wp1 "$cell_engine lease renew" promotion-begin \
+  RENEW=$(wprism_json wp1 "$cell_engine lease renew" promotion-begin \
     --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
   jq -e --arg hash "$ARTIFACT_HASH" '.artifact_hash == $hash' <<<"$RENEW" >/dev/null \
     || fail "$cell_engine lease renew did not update on conflict: $RENEW"
@@ -291,7 +291,7 @@ for cell in "${ENGINE_CELLS[@]}"; do
   # captured verbatim. A VALUES(col) deprecation notice is a finding to record
   # in the widening commit's rationale, not a failure.
   sql "$cell_container" "$cell_client" "SHOW WARNINGS" > "$ARTIFACTS/warnings-$cell_env.txt" 2>&1 || true
-  RELEASE=$(duo_json wp1 "$cell_engine lease release" promotion-abort \
+  RELEASE=$(wprism_json wp1 "$cell_engine lease release" promotion-abort \
     --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
   jq -e '.released == true' <<<"$RELEASE" >/dev/null \
     || fail "$cell_engine lease release did not release: $RELEASE"
@@ -303,12 +303,12 @@ for cell in "${ENGINE_CELLS[@]}"; do
   # ER_INVALID_JSON_TEXT (3141) and fail the statement instead — a
   # fail-closed/fail-open difference, and the one this suite exists to measure.
   say "audit §2: $cell_engine acquire over a planted non-JSON lease row"
-  duo_json wp1 "$cell_engine lease reseed" promotion-begin \
+  wprism_json wp1 "$cell_engine lease reseed" promotion-begin \
     --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH" >/dev/null
   sql "$cell_container" "$cell_client" \
-    "UPDATE wp_${PAIR}1.wp_duo_kv SET v='not-json' WHERE k='promotion_lock'" >/dev/null
+    "UPDATE wp_${PAIR}1.wp_wprism_kv SET v='not-json' WHERE k='promotion_lock'" >/dev/null
   set +e
-  wp1 duo promotion-begin --promotion-owner=core-scope-database-other \
+  wp1 wprism promotion-begin --promotion-owner=core-scope-database-other \
     --artifact-hash="$ARTIFACT_HASH" --format=json > "$ARTIFACTS/planted-$cell_env.json" 2>&1
   PLANTED_RC=$?
   set -e
@@ -316,28 +316,28 @@ for cell in "${ENGINE_CELLS[@]}"; do
     || fail "$cell_engine: a second owner ACQUIRED the lease over an unparseable row — the CAS did not fail closed (see $ARTIFACTS/planted-$cell_env.json)"
   pass "$cell_engine: a planted non-JSON lease row fails closed; the envelope is recorded in $ARTIFACTS/planted-$cell_env.json"
   sql "$cell_container" "$cell_client" \
-    "DELETE FROM wp_${PAIR}1.wp_duo_kv WHERE k='promotion_lock'" >/dev/null
+    "DELETE FROM wp_${PAIR}1.wp_wprism_kv WHERE k='promotion_lock'" >/dev/null
 
   # ------------------------------------------- §4 schema and collation record
   say "audit §4: $cell_engine ledger schema and collation"
   : > "$ARTIFACTS/schema-$cell_env.txt"
-  for table in duo_map duo_state duo_kv duo_journal; do
+  for table in wprism_map wprism_state wprism_kv wprism_journal; do
     docker exec -i -e MYSQL_PWD=root "$cell_container" "$cell_client" -uroot \
       -e "SHOW CREATE TABLE wp_${PAIR}1.wp_${table}\\G" >> "$ARTIFACTS/schema-$cell_env.txt"
   done
   sql "$cell_container" "$cell_client" \
     "SELECT @@character_set_database, @@collation_database" \
     >> "$ARTIFACTS/schema-$cell_env.txt"
-  grep -q 'wp_duo_kv' "$ARTIFACTS/schema-$cell_env.txt" \
+  grep -q 'wp_wprism_kv' "$ARTIFACTS/schema-$cell_env.txt" \
     || fail "$cell_engine: the ledger tables were not created on wp_${PAIR}1"
-  pass "$cell_engine: all four wp_duo_* tables exist; schema and collation recorded in $ARTIFACTS/schema-$cell_env.txt"
+  pass "$cell_engine: all four wp_wprism_* tables exist; schema and collation recorded in $ARTIFACTS/schema-$cell_env.txt"
 
   # ------------------------------------------------- the full product round trip
   #
   # The assertion that actually matters (audit §4's third): a real capture ->
   # apply -> recapture on this engine, producing byte-identical managed state.
   say "$cell_engine: real round trip, verified zero-write repeat, and doctor"
-  FACTS=$(wp1 eval 'echo wp_json_encode(\Duo\PlatformCompatibility::current_facts());' | awk 'NF { line=$0 } END { print line }')
+  FACTS=$(wp1 eval 'echo wp_json_encode(\WPrism\PlatformCompatibility::current_facts());' | awk 'NF { line=$0 } END { print line }')
   jq -e --arg engine "$cell_engine" '
     .site_mode == "single-site" and .database.engine == $engine and
     .filesystem == {
@@ -357,30 +357,30 @@ for cell in "${ENGINE_CELLS[@]}"; do
   wp1 post create --post_type=post --post_status=publish \
     --post_title='Engine Matrix Exact' --post_name=engine-matrix-exact \
     --post_content='Exact engine content — বাংলা — delimiter | value' --porcelain >/dev/null
-  CAPTURE=$(duo_json wp1 "$cell_engine source capture" capture --repo=/siterepo)
+  CAPTURE=$(wprism_json wp1 "$cell_engine source capture" capture --repo=/siterepo)
   jq -e '.counts.post == 1 and .notes == [] and .warnings == []' <<<"$CAPTURE" >/dev/null \
     || fail "$cell_engine source capture reported unexpected coverage: $CAPTURE"
   cp -R "$R1/state" "$R2/state"
-  FIRST=$(duo_json wp2 "$cell_engine initial apply" apply --repo=/siterepo \
+  FIRST=$(wprism_json wp2 "$cell_engine initial apply" apply --repo=/siterepo \
     --default-author=admin --adopt-by-slug=terms)
   jq -e '.canary == "clean" and .verification.result == "pass" and .promotion_lock.released == true' \
     <<<"$FIRST" >/dev/null || fail "$cell_engine initial apply did not verify: $FIRST"
-  SECOND=$(duo_json wp2 "$cell_engine idempotent apply" apply --repo=/siterepo \
+  SECOND=$(wprism_json wp2 "$cell_engine idempotent apply" apply --repo=/siterepo \
     --default-author=admin --adopt-by-slug=terms)
   jq -e '.applied == 0 and .warnings == [] and .canary == "clean" and .verification.result == "pass"' \
     <<<"$SECOND" >/dev/null || fail "$cell_engine repeat apply was not a verified zero-write result: $SECOND"
-  duo_json wp2 "$cell_engine target recapture" capture --repo=/siterepo --out=/siterepo/state-check >/dev/null
+  wprism_json wp2 "$cell_engine target recapture" capture --repo=/siterepo --out=/siterepo/state-check >/dev/null
   while IFS= read -r state_file; do
     cmp "$R2/state/$state_file" "$R2/state-check/$state_file" >/dev/null \
       || fail "$cell_engine recapture changed managed state bytes in $state_file"
   done < <(cd "$R2/state" && find . -type f -print | LC_ALL=C sort)
 
-  DOCTOR_OUT=$(php ../cli/duo doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1) \
+  DOCTOR_OUT=$(php ../cli/wprism doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1) \
     || fail "$cell_engine host doctor refused: $DOCTOR_OUT"
   grep -q "\[PASS\] database ($cell_env ${DB_VERSION//./\\.})" <<<"$DOCTOR_OUT" \
     || fail "$cell_engine host doctor did not pass the database row: $DOCTOR_OUT"
   pass "$cell_engine: real round trip, verified zero-write repeat, byte-identical recapture, and a passing doctor database row"
-  unset DUO_DB_ENGINE
+  unset WPRISM_DB_ENGINE
 done
 
 # ------------------------------------------------ cross-engine record (audit §4)

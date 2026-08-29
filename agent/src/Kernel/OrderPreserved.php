@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
- * Marker wrapper for DUO-3214(b) / task #123: a value whose PHP array key
+ * Marker wrapper for issue #3214(b) / task #123: a value whose PHP array key
  * order is semantically load-bearing and must survive Canon::normalize()'s
  * usual alphabetical ksort() untouched. See Canon::normalize()'s own
  * docblock for the full mechanism; this class only ever exists transiently

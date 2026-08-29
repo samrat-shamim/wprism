@@ -1,23 +1,23 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 
-use Duo\Canon;
-use Duo\PlainData;
-use Duo\Policy;
-use Duo\WpCliChildProcess;
+use WPrism\Canon;
+use WPrism\PlainData;
+use WPrism\Policy;
+use WPrism\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    $duoLayoutRoot = dirname(__DIR__, 5);
-    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
-        ? $duoLayoutRoot . '/agent'
-        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
-    if ($duoAgentRoot === null) {
-        throw new \RuntimeException('duo: WooCommerce interpreter cannot resolve the explicit source or embedded agent layout');
+    $wprismLayoutRoot = dirname(__DIR__, 5);
+    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
+        ? $wprismLayoutRoot . '/agent'
+        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
+    if ($wprismAgentRoot === null) {
+        throw new \RuntimeException('wprism: WooCommerce interpreter cannot resolve the explicit source or embedded agent layout');
     }
-    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($duoLayoutRoot, $duoAgentRoot);
+    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($wprismLayoutRoot, $wprismAgentRoot);
 }
 
 /**
@@ -330,7 +330,7 @@ final class Woocommerce {
         if (!array_key_exists($name, $rawOptionSnapshot)) {
             if ($captured !== []) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name' absent raw storage disagrees with authored capture"
+                    "wprism: WooCommerce mixed option '$name' absent raw storage disagrees with authored capture"
                 );
             }
             return [];
@@ -338,13 +338,13 @@ final class Woocommerce {
         $raw = $rawOptionSnapshot[$name];
         if (!is_string($raw) || strlen($raw) > self::MAX_MIXED_OPTION_BYTES) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' has missing or oversized raw capture bytes"
+                "wprism: WooCommerce mixed option '$name' has missing or oversized raw capture bytes"
             );
         }
         $decoded = PlainData::decode_serialized($raw, "WooCommerce mixed option '$name' source storage");
         if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' source storage is not an exact named record"
+                "wprism: WooCommerce mixed option '$name' source storage is not an exact named record"
             );
         }
         $this->assert_mixed_record_keys($name, $decoded, $fields, 'source');
@@ -371,7 +371,7 @@ final class Woocommerce {
         ksort($actualCaptured, SORT_STRING);
         if ($actualCaptured !== $expectedCaptured) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' authored capture disagrees with exact raw storage"
+                "wprism: WooCommerce mixed option '$name' authored capture disagrees with exact raw storage"
             );
         }
 
@@ -418,7 +418,7 @@ final class Woocommerce {
         }
         if ($registerRuntimeRestore === null || $writeStorage === null) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' requires engine-owned storage and rollback callbacks"
+                "wprism: WooCommerce mixed option '$name' requires engine-owned storage and rollback callbacks"
             );
         }
         $this->assert_mixed_sub_key_contract($name, $fields, $subKeys);
@@ -435,7 +435,7 @@ final class Woocommerce {
             $type = $fields[(string) $key];
             if ($this->is_target_owned_mixed_type($type)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name' repository contains target-owned sibling '$key'"
+                    "wprism: WooCommerce mixed option '$name' repository contains target-owned sibling '$key'"
                 );
             }
             if ($type === 'cod_methods') {
@@ -474,7 +474,7 @@ final class Woocommerce {
         PlainData::assert($next, "WooCommerce mixed option '$name' native materialization");
         $wire = serialize($next);
         if (strlen($wire) > self::MAX_MIXED_OPTION_BYTES) {
-            throw new \RuntimeException("duo: WooCommerce mixed option '$name' exceeds its native storage bound");
+            throw new \RuntimeException("wprism: WooCommerce mixed option '$name' exceeds its native storage bound");
         }
 
         // OptionsMaterializer deliberately owns the SQL/cache transaction and
@@ -497,7 +497,7 @@ final class Woocommerce {
             );
             if ($confirmedMethods !== ($nativeAuthored['enable_for_methods'] ?? null)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce COD target shipping-method witness changed during native storage; '
+                    'wprism: WooCommerce COD target shipping-method witness changed during native storage; '
                     . 'recovery_required'
                 );
             }
@@ -510,7 +510,7 @@ final class Woocommerce {
             || strlen($row['option_value']) > self::MAX_MIXED_OPTION_BYTES
             || ($row['autoload'] ?? null) !== $autoload) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' final raw storage witness is malformed"
+                "wprism: WooCommerce mixed option '$name' final raw storage witness is malformed"
             );
         }
         $stored = PlainData::decode_serialized(
@@ -522,7 +522,7 @@ final class Woocommerce {
         }
         if ($stored !== $next) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' finalized storage disagrees with its native projection"
+                "wprism: WooCommerce mixed option '$name' finalized storage disagrees with its native projection"
             );
         }
         return true;
@@ -549,7 +549,7 @@ final class Woocommerce {
         $this->assert_mixed_record_keys($name, $rawAuthored, $fields, 'finalized authored storage');
         if (!array_is_list($desiredAuthoredKeys)) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' projection requires an exact desired authored-key list"
+                "wprism: WooCommerce mixed option '$name' projection requires an exact desired authored-key list"
             );
         }
         $desired = [];
@@ -558,7 +558,7 @@ final class Woocommerce {
                 || isset($desired[$key])
                 || (($subKeys[$key]['class'] ?? null) !== 'authored')) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name' projection has a malformed desired key at position $position"
+                    "wprism: WooCommerce mixed option '$name' projection has a malformed desired key at position $position"
                 );
             }
             $desired[$key] = true;
@@ -573,7 +573,7 @@ final class Woocommerce {
             $type = $fields[(string) $key];
             if ($this->is_target_owned_mixed_type($type)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name' projection received target-owned sibling '$key'"
+                    "wprism: WooCommerce mixed option '$name' projection received target-owned sibling '$key'"
                 );
             }
             if ($type === 'cod_methods') {
@@ -598,7 +598,7 @@ final class Woocommerce {
         foreach ($desired as $key => $_present) {
             if (!array_key_exists($key, $projected)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name' projection is missing a desired authored sibling"
+                    "wprism: WooCommerce mixed option '$name' projection is missing a desired authored sibling"
                 );
             }
         }
@@ -654,21 +654,21 @@ final class Woocommerce {
         // order cannot disagree while every key/rule remains exact.
         if (!hash_equals(Canon::encode($subKeys), Canon::encode($expected))) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' sub-key contract disagrees with the exact 11.0.x registry"
+                "wprism: WooCommerce mixed option '$name' sub-key contract disagrees with the exact 11.0.x registry"
             );
         }
     }
 
     private function assert_mixed_record_keys(string $name, array $value, array $fields, string $where): void {
         if ($value !== [] && array_is_list($value)) {
-            throw new \RuntimeException("duo: WooCommerce mixed option '$name' $where is not a named record");
+            throw new \RuntimeException("wprism: WooCommerce mixed option '$name' $where is not a named record");
         }
         foreach ($value as $key => $_value) {
             if (!is_string($key) || !array_key_exists($key, $fields)) {
                 $fingerprint = 'key:' . strlen((string) $key) . ':'
                     . substr(hash('sha256', (string) $key), 0, 16);
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name' $where contains undeclared sibling key(s) ($fingerprint)"
+                    "wprism: WooCommerce mixed option '$name' $where contains undeclared sibling key(s) ($fingerprint)"
                 );
             }
         }
@@ -693,7 +693,7 @@ final class Woocommerce {
         }
         if ($actualKeys !== $expectedKeys) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' $where is not the exact native five-field record"
+                "wprism: WooCommerce mixed option '$name' $where is not the exact native five-field record"
             );
         }
     }
@@ -795,7 +795,7 @@ final class Woocommerce {
         }
         if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option Yoast permalink hook topology is unreadable or extension-owned'
+                'wprism: WooCommerce mixed option Yoast permalink hook topology is unreadable or extension-owned'
             );
         }
         $records = [];
@@ -815,7 +815,7 @@ final class Woocommerce {
             || get_class($records[0][1]['function'][0]) !== self::WPSEO_WOO_PERMALINKS
             || ($records[0][1]['function'][1] ?? null) !== 'reset_woocommerce_permalinks') {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option Yoast permalink hook topology is extended or substituted'
+                'wprism: WooCommerce mixed option Yoast permalink hook topology is extended or substituted'
             );
         }
         foreach ([
@@ -827,7 +827,7 @@ final class Woocommerce {
         ] as $class) {
             if (!class_exists($class, false)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce mixed option Yoast permalink service is unavailable'
+                    'wprism: WooCommerce mixed option Yoast permalink service is unavailable'
                 );
             }
         }
@@ -843,7 +843,7 @@ final class Woocommerce {
                 : null;
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option Yoast permalink service is unavailable',
+                'wprism: WooCommerce mixed option Yoast permalink service is unavailable',
                 0,
                 $failure
             );
@@ -855,7 +855,7 @@ final class Woocommerce {
             || get_class($helper) !== self::WPSEO_INDEXABLE_HELPER
             || ($services[self::WPSEO_INDEXABLE_HELPER] ?? null) !== $helper) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option Yoast permalink callback is not the exact resolved service'
+                'wprism: WooCommerce mixed option Yoast permalink callback is not the exact resolved service'
             );
         }
 
@@ -891,7 +891,7 @@ final class Woocommerce {
             }
         }
         throw new \RuntimeException(
-            'duo: WooCommerce mixed option Yoast permalink callback requires the checkpointed yoast-index action'
+            'wprism: WooCommerce mixed option Yoast permalink callback requires the checkpointed yoast-index action'
         );
     }
 
@@ -938,7 +938,7 @@ final class Woocommerce {
         global $wp_filter;
         if (isset($wp_filter) && !is_array($wp_filter)) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option mutation hook registry is unreadable'
+                'wprism: WooCommerce mixed option mutation hook registry is unreadable'
             );
         }
         $registered = $wp_filter[$hook] ?? null;
@@ -947,20 +947,20 @@ final class Woocommerce {
         }
         if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option mutation hook topology is unreadable or extension-owned'
+                'wprism: WooCommerce mixed option mutation hook topology is unreadable or extension-owned'
             );
         }
         $seen = [];
         foreach ($registered->callbacks as $priority => $callbacks) {
             if (!is_int($priority) || !is_array($callbacks)) {
-                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology is malformed');
+                throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology is malformed');
             }
             foreach ($callbacks as $callback) {
                 if (!is_array($callback)
                     || array_keys($callback) !== ['function', 'accepted_args']
                     || !is_int($callback['accepted_args'])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce mixed option mutation hook topology has an extension callback'
+                        'wprism: WooCommerce mixed option mutation hook topology has an extension callback'
                     );
                 }
                 $matched = false;
@@ -1005,7 +1005,7 @@ final class Woocommerce {
                     };
                     if ($callback['function'][0] !== $expected) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce mixed option mutation hook callback is not the exact native service'
+                            'wprism: WooCommerce mixed option mutation hook callback is not the exact native service'
                         );
                     }
                     $seen[$index] = true;
@@ -1014,14 +1014,14 @@ final class Woocommerce {
                 }
                 if (!$matched) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce mixed option mutation hook topology has an extension callback'
+                        'wprism: WooCommerce mixed option mutation hook topology has an extension callback'
                     );
                 }
             }
         }
         if (count($seen) !== count($allowed)) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option mutation hook topology is incomplete'
+                'wprism: WooCommerce mixed option mutation hook topology is incomplete'
             );
         }
     }
@@ -1030,7 +1030,7 @@ final class Woocommerce {
         $service = $GLOBALS['WC_Brands_Admin'] ?? null;
         if (!is_object($service) || get_class($service) !== 'WC_Brands_Admin') {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option native Brands permalink validator is unavailable'
+                'wprism: WooCommerce mixed option native Brands permalink validator is unavailable'
             );
         }
         return $service;
@@ -1065,7 +1065,7 @@ final class Woocommerce {
             || !is_array($records[0][1])
             || array_keys($records[0][1]) !== ['function', 'accepted_args']
             || $records[0][1]['accepted_args'] !== 3) {
-            throw new \RuntimeException('duo: WooCommerce mixed option tracking observer roster is extended or substituted');
+            throw new \RuntimeException('wprism: WooCommerce mixed option tracking observer roster is extended or substituted');
         }
         $tracker = $records[0][1]['function'][0];
         $this->assert_mixed_option_tracking_roster($tracker);
@@ -1073,17 +1073,17 @@ final class Woocommerce {
             $allowed = (new \ReflectionProperty(self::WOO_SETTINGS_TRACKING, 'allowed_options'))->getValue($tracker);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option tracking observer allowed-options map is unreadable',
+                'wprism: WooCommerce mixed option tracking observer allowed-options map is unreadable',
                 0,
                 $failure
             );
         }
         if (!is_array($allowed)) {
-            throw new \RuntimeException('duo: WooCommerce mixed option tracking observer allowed-options map is malformed');
+            throw new \RuntimeException('wprism: WooCommerce mixed option tracking observer allowed-options map is malformed');
         }
         if (in_array($mutatedOption, $allowed, true)) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option tracking observer would track the current option'
+                'wprism: WooCommerce mixed option tracking observer would track the current option'
             );
         }
         return $tracker;
@@ -1101,7 +1101,7 @@ final class Woocommerce {
         foreach ($roster as $hook => [$method, $acceptedArgs]) {
             $registered = $wp_filter[$hook] ?? null;
             if (!$registered instanceof \WP_Hook || !is_array($registered->callbacks ?? null)) {
-                throw new \RuntimeException('duo: WooCommerce mixed option tracking observer roster is incomplete');
+                throw new \RuntimeException('wprism: WooCommerce mixed option tracking observer roster is incomplete');
             }
             $records = [];
             foreach ($registered->callbacks as $priority => $callbacks) {
@@ -1120,7 +1120,7 @@ final class Woocommerce {
                 || array_keys($records[0][1]) !== ['function', 'accepted_args']
                 || $records[0][1]['accepted_args'] !== $acceptedArgs
                 || $records[0][1]['function'] !== [$tracker, $method]) {
-                throw new \RuntimeException('duo: WooCommerce mixed option tracking observer roster is extended or substituted');
+                throw new \RuntimeException('wprism: WooCommerce mixed option tracking observer roster is extended or substituted');
             }
         }
     }
@@ -1131,7 +1131,7 @@ final class Woocommerce {
             self::WOO_FEATURES => 'features',
             self::WOO_SYNCHRONIZER => 'synchronizer',
             self::WOO_CUSTOM_ORDERS => 'custom_orders',
-            default => throw new \LogicException('duo: unknown WooCommerce mixed option service'),
+            default => throw new \LogicException('wprism: unknown WooCommerce mixed option service'),
         };
     }
 
@@ -1142,7 +1142,7 @@ final class Woocommerce {
             self::TEC_CACHE_LISTENER => 'cache_listener',
             self::TEC_AGGREGATOR => 'aggregator',
             self::TEC_VIEWS => 'views',
-            default => throw new \LogicException('duo: unknown The Events Calendar mixed option service'),
+            default => throw new \LogicException('wprism: unknown The Events Calendar mixed option service'),
         };
     }
 
@@ -1153,7 +1153,7 @@ final class Woocommerce {
             return [];
         }
         if (!is_array($wp_filter)) {
-            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook registry is unreadable');
+            throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook registry is unreadable');
         }
         $callbacks = [];
         foreach ($wp_filter as $registered) {
@@ -1196,7 +1196,7 @@ final class Woocommerce {
             || !class_exists(self::WOO_FEATURES, false)
             || !class_exists(self::WOO_SYNCHRONIZER, false)
             || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
-            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has an incomplete WooCommerce runtime');
+            throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has an incomplete WooCommerce runtime');
         }
         try {
             $container = $GLOBALS['wc_container'];
@@ -1214,7 +1214,7 @@ final class Woocommerce {
             $customOrders = is_array($cache) ? ($cache[self::WOO_CUSTOM_ORDERS] ?? null) : null;
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option mutation hook topology could not resolve WooCommerce services',
+                'wprism: WooCommerce mixed option mutation hook topology could not resolve WooCommerce services',
                 0,
                 $failure
             );
@@ -1225,7 +1225,7 @@ final class Woocommerce {
             [$customOrders, self::WOO_CUSTOM_ORDERS],
         ] as [$service, $class]) {
             if (!is_object($service) || get_class($service) !== $class) {
-                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has substituted WooCommerce services');
+                throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has substituted WooCommerce services');
             }
         }
         return ['features' => $features, 'synchronizer' => $synchronizer, 'custom_orders' => $customOrders];
@@ -1267,7 +1267,7 @@ final class Woocommerce {
         foreach ($classes as $class) {
             if (!class_exists($class, false)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce mixed option mutation hook topology has an incomplete The Events Calendar runtime'
+                    'wprism: WooCommerce mixed option mutation hook topology has an incomplete The Events Calendar runtime'
                 );
             }
         }
@@ -1276,7 +1276,7 @@ final class Woocommerce {
             || !defined('Tribe__Main::OPTIONNAME')
             || constant('Tribe__Main::OPTIONNAME') !== 'tribe_events_calendar_options') {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option mutation hook topology has a substituted The Events Calendar runtime'
+                'wprism: WooCommerce mixed option mutation hook topology has a substituted The Events Calendar runtime'
             );
         }
         try {
@@ -1305,7 +1305,7 @@ final class Woocommerce {
                 : null;
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option mutation hook topology could not inspect The Events Calendar services',
+                'wprism: WooCommerce mixed option mutation hook topology could not inspect The Events Calendar services',
                 0,
                 $failure
             );
@@ -1317,7 +1317,7 @@ final class Woocommerce {
             || !is_object($listener) || get_class($listener) !== self::TEC_CACHE_LISTENER
             || !is_object($listenerCache) || get_class($listenerCache) !== self::TEC_CACHE) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option mutation hook topology has substituted The Events Calendar services'
+                'wprism: WooCommerce mixed option mutation hook topology has substituted The Events Calendar services'
             );
         }
 
@@ -1370,7 +1370,7 @@ final class Woocommerce {
         }
         if (!class_exists('WPSEO_Options', false)
             || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
-            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete Yoast SEO option singletons');
+            throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has incomplete Yoast SEO option singletons');
         }
         $options = [];
         foreach (self::WPSEO_OPTIONS as $optionName => $class) {
@@ -1379,10 +1379,10 @@ final class Woocommerce {
                 // would manufacture a service and turn partial boot into admission.
                 $service = \WPSEO_Options::get_option_instance($optionName);
             } catch (\Throwable $failure) {
-                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology could not resolve Yoast SEO option services', 0, $failure);
+                throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology could not resolve Yoast SEO option services', 0, $failure);
             }
             if (!is_object($service) || get_class($service) !== $class) {
-                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete Yoast SEO option singletons');
+                throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has incomplete Yoast SEO option singletons');
             }
             $options[$class] = $service;
         }
@@ -1403,13 +1403,13 @@ final class Woocommerce {
             try {
                 $cacheClear = (new \ReflectionProperty(self::WPSEO_SITEMAPS_CACHE, 'cache_clear'))->getValue();
             } catch (\Throwable $failure) {
-                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology could not inspect the Yoast SEO sitemap cache registration map', 0, $failure);
+                throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology could not inspect the Yoast SEO sitemap cache registration map', 0, $failure);
             }
             if (!is_array($cacheClear)) {
-                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has malformed Yoast SEO sitemap cache registration map');
+                throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has malformed Yoast SEO sitemap cache registration map');
             }
             if (array_key_exists($mutatedOption, $cacheClear)) {
-                throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has the current WooCommerce option registered for Yoast SEO sitemap cache invalidation');
+                throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has the current WooCommerce option registered for Yoast SEO sitemap cache invalidation');
             }
         }
         if (!$sitemapsPresent && $sitemapCallbacks === []) {
@@ -1418,7 +1418,7 @@ final class Woocommerce {
         if (!$sitemapsPresent || count($sitemapCallbacks) !== 1
             || $sitemapCallbacks[0][0] !== 10
             || ($sitemapCallbacks[0][1]['accepted_args'] ?? null) !== 1) {
-            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete or substituted Yoast SEO sitemap cache topology');
+            throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has incomplete or substituted Yoast SEO sitemap cache topology');
         }
         $sitemaps = $GLOBALS['wpseo_sitemaps'];
         $cache = is_object($sitemaps) ? ($sitemaps->cache ?? null) : null;
@@ -1426,7 +1426,7 @@ final class Woocommerce {
             || !is_object($cache) || get_class($cache) !== self::WPSEO_SITEMAPS_CACHE
             || !class_exists(self::WPSEO_SITEMAPS_CACHE, false)
             || !is_callable([self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update'])) {
-            throw new \RuntimeException('duo: WooCommerce mixed option mutation hook topology has incomplete or substituted Yoast SEO sitemap cache service');
+            throw new \RuntimeException('wprism: WooCommerce mixed option mutation hook topology has incomplete or substituted Yoast SEO sitemap cache service');
         }
         return ['options' => $options, 'sitemaps' => $sitemaps, 'sitemaps_cache' => $cache];
     }
@@ -1436,7 +1436,7 @@ final class Woocommerce {
             || !array_key_exists('wc_container', $GLOBALS)
             || !class_exists(self::WOO_CONTAINER, false)
             || !class_exists(self::WOO_RUNTIME_CONTAINER, false)) {
-            throw new \RuntimeException('duo: WooCommerce mixed option native hook service is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce mixed option native hook service is unavailable');
         }
         try {
             $container = $GLOBALS['wc_container'];
@@ -1450,10 +1450,10 @@ final class Woocommerce {
                 : null;
             $service = is_array($cache) ? ($cache[$class] ?? null) : null;
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: WooCommerce mixed option native hook service is unavailable', 0, $failure);
+            throw new \RuntimeException('wprism: WooCommerce mixed option native hook service is unavailable', 0, $failure);
         }
         if (!is_object($service) || get_class($service) !== $class) {
-            throw new \RuntimeException('duo: WooCommerce mixed option native hook service is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce mixed option native hook service is unavailable');
         }
         return $service;
     }
@@ -1464,11 +1464,11 @@ final class Woocommerce {
             $this->load_native_settings_api();
         }
         if (!class_exists('WC_Settings_API', false)) {
-            throw new \RuntimeException('duo: WooCommerce mixed option validation requires WC_Settings_API');
+            throw new \RuntimeException('wprism: WooCommerce mixed option validation requires WC_Settings_API');
         }
         $reflection = new \ReflectionClass('WC_Settings_API');
         if (!$reflection->isAbstract()) {
-            throw new \RuntimeException('duo: WooCommerce WC_Settings_API is not the exact abstract native authority');
+            throw new \RuntimeException('wprism: WooCommerce WC_Settings_API is not the exact abstract native authority');
         }
         foreach ([
             'validate_checkbox_field',
@@ -1480,7 +1480,7 @@ final class Woocommerce {
             if (!$reflection->hasMethod($method)
                 || $reflection->getMethod($method)->getDeclaringClass()->getName() !== 'WC_Settings_API') {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option validation requires exact WC_Settings_API::$method()"
+                    "wprism: WooCommerce mixed option validation requires exact WC_Settings_API::$method()"
                 );
             }
         }
@@ -1502,7 +1502,7 @@ final class Woocommerce {
             }
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce mixed option validation requires WC_Settings_API',
+                'wprism: WooCommerce mixed option validation requires WC_Settings_API',
                 0,
                 $failure
             );
@@ -1511,7 +1511,7 @@ final class Woocommerce {
 
     /** @return array{settings:string,formatting:string} */
     private static function native_validation_files(): array {
-        $message = 'duo: WooCommerce mixed option validation requires WC_Settings_API';
+        $message = 'wprism: WooCommerce mixed option validation requires WC_Settings_API';
         if (!defined('ABSPATH')
             || !defined('WP_PLUGIN_DIR')) {
             throw new \RuntimeException($message);
@@ -1598,7 +1598,7 @@ final class Woocommerce {
             if ($type === 'permalink_bool') {
                 if (!is_bool($fieldValue)) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce mixed option '$name.$key' $where is not exact native boolean state"
+                        "wprism: WooCommerce mixed option '$name.$key' $where is not exact native boolean state"
                     );
                 }
                 continue;
@@ -1608,13 +1608,13 @@ final class Woocommerce {
                 || strlen($fieldValue) > self::MAX_PERMALINK_BYTES
                 || ($key !== 'attribute_base' && $fieldValue === '')) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where is outside the bounded native permalink state"
+                    "wprism: WooCommerce mixed option '$name.$key' $where is outside the bounded native permalink state"
                 );
             }
             if ($key === 'product_base'
                 && rtrim($fieldValue, "/\\") . '/' === '/%product_brand%/') {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where bypasses the native Brands product-base guard"
+                    "wprism: WooCommerce mixed option '$name.$key' $where bypasses the native Brands product-base guard"
                 );
             }
             $permalinks[(string) $key] = $fieldValue;
@@ -1634,7 +1634,7 @@ final class Woocommerce {
                 if ($declaringFileReal === false
                     || !hash_equals($files['formatting'], $declaringFileReal)) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce mixed option '$name' $where native permalink authority is substituted"
+                        "wprism: WooCommerce mixed option '$name' $where native permalink authority is substituted"
                     );
                 }
             }
@@ -1642,7 +1642,7 @@ final class Woocommerce {
                 $canonical = wc_sanitize_permalink($fieldValue);
                 if (!is_string($canonical) || !hash_equals($fieldValue, $canonical)) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce mixed option '$name.$key' $where is not canonical native permalink storage"
+                        "wprism: WooCommerce mixed option '$name.$key' $where is not canonical native permalink storage"
                     );
                 }
             }
@@ -1654,11 +1654,11 @@ final class Woocommerce {
     /** @param array<string,string> $permalinks */
     private function assert_native_permalink_child(string $name, array $permalinks, string $where): void {
         $payload = Canon::encode([
-            'format' => 'duo-woocommerce-native-permalink-input/v1',
+            'format' => 'wprism-woocommerce-native-permalink-input/v1',
             'values' => $permalinks,
         ]);
         $code = 'require_once ' . var_export(__FILE__, true) . '; '
-            . '\\Duo\\Interpreters\\Woocommerce::run_native_permalink_child();';
+            . '\\WPrism\\Interpreters\\Woocommerce::run_native_permalink_child();';
         try {
             $result = WpCliChildProcess::capture_with_input(
                 'eval ' . escapeshellarg($code),
@@ -1669,21 +1669,21 @@ final class Woocommerce {
             );
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' $where native permalink validation could not start",
+                "wprism: WooCommerce mixed option '$name' $where native permalink validation could not start",
                 0,
                 $failure
             );
         }
         if ($result['return_code'] !== 0 || $result['stderr'] !== '') {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' $where native permalink validation failed"
+                "wprism: WooCommerce mixed option '$name' $where native permalink validation failed"
             );
         }
         try {
             $receipt = Canon::decode($result['stdout']);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' $where native permalink validation returned malformed evidence",
+                "wprism: WooCommerce mixed option '$name' $where native permalink validation returned malformed evidence",
                 0,
                 $failure
             );
@@ -1694,11 +1694,11 @@ final class Woocommerce {
         }
         if (!is_array($receipt)
             || array_keys($receipt) !== ['digests', 'format']
-            || ($receipt['format'] ?? null) !== 'duo-woocommerce-native-permalink-receipt/v1'
+            || ($receipt['format'] ?? null) !== 'wprism-woocommerce-native-permalink-receipt/v1'
             || ($receipt['digests'] ?? null) !== $expected
             || !hash_equals(Canon::encode($receipt), $result['stdout'])) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name' $where is not canonical native permalink storage"
+                "wprism: WooCommerce mixed option '$name' $where is not canonical native permalink storage"
             );
         }
     }
@@ -1713,7 +1713,7 @@ final class Woocommerce {
             $payload = Canon::decode($input);
             if (!is_array($payload)
                 || array_keys($payload) !== ['format', 'values']
-                || ($payload['format'] ?? null) !== 'duo-woocommerce-native-permalink-input/v1'
+                || ($payload['format'] ?? null) !== 'wprism-woocommerce-native-permalink-input/v1'
                 || !is_array($payload['values'])
                 || array_keys($payload['values']) !== [
                     'attribute_base',
@@ -1745,7 +1745,7 @@ final class Woocommerce {
             }
             fwrite(STDOUT, Canon::encode([
                 'digests' => $digests,
-                'format' => 'duo-woocommerce-native-permalink-receipt/v1',
+                'format' => 'wprism-woocommerce-native-permalink-receipt/v1',
             ]));
         } catch (\Throwable) {
             exit(27);
@@ -1763,7 +1763,7 @@ final class Woocommerce {
         if ($type === 'permalink_bool') {
             if (!is_bool($value)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where is not exact native boolean state"
+                    "wprism: WooCommerce mixed option '$name.$key' $where is not exact native boolean state"
                 );
             }
             return;
@@ -1774,19 +1774,19 @@ final class Woocommerce {
                 || ($key !== 'attribute_base' && $value === '')
                 || !function_exists('wc_sanitize_permalink')) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where is outside the bounded native permalink state"
+                    "wprism: WooCommerce mixed option '$name.$key' $where is outside the bounded native permalink state"
                 );
             }
             $canonical = wc_sanitize_permalink($value);
             if (!is_string($canonical) || !hash_equals($value, $canonical)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where is not canonical native permalink storage"
+                    "wprism: WooCommerce mixed option '$name.$key' $where is not canonical native permalink storage"
                 );
             }
             if ($key === 'product_base'
                 && rtrim($value, "/\\") . '/' === '/%product_brand%/') {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where bypasses the native Brands product-base guard"
+                    "wprism: WooCommerce mixed option '$name.$key' $where bypasses the native Brands product-base guard"
                 );
             }
             return;
@@ -1795,20 +1795,20 @@ final class Woocommerce {
             if (!in_array($value, ['yes', 'no'], true)
                 || $api->validate_checkbox_field($key, $value === 'yes' ? '1' : null) !== $value) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where is not exact native yes/no state"
+                    "wprism: WooCommerce mixed option '$name.$key' $where is not exact native yes/no state"
                 );
             }
             return;
         }
         if ($type === 'email_type' && !in_array($value, ['plain', 'html', 'multipart'], true)) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name.$key' $where is outside the native email type set"
+                "wprism: WooCommerce mixed option '$name.$key' $where is outside the native email type set"
             );
         }
         if ($type === 'delay_days'
             && (preg_match('/^(?:[1-9]|[1-5][0-9]|60)$/D', $value) !== 1)) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name.$key' $where must be whole days from 1 through 60"
+                "wprism: WooCommerce mixed option '$name.$key' $where must be whole days from 1 through 60"
             );
         }
         // WC_Settings_API validators receive WordPress-slashed request bytes.
@@ -1821,12 +1821,12 @@ final class Woocommerce {
             'textarea' => $api->validate_textarea_field($key, $submitted),
             'text', 'delay_days' => $api->validate_text_field($key, $submitted),
             default => throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name.$key' has an unsupported native field type"
+                "wprism: WooCommerce mixed option '$name.$key' has an unsupported native field type"
             ),
         };
         if (!is_string($canonical) || !hash_equals($value, $canonical)) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name.$key' $where is not canonical native storage"
+                "wprism: WooCommerce mixed option '$name.$key' $where is not canonical native storage"
             );
         }
     }
@@ -1841,7 +1841,7 @@ final class Woocommerce {
             || strlen($value) > self::MAX_MIXED_TEXT_BYTES
             || preg_match('//u', $value) !== 1) {
             throw new \RuntimeException(
-                "duo: WooCommerce mixed option '$name.$key' $where must be bounded UTF-8 text"
+                "wprism: WooCommerce mixed option '$name.$key' $where must be bounded UTF-8 text"
             );
         }
     }
@@ -1860,7 +1860,7 @@ final class Woocommerce {
         if ($type === 'derived_empty') {
             if ($value !== '') {
                 throw new \RuntimeException(
-                    "duo: WooCommerce mixed option '$name.$key' $where is not the native empty derived placeholder"
+                    "wprism: WooCommerce mixed option '$name.$key' $where is not the native empty derived placeholder"
                 );
             }
             return;
@@ -1875,7 +1875,7 @@ final class Woocommerce {
         }
         if (!is_array($value) || !array_is_list($value) || count($value) > self::MAX_COD_METHODS) {
             throw new \RuntimeException(
-                "duo: WooCommerce COD $where shipping restrictions must be a bounded native list"
+                "wprism: WooCommerce COD $where shipping restrictions must be a bounded native list"
             );
         }
         $out = [];
@@ -1883,18 +1883,18 @@ final class Woocommerce {
         foreach ($value as $entry) {
             if (!is_string($entry) || strlen($entry) > 128) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce COD $where shipping restriction has malformed native bytes"
+                    "wprism: WooCommerce COD $where shipping restriction has malformed native bytes"
                 );
             }
             if (preg_match('/^([a-z][a-z0-9_]{0,63})(?::([1-9][0-9]*))?$/D', $entry, $match) !== 1
                 || !array_key_exists($match[1], $this->core_shipping_method_classes())) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce COD $where shipping restriction is not an exact core method identity"
+                    "wprism: WooCommerce COD $where shipping restriction is not an exact core method identity"
                 );
             }
             if (isset($seen[$entry])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce COD $where shipping restrictions contain a duplicate identity"
+                    "wprism: WooCommerce COD $where shipping restrictions contain a duplicate identity"
                 );
             }
             $seen[$entry] = true;
@@ -1902,7 +1902,7 @@ final class Woocommerce {
                 $instanceId = Policy::strict_positive_local_id($match[2]);
                 if ($instanceId === null || (string) $instanceId !== $match[2]) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce COD $where shipping restriction has a noncanonical instance identity"
+                        "wprism: WooCommerce COD $where shipping restriction has a noncanonical instance identity"
                     );
                 }
                 $this->assert_raw_shipping_method_witness($instanceId, $match[1], $where);
@@ -1922,7 +1922,7 @@ final class Woocommerce {
     private function native_cod_methods(mixed $value, string $where): array|string {
         if (!is_array($value) || !array_is_list($value) || count($value) > self::MAX_COD_METHODS) {
             throw new \RuntimeException(
-                "duo: WooCommerce COD $where repository restrictions must be a bounded canonical list"
+                "wprism: WooCommerce COD $where repository restrictions must be a bounded canonical list"
             );
         }
         if ($value === []) {
@@ -1937,7 +1937,7 @@ final class Woocommerce {
                 || !is_string($row['method_id'])
                 || !array_key_exists($row['method_id'], $this->core_shipping_method_classes())) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce COD $where repository restriction has malformed method identity"
+                    "wprism: WooCommerce COD $where repository restriction has malformed method identity"
                 );
             }
             $keys = array_keys($row);
@@ -1947,7 +1947,7 @@ final class Woocommerce {
                 : ['method_id'];
             if ($keys !== $expectedKeys) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce COD $where repository restriction contains unknown fields"
+                    "wprism: WooCommerce COD $where repository restriction contains unknown fields"
                 );
             }
             $native = $row['method_id'];
@@ -1955,7 +1955,7 @@ final class Woocommerce {
                 $instanceId = $row['instance_id'];
                 if (!is_int($instanceId) || $instanceId <= 0) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce COD $where repository restriction has malformed instance identity"
+                        "wprism: WooCommerce COD $where repository restriction has malformed instance identity"
                     );
                 }
                 $this->assert_raw_shipping_method_witness($instanceId, $row['method_id'], $where);
@@ -1963,7 +1963,7 @@ final class Woocommerce {
             }
             if (isset($seen[$native])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce COD $where repository restrictions contain a duplicate identity"
+                    "wprism: WooCommerce COD $where repository restrictions contain a duplicate identity"
                 );
             }
             $seen[$native] = true;
@@ -2007,7 +2007,7 @@ final class Woocommerce {
             ), ARRAY_A);
         } catch (\Throwable $exception) {
             throw new \RuntimeException(
-                "duo: WooCommerce COD $where shipping-method raw witness query failed",
+                "wprism: WooCommerce COD $where shipping-method raw witness query failed",
                 0,
                 $exception
             );
@@ -2016,7 +2016,7 @@ final class Woocommerce {
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
             throw new \RuntimeException(
-                "duo: WooCommerce COD $where shipping-method raw witness query failed"
+                "wprism: WooCommerce COD $where shipping-method raw witness query failed"
             );
         }
         if (count($rows) !== 1
@@ -2025,7 +2025,7 @@ final class Woocommerce {
                 'instance_id', 'zone_id', 'method_id', 'method_order', 'is_enabled',
             ]) {
             throw new \RuntimeException(
-                "duo: WooCommerce COD $where shipping-method raw witness is missing or duplicated"
+                "wprism: WooCommerce COD $where shipping-method raw witness is missing or duplicated"
             );
         }
         $row = $rows[0];
@@ -2036,7 +2036,7 @@ final class Woocommerce {
             || !is_string($row['method_id'] ?? null)
             || !hash_equals($methodId, $row['method_id'])) {
             throw new \RuntimeException(
-                "duo: WooCommerce COD $where shipping-method raw witness does not match its exact core method identity"
+                "wprism: WooCommerce COD $where shipping-method raw witness does not match its exact core method identity"
             );
         }
     }
@@ -2048,11 +2048,11 @@ final class Woocommerce {
             || !is_string($wpdb->prefix)
             || !is_callable([$wpdb, 'prepare'])
             || !is_callable([$wpdb, 'get_results'])) {
-            throw new \RuntimeException('duo: WooCommerce COD raw shipping-method witness is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce COD raw shipping-method witness is unavailable');
         }
         $table = $wpdb->prefix . 'woocommerce_shipping_zone_methods';
         if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
-            throw new \RuntimeException('duo: WooCommerce COD raw shipping-method table identity is invalid');
+            throw new \RuntimeException('wprism: WooCommerce COD raw shipping-method table identity is invalid');
         }
         return $table;
     }

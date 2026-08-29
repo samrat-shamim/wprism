@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * The closed next-action set, checked as a set (round-3 MUP §2.3).
  *
- * `regress_release_next_action.sh` proves that a REAL `duo release` run
+ * `regress_release_next_action.sh` proves that a REAL `wprism release` run
  * reaches the right action; this proves the table it reaches it through is
  * total, closed and single-valued, so a new failure class cannot arrive with
  * two answers or none.
@@ -15,11 +15,11 @@ require_once $root . '/cli/src/Release/NextAction.php';
 require_once $root . '/cli/src/Release/ReleaseOutcome.php';
 require_once $root . '/cli/src/Command/ReleaseCommand.php';
 
-use Duo\CommandRefusalException;
-use Duo\Orchestrator\NextAction;
-use Duo\Orchestrator\ProjectionVocabulary;
-use Duo\Orchestrator\ReleaseCommand;
-use Duo\Orchestrator\ReleaseOutcome;
+use WPrism\CommandRefusalException;
+use WPrism\Orchestrator\NextAction;
+use WPrism\Orchestrator\ProjectionVocabulary;
+use WPrism\Orchestrator\ReleaseCommand;
+use WPrism\Orchestrator\ReleaseOutcome;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {

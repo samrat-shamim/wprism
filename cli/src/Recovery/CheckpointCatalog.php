@@ -1,18 +1,18 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/RecoveryClaim.php';
 require_once __DIR__ . '/RetainedCheckpoints.php';
 require_once __DIR__ . '/RollbackAuthority.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
  * What checkpoints and receipts a target actually holds — the read-only
- * listing behind `duo recover <env> --list` (round-3 MUP §2.5).
+ * listing behind `wprism recover <env> --list` (round-3 MUP §2.5).
  *
  * ## Read-only, and only what the runtime publishes
  *
@@ -53,7 +53,7 @@ use Duo\CommandRefusalException;
  * ## The second source: retained release checkpoints
  *
  * The signed authority is one source of rows; the plain database checkpoints
- * every operator-directed promotion retains under `.duo/checkpoints/` are
+ * every operator-directed promotion retains under `.wprism/checkpoints/` are
  * the other (`RetainedCheckpoints`). They are the only rows a local, docker
  * or plain SSH target has, and they are what the operator-directed claim in
  * every frozen authorization plan on those transports refers to. `list()`
@@ -62,7 +62,7 @@ use Duo\CommandRefusalException;
  * could not read rather than printing an empty table.
  */
 final class CheckpointCatalog {
-    public const FORMAT = 'duo-checkpoint-catalog/v1';
+    public const FORMAT = 'wprism-checkpoint-catalog/v1';
 
     /** A full promotion receipt: the four-resource covered inventory. */
     public const KIND_VERIFIED = 'verified-promotion';
@@ -104,7 +104,7 @@ final class CheckpointCatalog {
      * Read the catalog from a target.
      *
      * `status()` is used rather than `authorityStatus()` because the
-     * operator listing wants the same decorated view `duo promote` acts on;
+     * operator listing wants the same decorated view `wprism promote` acts on;
      * `audit()` is read only when a receipt is active, because
      * `auditEvidence()` throws when there is none.
      *
@@ -112,9 +112,9 @@ final class CheckpointCatalog {
      */
     public static function list(EnvironmentDriver $driver, ?string $now = null): array {
         $now ??= gmdate('Y-m-d\TH:i:s\Z');
-        // Widened with the promote dispatch (cli/duo) so the listing an
-        // operator reads names the same authority `duo promote` acts on. The
-        // carriesRollbackAuthority() half keeps `duo recover --list`
+        // Widened with the promote dispatch (cli/wprism) so the listing an
+        // operator reads names the same authority `wprism promote` acts on. The
+        // carriesRollbackAuthority() half keeps `wprism recover --list`
         // byte-identical for every environment that never configured one.
         if ($driver instanceof RecoveryTransport && $driver->carriesRollbackAuthority()) {
             $status = RollbackAuthority::status($driver);
@@ -165,7 +165,7 @@ final class CheckpointCatalog {
         $disclosures[] = RetainedCheckpoints::DISCLOSURE_RETAINED;
         // Unconditional beside the retained disclosure, because the host
         // cannot tell which rows it applies to: `promotion_session` is
-        // target-side state no host verb reads (DUO-3506). A per-row marker
+        // target-side state no host verb reads (issue #3506). A per-row marker
         // would be a fabrication; a note beside the list is the honest form.
         $disclosures[] = RetainedCheckpoints::DISCLOSURE_SUPERSEDED;
         foreach ($retained as $row) {
@@ -303,7 +303,7 @@ final class CheckpointCatalog {
                 // when a documented command consumes it, and nothing consumes
                 // the owner — `--restore=<id>` takes the receipt id, which is
                 // the one identifier on this row. In production the owner is an
-                // opaque token (cli/duo's orchestrator_run_id(), or the
+                // opaque token (cli/wprism's orchestrator_run_id(), or the
                 // `scoped-`/`verified-`/`direct-` forms), so printing it taught
                 // an operator a name they can only mistype. It stays in
                 // `--format=json`, alongside `artifact_hash`, which this line

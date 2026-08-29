@@ -38,7 +38,7 @@
     },
     "default_authored_keyspaces": [],
     "evidence": {
-        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-the-events-calendar",
             "exact-artifact-version-matrix"
@@ -56,7 +56,7 @@
     "unsupported": [
         {
             "operation": "capture,apply",
-            "reason": "The native end-of-day cutoff callback performs unchecked global postmeta rewrites without bounded preimages, UTC/Custom Tables closure, query verification, or cache invalidation. multiDayCutoff therefore remains target-owned; Duo binds the exact native callback identities and replaces the mixed settings row only when strict old/new equality proves the callbacks are no-ops.",
+            "reason": "The native end-of-day cutoff callback performs unchecked global postmeta rewrites without bounded preimages, UTC/Custom Tables closure, query verification, or cache invalidation. multiDayCutoff therefore remains target-owned; WPrism binds the exact native callback identities and replaces the mixed settings row only when strict old/new equality proves the callbacks are no-ops.",
             "surface": "option:tribe_events_calendar_options.multiDayCutoff"
         },
         {
@@ -81,7 +81,7 @@
         },
         {
             "operation": "all",
-            "reason": "Duo v1 refuses multisite; TEC network/global behavior is outside this single-site adapter.",
+            "reason": "WPrism v1 refuses multisite; TEC network/global behavior is outside this single-site adapter.",
             "surface": "multisite"
         }
     ]

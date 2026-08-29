@@ -3,19 +3,19 @@
 declare(strict_types=1);
 
 /**
- * Duo public/protected API-surface snapshot (WP-10).
+ * WPrism public/protected API-surface snapshot (WP-10).
  *
  * WHAT THIS IS FOR
  * -----------------
  * Regenerate-and-gate, exactly like tools/classmap-generate.php's
- * check/generate pair: a reflected characterization of every loaded Duo\*
+ * check/generate pair: a reflected characterization of every loaded WPrism\*
  * class/interface/trait/enum's PUBLIC and PROTECTED surface (kind,
  * final/abstract/readonly, parent, implemented interfaces, own-declared
  * constants, properties, and methods with full parameter/return signatures)
  * sorted and serialized to one deterministic JSON fixture
  * (sandbox/tests/fixtures/api-surface.json). tests/Tooling/ApiSurfaceTest.php
  * pins `--check` against that committed fixture, so a decomposition PR
- * (docs/adapter-boundary.md; DUO-3335 byte-compatibility
+ * (docs/adapter-boundary.md; issue #3335 byte-compatibility
  * posture) that silently drops, narrows, or renames a method some OTHER file
  * still calls fails a fast, offline PHPUnit assertion instead of surfacing
  * three call-sites deep in the offline corpus -- or not surfacing
@@ -41,33 +41,33 @@ declare(strict_types=1);
  * HOW IT WORKS
  * ------------
  * Reflection cannot happen in THIS process: the drop-in has no autoloader
- * (agent/duo.php require_once's 91 files, which in turn require_once the
- * remaining agent/src siblings; cli/duo does the same for cli/src) and
- * composer's autoload-dev maps only Duo\Tests\ (tests/bootstrap.php), so
- * every Duo\* symbol exists only after that whole require chain has run --
+ * (agent/wprism.php's eager set in turn requires the
+ * remaining agent/src siblings; cli/wprism does the same for cli/src) and
+ * composer's autoload-dev maps only WPrism\Tests\ (tests/bootstrap.php), so
+ * every WPrism\* symbol exists only after that whole require chain has run --
  * and once a class is declared in a PHP process it stays declared, so a
  * second `--check` in the SAME process could not observe a clean slate. A
  * fresh `PHP_BINARY` child is therefore spawned for every single
  * invocation (as_generate() below): it loads the WordPress + WP-CLI stubs
  * from vendor/php-stubs when present (falling back to a two-method WP_CLI
  * stub otherwise -- see as_bootstrap_stubs()), defines just enough WP
- * constants for agent/duo.php's own top-level guard
+ * constants for agent/wprism.php's own top-level guard
  * (`if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) return;`,
- * agent/duo.php:8) and agent/src/Command/Cli.php's file-scope
- * `WP_CLI::add_command('duo', Cli::class)` (agent/src/Command/Cli.php:2954) to both
- * load, requires agent/duo.php, then requires cli/duo's own bootstrap
- * requires in cli/duo's own order (as_cli_bootstrap_paths() regex-parses
- * them straight out of cli/duo rather than hand-duplicating the list, so it
- * cannot silently drift the day cli/duo's prologue changes) -- deliberately
- * NOT cli/duo itself, which unconditionally executes `exit(main($argv))`
+ * agent/wprism.php:8) and agent/src/Command/Cli.php's file-scope
+ * `WP_CLI::add_command('wprism', Cli::class)` (agent/src/Command/Cli.php:2954) to both
+ * load, requires agent/wprism.php, then requires cli/wprism's own bootstrap
+ * requires in cli/wprism's own order (as_cli_bootstrap_paths() regex-parses
+ * them straight out of cli/wprism rather than hand-duplicating the list, so it
+ * cannot silently drift the day cli/wprism's prologue changes) -- deliberately
+ * NOT cli/wprism itself, which unconditionally executes `exit(main($argv))`
  * with no reachable-without-running guard. RefreshPlanCompile.php is never
- * in that list (cli/duo never requires it -- it is a standalone worker
+ * in that list (cli/wprism never requires it -- it is a standalone worker
  * script invoked via proc_open, confirmed by grepping cli/ for its
  * filename) and recovery/rollback-control.php loads naturally via
  * cli/src/Command/AdoptCommand.php's own require_once, exactly as it would under a
- * real `duo` invocation. The child then reflects every declared symbol
- * whose name starts with `Duo\` and prints canonical JSON
- * (\Duo\Canon::encode(), already loaded transitively -- sorted keys, LF,
+ * real `wprism` invocation. The child then reflects every declared symbol
+ * whose name starts with `WPrism\` and prints canonical JSON
+ * (\WPrism\Canon::encode(), already loaded transitively -- sorted keys, LF,
  * trailing newline) to its own stdout, which this parent process reads back
  * over a pipe and either prints, diffs, or writes to the fixture.
  *
@@ -106,7 +106,7 @@ function as_fixture_path(string $repo): string
 }
 
 /**
- * Enough WordPress + WP-CLI surface for agent/duo.php's top-level guard and
+ * Enough WordPress + WP-CLI surface for agent/wprism.php's top-level guard and
  * agent/src/Command/Cli.php's file-scope `WP_CLI::add_command(...)` call to both
  * load without a real WordPress runtime -- and nothing more. Every OTHER
  * agent/src|cli/src top-level statement that reads ABSPATH/WP_CONTENT_DIR/
@@ -154,7 +154,7 @@ function as_bootstrap_stubs(string $repo): void
     }
 
     if (!defined('ABSPATH')) {
-        define('ABSPATH', rtrim(sys_get_temp_dir(), '/') . '/duo-api-surface-abspath/');
+        define('ABSPATH', rtrim(sys_get_temp_dir(), '/') . '/wprism-api-surface-abspath/');
     }
     if (!defined('WP_CONTENT_DIR')) {
         define('WP_CONTENT_DIR', rtrim((string) ABSPATH, '/') . '/wp-content');
@@ -168,12 +168,12 @@ function as_bootstrap_stubs(string $repo): void
 }
 
 /**
- * cli/duo's own bootstrap requires, in cli/duo's own order, resolved to
- * absolute paths -- regex-parsed straight out of cli/duo rather than
- * hand-duplicated, so this can never silently drift from what a real `duo`
+ * cli/wprism's own bootstrap requires, in cli/wprism's own order, resolved to
+ * absolute paths -- regex-parsed straight out of cli/wprism rather than
+ * hand-duplicated, so this can never silently drift from what a real `wprism`
  * invocation actually loads. The prologue (everything before the first
- * `use Duo\Orchestrator\...` line) is exactly `require`/`require_once`
- * statements of the three shapes cli/duo and cli/src ever use --
+ * `use WPrism\Orchestrator\...` line) is exactly `require`/`require_once`
+ * statements of the three shapes cli/wprism and cli/src ever use --
  * `__DIR__ . '...'`, `dirname(__DIR__) . '...'`, `dirname(__DIR__, 2) .
  * '...'` -- plus comments and one `if (is_file(...)) { require ...; }`
  * guard (RefreshPlan.php); `is_file()` on the resolved path reproduces that
@@ -181,25 +181,22 @@ function as_bootstrap_stubs(string $repo): void
  *
  * Each returned file self-requires its own dependencies (require_once, so
  * later re-requires of an already-loaded file are no-ops) -- confirmed by
- * walking the require graph from this exact list: it reaches 47 of
- * cli/src's 48 files, the sole absence being RefreshPlanCompile.php, which
- * cli/duo never requires at all (it is a standalone `proc_open` worker
- * script, not part of the host shell's own class graph) and which the task
- * that produced this tool separately excludes as "executable". No
- * additional exclusion logic is therefore needed here: this list already
- * IS "every cli/src/*.php file except RefreshPlanCompile.php", derived
- * rather than asserted.
+ * walking the require graph from this exact list. RefreshPlanCompile.php is
+ * deliberately absent because cli/wprism never requires it: it is a standalone
+ * `proc_open` worker script, not part of the host shell's class graph. No
+ * additional exclusion logic is therefore needed here: the list is derived
+ * from cli/wprism's bootstrap rather than maintained as a source-tree count.
  *
- * @return list<string> absolute file paths, in cli/duo's own require order
+ * @return list<string> absolute file paths, in cli/wprism's own require order
  */
 function as_cli_bootstrap_paths(string $repo): array
 {
-    $source = (string) file_get_contents($repo . '/cli/duo');
-    $prologueEnd = strpos($source, "\nuse Duo\\Orchestrator\\");
+    $source = (string) file_get_contents($repo . '/cli/wprism');
+    $prologueEnd = strpos($source, "\nuse WPrism\\Orchestrator\\");
     if ($prologueEnd === false) {
         throw new RuntimeException(
-            'api-surface: cli/duo bootstrap prologue shape changed '
-            . '(no "use Duo\\Orchestrator\\..." marker found) -- update as_cli_bootstrap_paths()'
+            'api-surface: cli/wprism bootstrap prologue shape changed '
+            . '(no "use WPrism\\Orchestrator\\..." marker found) -- update as_cli_bootstrap_paths()'
         );
     }
     $prologue = substr($source, 0, $prologueEnd);
@@ -207,7 +204,7 @@ function as_cli_bootstrap_paths(string $repo): array
     $pattern = '/require(?:_once)?\\s+(__DIR__|dirname\\(__DIR__\\)|dirname\\(__DIR__,\\s*2\\))'
         . "\\s*\\.\\s*'([^']+)'/";
     if (preg_match_all($pattern, $prologue, $matches, PREG_SET_ORDER) === false) {
-        throw new RuntimeException('api-surface: could not parse cli/duo require lines');
+        throw new RuntimeException('api-surface: could not parse cli/wprism require lines');
     }
 
     $paths = [];
@@ -215,7 +212,7 @@ function as_cli_bootstrap_paths(string $repo): array
         $base = match ($match[1]) {
             '__DIR__' => $repo . '/cli',
             'dirname(__DIR__)' => $repo,
-            default => $repo, // dirname(__DIR__, 2) — unused in cli/duo's own prologue today; handled for symmetry with cli/src's own require shapes.
+            default => $repo, // dirname(__DIR__, 2) — unused in cli/wprism's own prologue today; handled for symmetry with cli/src's own require shapes.
         };
         $resolved = $base . $match[2];
         if (is_file($resolved)) {
@@ -224,7 +221,7 @@ function as_cli_bootstrap_paths(string $repo): array
     }
 
     if ($paths === []) {
-        throw new RuntimeException('api-surface: parsed zero require lines out of cli/duo — parser or prologue is broken');
+        throw new RuntimeException('api-surface: parsed zero require lines out of cli/wprism — parser or prologue is broken');
     }
 
     return $paths;
@@ -232,7 +229,7 @@ function as_cli_bootstrap_paths(string $repo): array
 
 /**
  * Runs ONLY inside the fresh child process (dispatched by as_main() on
- * API_SURFACE_SUBPROCESS_FLAG). Loads the full Duo\* class graph and prints
+ * API_SURFACE_SUBPROCESS_FLAG). Loads the full WPrism\* class graph and prints
  * canonical JSON to stdout; never returns a value because its one output
  * channel is the pipe as_generate() reads.
  */
@@ -240,22 +237,22 @@ function as_reflect_and_print(string $repo): void
 {
     as_bootstrap_stubs($repo);
 
-    require_once $repo . '/agent/duo.php';
+    require_once $repo . '/agent/wprism.php';
     foreach (as_cli_bootstrap_paths($repo) as $path) {
         require_once $path;
     }
 
     $surface = as_build_surface();
-    echo \Duo\Canon::encode($surface);
+    echo \WPrism\Canon::encode($surface);
 }
 
-/** @return list<string> every declared class/interface/trait/enum name starting with "Duo\" */
-function as_declared_duo_symbols(): array
+/** @return list<string> every declared class/interface/trait/enum name starting with "WPrism\" */
+function as_declared_wprism_symbols(): array
 {
     $all = array_merge(get_declared_classes(), get_declared_interfaces(), get_declared_traits());
     $names = [];
     foreach ($all as $name) {
-        if (str_starts_with($name, 'Duo\\')) {
+        if (str_starts_with($name, 'WPrism\\')) {
             $names[$name] = true;
         }
     }
@@ -268,11 +265,11 @@ function as_declared_duo_symbols(): array
 function as_build_surface(): array
 {
     $classes = [];
-    foreach (as_declared_duo_symbols() as $name) {
+    foreach (as_declared_wprism_symbols() as $name) {
         $classes[$name] = as_reflect_symbol($name);
     }
     return [
-        'format' => 'duo-api-surface/v1',
+        'format' => 'wprism-api-surface/v1',
         'class_count' => count($classes),
         'classes' => $classes,
     ];

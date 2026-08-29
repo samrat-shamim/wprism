@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
+use WPrism\ManifestProviderRuntime;
 
 /**
  * Yoast Duplicate Post 4.7 role-capability reconciliation.
  *
  * Options_Page::register_capabilities() is the plugin's only settings-save
  * projection: it maps duplicate_post_roles onto the copy_posts capability of
- * every registered role. Duo writes the authored option through direct SQL,
+ * every registered role. WPrism writes the authored option through direct SQL,
  * so that nonce-gated settings-page callback is unreachable during apply.
  * This provider ports that exact add/remove loop and requires a fresh,
  * value-level readback before the action can report success.
@@ -53,7 +53,7 @@ final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
 
         if ($verify && $actual !== $desired) {
             throw new \RuntimeException(
-                'duo: Yoast Duplicate Post copy_posts role capabilities did not converge on '
+                'wprism: Yoast Duplicate Post copy_posts role capabilities did not converge on '
                 . 'duplicate_post_roles; recovery_required'
             );
         }
@@ -71,7 +71,7 @@ final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
         }
         if (!is_array($raw) || !array_is_list($raw)) {
             throw new \RuntimeException(
-                'duo: Yoast Duplicate Post duplicate_post_roles must be an ordered list of role slugs'
+                'wprism: Yoast Duplicate Post duplicate_post_roles must be an ordered list of role slugs'
             );
         }
 
@@ -79,12 +79,12 @@ final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
         foreach ($raw as $role) {
             if (!is_string($role) || $role === '') {
                 throw new \RuntimeException(
-                    'duo: Yoast Duplicate Post duplicate_post_roles contains an invalid role slug'
+                    'wprism: Yoast Duplicate Post duplicate_post_roles contains an invalid role slug'
                 );
             }
             if (isset($desired[$role])) {
                 throw new \RuntimeException(
-                    "duo: Yoast Duplicate Post duplicate_post_roles repeats role '$role'"
+                    "wprism: Yoast Duplicate Post duplicate_post_roles repeats role '$role'"
                 );
             }
             $desired[$role] = true;
@@ -94,7 +94,7 @@ final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
         foreach (array_keys($desired) as $role) {
             if (!isset($available[$role])) {
                 throw new \RuntimeException(
-                    "duo: Yoast Duplicate Post selected role '$role' is not registered on this target"
+                    "wprism: Yoast Duplicate Post selected role '$role' is not registered on this target"
                 );
             }
         }
@@ -107,18 +107,18 @@ final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
     private function roles(): array {
         if (is_multisite()) {
             throw new \RuntimeException(
-                'duo: Yoast Duplicate Post role provider is certified for single-site role state only'
+                'wprism: Yoast Duplicate Post role provider is certified for single-site role state only'
             );
         }
         if (!is_callable([\Yoast\WP\Duplicate_Post\Utils::class, 'get_roles'])) {
             throw new \RuntimeException(
-                'duo: Yoast Duplicate Post 4.7 role registry API is unavailable'
+                'wprism: Yoast Duplicate Post 4.7 role registry API is unavailable'
             );
         }
         $registered = \Yoast\WP\Duplicate_Post\Utils::get_roles();
         if (!is_array($registered)) {
             throw new \RuntimeException(
-                'duo: Yoast Duplicate Post 4.7 role registry did not return a role map'
+                'wprism: Yoast Duplicate Post 4.7 role registry did not return a role map'
             );
         }
 
@@ -126,7 +126,7 @@ final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
         foreach ($registered as $name => $_displayName) {
             if (!is_string($name) || $name === '') {
                 throw new \RuntimeException(
-                    'duo: Yoast Duplicate Post 4.7 role registry contains an invalid role slug'
+                    'wprism: Yoast Duplicate Post 4.7 role registry contains an invalid role slug'
                 );
             }
             $role = get_role($name);
@@ -135,7 +135,7 @@ final class YoastDuplicatePostRoleCapabilities extends ManifestProviderRuntime {
                 || !is_callable([$role, 'add_cap'])
                 || !is_callable([$role, 'remove_cap'])) {
                 throw new \RuntimeException(
-                    "duo: Yoast Duplicate Post role '$name' cannot expose or persist copy_posts"
+                    "wprism: Yoast Duplicate Post role '$name' cannot expose or persist copy_posts"
                 );
             }
             $roles[$name] = $role;

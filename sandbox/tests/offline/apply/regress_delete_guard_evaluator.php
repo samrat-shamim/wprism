@@ -1,6 +1,6 @@
 <?php
 /**
- * Direct characterization for DeleteGuardEvaluator (DUO-3347): the indexed
+ * Direct characterization for DeleteGuardEvaluator (issue #3347): the indexed
  * lock-boundary proof used before deletion-guard FOR UPDATE reads.
  *
  * The broader target-path regression remains
@@ -16,8 +16,8 @@ if (!defined('ARRAY_A')) {
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardEvaluator.php';
 
-use Duo\DeleteGuardEvaluator;
-use Duo\Db;
+use WPrism\DeleteGuardEvaluator;
+use WPrism\Db;
 
 final class DeleteGuardEvaluatorFakeWpdb {
     public string $last_error = '';
@@ -138,11 +138,11 @@ final class DeleteGuardEvaluatorFakeWpdb {
             }
             return $this->rollbackResult;
         }
-        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             $this->savepointExists = true;
             return 1;
         }
-        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->savepointExists) {
                 $this->last_error = 'SAVEPOINT does not exist';
                 return false;
@@ -530,7 +530,7 @@ try {
     DeleteGuardEvaluator::assert_innodb_tables(['wp_postmeta']);
 } catch (RuntimeException $e) {
     $metadataRefused = $e->getMessage()
-        === 'duo: deletion guard locking refused — unable to acquire metadata lock for guard table '
+        === 'wprism: deletion guard locking refused — unable to acquire metadata lock for guard table '
             . 'wp_postmeta: simulated metadata probe failure'
         && count($engineWpdb->queries) === 1;
 }
@@ -584,8 +584,8 @@ DeleteGuardEvaluator::assert_transaction_isolation('owner-range locking');
 $check(
     count($isolationWpdb->queries) === 3
         && $isolationWpdb->queries[0] === 'SELECT @@in_transaction'
-        && str_starts_with($isolationWpdb->queries[1], 'RELEASE SAVEPOINT `duo_authored_')
-        && str_starts_with($isolationWpdb->queries[2], 'SAVEPOINT `duo_authored_')
+        && str_starts_with($isolationWpdb->queries[1], 'RELEASE SAVEPOINT `wprism_authored_')
+        && str_starts_with($isolationWpdb->queries[2], 'SAVEPOINT `wprism_authored_')
         && !array_filter(
             $isolationWpdb->queries,
             static fn(string $query): bool => str_contains($query, '@@transaction_isolation')
@@ -614,7 +614,7 @@ try {
     Db::start_repeatable_read('fixture transaction start');
     $setFailureRefused = false;
 } catch (Throwable $failure) {
-    $setFailureRefused = $failure instanceof \Duo\DatabaseMutationException;
+    $setFailureRefused = $failure instanceof \WPrism\DatabaseMutationException;
 }
 $check(
     $setFailureRefused
@@ -653,7 +653,7 @@ foreach ($ambiguousIsolationCases as $case => $configure) {
         Db::start_repeatable_read("$case isolation");
         $ambiguousSetRefused = false;
     } catch (Throwable $failure) {
-        $ambiguousSetRefused = $failure instanceof \Duo\DatabaseMutationException;
+        $ambiguousSetRefused = $failure instanceof \WPrism\DatabaseMutationException;
     }
     $consumed = $ambiguousSet->activeTransaction === '0'
         && $ambiguousSet->nextRepeatableRead === false
@@ -679,7 +679,7 @@ try {
     Db::start_repeatable_read('reconnected isolation');
     $reconnectedSetRefused = false;
 } catch (Throwable $failure) {
-    $reconnectedSetRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $reconnectedSetRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $check(
     $reconnectedSetRefused && $reconnectedSet->activeTransaction === '0',
@@ -696,7 +696,7 @@ foreach ([2, 3] as $probeStep) {
         Db::start("reconnected preflight probe $probeStep");
         $preflightProbeRefused = false;
     } catch (Throwable $failure) {
-        $preflightProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+        $preflightProbeRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
     }
     $check(
         $preflightProbeRefused
@@ -715,7 +715,7 @@ foreach ([4, 5, 6] as $probeStep) {
         Db::start_repeatable_read("reconnected isolation proof $probeStep");
         $isolationProbeRefused = false;
     } catch (Throwable $failure) {
-        $isolationProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+        $isolationProbeRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
     }
     $check(
         $isolationProbeRefused,
@@ -733,7 +733,7 @@ foreach ([7, 8, 9] as $probeStep) {
         Db::start_repeatable_read("reconnected START proof $probeStep");
         $startProbeRefused = false;
     } catch (Throwable $failure) {
-        $startProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+        $startProbeRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
     }
     $check(
         $startProbeRefused,
@@ -778,7 +778,7 @@ try {
     Db::start_repeatable_read('not-applied start');
     $notAppliedStartRefused = false;
 } catch (Throwable $failure) {
-    $notAppliedStartRefused = $failure instanceof \Duo\DatabaseMutationException;
+    $notAppliedStartRefused = $failure instanceof \WPrism\DatabaseMutationException;
 }
 $check(
     $notAppliedStartRefused
@@ -809,7 +809,7 @@ try {
     Db::start_repeatable_read('not-applied throw start');
     $notAppliedThrowStartRefused = false;
 } catch (Throwable $failure) {
-    $notAppliedThrowStartRefused = $failure instanceof \Duo\DatabaseMutationException;
+    $notAppliedThrowStartRefused = $failure instanceof \WPrism\DatabaseMutationException;
 }
 $check(
     $notAppliedThrowStartRefused
@@ -829,13 +829,13 @@ try {
     Db::start_repeatable_read('unsettled one-shot start');
     $unsettledStartRefused = false;
 } catch (Throwable $failure) {
-    $unsettledStartRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $unsettledStartRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 try {
     Db::start('unrelated start while isolation is unresolved');
     $unrelatedBlocked = false;
 } catch (Throwable $failure) {
-    $unrelatedBlocked = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $unrelatedBlocked = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $unsettledStart->connectionId = '7002';
 $unsettledStart->applyStart = true;
@@ -858,13 +858,13 @@ try {
     Db::commit('applied-false commit');
     $appliedFalseCommitRefused = false;
 } catch (Throwable $failure) {
-    $appliedFalseCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $appliedFalseCommitRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $unresolvedCommitBlocksStart = false;
 try {
     Db::start_repeatable_read('start after unresolved commit');
 } catch (Throwable $failure) {
-    $unresolvedCommitBlocksStart = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $unresolvedCommitBlocksStart = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $check(
     $appliedFalseCommitRefused
@@ -883,7 +883,7 @@ try {
     Db::commit('applied-throw commit');
     $appliedThrowCommitRefused = false;
 } catch (Throwable $failure) {
-    $appliedThrowCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $appliedThrowCommitRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $check(
     $appliedThrowCommitRefused && $appliedThrowCommit->activeTransaction === '0',
@@ -901,7 +901,7 @@ try {
     Db::commit('not-applied throw commit');
     $notAppliedThrowCommitRefused = false;
 } catch (Throwable $failure) {
-    $notAppliedThrowCommitRefused = $failure instanceof \Duo\DatabaseMutationException;
+    $notAppliedThrowCommitRefused = $failure instanceof \WPrism\DatabaseMutationException;
 }
 $check(
     $notAppliedThrowCommitRefused && Db::transaction_active('not-applied throw commit remains active'),
@@ -918,7 +918,7 @@ try {
     Db::commit('truthy-error commit');
     $truthyErrorCommitRefused = false;
 } catch (Throwable $failure) {
-    $truthyErrorCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $truthyErrorCommitRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $check(
     $truthyErrorCommitRefused && $truthyErrorCommit->activeTransaction === '0',
@@ -937,7 +937,7 @@ try {
     Db::commit('not-applied commit');
     $notAppliedCommitRefused = false;
 } catch (Throwable $failure) {
-    $notAppliedCommitRefused = $failure instanceof \Duo\DatabaseMutationException;
+    $notAppliedCommitRefused = $failure instanceof \WPrism\DatabaseMutationException;
 }
 $check(
     $notAppliedCommitRefused && Db::transaction_active('not-applied commit remains recoverable'),
@@ -980,7 +980,7 @@ try {
     Db::rollback('not-applied rollback');
     $notAppliedRollbackRefused = false;
 } catch (Throwable $failure) {
-    $notAppliedRollbackRefused = $failure instanceof \Duo\DatabaseMutationException;
+    $notAppliedRollbackRefused = $failure instanceof \WPrism\DatabaseMutationException;
 }
 $check(
     $notAppliedRollbackRefused && $notAppliedRollback->activeTransaction === '1',
@@ -998,7 +998,7 @@ try {
     Db::commit('reconnected commit');
     $reconnectedCommitRefused = false;
 } catch (Throwable $failure) {
-    $reconnectedCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $reconnectedCommitRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $check(
     $reconnectedCommitRefused,
@@ -1018,7 +1018,7 @@ foreach ([1, 2, 3] as $probeStep) {
         Db::commit("state-probe-$probeStep commit");
         $stateProbeRefused = false;
     } catch (Throwable $failure) {
-        $stateProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+        $stateProbeRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
     }
     $check(
         $stateProbeRefused,
@@ -1036,7 +1036,7 @@ try {
     Db::commit('premature commit');
     $prematureCommitRefused = false;
 } catch (Throwable $failure) {
-    $prematureCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    $prematureCommitRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
 }
 $check(
     $prematureCommitRefused,

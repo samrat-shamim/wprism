@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ApplyPreparationRequest.php';
 require_once __DIR__ . '/PreparedApply.php';
@@ -56,13 +56,13 @@ final class ApplyPreparationCoordinator {
                 $plan['collision']
             ));
             throw new \RuntimeException(
-                "duo: slug collisions need explicit resolution (--adopt-by-slug=posts,terms,menus,tables adopts unmanaged rows):\n  - $list"
+                "wprism: slug collisions need explicit resolution (--adopt-by-slug=posts,terms,menus,tables adopts unmanaged rows):\n  - $list"
             );
         }
         if (!$request->recoveringScoped && $plan['conflict'] && empty($opts['force_theirs'])) {
             $list = implode("\n  - ", array_column($plan['conflict'], 'path'));
             throw new \RuntimeException(
-                "duo: conflicts (env and repo both changed since last sync) — capture first or --force-theirs:\n  - $list"
+                "wprism: conflicts (env and repo both changed since last sync) — capture first or --force-theirs:\n  - $list"
             );
         }
         if (!$request->recoveringScoped && $plan['delete_conflict'] && empty($opts['force_theirs'])) {
@@ -71,7 +71,7 @@ final class ApplyPreparationCoordinator {
                 $plan['delete_conflict']
             ));
             throw new \RuntimeException(
-                "duo: deletion conflicts (target differs from the tombstone's expected base) — "
+                "wprism: deletion conflicts (target differs from the tombstone's expected base) — "
                 . "capture/reconcile first or --force-theirs:\n  - $list"
             );
         }
@@ -86,7 +86,7 @@ final class ApplyPreparationCoordinator {
             );
             throw ApplyPlanner::incomplete_override_refusal(
                 $evidence,
-                'duo: deletion conflict override requires --with-deletes together with --force-theirs; '
+                'wprism: deletion conflict override requires --with-deletes together with --force-theirs; '
                     . "no target mutation attempted:\n  - $list"
             );
         }
@@ -98,7 +98,7 @@ final class ApplyPreparationCoordinator {
             throw CommandRefusalException::applyRefused(
                 'the target changed after the repository baseline, so this plan is stale and cannot be partially applied',
                 'capture the target changes, reconcile them in the repository, then build and apply a fresh plan',
-                "duo: ordinary target drift requires capture/reconciliation before apply; no target mutation attempted:\n  - $list"
+                "wprism: ordinary target drift requires capture/reconciliation before apply; no target mutation attempted:\n  - $list"
             );
         }
 
@@ -122,7 +122,7 @@ final class ApplyPreparationCoordinator {
         }
         if ($pendingOptionDeletes && empty($opts['with_deletes'])) {
             sort($pendingOptionDeletes, SORT_STRING);
-            $operatorMessage = 'duo: authored option deletion intent requires --with-deletes; '
+            $operatorMessage = 'wprism: authored option deletion intent requires --with-deletes; '
                 . "no target mutation attempted:\n  - "
                 . implode("\n  - ", array_unique($pendingOptionDeletes));
             if ($pendingOptionConflictEvidence !== []) {
@@ -136,8 +136,8 @@ final class ApplyPreparationCoordinator {
                 $plan['missing_user']
             ));
             throw new \RuntimeException(
-                "duo: user-meta apply refused before target mutation — required exact login(s) are missing:\n  - $list\n"
-                . 'Create/reconcile the user outside Duo, or explicitly declare missing_user="warn" on every '
+                "wprism: user-meta apply refused before target mutation — required exact login(s) are missing:\n  - $list\n"
+                . 'Create/reconcile the user outside WPrism, or explicitly declare missing_user="warn" on every '
                 . 'authored key in that sidecar to warn-and-skip it.'
             );
         }
@@ -146,8 +146,8 @@ final class ApplyPreparationCoordinator {
         if ($plan['code_drift'] && empty($opts['force_code_drift'])) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $plan['code_drift']));
             throw new \RuntimeException(
-                "duo: apply refused — code_drift:\n\n$list\n\n"
-                . "Run 'duo deploy <env>' to reconcile and re-baseline, or pass --force-code-drift to proceed anyway."
+                "wprism: apply refused — code_drift:\n\n$list\n\n"
+                . "Run 'wprism deploy <env>' to reconcile and re-baseline, or pass --force-code-drift to proceed anyway."
             );
         }
         foreach ($plan['code_drift'] as $row) {
@@ -174,7 +174,7 @@ final class ApplyPreparationCoordinator {
         );
         if ($request->recoveringScoped) {
             if ($this->scopedWorkflow->session === null) {
-                throw new \RuntimeException('duo: scoped recovery has no durable session selection');
+                throw new \RuntimeException('wprism: scoped recovery has no durable session selection');
             }
             $rebuildWork = ScopedApplyWorkProjector::project(
                 $plan,
@@ -196,7 +196,7 @@ final class ApplyPreparationCoordinator {
                 'scoped apply selected live tombstones but --with-deletes was not supplied; '
                     . 'no scoped session or authored target mutation was created',
                 'review the selected tombstones and rerun scoped apply with --with-deletes to authorize their removal',
-                'duo: scoped apply selected live tombstones but --with-deletes was not supplied; '
+                'wprism: scoped apply selected live tombstones but --with-deletes was not supplied; '
                     . 'no scoped session or authored target mutation was created'
             );
         }
@@ -219,7 +219,7 @@ final class ApplyPreparationCoordinator {
                     fn($row) => "{$row['type']} {$row['uuid']}: {$row['blocked']}",
                     $blocked
                 ));
-                $operatorMessage = 'duo: deletes blocked by referential guards '
+                $operatorMessage = 'wprism: deletes blocked by referential guards '
                     . "(this environment's runtime data references them; --force-delete-referenced to override):\n  - $list";
                 $conflictEvidence = [];
                 foreach ($blocked as $row) {
@@ -276,8 +276,8 @@ final class ApplyPreparationCoordinator {
         }
 
         ($this->renewPromotionLock)('precondition-recheck');
-        if (getenv('DUO_TEST_MODE') === '1') {
-            $pauseMs = (int) (getenv('DUO_TEST_PROMOTION_PAUSE_MS') ?: 0);
+        if (getenv('WPRISM_TEST_MODE') === '1') {
+            $pauseMs = (int) (getenv('WPRISM_TEST_PROMOTION_PAUSE_MS') ?: 0);
             if ($pauseMs > 0 && $pauseMs <= 30000) {
                 usleep($pauseMs * 1000);
             }
@@ -295,7 +295,7 @@ final class ApplyPreparationCoordinator {
             );
             if ($request->recoveringScoped) {
                 if ($this->scopedWorkflow->session === null) {
-                    throw new \RuntimeException('duo: scoped recovery has no durable session selection');
+                    throw new \RuntimeException('wprism: scoped recovery has no durable session selection');
                 }
                 // Authored rows can already be converged while a sealed
                 // provider/native effect remains pending. Re-project the
@@ -317,7 +317,7 @@ final class ApplyPreparationCoordinator {
             ));
             if (Canon::encode($freshSelectedActions) !== Canon::encode($negotiatedSelectedActions)) {
                 throw new \RuntimeException(
-                    'duo: scoped action selection changed after planning; no target mutation attempted'
+                    'wprism: scoped action selection changed after planning; no target mutation attempted'
                 );
             }
         }
@@ -328,7 +328,7 @@ final class ApplyPreparationCoordinator {
             ApplyPlanner::plan_precondition_hash($freshPlan)
         )) {
             throw new \RuntimeException(
-                'duo: promotion preconditions changed after planning; no target mutation attempted — recompile and retry'
+                'wprism: promotion preconditions changed after planning; no target mutation attempted — recompile and retry'
             );
         }
         if ($request->scoped) {
@@ -363,7 +363,7 @@ final class ApplyPreparationCoordinator {
                         continue;
                     }
                     throw new \RuntimeException(
-                        'duo: scoped target observation changed after planning; no target mutation attempted'
+                        'wprism: scoped target observation changed after planning; no target mutation attempted'
                     );
                 }
                 if (!hash_equals(
@@ -371,7 +371,7 @@ final class ApplyPreparationCoordinator {
                     ScopedApplySession::hash_value((array) ($freshObservation['_ledger_map_identity_hashes'] ?? []))
                 )) {
                     throw new \RuntimeException(
-                        'duo: scoped ledger-map identity selection changed after planning; no target mutation attempted'
+                        'wprism: scoped ledger-map identity selection changed after planning; no target mutation attempted'
                     );
                 }
                 return ['actual' => $freshActual, 'observation' => $freshObservation];
@@ -434,14 +434,14 @@ final class ApplyPreparationCoordinator {
             ));
             if ($runtime) {
                 throw new \RuntimeException(
-                    "duo: apply refused — code runtime compatibility is non-forceable:\n\n$list\n\n"
+                    "wprism: apply refused — code runtime compatibility is non-forceable:\n\n$list\n\n"
                     . 'Correct the declared Requires PHP/Requires at least header or use a target that reports compatible runtime versions. '
-                    . 'Neither --force-code-mismatch nor Duo certification-baseline evidence overrides a component runtime requirement.'
+                    . 'Neither --force-code-mismatch nor WPrism certification-baseline evidence overrides a component runtime requirement.'
                 );
             }
             throw new \RuntimeException(
-                "duo: apply refused — code_revision_stale:\n\n$list\n\n"
-                . "Run the host 'duo deploy <env>' workflow to stage, reconcile, verify, and finalize the exact code payload. "
+                "wprism: apply refused — code_revision_stale:\n\n$list\n\n"
+                . "Run the host 'wprism deploy <env>' workflow to stage, reconcile, verify, and finalize the exact code payload. "
                 . 'This ordering invariant is non-forceable; neither --force-code-mismatch nor --force-code-drift overrides it.'
             );
         }
@@ -464,8 +464,8 @@ final class ApplyPreparationCoordinator {
                 $forceable
             ));
             throw new \RuntimeException(
-                "duo: apply refused — code_mismatch:\n\n$list\n\n"
-                . "Run 'duo deploy <env>' first for lifecycle reconciliation, "
+                "wprism: apply refused — code_mismatch:\n\n$list\n\n"
+                . "Run 'wprism deploy <env>' first for lifecycle reconciliation, "
                 . 'or pass --force-code-mismatch to proceed despite those lifecycle mismatches.'
             );
         }

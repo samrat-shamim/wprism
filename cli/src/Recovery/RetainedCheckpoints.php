@@ -1,29 +1,29 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/RecoveryClaim.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
  * The database checkpoints a target's releases RETAINED — the second source
- * of `duo recover <env> --list` rows (round-3 MUP §2.5), and the only one a
+ * of `wprism recover <env> --list` rows (round-3 MUP §2.5), and the only one a
  * target without a rollback authority runtime has.
  *
  * ## Why this exists
  *
- * Every operator-directed promotion (`cli/duo`'s `cmd_promote_internal()`,
- * which is what `duo release` composes on a local, docker or plain SSH
+ * Every operator-directed promotion (`cli/wprism`'s `cmd_promote_internal()`,
+ * which is what `wprism release` composes on a local, docker or plain SSH
  * target) exports the pre-release database to
- * `<repo>/.duo/checkpoints/promote-<owner>.sql.enc` immediately after taking the
+ * `<repo>/.wprism/checkpoints/promote-<owner>.sql.enc` immediately after taking the
  * promotion lease and prints `database checkpoint retained: <path>` on
  * success. The frozen authorization plan for that release claims exactly one
  * restorable resource — `RecoveryClaim::RESTORES[operator-directed]` is the
- * database checkpoint — so a `duo recover` that could not list or restore
+ * database checkpoint — so a `wprism recover` that could not list or restore
  * that checkpoint on that transport would print a claim at authorization
  * that no verb honours afterwards. `grind_mup.sh` step 11 is that gap made
  * executable; this class closes it without a second recovery mechanism: a
@@ -31,7 +31,7 @@ use Duo\CommandRefusalException;
  * operator-directed path already drives (abort → begin → isolated import →
  * mandatory final abort), with the same lease identity the release used.
  *
- * `duo deploy <env>` is the second writer. It takes its checkpoint at the
+ * `wprism deploy <env>` is the second writer. It takes its checkpoint at the
  * position promote takes its own — under the `promotion-begin` lease and
  * before code-stage (`DeployCommand::run()`) — and retains it as
  * `deploy-<owner>.sql` beside the `deploy-<owner>.json` artifact the same
@@ -40,7 +40,7 @@ use Duo\CommandRefusalException;
  * second way to find an artifact, only a second prefix to glob.
  *
  * That prefix set is CLOSED on purpose. `materialize-<operation_id>.sql`
- * (cli/duo:2126-2127, :2576-2577) is the environment materializer's working
+ * (cli/wprism:2126-2127, :2576-2577) is the environment materializer's working
  * dump, not a release's before-image, and a bare `*.sql` glob would list it
  * here as a restorable release checkpoint. Two named prefixes; never a
  * wildcard.
@@ -50,7 +50,7 @@ use Duo\CommandRefusalException;
  * The lease `promotion-begin` binds is `(owner, artifact_hash)`. The owner
  * is the checkpoint's own file name (`promote-<owner>.sql.enc`, or deploy's
  * `deploy-<owner>.sql`); the artifact hash is read from the sibling
- * `<repo>/.duo/artifacts/<same-stem>.json`
+ * `<repo>/.wprism/artifacts/<same-stem>.json`
  * that the same release compiled — a content-addressed artifact whose
  * top-level `artifact_hash` is the identity the lease row in the checkpoint
  * itself carries. Nothing here invents an identity: a checkpoint whose
@@ -87,7 +87,7 @@ final class RetainedCheckpoints {
      */
     public const ID_PREFIX = 'promote-';
 
-    /** The same, for the checkpoint `duo deploy` retains under its own lease. */
+    /** The same, for the checkpoint `wprism deploy` retains under its own lease. */
     public const DEPLOY_ID_PREFIX = 'deploy-';
 
     /**
@@ -110,11 +110,11 @@ final class RetainedCheckpoints {
 
     /**
      * Supersession is a fact only the TARGET holds. The durable
-     * `promotion_session` row lives in the target's `duo_kv`
+     * `promotion_session` row lives in the target's `wprism_kv`
      * (`agent/src/Promotion/PromotionLease.php:1005`) and no host verb reads
      * it, so this listing cannot mark a row "not restorable" without
      * inventing an answer — and an older checkpoint IS still restorable when
-     * no later session was begun. Step 1 stays the authority (DUO-3506).
+     * no later session was begun. Step 1 stays the authority (issue #3506).
      * What the listing can honestly do is name the refusal in advance, with
      * the reason code the failed step now carries and the same remedy, so an
      * operator choosing between two retained checkpoints knows the older one
@@ -140,7 +140,7 @@ final class RetainedCheckpoints {
             throw new CommandRefusalException(
                 'checkpoint_listing_unavailable',
                 'the target could not enumerate its retained release checkpoints',
-                'run duo doctor ' . $driver->name() . ' and repair the transport it reports, then re-run duo recover',
+                'run wprism doctor ' . $driver->name() . ' and repair the transport it reports, then re-run wprism recover',
                 [['detail' => trim((string) (($result['stderr'] ?? '') !== '' ? $result['stderr'] : ($result['stdout'] ?? '')))]]
             );
         }
@@ -167,8 +167,8 @@ final class RetainedCheckpoints {
      * absent line — the absence is printed, not implied.
      */
     public static function script(string $repoPath): string {
-        $duo = rtrim($repoPath, '/') . '/.duo';
-        $q = escapeshellarg($duo);
+        $wprism = rtrim($repoPath, '/') . '/.wprism';
+        $q = escapeshellarg($wprism);
         $globs = [];
         foreach (self::ID_PREFIXES as $prefix) {
             $globs[] = '"$d"/checkpoints/' . $prefix . '*.sql.enc';
@@ -340,7 +340,7 @@ final class RetainedCheckpoints {
             );
         }
 
-        return rtrim($repoPath, '/') . '/.duo/checkpoints/' . $prefix . $owner . '.sql.enc';
+        return rtrim($repoPath, '/') . '/.wprism/checkpoints/' . $prefix . $owner . '.sql.enc';
     }
 
     private static function malformed(string $detail): CommandRefusalException {
@@ -348,7 +348,7 @@ final class RetainedCheckpoints {
             'checkpoint_listing_malformed',
             'the target answered the retained checkpoint listing with a line this build cannot read',
             'upgrade the host orchestrator to the build that matches this target, or inspect '
-                . '.duo/checkpoints on the target by hand before recovering',
+                . '.wprism/checkpoints on the target by hand before recovering',
             [['detail' => $detail]]
         );
     }

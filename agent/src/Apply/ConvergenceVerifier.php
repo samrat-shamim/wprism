@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
@@ -9,7 +9,7 @@ require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Scope/ScopedApplySession.php';
 
 /**
- * Post-apply convergence verification (DUO-3220): re-captures the
+ * Post-apply convergence verification (issue #3220): re-captures the
  * target through the same canonical reader used by plan/capture and proves
  * every entity in the immutable compiled tree landed byte-semantically (same
  * type + canonical hash), or — for a scoped run — that every selected
@@ -19,7 +19,7 @@ require_once __DIR__ . '/../Scope/ScopedApplySession.php';
  * re-read is. Its private 0600 snapshots are apply-owned subprocess inputs,
  * never repository publication or target state.
  *
- * Extracted from the Apply aggregate (DUO-3347 slice 1): the constructor's five fields are
+ * Extracted from the Apply aggregate (issue #3347 slice 1): the constructor's five fields are
  * exactly what verify_canonical() and Apply::run()'s post-apply gate ever
  * read from an Apply instance to reach this cluster — verify_canonical()
  * previously built a full `new self(...)` Apply just to reach two of these
@@ -58,11 +58,11 @@ final class ConvergenceVerifier {
     }
 
     /**
-     * Mandatory post-apply canonical convergence gate (DUO-3220).
+     * Mandatory post-apply canonical convergence gate (issue #3220).
      *
      * This is intentionally the cheap, engine-owned verifier from the
      * Architecture Ruling for this slice. Adapter-declared behavioural /
-     * render probes and signed verification reports belong to DUO-3223;
+     * render probes and signed verification reports belong to issue #3223;
      * required derived dependencies are already hard-verified in rebuild().
      *
      * @return array{verifier:string,result:string,live_entities:int,deletions:int}
@@ -73,7 +73,7 @@ final class ConvergenceVerifier {
         }
         if (!class_exists('\WP_CLI')) {
             throw $this->failure(
-                'duo: post-apply convergence verification is unavailable outside wp-cli; promotion metadata was not committed',
+                'wprism: post-apply convergence verification is unavailable outside wp-cli; promotion metadata was not committed',
                 $preservedDrift
             );
         }
@@ -87,16 +87,16 @@ final class ConvergenceVerifier {
         // contaminate this process's shutdown state. Pin it to the exact
         // artifact used above; a concurrently changed repository fails
         // closed instead of verifying a different desired revision.
-        $artifactSnapshot = tempnam(sys_get_temp_dir(), 'duo-verify-artifact-');
-        $policySnapshot = tempnam(sys_get_temp_dir(), 'duo-verify-policy-');
+        $artifactSnapshot = tempnam(sys_get_temp_dir(), 'wprism-verify-artifact-');
+        $policySnapshot = tempnam(sys_get_temp_dir(), 'wprism-verify-policy-');
         if ($artifactSnapshot === false || $policySnapshot === false) {
             if (is_string($artifactSnapshot)) { @unlink($artifactSnapshot); }
             if (is_string($policySnapshot)) { @unlink($policySnapshot); }
-            throw new \RuntimeException('duo: could not allocate frozen canonical-verification inputs');
+            throw new \RuntimeException('wprism: could not allocate frozen canonical-verification inputs');
         }
         @chmod($artifactSnapshot, 0600);
         @chmod($policySnapshot, 0600);
-        $cmd = 'duo verify-canonical --repo=' . escapeshellarg($this->repo)
+        $cmd = 'wprism verify-canonical --repo=' . escapeshellarg($this->repo)
             . ' --expected-artifact=' . $compiled->artifact_hash()
             . ' --compiled=' . escapeshellarg($artifactSnapshot)
             . ' --policy-snapshot=' . escapeshellarg($policySnapshot)
@@ -114,7 +114,7 @@ final class ConvergenceVerifier {
             $res = WpCliChildProcess::capture($cmd, 600, 786432, 262144);
         } catch (\Throwable $t) {
             throw $this->failure(
-                'duo: post-apply convergence verification subprocess failed; promotion metadata was not committed',
+                'wprism: post-apply convergence verification subprocess failed; promotion metadata was not committed',
                 $preservedDrift,
                 $t
             );
@@ -133,7 +133,7 @@ final class ConvergenceVerifier {
         }
         if (trim($res['stderr']) !== '') {
             throw $this->failure(
-                'duo: post-apply convergence verification subprocess emitted a warning; promotion metadata was not committed',
+                'wprism: post-apply convergence verification subprocess emitted a warning; promotion metadata was not committed',
                 $preservedDrift
             );
         }
@@ -143,7 +143,7 @@ final class ConvergenceVerifier {
             $report = Canon::decode($json);
         } catch (\Throwable $t) {
             throw $this->failure(
-                'duo: post-apply convergence verification returned malformed evidence; promotion metadata was not committed',
+                'wprism: post-apply convergence verification returned malformed evidence; promotion metadata was not committed',
                 $preservedDrift,
                 $t
             );
@@ -152,7 +152,7 @@ final class ConvergenceVerifier {
             || ($report['verifier'] ?? '') !== 'canonical-recapture/v1'
             || ($report['result'] ?? '') !== 'pass') {
             throw $this->failure(
-                'duo: post-apply convergence verification returned invalid evidence; promotion metadata was not committed',
+                'wprism: post-apply convergence verification returned invalid evidence; promotion metadata was not committed',
                 $preservedDrift
             );
         }
@@ -163,13 +163,13 @@ final class ConvergenceVerifier {
      * What the verifier subprocess actually said, in the order the channels
      * are trustworthy.
      *
-     * DUO-3489 root cause: DUO-3399 (aa58959) routed `verify-canonical`
+     * issue #3489 root cause: issue #3399 (aa58959) routed `verify-canonical`
      * through Cli::halt_json_failure(), and this class always launches it with
      * `--format=json` (:97-107). That path prints the refusal envelope with
      * WP_CLI::line() and WP_CLI::halt(1) (Cli.php:150-151), so STDERR — the
      * only channel the caller below reads — was empty and every convergence
      * failure collapsed into the constant "subprocess failed" sentence. That
-     * was measured live: `duo apply prod` on a 2-entity-drifted target
+     * was measured live: `wprism apply prod` on a 2-entity-drifted target
      * refused with exactly that sentence and named nothing, while
      * spec/repo-format.md:1235 requires "a mismatch names the failed
      * invariant". Cli::verify_canonical() now writes the operator sentence to
@@ -191,15 +191,15 @@ final class ConvergenceVerifier {
         } catch (\Throwable $undecodable) {
             $envelope = null;
         }
-        if (!is_array($envelope) || ($envelope['format'] ?? '') !== 'duo-command-refusal/v1') {
-            return 'duo: post-apply convergence verification subprocess failed with no diagnosis on either channel; '
+        if (!is_array($envelope) || ($envelope['format'] ?? '') !== 'wprism-command-refusal/v1') {
+            return 'wprism: post-apply convergence verification subprocess failed with no diagnosis on either channel; '
                 . 'promotion metadata was not committed';
         }
         $reason = (string) ($envelope['reason_code'] ?? $envelope['error'] ?? 'unclassified');
         $message = (string) ($envelope['message'] ?? '');
         $remediation = (string) ($envelope['remediation'] ?? '');
         $lines = [
-            'duo: post-apply convergence verification refused (' . $reason
+            'wprism: post-apply convergence verification refused (' . $reason
                 . '); promotion metadata was not committed',
         ];
         if ($message !== '') {
@@ -210,14 +210,14 @@ final class ConvergenceVerifier {
         }
         if (($envelope['details_redacted'] ?? false) === true) {
             $lines[] = '  the subprocess redacted its detail; the full chain is in '
-                . '<repo>/.duo/refusals/ on this environment';
+                . '<repo>/.wprism/refusals/ on this environment';
         }
         return implode("\n", $lines);
     }
 
     /**
      * Every non-scoped convergence failure, with the two facts the operator
-     * asked for and DUO-3489 found missing.
+     * asked for and issue #3489 found missing.
      *
      * This gate has exactly one caller — ApplyRequestCoordinator::run():1496,
      * after the authored transaction committed and the rebuild pass ran — so
@@ -227,7 +227,7 @@ final class ConvergenceVerifier {
      * excludes `drift` from the write set, so a drifted target can never pass
      * this gate. Naming it turns a mysterious subprocess exit into the
      * documented capture-first remedy (docs/guides/capabilities-and-limits.md
-     * "ordinary `drift` … `duo capture` first").
+     * "ordinary `drift` … `wprism capture` first").
      *
      * @param list<array<string,mixed>> $preservedDrift plan `drift` rows this run did not write
      */
@@ -251,7 +251,7 @@ final class ConvergenceVerifier {
                 . ' rather than overwriting them, and the gate above proves the whole compiled tree, '
                 . 'so it cannot pass while the repository does not hold them:';
             $lines[] = implode("\n", $paths);
-            $lines[] = 'Run `duo capture` to fold those environment changes into the repository, commit, '
+            $lines[] = 'Run `wprism capture` to fold those environment changes into the repository, commit, '
                 . 'then apply again.';
         }
         return new \RuntimeException(implode("\n", $lines), 0, $previous);
@@ -261,30 +261,30 @@ final class ConvergenceVerifier {
     private function verify_scoped(array $opts, CompiledRepository $compiled): array {
         if (!class_exists('\WP_CLI') || $this->scopedObservation === null) {
             throw new \RuntimeException(
-                'duo: scoped convergence verification is unavailable; scoped ledger evidence was not committed'
+                'wprism: scoped convergence verification is unavailable; scoped ledger evidence was not committed'
             );
         }
-        $artifactSnapshot = tempnam(sys_get_temp_dir(), 'duo-scoped-verify-artifact-');
-        $policySnapshot = tempnam(sys_get_temp_dir(), 'duo-scoped-verify-policy-');
+        $artifactSnapshot = tempnam(sys_get_temp_dir(), 'wprism-scoped-verify-artifact-');
+        $policySnapshot = tempnam(sys_get_temp_dir(), 'wprism-scoped-verify-policy-');
         if ($artifactSnapshot === false || $policySnapshot === false) {
             if (is_string($artifactSnapshot)) { @unlink($artifactSnapshot); }
             if (is_string($policySnapshot)) { @unlink($policySnapshot); }
-            throw new \RuntimeException('duo: could not allocate frozen scoped-verification inputs');
+            throw new \RuntimeException('wprism: could not allocate frozen scoped-verification inputs');
         }
         @chmod($artifactSnapshot, 0600);
         @chmod($policySnapshot, 0600);
         $request = [
-            'format' => 'duo-scope-request/v1',
+            'format' => 'wprism-scope-request/v1',
             'scope_hash' => (string) $this->scopeContract['scope_hash'],
             'selectors' => $this->scopeContract['selectors'],
         ];
         if ($this->scopedSession === null
             || $this->scopedSession->phase() !== ScopedApplySession::PHASE_VERIFYING) {
-            throw new \RuntimeException('duo: scoped convergence verifier has no exact verifying session');
+            throw new \RuntimeException('wprism: scoped convergence verifier has no exact verifying session');
         }
         $authorityHash = $this->scopedSession->authority_hash_value();
         $effectsRoot = ScopedApplySession::hash_value($this->scopedSession->receipts());
-        $cmd = 'duo verify-canonical --repo=' . escapeshellarg($this->repo)
+        $cmd = 'wprism verify-canonical --repo=' . escapeshellarg($this->repo)
             . ' --expected-artifact=' . $compiled->artifact_hash()
             . ' --compiled=' . escapeshellarg($artifactSnapshot)
             . ' --policy-snapshot=' . escapeshellarg($policySnapshot)
@@ -303,7 +303,7 @@ final class ConvergenceVerifier {
             $res = WpCliChildProcess::capture($cmd, 600, 786432, 262144);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: scoped convergence verification subprocess failed; scoped ledger evidence was not committed',
+                'wprism: scoped convergence verification subprocess failed; scoped ledger evidence was not committed',
                 0,
                 $failure
             );
@@ -313,12 +313,12 @@ final class ConvergenceVerifier {
         }
         if ($res['return_code'] !== 0) {
             throw new \RuntimeException(
-                'duo: scoped convergence verification refused the bounded target; scoped ledger evidence was not committed'
+                'wprism: scoped convergence verification refused the bounded target; scoped ledger evidence was not committed'
             );
         }
         if (trim($res['stderr']) !== '') {
             throw new \RuntimeException(
-                'duo: scoped convergence verification subprocess emitted a warning; scoped ledger evidence was not committed'
+                'wprism: scoped convergence verification subprocess emitted a warning; scoped ledger evidence was not committed'
             );
         }
         $lines = preg_split('/\R/', trim($res['stdout'])) ?: [];
@@ -326,7 +326,7 @@ final class ConvergenceVerifier {
             $report = Canon::decode((string) end($lines));
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: scoped convergence verification returned malformed evidence',
+                'wprism: scoped convergence verification returned malformed evidence',
                 0,
                 $failure
             );
@@ -336,7 +336,7 @@ final class ConvergenceVerifier {
             || ($report['result'] ?? '') !== 'pass'
             || !hash_equals($authorityHash, (string) ($report['authority_hash'] ?? ''))
             || !hash_equals($effectsRoot, (string) ($report['effects_root'] ?? ''))) {
-            throw new \RuntimeException('duo: scoped convergence verification returned invalid evidence');
+            throw new \RuntimeException('wprism: scoped convergence verification returned invalid evidence');
         }
         return $report;
     }
@@ -356,7 +356,7 @@ final class ConvergenceVerifier {
     ): array {
         foreach ([$expectedProtectedRoot, $expectedProtectedMapRoot, $authorityHash, $effectsRoot] as $hash) {
             if (preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1) {
-                throw new \RuntimeException('duo: scoped verification requires complete lowercase SHA-256 witnesses');
+                throw new \RuntimeException('wprism: scoped verification requires complete lowercase SHA-256 witnesses');
             }
         }
         $verifyingSession = ScopedApplySession::require_verifying_evidence(
@@ -399,13 +399,13 @@ final class ConvergenceVerifier {
         if (!is_array($authorReceipt)
             || !hash_equals((string) ($authorReceipt['after_hash'] ?? ''), $authoredLedgerMapHash)) {
             throw new \RuntimeException(
-                'duo: scoped convergence verification found selected identity-map drift after authored commit'
+                'wprism: scoped convergence verification found selected identity-map drift after authored commit'
             );
         }
         if (!hash_equals($expectedProtectedRoot, (string) $observation['protected_out_of_scope_root'])
             || !hash_equals($expectedProtectedMapRoot, (string) $observation['protected_ledger_map_root'])) {
             throw new \RuntimeException(
-                'duo: scoped convergence verification found protected out-of-scope target drift'
+                'wprism: scoped convergence verification found protected out-of-scope target drift'
             );
         }
         $selected = ScopedApply::selected_set($this->scopeContract);
@@ -481,7 +481,7 @@ final class ConvergenceVerifier {
         }
         if ($failures !== []) {
             throw new \RuntimeException(
-                'duo: scoped convergence verification failed selected intent (' . implode(',', $failures) . ')'
+                'wprism: scoped convergence verification failed selected intent (' . implode(',', $failures) . ')'
             );
         }
         $receipt = [
@@ -565,7 +565,7 @@ final class ConvergenceVerifier {
 
         if ($failures) {
             throw new \RuntimeException(
-                "duo: post-apply convergence verification failed; promotion metadata was not committed:\n  - "
+                "wprism: post-apply convergence verification failed; promotion metadata was not committed:\n  - "
                 . implode("\n  - ", $failures)
             );
         }

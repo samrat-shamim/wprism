@@ -9,52 +9,52 @@
  */
 declare(strict_types=1);
 
-function duo_boundary_pattern(string $label, int $repeat): string {
+function wprism_boundary_pattern(string $label, int $repeat): string {
     $unit = "বাংলা|東京|e\u{0301}|🚀|comma,quote\"apostrophe'backslash\\|N;|"
         . "a:1:{s:3:\"key\";s:5:\"value\";}|---\n";
     return "$label|" . str_repeat($unit, $repeat);
 }
 
-function duo_boundary_title(): string {
-    return duo_boundary_pattern('CORE-TITLE', 96);
+function wprism_boundary_title(): string {
+    return wprism_boundary_pattern('CORE-TITLE', 96);
 }
 
-function duo_boundary_excerpt(): string {
-    return duo_boundary_pattern('CORE-EXCERPT', 128);
+function wprism_boundary_excerpt(): string {
+    return wprism_boundary_pattern('CORE-EXCERPT', 128);
 }
 
-function duo_boundary_term_name(): string {
+function wprism_boundary_term_name(): string {
     return 'Core Boundary ' . str_repeat('界', 48);
 }
 
-function duo_boundary_term_description(): string {
-    return duo_boundary_pattern('CORE-TERM', 420)
+function wprism_boundary_term_description(): string {
+    return wprism_boundary_pattern('CORE-TERM', 420)
         . home_url('/term-boundary/?next=' . rawurlencode(wp_upload_dir()['baseurl'] . '/term-asset.png'));
 }
 
-function duo_boundary_origin(): string {
-    return duo_boundary_pattern('CORE-META', 360)
+function wprism_boundary_origin(): string {
+    return wprism_boundary_pattern('CORE-META', 360)
         . home_url('/origin/?asset=' . rawurlencode(wp_upload_dir()['baseurl'] . '/origin.png'));
 }
 
-function duo_boundary_widget_text(): string {
-    return duo_boundary_pattern('CORE-WIDGET-TEXT', 260)
+function wprism_boundary_widget_text(): string {
+    return wprism_boundary_pattern('CORE-WIDGET-TEXT', 260)
         . home_url('/widget/?asset=' . rawurlencode(wp_upload_dir()['baseurl'] . '/widget.png'));
 }
 
-function duo_boundary_menu_description(): string {
-    return duo_boundary_pattern('CORE-MENU-DESCRIPTION', 96)
+function wprism_boundary_menu_description(): string {
+    return wprism_boundary_pattern('CORE-MENU-DESCRIPTION', 96)
         . home_url('/menu-description');
 }
 
-function duo_boundary_menu_url(): string {
+function wprism_boundary_menu_url(): string {
     return home_url('/boundary-menu/?asset=' . rawurlencode(wp_upload_dir()['baseurl'] . '/menu.png'))
         . '&pipe=one%7Ctwo&quote=%22';
 }
 
-function duo_boundary_body(int $attachmentId, string $attachmentUrl, bool $includeReviewSecret = true): string {
+function wprism_boundary_body(int $attachmentId, string $attachmentUrl, bool $includeReviewSecret = true): string {
     $secret = $includeReviewSecret
-        ? 'A review-only credential example: sk_live_DUOBOUNDARY1234567890' . "\n"
+        ? 'A review-only credential example: sk_live_WPRISMBOUNDARY1234567890' . "\n"
         : '';
     return '<!-- wp:image {"id":' . $attachmentId . ',"url":"' . $attachmentUrl . '"} -->'
         . '<figure class="wp-block-image"><img src="' . $attachmentUrl . '" class="wp-image-'
@@ -62,10 +62,10 @@ function duo_boundary_body(int $attachmentId, string $attachmentUrl, bool $inclu
         . '[gallery ids="' . $attachmentId . '"]' . "\n"
         . home_url('/body/?asset=' . rawurlencode($attachmentUrl)) . "\n"
         . $secret
-        . duo_boundary_pattern('CORE-BODY', 420);
+        . wprism_boundary_pattern('CORE-BODY', 420);
 }
 
-function duo_boundary_block_catalog(
+function wprism_boundary_block_catalog(
     int $attachmentId,
     string $attachmentUrl,
     int $pageId,
@@ -114,7 +114,7 @@ function duo_boundary_block_catalog(
 }
 
 /** @return array{id_like:list<string>,url_like:list<string>} */
-function duo_boundary_core_block_schema(): array {
+function wprism_boundary_core_block_schema(): array {
     $idLike = [];
     $urlLike = [];
     foreach (WP_Block_Type_Registry::get_instance()->get_all_registered() as $name => $type) {
@@ -153,7 +153,7 @@ function duo_boundary_core_block_schema(): array {
 }
 
 /** @return array{count:int,cache_count:int,time_count:int,unknown_count:int,all_exact:bool,keys:list<string>} */
-function duo_boundary_oembed_cache_observation(): array {
+function wprism_boundary_oembed_cache_observation(): array {
     $page = get_page_by_path('core-block-boundary', OBJECT, 'page');
     if (!$page instanceof WP_Post) {
         throw new RuntimeException('core boundary oEmbed observation cannot find the block catalog page');
@@ -201,15 +201,15 @@ function duo_boundary_oembed_cache_observation(): array {
 }
 
 /** @return array<string,mixed> */
-function duo_boundary_ids(): array {
-    $ids = get_option('duo_boundary_ids', []);
+function wprism_boundary_ids(): array {
+    $ids = get_option('wprism_boundary_ids', []);
     if (!is_array($ids)) {
         throw new RuntimeException('core boundary fixture ids are unavailable');
     }
     return $ids;
 }
 
-function duo_boundary_attachment(): int {
+function wprism_boundary_attachment(): int {
     $bytes = base64_decode(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=',
         true
@@ -222,7 +222,7 @@ function duo_boundary_attachment(): int {
         throw new RuntimeException('core boundary attachment upload failed');
     }
     $id = wp_insert_attachment([
-        'post_title' => duo_boundary_pattern('CORE-MEDIA-TITLE', 64),
+        'post_title' => wprism_boundary_pattern('CORE-MEDIA-TITLE', 64),
         'post_name' => 'core-boundary-media',
         'post_status' => 'inherit',
         'post_mime_type' => 'image/png',
@@ -232,11 +232,11 @@ function duo_boundary_attachment(): int {
     }
     require_once ABSPATH . 'wp-admin/includes/image.php';
     wp_update_attachment_metadata((int) $id, wp_generate_attachment_metadata((int) $id, $upload['file']));
-    update_post_meta((int) $id, '_wp_attachment_image_alt', duo_boundary_pattern('CORE-MEDIA-ALT', 72));
+    update_post_meta((int) $id, '_wp_attachment_image_alt', wprism_boundary_pattern('CORE-MEDIA-ALT', 72));
     return (int) $id;
 }
 
-function duo_boundary_write_theme(
+function wprism_boundary_write_theme(
     int $attachmentId,
     int $menuId,
     bool $targetRuntime,
@@ -281,15 +281,15 @@ function duo_boundary_write_theme(
 }
 
 /** @return array{menu:int,item:int} */
-function duo_boundary_menu(): array {
+function wprism_boundary_menu(): array {
     $menu = wp_create_nav_menu('Core Boundary Menu');
     if (is_wp_error($menu)) {
         throw new RuntimeException('core boundary menu creation failed');
     }
     $item = wp_update_nav_menu_item((int) $menu, 0, [
-        'menu-item-title' => duo_boundary_pattern('CORE-MENU-TITLE', 48),
-        'menu-item-description' => duo_boundary_menu_description(),
-        'menu-item-url' => duo_boundary_menu_url(),
+        'menu-item-title' => wprism_boundary_pattern('CORE-MENU-TITLE', 48),
+        'menu-item-description' => wprism_boundary_menu_description(),
+        'menu-item-url' => wprism_boundary_menu_url(),
         'menu-item-status' => 'publish',
         'menu-item-type' => 'custom',
     ]);
@@ -300,22 +300,22 @@ function duo_boundary_menu(): array {
     return ['menu' => (int) $menu, 'item' => (int) $item];
 }
 
-function duo_boundary_widgets(int $menuId, int $attachmentId, string $attachmentUrl): void {
+function wprism_boundary_widgets(int $menuId, int $attachmentId, string $attachmentUrl): void {
     update_option('widget_text', [
         2 => [
-            'title' => duo_boundary_pattern('CORE-WIDGET-TITLE', 48),
-            'text' => duo_boundary_widget_text(),
+            'title' => wprism_boundary_pattern('CORE-WIDGET-TITLE', 48),
+            'text' => wprism_boundary_widget_text(),
             'filter' => null,
             'visual' => true,
         ],
         '_multiwidget' => 1,
     ], true);
     update_option('widget_block', [
-        2 => ['content' => duo_boundary_body($attachmentId, $attachmentUrl, false)],
+        2 => ['content' => wprism_boundary_body($attachmentId, $attachmentUrl, false)],
         '_multiwidget' => 1,
     ], true);
     update_option('widget_nav_menu', [
-        2 => ['title' => duo_boundary_pattern('CORE-NAV-WIDGET', 32), 'nav_menu' => $menuId],
+        2 => ['title' => wprism_boundary_pattern('CORE-NAV-WIDGET', 32), 'nav_menu' => $menuId],
         '_multiwidget' => 1,
     ], true);
     update_option('sidebars_widgets', [
@@ -325,19 +325,19 @@ function duo_boundary_widgets(int $menuId, int $attachmentId, string $attachment
     ], true);
 }
 
-function duo_boundary_seed_source(): void {
-    $userId = wp_create_user('boundary-author', 'duo-boundary-password', 'boundary-author@example.invalid');
+function wprism_boundary_seed_source(): void {
+    $userId = wp_create_user('boundary-author', 'wprism-boundary-password', 'boundary-author@example.invalid');
     if (is_wp_error($userId) || (int) $userId <= 0) {
         throw new RuntimeException('core boundary source user creation failed');
     }
     $userId = (int) $userId;
-    $attachmentId = duo_boundary_attachment();
+    $attachmentId = wprism_boundary_attachment();
     $attachmentUrl = (string) wp_get_attachment_url($attachmentId);
     $defaultCategory = (int) get_option('default_category');
     $term = wp_update_term($defaultCategory, 'category', [
-        'name' => duo_boundary_term_name(),
+        'name' => wprism_boundary_term_name(),
         'slug' => 'core-boundary-category',
-        'description' => duo_boundary_term_description(),
+        'description' => wprism_boundary_term_description(),
     ]);
     if (is_wp_error($term)) {
         throw new RuntimeException('core boundary category update failed');
@@ -357,7 +357,7 @@ function duo_boundary_seed_source(): void {
     $pageId = (int) $pageId;
     $updatedPage = wp_update_post([
         'ID' => $pageId,
-        'post_content' => duo_boundary_block_catalog($attachmentId, $attachmentUrl, $pageId, $userId),
+        'post_content' => wprism_boundary_block_catalog($attachmentId, $attachmentUrl, $pageId, $userId),
     ], true);
     if (is_wp_error($updatedPage)) {
         throw new RuntimeException('core boundary block catalog page update failed');
@@ -367,9 +367,9 @@ function duo_boundary_seed_source(): void {
         'post_type' => 'post',
         'post_status' => 'publish',
         'post_name' => 'core-boundary',
-        'post_title' => duo_boundary_title(),
-        'post_content' => duo_boundary_body($attachmentId, $attachmentUrl),
-        'post_excerpt' => duo_boundary_excerpt(),
+        'post_title' => wprism_boundary_title(),
+        'post_content' => wprism_boundary_body($attachmentId, $attachmentUrl),
+        'post_excerpt' => wprism_boundary_excerpt(),
         'comment_status' => 'closed',
         'ping_status' => 'closed',
         'post_author' => $userId,
@@ -379,19 +379,19 @@ function duo_boundary_seed_source(): void {
     }
     $postId = (int) $postId;
     wp_set_object_terms($postId, [$termId], 'category');
-    update_post_meta($postId, 'origin', duo_boundary_origin());
+    update_post_meta($postId, 'origin', wprism_boundary_origin());
     update_post_meta($postId, '_wp_page_template', 'templates/界|quoted".php');
     update_post_meta($postId, '_thumbnail_id', $attachmentId);
 
-    $menu = duo_boundary_menu();
-    duo_boundary_widgets($menu['menu'], $attachmentId, $attachmentUrl);
+    $menu = wprism_boundary_menu();
+    wprism_boundary_widgets($menu['menu'], $attachmentId, $attachmentUrl);
     $css = wp_update_custom_css_post('body::before { content: "境界|comma,quote\\\""; }');
     if (is_wp_error($css) || !$css instanceof WP_Post) {
         throw new RuntimeException('core boundary Custom CSS post creation failed');
     }
-    duo_boundary_write_theme($attachmentId, $menu['menu'], false, (int) $css->ID);
+    wprism_boundary_write_theme($attachmentId, $menu['menu'], false, (int) $css->ID);
 
-    update_option('blogname', duo_boundary_pattern('CORE-OPTION-TITLE', 160), true);
+    update_option('blogname', wprism_boundary_pattern('CORE-OPTION-TITLE', 160), true);
     update_option('permalink_structure', '', true);
     update_option('show_on_front', 'posts', true);
     update_option('page_on_front', '0', true);
@@ -412,7 +412,7 @@ function duo_boundary_seed_source(): void {
     wp_cache_delete('blogdescription', 'options');
     wp_cache_delete('alloptions', 'options');
 
-    update_option('duo_boundary_ids', [
+    update_option('wprism_boundary_ids', [
         'attachment' => $attachmentId,
         'post' => $postId,
         'term' => $termId,
@@ -422,15 +422,15 @@ function duo_boundary_seed_source(): void {
         'page' => $pageId,
         'user' => $userId,
     ], false);
-    echo wp_json_encode(duo_boundary_ids());
+    echo wp_json_encode(wprism_boundary_ids());
 }
 
-function duo_boundary_seed_target(): void {
-    $fillerUser = wp_create_user('boundary-filler', 'duo-boundary-password', 'boundary-filler@example.invalid');
+function wprism_boundary_seed_target(): void {
+    $fillerUser = wp_create_user('boundary-filler', 'wprism-boundary-password', 'boundary-filler@example.invalid');
     if (is_wp_error($fillerUser) || (int) $fillerUser <= 0) {
         throw new RuntimeException('core boundary target filler user creation failed');
     }
-    $userId = wp_create_user('boundary-author', 'duo-boundary-password', 'boundary-author@example.invalid');
+    $userId = wp_create_user('boundary-author', 'wprism-boundary-password', 'boundary-author@example.invalid');
     if (is_wp_error($userId) || (int) $userId <= 0) {
         throw new RuntimeException('core boundary target user creation failed');
     }
@@ -457,7 +457,7 @@ function duo_boundary_seed_target(): void {
     update_option('wp_page_for_privacy_policy', (string) $frontId, true);
     update_option('sticky_posts', [(int) $frontId], true);
     update_option('_wp_session_core_boundary_target', 'target-runtime-survives', false);
-    update_option('duo_boundary_ids', [
+    update_option('wprism_boundary_ids', [
         'hostile_front' => (int) $frontId,
         'user' => (int) $userId,
     ], false);
@@ -483,11 +483,11 @@ function duo_boundary_seed_target(): void {
     }
     wp_cache_delete($name, 'options');
     wp_cache_delete('alloptions', 'options');
-    echo wp_json_encode(duo_boundary_ids());
+    echo wp_json_encode(wprism_boundary_ids());
 }
 
 /** @return array<string,mixed> */
-function duo_boundary_observe(bool $updated): array {
+function wprism_boundary_observe(bool $updated): array {
     $post = get_page_by_path('core-boundary', OBJECT, 'post');
     $page = get_page_by_path('core-block-boundary', OBJECT, 'page');
     $term = get_term_by('slug', 'core-boundary-category', 'category');
@@ -516,7 +516,7 @@ function duo_boundary_observe(bool $updated): array {
         $widgets[$match[1]] = is_array($all) ? ($all[(int) $match[2]] ?? null) : null;
     }
     $mods = get_theme_mods();
-    $expectedTitle = duo_boundary_title() . ($updated ? '|UPDATED' : '');
+    $expectedTitle = wprism_boundary_title() . ($updated ? '|UPDATED' : '');
     $sticky = get_option('sticky_posts');
     $locations = get_theme_mod('nav_menu_locations', []);
 
@@ -531,7 +531,7 @@ function duo_boundary_observe(bool $updated): array {
             'user' => (int) $user->ID,
         ],
         'options' => [
-            'blogname' => get_option('blogname') === duo_boundary_pattern('CORE-OPTION-TITLE', 160),
+            'blogname' => get_option('blogname') === wprism_boundary_pattern('CORE-OPTION-TITLE', 160),
             'blogdescription_is_null' => get_option('blogdescription', 'missing') === null,
             'permalink_empty' => get_option('permalink_structure', null) === '',
             'show_on_front' => get_option('show_on_front') === 'posts',
@@ -544,9 +544,9 @@ function duo_boundary_observe(bool $updated): array {
         ],
         'post' => [
             'title' => $post->post_title === $expectedTitle,
-            'body' => $post->post_content === duo_boundary_body($attachmentId, $attachmentUrl),
-            'excerpt' => $post->post_excerpt === duo_boundary_excerpt(),
-            'origin' => get_post_meta($post->ID, 'origin', true) === duo_boundary_origin(),
+            'body' => $post->post_content === wprism_boundary_body($attachmentId, $attachmentUrl),
+            'excerpt' => $post->post_excerpt === wprism_boundary_excerpt(),
+            'origin' => get_post_meta($post->ID, 'origin', true) === wprism_boundary_origin(),
             'template' => get_post_meta($post->ID, '_wp_page_template', true) === 'templates/界|quoted".php',
             'thumbnail' => $attachmentId > 0,
             'author' => (int) $post->post_author === (int) $user->ID,
@@ -556,37 +556,37 @@ function duo_boundary_observe(bool $updated): array {
         ],
         'blocks' => [
             'catalog' => $page->post_content
-                === duo_boundary_block_catalog($attachmentId, $attachmentUrl, (int) $page->ID, (int) $user->ID),
+                === wprism_boundary_block_catalog($attachmentId, $attachmentUrl, (int) $page->ID, (int) $user->ID),
             'author' => (int) $page->post_author === (int) $user->ID,
             'bytes' => strlen($page->post_content),
         ],
         'term' => [
-            'name' => $term->name === duo_boundary_term_name(),
-            'description' => $term->description === duo_boundary_term_description(),
+            'name' => $term->name === wprism_boundary_term_name(),
+            'description' => $term->description === wprism_boundary_term_description(),
             'description_bytes' => strlen($term->description),
         ],
         'media' => [
             'mime' => $attachment->post_mime_type === 'image/png',
             'url_target_bound' => str_starts_with($attachmentUrl, wp_upload_dir()['baseurl'] . '/'),
             'alt' => get_post_meta($attachmentId, '_wp_attachment_image_alt', true)
-                === duo_boundary_pattern('CORE-MEDIA-ALT', 72),
+                === wprism_boundary_pattern('CORE-MEDIA-ALT', 72),
         ],
         'menu' => [
-            'title' => $item->post_title === duo_boundary_pattern('CORE-MENU-TITLE', 48),
-            'description' => $item->post_content === duo_boundary_menu_description(),
-            'url' => get_post_meta($item->ID, '_menu_item_url', true) === duo_boundary_menu_url(),
+            'title' => $item->post_title === wprism_boundary_pattern('CORE-MENU-TITLE', 48),
+            'description' => $item->post_content === wprism_boundary_menu_description(),
+            'url' => get_post_meta($item->ID, '_menu_item_url', true) === wprism_boundary_menu_url(),
             'classes' => get_post_meta($item->ID, '_menu_item_classes', true)
                 === ['boundary', '界|comma,quote"', 'slash\\class'],
             'location' => (int) ($locations['primary'] ?? 0) === (int) $menu->term_id,
         ],
         'widgets' => [
             'text' => is_array($widgets['text'] ?? null)
-                && ($widgets['text']['title'] ?? null) === duo_boundary_pattern('CORE-WIDGET-TITLE', 48)
-                && ($widgets['text']['text'] ?? null) === duo_boundary_widget_text()
+                && ($widgets['text']['title'] ?? null) === wprism_boundary_pattern('CORE-WIDGET-TITLE', 48)
+                && ($widgets['text']['text'] ?? null) === wprism_boundary_widget_text()
                 && array_key_exists('filter', $widgets['text']) && $widgets['text']['filter'] === null
                 && ($widgets['text']['visual'] ?? null) === true,
             'block' => is_array($widgets['block'] ?? null)
-                && ($widgets['block']['content'] ?? null) === duo_boundary_body($attachmentId, $attachmentUrl, false),
+                && ($widgets['block']['content'] ?? null) === wprism_boundary_body($attachmentId, $attachmentUrl, false),
             'nav_menu' => is_array($widgets['nav_menu'] ?? null)
                 && (int) ($widgets['nav_menu']['nav_menu'] ?? 0) === (int) $menu->term_id,
         ],
@@ -606,17 +606,17 @@ function duo_boundary_observe(bool $updated): array {
     ];
 }
 
-function duo_boundary_secret_meta(): void {
-    $ids = duo_boundary_ids();
-    update_post_meta((int) $ids['post'], 'origin', 'sk_live_DUOBOUNDARYSECRET9988776655');
+function wprism_boundary_secret_meta(): void {
+    $ids = wprism_boundary_ids();
+    update_post_meta((int) $ids['post'], 'origin', 'sk_live_WPRISMBOUNDARYSECRET9988776655');
 }
 
-function duo_boundary_restore_meta(): void {
-    $ids = duo_boundary_ids();
-    update_post_meta((int) $ids['post'], 'origin', duo_boundary_origin());
+function wprism_boundary_restore_meta(): void {
+    $ids = wprism_boundary_ids();
+    update_post_meta((int) $ids['post'], 'origin', wprism_boundary_origin());
 }
 
-function duo_boundary_corrupt_theme(): void {
+function wprism_boundary_corrupt_theme(): void {
     global $wpdb;
     $name = 'theme_mods_' . get_option('stylesheet');
     $malformed = serialize(['background_color' => '1a2b3c']) . 'i:42;';
@@ -627,9 +627,9 @@ function duo_boundary_corrupt_theme(): void {
     wp_cache_delete('alloptions', 'options');
 }
 
-function duo_boundary_restore_theme(): void {
-    $ids = duo_boundary_ids();
-    duo_boundary_write_theme(
+function wprism_boundary_restore_theme(): void {
+    $ids = wprism_boundary_ids();
+    wprism_boundary_write_theme(
         (int) $ids['attachment'],
         (int) $ids['menu'],
         false,
@@ -637,7 +637,7 @@ function duo_boundary_restore_theme(): void {
     );
 }
 
-function duo_boundary_legacy_widget(string $form): void {
+function wprism_boundary_legacy_widget(string $form): void {
     if ($form === 'id') {
         $attrs = ['id' => 'text-2'];
     } elseif ($form === 'instance') {
@@ -676,17 +676,17 @@ function duo_boundary_legacy_widget(string $form): void {
     }
 }
 
-function duo_boundary_remove_legacy_widget(): void {
+function wprism_boundary_remove_legacy_widget(): void {
     $post = get_page_by_path('core-legacy-widget-boundary', OBJECT, 'page');
     if ($post instanceof WP_Post) {
         wp_delete_post((int) $post->ID, true);
     }
 }
 
-function duo_boundary_update_source(): void {
-    $ids = duo_boundary_ids();
+function wprism_boundary_update_source(): void {
+    $ids = wprism_boundary_ids();
     wp_update_post([
         'ID' => (int) $ids['post'],
-        'post_title' => duo_boundary_title() . '|UPDATED',
+        'post_title' => wprism_boundary_title() . '|UPDATED',
     ]);
 }

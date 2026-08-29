@@ -1,7 +1,7 @@
 <?php
 /**
- * Offline regression for ManifestGrammar (DUO-3348's first extraction slice
- * out of Policy.php: the pure table/widget declaration grammar, DUO-3318).
+ * Offline regression for ManifestGrammar (issue #3348's first extraction slice
+ * out of Policy.php: the pure table/widget declaration grammar, issue #3318).
  *
  * This is new characterization coverage — before the extraction, the table
  * and widget grammar asserters were reached only indirectly (through
@@ -12,8 +12,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -23,10 +23,10 @@ require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Canon;
-use Duo\ManifestGrammar;
-use Duo\Policy;
-use DuoTest\FrozenPolicy;
+use WPrism\Canon;
+use WPrism\ManifestGrammar;
+use WPrism\Policy;
+use WPrismTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -313,16 +313,16 @@ $check(ManifestGrammar::widgetSettingRefs() === ['term', 'post'], 'widgetSetting
 $assertPasses(
     fn() => ManifestGrammar::validate_tables([
         'tables' => ['acme_runtime' => ['class' => 'runtime']],
-    ], 'site.duo.json'),
+    ], 'site.wprism.json'),
     'aggregate table validation accepts a valid keyed declaration'
 );
 $assertThrows(
-    fn() => ManifestGrammar::validate_tables(['tables' => ['acme_bad' => 'not-an-object']], 'site.duo.json'),
+    fn() => ManifestGrammar::validate_tables(['tables' => ['acme_bad' => 'not-an-object']], 'site.wprism.json'),
     'must be declared as an object of table rules',
     'aggregate table validation keeps the per-declaration refusal'
 );
 $assertThrows(
-    fn() => ManifestGrammar::validate_tables(['tables' => ['not-an-object']], 'site.duo.json'),
+    fn() => ManifestGrammar::validate_tables(['tables' => ['not-an-object']], 'site.wprism.json'),
     'tables must be an object keyed by unprefixed table name',
     'aggregate table validation refuses a list-shaped table map'
 );
@@ -349,7 +349,7 @@ $validManifestA = manifest_a([
 ]);
 $validManifestB = manifest_b();
 $frozenSnapshot = static function (array $manifests, array $sitePolicy = []): array {
-    $site = FrozenPolicy::site($manifests, DUO_SPEC_VERSION);
+    $site = FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION);
     $site['policy'] = array_merge($site['policy'], $sitePolicy);
     return FrozenPolicy::envelope($manifests, $site);
 };
@@ -376,14 +376,14 @@ $assertThrows(
     'Policy::from_snapshot() preserves aggregate table refusals'
 );
 
-$loadRoot = sys_get_temp_dir() . '/duo_regress_manifest_grammar_' . bin2hex(random_bytes(4));
+$loadRoot = sys_get_temp_dir() . '/wprism_regress_manifest_grammar_' . bin2hex(random_bytes(4));
 $loadManifests = $loadRoot . '/manifests';
 mkdir($loadManifests, 0777, true);
 manifest_fixture_code($loadManifests);
-Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
+Canon::write_file($loadRoot . '/site.wprism.json', Canon::encode([
     'manifests' => ['a', 'b'],
     'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 Canon::write_file($loadManifests . '/a.json', Canon::encode($validManifestA));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($validManifestB));

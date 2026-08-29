@@ -61,7 +61,7 @@ if (is_wp_error($item) || !$item instanceof Red_Item) {
 }
 
 Red_Options::save(['cache_key' => true]);
-update_option('duo_redirection_target_neighbor', 'target-only-neighbor');
+update_option('wprism_redirection_target_neighbor', 'target-only-neighbor');
 file_put_contents('/siterepo/.redirection-target-fixture.json', wp_json_encode([
     'cache_key' => (int) Red_Options::get()['cache_key'],
     'group_id' => $group->get_id(),
@@ -72,7 +72,7 @@ echo wp_json_encode([
     'cache_key' => (int) Red_Options::get()['cache_key'],
     'group_id' => $group->get_id(),
     'item_id' => $item->get_id(),
-    'neighbor' => get_option('duo_redirection_target_neighbor'),
+    'neighbor' => get_option('wprism_redirection_target_neighbor'),
 ], JSON_UNESCAPED_SLASHES);
 PHPEOF
 
@@ -96,7 +96,7 @@ NEGATIVE_CODE=$(curl --max-time 20 -sS -o /dev/null -w '%{http_code}' "http://lo
 # using /siterepo directly would expose the source's canonical mapped UUIDs to
 # a database with no corresponding target ledger and correctly refuse as a
 # lost identity sidecar. The disposable state is never published; only the
-# database-matched duo_map evidence survives.
+# database-matched wprism_map evidence survives.
 IDENTITY_REPO="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-repo"
 IDENTITY_STATE="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-state"
 WIDGET_STATE="${CONF_REPO2:-siterepo/conf2}/.tmp-redirection-identity-widgets"
@@ -114,7 +114,7 @@ jq '
   .policy.taxonomies = [] |
   .policy.scope.taxonomy.category.class = "runtime" |
   .policy.options.default_category.class = "runtime"
-' "${CONF_REPO2:-siterepo/conf2}/site.duo.json" > "$IDENTITY_REPO/site.duo.json"
+' "${CONF_REPO2:-siterepo/conf2}/site.wprism.json" > "$IDENTITY_REPO/site.wprism.json"
 
 # Capture audits global WordPress state even when the selected adapter owns no
 # core surfaces. Fresh WordPress installs carry block-widget instances, and a
@@ -155,14 +155,14 @@ WIDGET_HASH=$(wp_conf2 eval '
   echo hash("sha256",serialize($state));
 ')
 require_observed_nonempty "Redirection identity widget backup" "$WIDGET_HASH"
-# --out is load-bearing: capture still commits newly minted duo_map rows, but
-# it skips canonical duo_state/media publication. Omitting it would rebase the
+# --out is load-bearing: capture still commits newly minted wprism_map rows, but
+# it skips canonical wprism_state/media publication. Omitting it would rebase the
 # target's conflict ledger against this disposable projection, so restoring
 # the quiesced widgets would make the real first apply accuse options/core.
-TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture \
+TARGET_IDENTITY_CAPTURE=$(wp_conf2 wprism capture \
   --repo=/siterepo/.tmp-redirection-identity-repo \
   --out=/siterepo/.tmp-redirection-identity-state 2>&1)
-require_duo_answered "Redirection target-only identity capture" human "$TARGET_IDENTITY_CAPTURE"
+require_wprism_answered "Redirection target-only identity capture" human "$TARGET_IDENTITY_CAPTURE"
 RESTORED_WIDGET_HASH=$(restore_redirection_identity_widgets)
 require_observed_nonempty "Redirection identity widget restore" "$RESTORED_WIDGET_HASH"
 [ "$RESTORED_WIDGET_HASH" = "$WIDGET_HASH" ] \

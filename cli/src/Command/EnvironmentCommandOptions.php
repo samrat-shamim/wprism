@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-/** Target-free option grammar for the nested `duo env` command. */
+/** Target-free option grammar for the nested `wprism env` command. */
 final class EnvironmentCommandOptions {
     /** @return array{source:string,branch:string,containment_required:bool,create:bool,ttl_seconds:int,json:bool} */
     public static function materialize(array $args): array {
@@ -87,13 +87,13 @@ final class EnvironmentCommandOptions {
     }
 
     /**
-     * `duo env provider-check <env>` — the branch-environment provider
+     * `wprism env provider-check <env>` — the branch-environment provider
      * conformance harness.
      *
      * `--confirm-disposable` is mandatory for `--cycle` and cannot be inferred:
      * the cycle's second source action is `snapshot-prepare`, which FREEZES the
      * named source environment (EnvironmentLifecycle.php:1013-1021). The same
-     * posture as `duo recover --prune-retained --confirm-prune` — a destructive
+     * posture as `wprism recover --prune-retained --confirm-prune` — a destructive
      * scope is named by the operator, never deduced from a name or a TTL.
      *
      * @return array{from:?string,cycle:bool,confirm:bool,create:bool,role:string,branch:?string,json:bool}

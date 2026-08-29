@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * Target-free host handler for the driver-capabilities command.
@@ -17,12 +17,12 @@ final class DriverCapabilitiesCommand {
         $json = false;
         foreach ($extra as $arg) {
             if (!is_string($arg)) {
-                fwrite(STDERR, "duo: driver-capabilities: unsupported non-string flag\n");
+                fwrite(STDERR, "wprism: driver-capabilities: unsupported non-string flag\n");
                 return 1;
             }
             if ($arg === '--format=json') {
                 if ($json) {
-                    fwrite(STDERR, "duo: driver-capabilities: duplicate --format=json\n");
+                    fwrite(STDERR, "wprism: driver-capabilities: duplicate --format=json\n");
                     return 1;
                 }
                 $json = true;
@@ -30,25 +30,25 @@ final class DriverCapabilitiesCommand {
             }
             if (str_starts_with($arg, '--operation=')) {
                 if ($operationSeen) {
-                    fwrite(STDERR, "duo: driver-capabilities: duplicate --operation\n");
+                    fwrite(STDERR, "wprism: driver-capabilities: duplicate --operation\n");
                     return 1;
                 }
                 $operationSeen = true;
                 $operation = substr($arg, strlen('--operation='));
                 if ($operation === '') {
-                    fwrite(STDERR, "duo: driver-capabilities: --operation cannot be empty\n");
+                    fwrite(STDERR, "wprism: driver-capabilities: --operation cannot be empty\n");
                     return 1;
                 }
                 continue;
             }
-            fwrite(STDERR, "duo: driver-capabilities: unsupported flag '$arg'\n");
+            fwrite(STDERR, "wprism: driver-capabilities: unsupported flag '$arg'\n");
             return 1;
         }
 
         try {
             $report = $driver->capabilityReport($operation);
         } catch (\Throwable $e) {
-            fwrite(STDERR, "duo: driver-capabilities: {$e->getMessage()}\n");
+            fwrite(STDERR, "wprism: driver-capabilities: {$e->getMessage()}\n");
             return 1;
         }
 

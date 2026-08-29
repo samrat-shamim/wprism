@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * The single implementation of the spec-word projection (round-3 MUP §1).
@@ -39,7 +39,7 @@ namespace Duo\Orchestrator;
  *
  * What it does NOT mean is stated on the row rather than left to be
  * inferred: `Site-certified` is customer-organization approval, explicitly
- * not a Duo endorsement, and the contract's own `attestation.state` is
+ * not a WPrism endorsement, and the contract's own `attestation.state` is
  * still `unsigned` (MUP §3.2's honesty property survives, narrowed to the
  * thing that is still true). `ANNOTATION_SITE_CERTIFIED_PREFIX` is how the
  * human view says both in one line.
@@ -105,7 +105,7 @@ final class ProjectionVocabulary {
      * adapter` was being printed at operators who had ALREADY installed one.
      * An adapter that is present but uncertified, or signed but not exactly
      * pinned, is not a missing adapter — it is one signature or one pin away,
-     * and `duo adapter certify` is the literal command. Telling that operator
+     * and `wprism adapter certify` is the literal command. Telling that operator
      * to install an adapter was telling them to redo the thing they just did.
      *
      * `qualify in rehearsal` stays in the set and is NOT emitted by this
@@ -118,7 +118,7 @@ final class ProjectionVocabulary {
      * `attest contract` is the contract-attestation signer's word and it ships
      * the same way `qualify in rehearsal` sits: IN the set, emitted by
      * nothing. The signer is real — `ContractAttestation` signs and verifies
-     * under `.duo/contract/authorities.json` — but the trust root ships empty,
+     * under `.wprism/contract/authorities.json` — but the trust root ships empty,
      * so on every site this build reaches, "attest the contract" is not a
      * smallest safe next action: it is a request to provision an
      * organizational signing key, which is a decision and not a step. It is
@@ -195,7 +195,7 @@ final class ProjectionVocabulary {
      * T6 §3.6's literal sentence, printed once per principal.
      *
      * Both halves are load-bearing. The first names WHO approved (an
-     * organization, not Duo). The second keeps MUP §3.2's honesty property
+     * organization, not WPrism). The second keeps MUP §3.2's honesty property
      * alive in its still-true form: the application contract itself carries
      * no machine-legible signature, so a certified adapter does not make the
      * operator's contract a signed document.
@@ -229,7 +229,7 @@ final class ProjectionVocabulary {
     /** Prefixes so callers can recognise a generated annotation without string archaeology. */
     public const ANNOTATION_NO_REPAIR_PATH_PREFIX = 'no declared repair path; the registry states: ';
     public const ANNOTATION_RESTORED_BY_PREFIX = 'restored by: ';
-    public const ANNOTATION_PRESERVE_LOCAL_UNSUPPORTED = 'preserve local: this surface stays on the target; Duo does not copy or write it, so no readiness claim applies';
+    public const ANNOTATION_PRESERVE_LOCAL_UNSUPPORTED = 'preserve local: this surface stays on the target; WPrism does not copy or write it, so no readiness claim applies';
 
     /** Condition-string shapes this class mints itself. */
     public const CONDITION_PROVIDER_NEGOTIATION_PREFIX = 'unmet: provider negotiation ';
@@ -283,7 +283,7 @@ final class ProjectionVocabulary {
      * catalog state — a valid certificate whose repository pin does not bind
      * both source and the certificate-derived digest
      * (agent/src/Adapter/AdapterRegistry.php:396). Both are one
-     * `duo adapter certify … --pin` away; neither is a missing adapter.
+     * `wprism adapter certify … --pin` away; neither is a missing adapter.
      */
     public const BLOCKERS_CERTIFIABLE = [
         'adapter_source_uncertified', 'adapter_certification_unpinned',
@@ -361,8 +361,8 @@ final class ProjectionVocabulary {
         );
         // The product spec's own worked row ("Orders and inventory | Capture
         // from preview | Runtime | Preserve local | Unsupported | … | Live
-        // operational state is not copied"): a surface Duo deliberately leaves
-        // to the target is not an operation Duo performs, so a certified claim
+        // operational state is not copied"): a surface WPrism deliberately leaves
+        // to the target is not an operation WPrism performs, so a certified claim
         // for the adapter that OWNS the surface must not project `Ready` onto
         // it. Handling `preserve local` therefore forces `Unsupported` for
         // every mutating or copying operation. Found live by grind_mup.sh step
@@ -470,7 +470,7 @@ final class ProjectionVocabulary {
      * **`install adapter` was being printed at operators who had one.** An
      * adapter that is installed but uncertified (`adapter_source_uncertified`)
      * or signed but not exactly pinned (`signed_unpinned`) is one signature
-     * or one pin from Ready, and `duo adapter certify` is the command.
+     * or one pin from Ready, and `wprism adapter certify` is the command.
      * `certify adapter` is that row's word. The same word answers
      * `Requalification required` and `Experimental`, whose two remaining
      * causes — a contract pinned to reviewed dispositions that have since
@@ -502,7 +502,7 @@ final class ProjectionVocabulary {
 
         if ($handling === 'preserve local') {
             // The handling IS the resolution: the surface stays on the
-            // target and Duo never copies or writes it, so its `Unsupported`
+            // target and WPrism never copies or writes it, so its `Unsupported`
             // readiness for a copying operation is a boundary statement, not
             // a gap an operator can close (the spec's worked orders row
             // prints a meaning line and no next action).
@@ -517,7 +517,7 @@ final class ProjectionVocabulary {
             // COULD have: an active plugin that probably owns it is an
             // adapter waiting to be written, while an unowned surface is a
             // classification rule. A known-containment unclassified surface
-            // is the ordinary `duo classify` queue either way.
+            // is the ordinary `wprism classify` queue either way.
             if ($containment === 'unknown' && $probableOwner !== null) {
                 return 'install adapter';
             }
@@ -539,7 +539,7 @@ final class ProjectionVocabulary {
         }
         if ($readiness === 'Not qualified') {
             // The adapter EXISTS and is one signature or one pin short —
-            // `duo adapter certify <site-repo> --name=<n> --pin` closes both.
+            // `wprism adapter certify <site-repo> --name=<n> --pin` closes both.
             if (array_intersect($blockers, self::BLOCKERS_CERTIFIABLE) !== []) {
                 return 'certify adapter';
             }
@@ -575,7 +575,7 @@ final class ProjectionVocabulary {
      */
     public static function meaningFor(string $stateClass, string $handling): string {
         $map = [
-            'authored|manage' => 'Duo versions this surface and applies the repository copy to the target.',
+            'authored|manage' => 'WPrism versions this surface and applies the repository copy to the target.',
             'authored|preserve local' => 'Authored state outside the captured scope: the target keeps its own copy.',
             'runtime|preserve local' => 'Live operational state is never copied; the target keeps its own.',
             'derived|rebuild' => 'Regenerated on the target after a write; never carried as authored state.',
@@ -600,7 +600,7 @@ final class ProjectionVocabulary {
      *
      * Precedence is `unclassified` > `external` > the policy class. An
      * explicit `unclassified` is produced by an engine gate that already
-     * failed to classify the surface (`Capture::gate_scan()`, a `duo
+     * failed to classify the surface (`Capture::gate_scan()`, a `wprism
      * pending` row, a `Coverage` invisible name); a contract declaration
      * cannot un-know that, so a declaration never upgrades it. `external` is
      * second because MUP §1.1 emits it **only** from a declaration and never
@@ -661,7 +661,7 @@ final class ProjectionVocabulary {
                 return 'manage';
             }
             // §1.2 names `manage` only for authored state *inside the
-            // captured scope*. Outside it Duo writes nothing, which is the
+            // captured scope*. Outside it WPrism writes nothing, which is the
             // definition of `preserve local`; calling it `block` would claim
             // a refusal where there is no hazard, only an absence of scope.
             $annotations[] = self::ANNOTATION_OUT_OF_SCOPE;
@@ -711,7 +711,7 @@ final class ProjectionVocabulary {
      *
      * The table is a set of independent rows, so an evaluation order is
      * required and is chosen by how definite the statement is: `Unsupported`
-     * is a stated boundary Duo understands, `Not qualified` is an admission
+     * is a stated boundary WPrism understands, `Not qualified` is an admission
      * that proof is missing, `Requalification required` says proof existed
      * and expired, `Experimental` says proof exists but cannot authorize
      * production. Conditions come last because they only ever qualify an
@@ -770,7 +770,7 @@ final class ProjectionVocabulary {
     /**
      * The two forced overrides MUP states outside the §1.3 table.
      *
-     * `Unsupported` survives both of them. It is a boundary Duo understands
+     * `Unsupported` survives both of them. It is a boundary WPrism understands
      * well enough to refuse for a stated reason; rewriting it as `Not
      * qualified` would replace a fact with an admission of ignorance and
      * would lose the reason the operator needs.
@@ -864,7 +864,7 @@ final class ProjectionVocabulary {
      * because it is the only value that describes damage already done.
      * `unclassified` is second: MUP §2.1's worked example prints
      * `unknown` recovery for the unclassified custom table, and claiming
-     * `not applicable` about a surface Duo could not classify would be a
+     * `not applicable` about a surface WPrism could not classify would be a
      * claim it has no basis for. Coverage by a named bundle then beats the
      * "no external effect" row, which is why §2.1 prints `products ...
      * provider-state restorable` rather than `not applicable`.
@@ -949,7 +949,7 @@ final class ProjectionVocabulary {
         array $blockers = []
     ): ?string {
         if ($readiness === 'Unsupported') {
-            return 'exclude this surface from the operation; Duo refuses it for a stated reason'
+            return 'exclude this surface from the operation; WPrism refuses it for a stated reason'
                 . ($unsupportedReason === null ? '' : ': ' . $unsupportedReason);
         }
         if ($stateClass === 'unclassified') {
@@ -989,7 +989,7 @@ final class ProjectionVocabulary {
             // another adapter — see BLOCKERS_CERTIFIABLE.
             if (array_intersect($blockers, self::BLOCKERS_CERTIFIABLE) !== []) {
                 return 'certify the installed adapter and pin it exactly: '
-                    . 'duo adapter certify <site-repo> --name=<adapter> --secret-key-file=<key> --pin';
+                    . 'wprism adapter certify <site-repo> --name=<adapter> --secret-key-file=<key> --pin';
             }
             if ($blockers === [self::BLOCKER_OPERATION_NOT_CERTIFIED]) {
                 return 'exclude this surface from the operation: the installed adapter is certified, but its '

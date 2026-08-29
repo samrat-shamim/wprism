@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for the pure manifest deletion-capability resolver
- * (DUO-3348 slice 46).
+ * (issue #3348 slice 46).
  */
 declare(strict_types=1);
 
@@ -25,7 +25,7 @@ $assertThrows = static function (callable $fn, string $needle, string $label) us
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\Duo\DeletionCapabilityResolver::class, false) && class_exists(\Duo\OptionNameReferenceResolver::class, false) && !class_exists(\Duo\Policy::class, false) && !class_exists(\Duo\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\WPrism\DeletionCapabilityResolver::class, false) && class_exists(\WPrism\OptionNameReferenceResolver::class, false) && !class_exists(\WPrism\Policy::class, false) && !class_exists(\WPrism\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -45,8 +45,8 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\DeletionCapabilityResolver;
-use Duo\OptionNameReferenceResolver;
+use WPrism\DeletionCapabilityResolver;
+use WPrism\OptionNameReferenceResolver;
 
 $optionRules = static function (array $manifests): OptionNameReferenceResolver {
     return new OptionNameReferenceResolver($manifests, static fn(array $rule, array $_source): array => $rule);
@@ -176,7 +176,7 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->deletion_capability('table:things') === $capability,

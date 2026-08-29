@@ -34,7 +34,7 @@ namespace {
     }
 
     final class WP_CLI {
-        use \DuoTest\WpCliChildRuntime;
+        use \WPrismTest\WpCliChildRuntime;
 
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['yi_command_calls'][] = [$command, $options];
@@ -196,11 +196,11 @@ namespace {
     $GLOBALS['wpdb'] = new YoastIndexWpdb();
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {}
 
     final class Providers {
-        public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
+        public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
     }
 }
 
@@ -209,7 +209,7 @@ namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Kernel/WpCliChildProcess.php';
     require_once dirname(__DIR__, 4) . '/adapter-packages/yoast/package/runtime/providers/yoast-index.php';
 
-    use Duo\Providers\YoastIndex;
+    use WPrism\Providers\YoastIndex;
 
     function yi_reset(): YoastIndex {
         $GLOBALS['yi_enabled'] = true;
@@ -217,7 +217,7 @@ namespace {
         $GLOBALS['yi_command_result'] = (object) ['return_code' => 0, 'stdout' => '', 'stderr' => ''];
         $GLOBALS['yi_command_throw'] = null;
         $GLOBALS['yi_command_calls'] = [];
-        $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
+        $GLOBALS['wprism_wp_cli_child_fake_stderr_first'] = false;
         $GLOBALS['wpdb'] = new YoastIndexWpdb();
         $GLOBALS['yi_after_command'] = static function (): void {
             $GLOBALS['wpdb']->makeValid();
@@ -233,7 +233,7 @@ namespace {
 
     function yi_operation(): array {
         return [
-            'format' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+            'format' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
             'authority_hash' => str_repeat('a', 64),
             'lease_session_id' => 'fixture-session',
             'operation_id' => 'fixture-operation',
@@ -243,13 +243,13 @@ namespace {
     }
 
     $provider = yi_reset();
-    duo_check_same(
+    wprism_check_same(
         ['id' => 'yoast-index', 'plugin' => 'wordpress-seo/wp-seo.php', 'version' => '2.0.0'],
         $provider->identity(),
         'provider identity makes the four-table contract fleet-visible'
     );
     $capability = $provider->capabilities()['reindex'] ?? null;
-    duo_check_same(
+    wprism_check_same(
         [
             'table:postmeta',
             'table:posts',
@@ -263,7 +263,7 @@ namespace {
         $capability['reads'] ?? null,
         'provider declares every authored input and derived projection it reads'
     );
-    duo_check_same(
+    wprism_check_same(
         [
             'table:yoast_indexable',
             'table:yoast_indexable_hierarchy',
@@ -273,11 +273,11 @@ namespace {
         $capability['writes'] ?? null,
         'provider declares all four tables written by the exact plugin command'
     );
-    duo_check_same('site', $capability['scope'] ?? null, 'reindex is bounded to one WordPress site');
-    duo_check(($capability['idempotent'] ?? false) === true, 'reindex explicitly permits recovery retry');
-    duo_check_same(600, $capability['timeout_seconds'] ?? null, 'provider retains the measured large-site timeout');
-    duo_check_same(
-        \Duo\Providers::SCOPED_OPERATION_FORMAT,
+    wprism_check_same('site', $capability['scope'] ?? null, 'reindex is bounded to one WordPress site');
+    wprism_check(($capability['idempotent'] ?? false) === true, 'reindex explicitly permits recovery retry');
+    wprism_check_same(600, $capability['timeout_seconds'] ?? null, 'provider retains the measured large-site timeout');
+    wprism_check_same(
+        \WPrism\Providers::SCOPED_OPERATION_FORMAT,
         $capability['scoped']['operation_envelope'] ?? null,
         'provider negotiates durable scoped recovery'
     );
@@ -289,14 +289,14 @@ namespace {
         JSON_THROW_ON_ERROR
     );
     $manifestProvider = $manifest['providers'][0] ?? [];
-    duo_check_same('2.0.0', $manifestProvider['version'] ?? null, 'manifest negotiates the exact provider identity');
-    duo_check_same(
+    wprism_check_same('2.0.0', $manifestProvider['version'] ?? null, 'manifest negotiates the exact provider identity');
+    wprism_check_same(
         ['WP_CLI', 'Yoast\\WP\\SEO\\Helpers\\Indexable_Helper', 'Yoast\\WP\\SEO\\Helpers\\Post_Type_Helper'],
         $manifestProvider['requires']['classes'] ?? null,
         'manifest preflights the exact plugin and command APIs'
     );
     $action = $manifest['actions'][0] ?? [];
-    duo_check_same(
+    wprism_check_same(
         [
             'option:wpseo', 'option:wpseo_llmstxt', 'option:wpseo_social', 'option:wpseo_taxonomy_meta',
             'option:wpseo_titles', 'option:woocommerce_permalinks', 'post:attachment', 'post:page', 'post:post',
@@ -305,12 +305,12 @@ namespace {
         $action['triggers'] ?? null,
         'action runs only when an indexable authored input or the exact Woo permalink input changed'
     );
-    duo_check_same(
+    wprism_check_same(
         ['options', 'yoast_indexable', 'yoast_indexable_hierarchy', 'yoast_primary_term', 'yoast_seo_links'],
         array_map(static fn(array $effect): string => (string) ($effect['selector']['value'] ?? ''), $action['effects'] ?? []),
         'action checkpoints its option mutation and all four derived tables'
     );
-    duo_check(
+    wprism_check(
         count(array_filter(
             $action['effects'] ?? [],
             static fn(array $effect): bool => ($effect['mode'] ?? null) === 'restorable'
@@ -320,28 +320,28 @@ namespace {
     );
 
     $receipt = $provider->invoke('reindex', []);
-    duo_check_same(1, count($GLOBALS['yi_command_calls']), 'provider invokes one bounded fresh process');
+    wprism_check_same(1, count($GLOBALS['yi_command_calls']), 'provider invokes one bounded fresh process');
     [$yoastCommand, $yoastOptions] = $GLOBALS['yi_command_calls'][0];
-    duo_check(
+    wprism_check(
         str_starts_with($yoastCommand, 'exec ')
             && str_contains($yoastCommand, 'yoast index --reindex --skip-confirmation'),
         'bounded launch preserves the exact non-interactive plugin-owned command'
     );
-    duo_check_same(
+    wprism_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
         $yoastOptions,
         'the fake command boundary observes the isolated launch contract'
     );
-    duo_check(($receipt['verified'] ?? false) === true, 'success is emitted only after relational readback');
-    duo_check_same('fixture-production', $receipt['after']['environment_type'] ?? null, 'receipt records plugin execution context');
-    duo_check_same(4, $receipt['after']['indexed_public_posts'] ?? null, 'every public post has an indexable');
-    duo_check_same(1, $receipt['after']['primary_term_rows'] ?? null, 'primary-term projection is covered');
-    duo_check_same(2, $receipt['after']['hierarchy_rows'] ?? null, 'hierarchy projection is covered');
-    duo_check_same(3, $receipt['after']['seo_link_rows'] ?? null, 'SEO-link projection is covered');
-    duo_check_same(0, $receipt['after']['invalid_seo_link_rows'] ?? null, 'SEO links bind back to source indexables');
-    duo_check_same('reindexed', $receipt['after']['outcome'] ?? null, 'enabled branch is named without payload data');
+    wprism_check(($receipt['verified'] ?? false) === true, 'success is emitted only after relational readback');
+    wprism_check_same('fixture-production', $receipt['after']['environment_type'] ?? null, 'receipt records plugin execution context');
+    wprism_check_same(4, $receipt['after']['indexed_public_posts'] ?? null, 'every public post has an indexable');
+    wprism_check_same(1, $receipt['after']['primary_term_rows'] ?? null, 'primary-term projection is covered');
+    wprism_check_same(2, $receipt['after']['hierarchy_rows'] ?? null, 'hierarchy projection is covered');
+    wprism_check_same(3, $receipt['after']['seo_link_rows'] ?? null, 'SEO-link projection is covered');
+    wprism_check_same(0, $receipt['after']['invalid_seo_link_rows'] ?? null, 'SEO links bind back to source indexables');
+    wprism_check_same('reindexed', $receipt['after']['outcome'] ?? null, 'enabled branch is named without payload data');
     $encoded = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    duo_check(
+    wprism_check(
         is_string($encoded)
             && !str_contains($encoded, 'fixture query details')
             && !str_contains($encoded, 'fixture schema details'),
@@ -349,26 +349,26 @@ namespace {
     );
 
     $again = $provider->invoke('reindex', []);
-    duo_check_same($receipt['after'], $again['after'] ?? null, 'retry is idempotent and readback-stable');
+    wprism_check_same($receipt['after'], $again['after'] ?? null, 'retry is idempotent and readback-stable');
 
     $operation = yi_operation();
     $scoped = $provider->invoke_scoped('reindex', [], $operation);
-    duo_check_same($operation, $scoped['operation'] ?? null, 'scoped invocation echoes exact recovery authority');
-    duo_check(($scoped['verified'] ?? false) === true, 'scoped invocation retains verified postcondition');
+    wprism_check_same($operation, $scoped['operation'] ?? null, 'scoped invocation echoes exact recovery authority');
+    wprism_check(($scoped['verified'] ?? false) === true, 'scoped invocation retains verified postcondition');
     $reconciled = $provider->reconcile_scoped('reindex', [], $operation);
-    duo_check_same($operation, $reconciled['operation'] ?? null, 'reconcile binds its observation to the same authority');
-    duo_check_same(4, $reconciled['after']['indexed_public_posts'] ?? null, 'reconcile independently rechecks durable state');
+    wprism_check_same($operation, $reconciled['operation'] ?? null, 'reconcile binds its observation to the same authority');
+    wprism_check_same(4, $reconciled['after']['indexed_public_posts'] ?? null, 'reconcile independently rechecks durable state');
 
     $provider = yi_reset();
     $GLOBALS['yi_enabled'] = false;
     $GLOBALS['yi_after_command'] = null;
     $disabled = $provider->invoke('reindex', []);
-    duo_check_same(
+    wprism_check_same(
         'no-op (Yoast indexables are disabled by the plugin on this request)',
         $disabled['after']['outcome'] ?? null,
         'plugin-owned disabled policy is an explicit verified no-op'
     );
-    duo_check_same(3, $disabled['after']['indexed_public_posts'] ?? null, 'disabled branch does not pretend stale cache was rebuilt');
+    wprism_check_same(3, $disabled['after']['indexed_public_posts'] ?? null, 'disabled branch does not pretend stale cache was rebuilt');
 
     $provider = yi_reset();
     $GLOBALS['yi_command_result'] = (object) [
@@ -376,7 +376,7 @@ namespace {
         'stdout' => 'index command context',
         'stderr' => 'exact failure evidence',
     ];
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reindex', []),
         \RuntimeException::class,
         'non-zero plugin command is a hard apply failure',
@@ -389,14 +389,14 @@ namespace {
         'stdout' => '',
         'stderr' => str_repeat('credential-shaped-warning-', 4000),
     ];
-    $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = true;
+    $GLOBALS['wprism_wp_cli_child_fake_stderr_first'] = true;
     $stderrFirstMessage = '';
     try {
         $provider->invoke('reindex', []);
     } catch (RuntimeException $failure) {
         $stderrFirstMessage = $failure->getMessage();
     }
-    duo_check(
+    wprism_check(
         str_contains($stderrFirstMessage, 'emitted stderr despite exit 0')
             && !str_contains($stderrFirstMessage, 'credential-shaped'),
         'stderr-first output larger than a pipe reaches Yoast warning policy without leaking bytes'
@@ -414,7 +414,7 @@ namespace {
     } catch (RuntimeException $failure) {
         $overflowMessage = $failure->getMessage();
     }
-    duo_check(
+    wprism_check(
         str_contains($overflowMessage, "Yoast 'yoast index --reindex --skip-confirmation' could not start")
             && !str_contains($overflowMessage, 'credential-shaped'),
         'Yoast wraps helper overflow in its stable command failure without a verified receipt or output leak'
@@ -423,7 +423,7 @@ namespace {
     foreach ([null, (object) [], (object) ['return_code' => '0']] as $malformed) {
         $provider = yi_reset();
         $GLOBALS['yi_command_result'] = $malformed;
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reindex', []),
             \RuntimeException::class,
             'malformed process result cannot false-green (' . get_debug_type($malformed) . ')',
@@ -433,7 +433,7 @@ namespace {
 
     $provider = yi_reset();
     $GLOBALS['yi_command_throw'] = new \RuntimeException('secret-shaped launch detail');
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reindex', []),
         \RuntimeException::class,
         'command launch failure has an engine-authored public message',
@@ -448,28 +448,28 @@ namespace {
     ] as $table) {
         $provider = yi_reset();
         $GLOBALS['wpdb']->missingTable = $table;
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reindex', []),
             \RuntimeException::class,
             "$table absence refuses before destructive --reindex",
             "$table is missing"
         );
-        duo_check_same([], $GLOBALS['yi_command_calls'], "$table refusal precedes command launch");
+        wprism_check_same([], $GLOBALS['yi_command_calls'], "$table refusal precedes command launch");
     }
 
     $provider = yi_reset();
     $GLOBALS['wpdb']->missingColumnTable = 'wp_yoast_indexable';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reindex', []),
         \RuntimeException::class,
         'missing required schema column refuses before mutation',
         'missing required column(s): link_count'
     );
-    duo_check_same([], $GLOBALS['yi_command_calls'], 'column drift refusal precedes command launch');
+    wprism_check_same([], $GLOBALS['yi_command_calls'], 'column drift refusal precedes command launch');
 
     $provider = yi_reset();
     $GLOBALS['wpdb']->failSchemaTable = 'wp_yoast_seo_links';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reindex', []),
         \RuntimeException::class,
         'schema probe diagnostics collapse to an engine-authored refusal',
@@ -493,7 +493,7 @@ namespace {
                 }
             }
         };
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reindex', []),
             \RuntimeException::class,
             "$name postcondition cannot false-green exit zero",
@@ -506,7 +506,7 @@ namespace {
         $GLOBALS['wpdb']->makeValid();
         $GLOBALS['yi_enabled'] = false;
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reindex', []),
         \RuntimeException::class,
         'indexability policy change during command requires recovery',
@@ -516,18 +516,18 @@ namespace {
     foreach ([[], ['post', 'bad/type'], 'post'] as $types) {
         $provider = yi_reset();
         $GLOBALS['yi_post_types'] = $types;
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $provider->invoke('reindex', []),
             \RuntimeException::class,
             'malformed plugin post-type API refuses before mutation (' . get_debug_type($types) . ')',
             is_array($types) && $types !== [] ? 'invalid post type' : 'no indexable post types'
         );
-        duo_check_same([], $GLOBALS['yi_command_calls'], 'post-type API refusal precedes command launch');
+        wprism_check_same([], $GLOBALS['yi_command_calls'], 'post-type API refusal precedes command launch');
     }
 
     $provider = yi_reset();
     $GLOBALS['wpdb']->failCountContext = 'invalid_seo_link_rows';
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('reindex', []),
         \RuntimeException::class,
         'database read failure refuses without leaking driver diagnostics',
@@ -535,18 +535,18 @@ namespace {
     );
 
     $provider = yi_reset();
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->invoke('unknown', []),
         \RuntimeException::class,
         'closed capability vocabulary refuses unknown work',
         'does not implement capability'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $provider->reconcile_scoped('unknown', [], yi_operation()),
         \RuntimeException::class,
         'recovery path refuses unknown work identically',
         'does not implement capability'
     );
 
-    duo_check_summary('Yoast index provider');
+    wprism_check_summary('Yoast index provider');
 }

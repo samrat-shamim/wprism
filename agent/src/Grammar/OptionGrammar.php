@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // The declaration grammar consults OptionState's closed storage vocabulary,
 // so keep this collaborator independently loadable just like Policy's other
@@ -8,7 +8,7 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
 
 /**
  * The pure option declaration grammar extracted from Policy.php
- * (DUO-3348 slice 16): the explicit environment-option requirement gate and
+ * (issue #3348 slice 16): the explicit environment-option requirement gate and
  * the option autoload/storage contract shared by options, option patterns,
  * option-name references, and dynamic options.
  *
@@ -20,8 +20,8 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
 final class OptionGrammar {
     /**
      * Validate every top-level `options.<name>` rule classified `env` at
-     * load time (DUO-3232): `required` (bool) is MANDATORY, no silent
-     * default either way — same posture DUO-3229 already established for
+     * load time (issue #3232): `required` (bool) is MANDATORY, no silent
+     * default either way — same posture issue #3229 already established for
      * post_type/taxonomy scope ("every entity gets an audited decision,
      * neither noisy-by-default nor silent-by-default"), applied here to
      * env rules. A manifest declaring `class: "env"` with no `required`
@@ -33,7 +33,7 @@ final class OptionGrammar {
      *
      * Deliberately narrow, matching env_options()'s own scope: only
      * top-level `options.<name>.class === "env"` rules. A `sub_keys`
-     * entry's OWN class (DUO-3233's per-sub-key carve-out) is out of
+     * entry's OWN class (issue #3233's per-sub-key carve-out) is out of
      * v2 scope for the identical reason post_meta/term_meta env values
      * are (see env_options()'s docblock) — no shipped manifest declares
      * one today (confirmed empirically, not assumed), so this is a named
@@ -46,7 +46,7 @@ final class OptionGrammar {
             }
             if (!array_key_exists('required', $rule) || !is_bool($rule['required'])) {
                 throw new \RuntimeException(
-                    "duo: $label options.$name.class=\"env\" needs an explicit boolean 'required' "
+                    "wprism: $label options.$name.class=\"env\" needs an explicit boolean 'required' "
                     . '(true: an operator must provision this value on a fresh environment — a genuine '
                     . 'secret or site-identity value; false: plugin-internal bookkeeping that '
                     . 'self-populates and is not worth checklisting) — no silent default either way'
@@ -90,7 +90,7 @@ final class OptionGrammar {
             if (!in_array($autoload, self::OPTION_AUTOLOAD_SENTINELS, true)
                 && !in_array($autoload, OptionState::AUTOLOAD_VALUES, true)) {
                 throw new \RuntimeException(
-                    "duo: $label $where needs autoload=preserve or an explicit supported autoload value "
+                    "wprism: $label $where needs autoload=preserve or an explicit supported autoload value "
                     . '(' . implode('|', OptionState::AUTOLOAD_VALUES) . '); insertion may never guess'
                 );
             }
@@ -110,7 +110,7 @@ final class OptionGrammar {
                 $check($rule, "option_name_refs[$i]");
             }
         }
-        // DUO-3264: dynamic_options entries are sub_keys-shaped (no bare
+        // issue #3264: dynamic_options entries are sub_keys-shaped (no bare
         // top-level class of their own) — $check()'s existing
         // $hasAuthoredSubKey detection already handles that correctly,
         // reused as-is rather than duplicated.

@@ -1,5 +1,5 @@
 {
- "format": "duo-platform-move-gates/v1",
+ "format": "wprism-platform-move-gates/v1",
  "about": "The reviewed register of every site the identity-comparison predicate selects. sandbox/tests/offline/guards/regress_platform_move_gates.php owns the predicate and its documentation; this file is the answer it compares against, so a site that appears in the tree and not here fails the offline gate. `verdict` is a reviewed judgement, never a mute button: `carrier` and `derivation` still appear, each with the reason it cannot refuse and the gate that does. `exclusions` is the other half of that discipline — the sites the predicate deliberately DROPS, each with the reason and the registered gate that answers for it, so \"why isn't X here?\" has a written answer the gate keeps true.",
  "verdicts": {
   "gate": "a moved platform boundary, manifest identity or authority record can make this site refuse, block, or return a blocker row",
@@ -32,7 +32,7 @@
   {
    "site": "agent/src/Init/InitPlanner.php::assert_confirmed_proposal",
    "arm": "identity",
-   "reason": "Refuses \"duo: init proposal changed before confirmation\" on a hash_equals against $proposal['digest'] — a digest over the WHOLE adoption proposal, not a manifest hash. A manifest move does move that digest, but it does so through proposal_bound(), which is registered as the carrier that stamps every adapter_digest into the proposal. Widening arm 1 from `adapterdigest` to a bare `digest` to absorb this one site is the measured 76-to-198 explosion the suite header records."
+   "reason": "Refuses \"wprism: init proposal changed before confirmation\" on a hash_equals against $proposal['digest'] — a digest over the WHOLE adoption proposal, not a manifest hash. A manifest move does move that digest, but it does so through proposal_bound(), which is registered as the carrier that stamps every adapter_digest into the proposal. Widening arm 1 from `adapterdigest` to a bare `digest` to absorb this one site is the measured 76-to-198 explosion the suite header records."
   },
   {
    "site": "agent/src/Policy/ArtifactPolicyIdentity.php::manifest_hash",
@@ -47,7 +47,7 @@
   {
    "site": "agent/src/Policy/ArtifactPolicyIdentity.php::site_hash",
    "arm": "identity",
-   "reason": "Site identity is a fourth axis this register deliberately does not carry: a site.duo.json move is a different change class from a manifests/ move, and it has its own refusal — compiled_artifact_policy_mismatch, \"compiled site policy does not match the active site.duo.json\", raised by the registered CompiledArtifactReader::read_artifact in the block immediately above the manifest one (:38-43 against :44-49). Adding a site axis here would widen the register to answer a question nobody asked of it."
+   "reason": "Site identity is a fourth axis this register deliberately does not carry: a site.wprism.json move is a different change class from a manifests/ move, and it has its own refusal — compiled_artifact_policy_mismatch, \"compiled site policy does not match the active site.wprism.json\", raised by the registered CompiledArtifactReader::read_artifact in the block immediately above the manifest one (:38-43 against :44-49). Adding a site axis here would widen the register to answer a question nobody asked of it."
   },
   {
    "site": "agent/src/Policy/PlatformCompatibility.php::assert_supported",
@@ -62,7 +62,7 @@
     "authority"
    ],
    "verdict": "gate",
-   "note": "refuses \"envelope signature does not verify under key '<id>'\" for a duo-adapter-authorities/v2 document: the signature covers {format, keys} whole, so appending a key, widening a scope list or moving a window in a signed registry refuses. Unreachable for a v1 document, which carries no envelope signature at all."
+   "note": "refuses \"envelope signature does not verify under key '<id>'\" for a wprism-adapter-authorities/v2 document: the signature covers {format, keys} whole, so appending a key, widening a scope list or moving a window in a signed registry refuses. Unreachable for a v1 document, which carries no envelope signature at all."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::assertAuthorityBinding",
@@ -118,7 +118,7 @@
     "authority"
    ],
    "verdict": "gate",
-   "note": "refuses an authority document whose root is not duo-adapter-authorities/v1, that is a symlink, or whose key map carries a numeric-coerced id — the shape gate every other authority read depends on."
+   "note": "refuses an authority document whose root is not wprism-adapter-authorities/v1, that is a symlink, or whose key map carries a numeric-coerced id — the shape gate every other authority read depends on."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::currentPlatform",
@@ -135,7 +135,7 @@
     "platform"
    ],
    "verdict": "derivation",
-   "note": "builds the disposition a verified certificate installs, carrying the authority record digest and the exercised-axes digest verifyCertificate() has already proved. It COMPUTES identity rather than checking it: this object is folded into the adapter digest a site.duo.json pin binds (ArtifactPolicyIdentity::manifest_rows()), so a member added or renamed here moves the pinned digest of every site-certified adapter on every fleet. WP-5.2 (spec/repo-format.md § v3.16) gave it its only operator, and it is a presence test on the optional evidence.reviewer member rather than an identity comparison — the member is OMITTED when a bundle names no reviewer precisely so that every certificate minted before that rider keeps its exact digest. The refusals are upstream: assertPlatformBinding() and assertAuthorityBinding()."
+   "note": "builds the disposition a verified certificate installs, carrying the authority record digest and the exercised-axes digest verifyCertificate() has already proved. It COMPUTES identity rather than checking it: this object is folded into the adapter digest a site.wprism.json pin binds (ArtifactPolicyIdentity::manifest_rows()), so a member added or renamed here moves the pinned digest of every site-certified adapter on every fleet. WP-5.2 (spec/repo-format.md § v3.16) gave it its only operator, and it is a presence test on the optional evidence.reviewer member rather than an identity comparison — the member is OMITTED when a bundle names no reviewer precisely so that every certificate minted before that rider keeps its exact digest. The refusals are upstream: assertPlatformBinding() and assertAuthorityBinding()."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::platformStatement",
@@ -176,7 +176,7 @@
     "authority"
    ],
    "verdict": "gate",
-   "note": "the one shipped producer of a signed duo-adapter-authorities/v2 registry. Validates every record through validateAuthorityRecord() and refuses a key the document does not carry, or a private key that is not that record's own, before a signature byte exists — so a registry that could not be READ can never be signed."
+   "note": "the one shipped producer of a signed wprism-adapter-authorities/v2 registry. Validates every record through validateAuthorityRecord() and refuses a key the document does not carry, or a private key that is not that record's own, before a signature byte exists — so a registry that could not be READ can never be signed."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::sign_site",
@@ -272,7 +272,7 @@
     "authority"
    ],
    "verdict": "gate",
-   "note": "G2-FIXES C2. Asks AdapterCertification::revocation_channel() once per survey and returns a LIBRARY-scoped refusal row for the two states an operator cannot otherwise see: an installed typed revocation document whose signer the shipped root does not carry (revocation_channel_inert — its entries do not apply, so a document an operator believes in grants nothing), and one that exists and does not verify (revocation_channel_unreadable — a refusal a site holding no certificate would never otherwise reach, because revocations() is read from the certificate path alone). A blocker row rather than a thrown refusal: SCOPE_LIBRARY is not in blocking_refusals(), so no adapter's grammar verdict is suppressed, and `duo adapter doctor` / `wp duo adapter-survey` still exit 1. The hard refusals for a tampered document stay AdapterCertification::revocations()."
+   "note": "G2-FIXES C2. Asks AdapterCertification::revocation_channel() once per survey and returns a LIBRARY-scoped refusal row for the two states an operator cannot otherwise see: an installed typed revocation document whose signer the shipped root does not carry (revocation_channel_inert — its entries do not apply, so a document an operator believes in grants nothing), and one that exists and does not verify (revocation_channel_unreadable — a refusal a site holding no certificate would never otherwise reach, because revocations() is read from the certificate path alone). A blocker row rather than a thrown refusal: SCOPE_LIBRARY is not in blocking_refusals(), so no adapter's grammar verdict is suppressed, and `wprism adapter doctor` / `wp wprism adapter-survey` still exit 1. The hard refusals for a tampered document stay AdapterCertification::revocations()."
   },
   {
    "site": "agent/src/Apply/ApplyRequestCoordinator.php::plan",
@@ -328,7 +328,7 @@
     "manifest"
    ],
    "verdict": "carrier",
-   "note": "the `duo assess` inventory projection; reports manifest rows, refuses nothing about them."
+   "note": "the `wprism assess` inventory projection; reports manifest rows, refuses nothing about them."
   },
   {
    "site": "agent/src/Assess/AssessInventory.php::manifest_rows",
@@ -393,7 +393,7 @@
     "platform"
    ],
    "verdict": "carrier",
-   "note": "prints each row's adapter_digest for `wp duo capabilities`; the refusals it can surface belong to AdapterRegistry::report."
+   "note": "prints each row's adapter_digest for `wp wprism capabilities`; the refusals it can surface belong to AdapterRegistry::report."
   },
   {
    "site": "agent/src/Command/Cli.php::compile",
@@ -470,7 +470,7 @@
     "platform"
    ],
    "verdict": "gate",
-   "note": "refuses \"platform version disagrees with the loaded agent\" the moment platform.json and agent/duo.php's DUO_AGENT_VERSION / DUO_SPEC_VERSION diverge — the rule-8 pairing that makes those two files move together or not at all."
+   "note": "refuses \"platform version disagrees with the loaded agent\" the moment platform.json and agent/wprism.php's WPRISM_AGENT_VERSION / WPRISM_SPEC_VERSION diverge — the rule-8 pairing that makes those two files move together or not at all."
   },
   {
    "site": "agent/src/Policy/PinResolver.php::validate_manifest_pins",
@@ -478,7 +478,7 @@
     "manifest"
    ],
    "verdict": "gate",
-   "note": "refuses \"manifest '<name>' digest mismatch: expected <pin>, actual <resolved>\" by comparing each site.duo.json content pin against RepositoryCompiler::resolved_adapters(). One documented concession, and only one: a `source:site` pin on an adapter that is no longer certified is the edit-then-uncertified path, and it can never read as certified because bind_explicit_pins() gates elevation on is_certified()."
+   "note": "refuses \"manifest '<name>' digest mismatch: expected <pin>, actual <resolved>\" by comparing each site.wprism.json content pin against RepositoryCompiler::resolved_adapters(). One documented concession, and only one: a `source:site` pin on an adapter that is no longer certified is the edit-then-uncertified path, and it can never read as certified because bind_explicit_pins() gates elevation on is_certified()."
   },
   {
    "site": "agent/src/Policy/PlatformCompatibility.php::assert_boundary_shape",
@@ -502,7 +502,7 @@
     "manifest"
    ],
    "verdict": "gate",
-   "note": "ANCHOR. Frozen-snapshot rehydration re-validates: each manifest against its site pin by name and order, provenance through AdapterSources::from_snapshot(), then the reviewed dispositions against the shipped subset. duo-policy-snapshot/v4 is refused BY NAME because its source record granted shipped authority without proving bytes."
+   "note": "ANCHOR. Frozen-snapshot rehydration re-validates: each manifest against its site pin by name and order, provenance through AdapterSources::from_snapshot(), then the reviewed dispositions against the shipped subset. wprism-policy-snapshot/v4 is refused BY NAME because its source record granted shipped authority without proving bytes."
   },
   {
    "site": "agent/src/Policy/Policy.php::load_with",
@@ -624,7 +624,7 @@
     "platform"
    ],
    "verdict": "carrier",
-   "note": "prints platform_sha256 from a certified claim in `duo adapter` output."
+   "note": "prints platform_sha256 from a certified claim in `wprism adapter` output."
   },
   {
    "site": "cli/src/Adapter/AdapterCertify.php::certify",
@@ -649,7 +649,7 @@
     "manifest"
    ],
    "verdict": "derivation",
-   "note": "emits the copy-pasteable site.duo.json pin from resolved_adapters — the remedy side of PinResolver::validate_manifest_pins, not a check."
+   "note": "emits the copy-pasteable site.wprism.json pin from resolved_adapters — the remedy side of PinResolver::validate_manifest_pins, not a check."
   },
   {
    "site": "cli/src/Adapter/AdapterCertify.php::registerAuthority",
@@ -657,7 +657,7 @@
     "authority"
    ],
    "verdict": "gate",
-   "note": "refuses a symlinked or non-duo-adapter-authorities/v1 site trust root, a key id already registered, and a revoked key — the site root's write gate."
+   "note": "refuses a symlinked or non-wprism-adapter-authorities/v1 site trust root, a key id already registered, and a revoked key — the site root's write gate."
   },
   {
    "site": "cli/src/Adapter/AdapterDistribution.php::enrolledFingerprints",
@@ -725,7 +725,7 @@
     "authority"
    ],
    "verdict": "gate",
-   "note": "`duo adapter doctor --migration`'s certificate half. It does not own a refusal -- AdapterCertification::verifyCertificate (an anchor here) owns it -- but it CLASSIFIES that refusal into the blast radius: a StalePlatformSiteAdapterCertificate becomes four predicted invalidation rows (the withdrawal, the certificate-derived digest, and this site's manifest_hash and revision_hash), and an outcome this preflight has no reviewed migration answer for becomes an `unclassified` row that makes a green verdict impossible. It also answers the authority axis by ID: whether the signing key id is reachable in the site or platform trust root, over identifiers, never over key bytes."
+   "note": "`wprism adapter doctor --migration`'s certificate half. It does not own a refusal -- AdapterCertification::verifyCertificate (an anchor here) owns it -- but it CLASSIFIES that refusal into the blast radius: a StalePlatformSiteAdapterCertificate becomes four predicted invalidation rows (the withdrawal, the certificate-derived digest, and this site's manifest_hash and revision_hash), and an outcome this preflight has no reviewed migration answer for becomes an `unclassified` row that makes a green verdict impossible. It also answers the authority axis by ID: whether the signing key id is reachable in the site or platform trust root, over identifiers, never over key bytes."
   },
   {
    "site": "cli/src/Adapter/MigrationPreflight.php::identity",
@@ -826,7 +826,7 @@
     "authority"
    ],
    "verdict": "gate",
-   "note": "refuses an authorities document that is not duo-adapter-authorities/v1; the shipped file ships empty, so an unregistered key is the default state rather than an accident."
+   "note": "refuses an authorities document that is not wprism-adapter-authorities/v1; the shipped file ships empty, so an unregistered key is the default state rather than an accident."
   },
   {
    "site": "cli/src/Contract/ContractAttestation.php::currentPlatformDigest",
@@ -834,7 +834,7 @@
     "platform"
    ],
    "verdict": "gate",
-   "note": "refuses when capabilities/platform.json is absent or untyped (\"run this command from a complete duo checkout\"); the TYPED decode whose canonical hash every attestation binds."
+   "note": "refuses when capabilities/platform.json is absent or untyped (\"run this command from a complete wprism checkout\"); the TYPED decode whose canonical hash every attestation binds."
   },
   {
    "site": "cli/src/Contract/ContractAttestation.php::platformPath",

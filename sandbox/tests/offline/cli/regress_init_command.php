@@ -4,10 +4,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Transport/Transport.php';
 require_once __DIR__ . '/../../../../cli/src/Command/InitCommand.php';
 
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\InitCommand;
-use Duo\Orchestrator\Transport;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\InitCommand;
+use WPrism\Orchestrator\Transport;
 
 function fail_init_command(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -56,7 +56,7 @@ $digest = str_repeat('a', 64);
 $stateRevision = str_repeat('b', 64);
 $codeRevision = str_repeat('c', 64);
 $proposal = [
-    'format' => 'duo-init-plan/v1',
+    'format' => 'wprism-init-plan/v1',
     'digest' => $digest,
     'ready' => true,
     'advisories' => [],
@@ -78,7 +78,7 @@ $proposal = [
             'themes' => '/fixture/wp-content/themes',
         ],
         'components' => ['plugins' => [], 'themes' => []],
-        // DUO-3499: deliberately empty. This suite is about the command's
+        // issue #3499: deliberately empty. This suite is about the command's
         // orchestration (refusal rendering, confirmation gating, exit codes),
         // and an empty inventory is what makes the host skip classification
         // entirely -- the offline corpus contacts no release registry. The
@@ -125,7 +125,7 @@ $proposal = [
     'unsupported' => [],
 ];
 $result = [
-    'format' => 'duo-init-result/v1',
+    'format' => 'wprism-init-result/v1',
     'proposal_digest' => $digest,
     'baseline' => ['kind' => 'state-capture', 'revision_hash' => $stateRevision],
     'capture' => [
@@ -147,7 +147,7 @@ $result = [
     'state' => [
         'git' => 'existing-worktree',
         'repository' => '/fixture/repo',
-        'site_config' => '/fixture/repo/site.duo.json',
+        'site_config' => '/fixture/repo/site.wprism.json',
     ],
     'unsupported' => [],
 ];
@@ -176,7 +176,7 @@ check_init_command($blockedExit === 2, 'blocked init proposals preserve the read
 check_init_command($blockedDriver->captureCalls === 1, 'blocked proposal does not confirm or invoke status');
 
 $refusal = [
-    'format' => 'duo-command-refusal/v1',
+    'format' => 'wprism-command-refusal/v1',
     'ok' => false,
     'command' => 'init',
     'error' => 'init_refused',
@@ -324,7 +324,7 @@ $unmanagedProposal['advisories'] = [[
     'extension' => 'wpforms-lite/wpforms.php',
     'kind' => 'plugin',
     'reason' => 'no installed manifest declares this active plugin identity',
-    'remediation' => 'install or author one versioned adapter, then rerun duo init',
+    'remediation' => 'install or author one versioned adapter, then rerun wprism init',
 ]];
 $unmanagedDriver = new InitCommandTransport([
     init_command_response($unmanagedProposal),

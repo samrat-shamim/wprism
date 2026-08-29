@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Plan/PlanContract.php';
@@ -12,20 +12,20 @@ require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentCommand.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * `duo rehearse <env> --from <production-env>` — the rehearsal preview
+ * `wprism rehearse <env> --from <production-env>` — the rehearsal preview
  * (round-3 MUP §2.2).
  *
  * A thin composition over the shipped lifecycle, and deliberately nothing
  * more: `EnvironmentCommand::run()` performs the materialization exactly as
- * `duo env materialize` does — the same option grammar, the same
+ * `wprism env materialize` does — the same option grammar, the same
  * `CommandEnvironmentProvider` capability negotiation against the
  * machine-local registry, the same `EnvironmentMaterializer`, the same
  * journal, and the same frozen-promotion handoff that converges the
  * candidate through the existing deploy+apply path. `--reap` is
- * `duo env reap` with the same exact resource/lease/ownership compare, which
+ * `wprism env reap` with the same exact resource/lease/ownership compare, which
  * is what makes a repeated reap idempotent and a stale identity a refusal.
  *
  * This class therefore owns exactly three things:
@@ -63,7 +63,7 @@ final class RehearseCommand {
      * @param list<string> $extra everything after `<env>`
      * @param string $sourceRoot this checkout's root, for the composed assessment
      * @param callable(EnvironmentDriver,array<string,mixed>):(array<string,mixed>|int) $promote
-     *        the EXISTING frozen-promotion handoff, injected by `cli/duo`'s
+     *        the EXISTING frozen-promotion handoff, injected by `cli/wprism`'s
      *        `cmd_rehearse()` exactly as `cmd_environment()` injects it
      * @param ?callable():string $clock null reads the wall clock
      * @param ?callable(array):array $hostCatalog the assess injection seam
@@ -203,13 +203,13 @@ final class RehearseCommand {
      * @return array<string,mixed>
      */
     private static function targetPlan(EnvironmentDriver $driver): array {
-        $result = $driver->captureWp(['duo', 'plan', '--repo=' . $driver->repoPath(), '--format=json']);
+        $result = $driver->captureWp(['wprism', 'plan', '--repo=' . $driver->repoPath(), '--format=json']);
         if (($result['exit'] ?? 1) !== 0) {
             throw new CommandRefusalException(
                 'rehearsal_plan_unavailable',
                 'the rehearsal environment converged but could not produce a plan, so what a release would '
                     . 'touch cannot be previewed',
-                'run duo status against the rehearsal environment, repair it, then re-run duo rehearse'
+                'run wprism status against the rehearsal environment, repair it, then re-run wprism rehearse'
             );
         }
         $decoded = json_decode(trim((string) ($result['stdout'] ?? '')), true);
@@ -217,7 +217,7 @@ final class RehearseCommand {
             throw new CommandRefusalException(
                 'rehearsal_plan_unavailable',
                 'the rehearsal environment returned plan output this build could not parse as JSON',
-                'upgrade the agent on the rehearsal environment, then re-run duo rehearse'
+                'upgrade the agent on the rehearsal environment, then re-run wprism rehearse'
             );
         }
 
@@ -264,7 +264,7 @@ final class RehearseCommand {
             'rehearsal_branch_unresolved',
             'no --branch was given and the current directory is not on a named Git branch, so there is no ref '
                 . 'to materialize',
-            'pass --branch <ref> explicitly, or run duo rehearse from a checked-out branch of the site repository'
+            'pass --branch <ref> explicitly, or run wprism rehearse from a checked-out branch of the site repository'
         );
     }
 
@@ -294,7 +294,7 @@ final class RehearseCommand {
             switch ($name) {
                 case '--from':
                     // `--from prod` and `--from=prod` both, because MUP §2.2
-                    // writes the spaced form and `duo env materialize`
+                    // writes the spaced form and `wprism env materialize`
                     // already accepts both.
                     $value ??= $extra[++$index] ?? null;
                     if ($out['from'] !== null || !is_string($value) || $value === '' || str_starts_with($value, '-')) {
@@ -356,8 +356,8 @@ final class RehearseCommand {
         return new CommandRefusalException(
             'invalid_arguments',
             $message,
-            'duo rehearse <env> --from <production-env> [--branch <ref>] [--create] [--ttl <seconds>] '
-                . '[--limit=<1..200>] [--format=json], or duo rehearse <env> --reap'
+            'wprism rehearse <env> --from <production-env> [--branch <ref>] [--create] [--ttl <seconds>] '
+                . '[--limit=<1..200>] [--format=json], or wprism rehearse <env> --reap'
         );
     }
 }

@@ -5,7 +5,7 @@
     "declared": true,
     "state_class": "authored",
     "handling": "manage",
-    "meaning": "Duo versions this surface and applies the repository copy to the target.",
+    "meaning": "WPrism versions this surface and applies the repository copy to the target.",
     "operations": {
       "release": {
         "handling": "manage",
@@ -28,7 +28,7 @@
     "declared": true,
     "state_class": "authored",
     "handling": "manage",
-    "meaning": "Duo versions this surface and applies the repository copy to the target.",
+    "meaning": "WPrism versions this surface and applies the repository copy to the target.",
     "operations": {
       "release": {
         "handling": "manage",

@@ -8,7 +8,7 @@
  */
 declare(strict_types=1);
 
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     final class Refresh {
         /** @return array<string,mixed> */
         public static function rebase(EnvironmentDriver $driver, string $production, string $branch, array $resolution = []): array {
@@ -19,7 +19,7 @@ namespace Duo\Orchestrator {
             $path = $root . '/.git/reference-provider-plan-' . hash('sha256', $branch) . '.json';
             file_put_contents($path, json_encode([
                 'context' => ['production_snapshot_hash' => hash('sha256', 'semantic-production')],
-                'format' => 'duo-refresh-plan/v1',
+                'format' => 'wprism-refresh-plan/v1',
                 'plan_hash' => hash('sha256', 'semantic-plan-' . $branch),
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
             return ['head' => $head, 'new_branch' => $branch, 'plan_path' => $path, 'run_id' => 'reference-provider-fixture'];
@@ -55,7 +55,7 @@ require_once dirname(__DIR__, 4) . '/cli/src/Transport/EnvironmentDriver.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Plan/PlanContract.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Command/EnvironmentCommand.php';
 
-use Duo\Orchestrator\EnvironmentCommand;
+use WPrism\Orchestrator\EnvironmentCommand;
 
 $scratch = $argv[1] ?? '';
 if ($scratch === '') {
@@ -142,7 +142,7 @@ rpc_run(['git', 'clone', '--bare', $site, $origin]);
 $planPath = $scratch . '/plan.json';
 file_put_contents($planPath, json_encode(rpc_plan(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 // Answer the materializer's source URL-binding read (`eval echo home …
-// uploads …`) with two URLs; every other invocation is `duo plan` (cat).
+// uploads …`) with two URLs; every other invocation is `wprism plan` (cat).
 $wp = "#!/bin/sh\n"
     . 'for a in "$@"; do case "$a" in *get_option*home*) printf '
     . "'http://source.example:9600\\nhttp://source.example:9600/wp-content/uploads\\n'"
@@ -182,7 +182,7 @@ chmod($bin . '/docker', 0700);
 chmod($compose . '/bin/pair.sh', 0700);
 file_put_contents($compose . '/pair.yml', "services: {}\n");
 file_put_contents($compose . '/pair.http.yml', "services: {}\n");
-// DUO-3492: the dump this fake `mariadb-dump` publishes is what the restore
+// issue #3492: the dump this fake `mariadb-dump` publishes is what the restore
 // then hands to `docker exec -i … mariadb` on stdin, and this fake docker —
 // like a real one that rejects the first statement and exits — never reads it.
 // Past one pipe buffer (65536 bytes at most on either supported host) the
@@ -195,7 +195,7 @@ $fixtureDumpBytes = str_repeat(
     4096
 );
 file_put_contents($fixtureDump, $fixtureDumpBytes);
-duo_check(
+wprism_check(
     strlen($fixtureDumpBytes) > 65536,
     'the fixture source dump is larger than one pipe buffer, so the restore crosses the provider\'s stdin boundary for real'
 );
@@ -207,13 +207,13 @@ putenv('RPC_FIXTURE_DUMP=' . $fixtureDump);
 
 $providerConfig = $scratch . '/provider.json';
 file_put_contents($providerConfig, json_encode([
-    'format' => 'duo-reference-env-provider-config/v1',
+    'format' => 'wprism-reference-env-provider-config/v1',
     'pair' => 'mup',
     'pair_script' => $compose . '/bin/pair.sh',
     'compose_dir' => $compose,
     'compose_files' => [$compose . '/pair.yml', $compose . '/pair.http.yml'],
     'controller_repo' => $origin,
-    'db_container' => 'duo-shared-db',
+    'db_container' => 'wprism-shared-db',
     'state_root' => $state,
     'source_environment' => 'mup1',
     'destroy_scope' => 'side',
@@ -221,12 +221,12 @@ file_put_contents($providerConfig, json_encode([
     'environments' => [
         'mup1' => [
             'role' => 'source', 'side' => 1, 'port' => 8181,
-            'container' => 'duo-mup-wp1-1', 'service' => 'cli1',
+            'container' => 'wprism-mup-wp1-1', 'service' => 'cli1',
             'database' => 'wp_mup1', 'repo' => $sourceRepo,
         ],
         'mup2' => [
             'role' => 'target', 'side' => 2, 'port' => 8182,
-            'container' => 'duo-mup-wp2-1', 'service' => 'cli2',
+            'container' => 'wprism-mup-wp2-1', 'service' => 'cli2',
             'database' => 'wp_mup2', 'repo' => $targetRepo,
         ],
     ],
@@ -246,20 +246,20 @@ file_put_contents($envsPath, json_encode(['envs' => [
 ]], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 
 $promotions = 0;
-$promote = static function (\Duo\Orchestrator\EnvironmentDriver $driver, array $frozenContext) use (&$promotions): array {
+$promote = static function (\WPrism\Orchestrator\EnvironmentDriver $driver, array $frozenContext) use (&$promotions): array {
     $promotions++;
     $summary = $frozenContext['compiled_summary'];
     $receipt = [
         'artifact_hash' => (string) $summary['artifact_hash'],
         'checkpoint_identity' => hash('sha256', 'checkpoint-' . $frozenContext['operation_id']),
         'code_revision' => (string) $summary['code']['code_revision'],
-        'format' => 'duo-branch-environment-promotion-receipt/v1',
+        'format' => 'wprism-branch-environment-promotion-receipt/v1',
         'operation_id' => $frozenContext['operation_id'],
         'owner' => $frozenContext['promotion_owner'],
         'state_revision' => (string) $summary['revision_hash'],
         'status' => 'completed',
     ];
-    $receipt['receipt_sha256'] = hash('sha256', \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($receipt));
+    $receipt['receipt_sha256'] = hash('sha256', \WPrism\Orchestrator\EnvironmentLifecycleCanon::encode($receipt));
     return $receipt;
 };
 
@@ -275,7 +275,7 @@ $materialize = static function (string $branch) use ($envsPath, $promote): array
         $promote
     );
     $output = (string) ob_get_clean();
-    duo_check_same(0, $status, "the real EnvironmentCommand materializes '$branch' through the reusable provider");
+    wprism_check_same(0, $status, "the real EnvironmentCommand materializes '$branch' through the reusable provider");
     if ($status !== 0 || trim($output) === '') return [];
     $receipt = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
     return is_array($receipt) ? $receipt : [];
@@ -286,52 +286,52 @@ $reap = static function () use ($envsPath, $promote): array {
     ob_start();
     $status = EnvironmentCommand::run(['reap', 'mup2', '--format=json'], $envsPath, $promote);
     $output = (string) ob_get_clean();
-    duo_check_same(0, $status, 'the real EnvironmentCommand reaps the reusable provider target');
+    wprism_check_same(0, $status, 'the real EnvironmentCommand reaps the reusable provider target');
     if ($status !== 0 || trim($output) === '') return [];
     $receipt = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
     return is_array($receipt) ? $receipt : [];
 };
 
 $first = $materialize('feature-one');
-duo_check_same('create', $first['mode'] ?? null, 'the product path requests create rather than silently attaching');
-duo_check_same(1, $first['lease_generation'] ?? null, 'the first product-path preview owns generation 1');
-duo_check_same('duo-mup-wp2', $first['resource_id'] ?? null, 'the product receipt carries the stable physical slot id');
+wprism_check_same('create', $first['mode'] ?? null, 'the product path requests create rather than silently attaching');
+wprism_check_same(1, $first['lease_generation'] ?? null, 'the first product-path preview owns generation 1');
+wprism_check_same('wprism-mup-wp2', $first['resource_id'] ?? null, 'the product receipt carries the stable physical slot id');
 $firstReap = $reap();
-duo_check_same('destroyed', $firstReap['disposition'] ?? null, 'the created product-path preview is destroyed through exact reap');
+wprism_check_same('destroyed', $firstReap['disposition'] ?? null, 'the created product-path preview is destroyed through exact reap');
 
 $second = $materialize('feature-two');
-duo_check_same(2, $second['lease_generation'] ?? null, 'a second product-path preview rotates the same slot to generation 2');
-duo_check_same($first['resource_id'] ?? null, $second['resource_id'] ?? null, 'product-path reuse retains the physical resource id');
-duo_check(($first['lease_id'] ?? null) !== ($second['lease_id'] ?? null), 'product-path reuse rotates the lease id');
+wprism_check_same(2, $second['lease_generation'] ?? null, 'a second product-path preview rotates the same slot to generation 2');
+wprism_check_same($first['resource_id'] ?? null, $second['resource_id'] ?? null, 'product-path reuse retains the physical resource id');
+wprism_check(($first['lease_id'] ?? null) !== ($second['lease_id'] ?? null), 'product-path reuse rotates the lease id');
 $secondReap = $reap();
-duo_check_same('destroyed', $secondReap['disposition'] ?? null, 'the second product-path preview reaps normally');
-duo_check_same(2, $promotions, 'each preview generation runs the product promotion callback exactly once');
+wprism_check_same('destroyed', $secondReap['disposition'] ?? null, 'the second product-path preview reaps normally');
+wprism_check_same(2, $promotions, 'each preview generation runs the product promotion callback exactly once');
 
 $actions = array_map(
     static fn (string $line): string => (string) (json_decode($line, true, 512, JSON_THROW_ON_ERROR)['action'] ?? ''),
     file($state . '/actions.ndjson', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []
 );
-duo_check_same(2, count(array_filter($actions, static fn (string $action): bool => $action === 'create')), 'the product path acquires exactly two generations');
-duo_check_same(2, count(array_filter($actions, static fn (string $action): bool => $action === 'destroy')), 'the product path physically reaps each generation exactly once');
+wprism_check_same(2, count(array_filter($actions, static fn (string $action): bool => $action === 'create')), 'the product path acquires exactly two generations');
+wprism_check_same(2, count(array_filter($actions, static fn (string $action): bool => $action === 'destroy')), 'the product path physically reaps each generation exactly once');
 
 // The immutable media snapshot is published 0555 and host-owned; `docker cp`
 // carries that into the target, whose runtime is 33:33 (sandbox/pair.yml).
-// grind_adoption A6: without a hand-back the rehearsal target's `duo apply`
+// grind_adoption A6: without a hand-back the rehearsal target's `wprism apply`
 // failed provider:elementor-css/regenerate_css with "Permission denied" under
 // uploads/elementor/css. Every restore must therefore be followed by the
 // ownership/mode hand-back, in that order.
 $physical = file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
 $restores = array_keys(array_filter($physical, static fn (string $line): bool =>
-    str_starts_with($line, 'docker <cp> <') && str_ends_with($line, '> <duo-mup-wp2-1:/var/www/html/wp-content/uploads>')));
-duo_check_same(2, count($restores), 'each materialization restores the immutable media snapshot into the target once');
+    str_starts_with($line, 'docker <cp> <') && str_ends_with($line, '> <wprism-mup-wp2-1:/var/www/html/wp-content/uploads>')));
+wprism_check_same(2, count($restores), 'each materialization restores the immutable media snapshot into the target once');
 foreach ($restores as $index) {
-    duo_check_same(
-        'docker <exec> <duo-mup-wp2-1> <sh> <-c> <chown -R 33:33 /var/www/html/wp-content/uploads && chmod -R u+rwX,go+rX /var/www/html/wp-content/uploads>',
+    wprism_check_same(
+        'docker <exec> <wprism-mup-wp2-1> <sh> <-c> <chown -R 33:33 /var/www/html/wp-content/uploads && chmod -R u+rwX,go+rX /var/www/html/wp-content/uploads>',
         $physical[$index + 1] ?? null,
         'a media restore is followed by handing the uploads tree back to the 33:33 site runtime, writable'
     );
 }
 
 chdir($previous ?: '/');
-duo_check_summary('reference provider through EnvironmentCommand');
+wprism_check_summary('reference provider through EnvironmentCommand');
 }

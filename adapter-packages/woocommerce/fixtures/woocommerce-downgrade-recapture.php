@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Tests\Support;
+namespace WPrism\Tests\Support;
 
 /**
  * The exact-version downgrade mutates two fixture products through native Woo
@@ -115,7 +115,7 @@ function woocommerce_downgrade_timestamp_projection(string $relative, string $by
     }
     $normalized = preg_replace_callback(
         $pattern,
-        static fn(array $match): string => '    "' . $match[1] . '": "__DUO_DERIVED_WOO_TIMESTAMP__",',
+        static fn(array $match): string => '    "' . $match[1] . '": "__WPRISM_DERIVED_WOO_TIMESTAMP__",',
         $bytes,
         -1,
         $replacements

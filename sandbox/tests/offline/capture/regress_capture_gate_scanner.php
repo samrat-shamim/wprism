@@ -39,7 +39,7 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     require __DIR__ . '/../../../../agent/src/Capture/CaptureGateScanner.php';
 
     function check(bool $condition, string $message): void {

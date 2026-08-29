@@ -1,12 +1,12 @@
 <?php
 /**
  * End-to-end verified rollback on a real `LocalTransport`, against a real
- * `.duo/control` root and the real WordPress-free recovery runtime.
+ * `.wprism/control` root and the real WordPress-free recovery runtime.
  *
  * This is the suite that fails against the prior defect through the product
  * path. Before RecoveryTransport existed, none of this was reachable off SSH:
  * `VerifiedRollbackProfile::select()`, `RollbackAuthority::__construct()` and
- * `cli/duo`'s promote dispatch were all typed on `SshTransport`, so a local
+ * `cli/wprism`'s promote dispatch were all typed on `SshTransport`, so a local
  * target with a complete provider set and a signing key still fell through to
  * the operator-directed whole-database dump path. Nothing about the protocol
  * required SSH: the runtime is WordPress-free PHP invoked with `captureRaw()`,
@@ -37,16 +37,16 @@ require_once dirname(__DIR__, 4) . '/cli/src/Recovery/VerifiedRollbackProfile.ph
 require_once dirname(__DIR__, 4) . '/cli/src/Recovery/RecoveryClaim.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Recovery/RecoveryProfileSelection.php';
 
-use Duo\Canon;
-use Duo\Orchestrator\LocalTransport;
-use Duo\Orchestrator\RecoveryClaim;
-use Duo\Orchestrator\RecoveryProfileSelection;
-use Duo\Orchestrator\RollbackAuthority;
-use Duo\Orchestrator\VerifiedRollbackProfile;
-use Duo\Recovery\RollbackControl;
+use WPrism\Canon;
+use WPrism\Orchestrator\LocalTransport;
+use WPrism\Orchestrator\RecoveryClaim;
+use WPrism\Orchestrator\RecoveryProfileSelection;
+use WPrism\Orchestrator\RollbackAuthority;
+use WPrism\Orchestrator\VerifiedRollbackProfile;
+use WPrism\Recovery\RollbackControl;
 
 $fixtures = dirname(__DIR__, 3) . '/tests/fixtures';
-$tmp = sys_get_temp_dir() . '/duo-local-verified-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-local-verified-' . bin2hex(random_bytes(8));
 
 function lvr_remove_tree(string $path): void {
     if (is_link($path) || is_file($path)) {
@@ -77,7 +77,7 @@ function lvr_write(string $path, string $bytes, int $mode = 0600): void {
 function lvr_code_inventory(string $fileHash): array {
     $inventory = [
         'files' => [['path' => 'plugins/acme/acme.php', 'sha256' => $fileHash]],
-        'format' => 'duo-code/v1',
+        'format' => 'wprism-code/v1',
         'layout' => 'wp-content',
         'owned_roots' => ['plugins/acme'],
         'plugin_main_files' => [
@@ -99,11 +99,11 @@ $public = sodium_crypto_sign_publickey($keypair);
 try {
     mkdir($tmp, 0700, true);
     $repo = $tmp . '/site';
-    $root = $repo . '/.duo/control';
+    $root = $repo . '/.wprism/control';
     $initial = RollbackControl::initialize($root);
     RollbackControl::installPublicKey($root, $keyId, base64_encode($public));
 
-    // Adoption installs exactly these runtime files under .duo/control on
+    // Adoption installs exactly these runtime files under .wprism/control on
     // every AdoptionTransport (cli/src/Onboarding/Adopt.php); the suite stages
     // them directly so it needs no live adopt transaction.
     $runtimeDir = $root . '/recovery-runtime';
@@ -143,7 +143,7 @@ try {
     lvr_write($media . '/' . $mediaSha . '.jpg', $desiredUpload, 0644);
 
     $effectState = $tmp . '/effect-state';
-    $effectTarget = $repo . '/wp-content/uploads/duo-rollback-effect.txt';
+    $effectTarget = $repo . '/wp-content/uploads/wprism-rollback-effect.txt';
     lvr_write($effectTarget, "prior-effect", 0644);
 
     $adapterArgv = [PHP_BINARY, $fixtures . '/recovery-adapter.php'];
@@ -160,18 +160,18 @@ try {
         'timeout_seconds' => 30,
         'upload_provider' => [PHP_BINARY, $fixtures . '/upload-provider.php', $uploadState, $uploads, $offload, $media, $uploadKey],
     ];
-    $targetConfig = $recovery + ['format' => 'duo-recovery-config/v1'];
+    $targetConfig = $recovery + ['format' => 'wprism-recovery-config/v1'];
     ksort($targetConfig, SORT_STRING);
     $configPath = $tmp . '/recovery-config.json';
     lvr_write($configPath, RollbackControl::canonical($targetConfig) . "\n");
-    \Duo\Recovery\RecoveryExecutor::configureFromFile($root, $configPath);
+    \WPrism\Recovery\RecoveryExecutor::configureFromFile($root, $configPath);
 
     $signingKeyPath = $tmp . '/signing.key';
     lvr_write($signingKeyPath, base64_encode($secret) . "\n");
 
     // ----------------------------------------------------- the environment
     // `_machine_local` is the loader-owned provenance flag only an untracked
-    // .duo-envs.json can carry (cli/src/Environment/Registry.php:125); without
+    // .wprism-envs.json can carry (cli/src/Environment/Registry.php:125); without
     // it LocalTransport refuses to arm the authority at all.
     $envConfig = [
         '_machine_local' => true,
@@ -188,7 +188,7 @@ try {
         'wp_path' => $tmp . '/wordpress',
     ];
     $transport = new LocalTransport('local-verified', $envConfig);
-    duo_check(
+    wprism_check(
         $transport->carriesRollbackAuthority(),
         'a machine-local environment with a signing key carries a rollback authority'
     );
@@ -216,7 +216,7 @@ try {
                     'selector' => [
                         'scope' => 'external',
                         'type' => 'path',
-                        'value' => 'wp-content/uploads/duo-rollback-effect.txt',
+                        'value' => 'wp-content/uploads/wprism-rollback-effect.txt',
                     ],
                 ],
                 'manifest' => 'rollback-fixture',
@@ -231,7 +231,7 @@ try {
                     'selector' => [
                         'scope' => 'database_checkpoint',
                         'type' => 'table',
-                        'value' => 'duo_local_state',
+                        'value' => 'wprism_local_state',
                     ],
                 ],
                 'manifest' => 'rollback-fixture',
@@ -268,18 +268,18 @@ try {
 
     // -------------------------------------------------------------- select
     $selection = VerifiedRollbackProfile::select($transport, $plan);
-    duo_check_same(
+    wprism_check_same(
         true,
         $selection['automatic'],
         'the verified profile selects automatic off SSH once the capability interface, not the transport class, decides'
     );
-    duo_check_same(
+    wprism_check_same(
         'all verified rollback capabilities are ready',
         $selection['reason'],
         'the selection reason is the same sentence the SSH path prints'
     );
     $proof = RecoveryProfileSelection::proveVerified($transport, $plan, $selection['status']);
-    duo_check_same(
+    wprism_check_same(
         RecoveryClaim::VERIFIED_AUTOMATIC,
         $proof['profile'],
         'the release claim an operator authorizes names verified-automatic, the same profile promote will run'
@@ -293,19 +293,19 @@ try {
     // every later transition stamps itself with the real clock, so the claim
     // has to be stamped from the same clock rather than a frozen fixture date.
     $claim = $profile->claim($plan, $owner, $claimant, gmdate('Y-m-d\TH:i:s\Z'));
-    duo_check_same('prepared', $claim['status']['state'], 'the claim publishes a signed prepared receipt on a local target');
-    duo_check_same(
+    wprism_check_same('prepared', $claim['status']['state'], 'the claim publishes a signed prepared receipt on a local target');
+    wprism_check_same(
         1,
         (int) $claim['status']['generation'],
         'the local target advances to generation 1 under the signed receipt'
     );
-    duo_check(
+    wprism_check(
         preg_match('/^[a-f0-9]{64}$/', (string) ($claim['receipt']['checkpoint_sha256'] ?? '')) === 1,
         'the encrypted database checkpoint is prepared and bound into the receipt before any mutation'
     );
     // `exclusion_state` lives on the DECORATED status the controller reads
     // back, not on the raw signed control response a claim/append returns.
-    duo_check_same(
+    wprism_check_same(
         'held',
         (string) (RollbackAuthority::status($transport)['exclusion_state'] ?? ''),
         'the authority reserved the writer exclusion for the window itself, as the claim vocabulary promises'
@@ -313,32 +313,32 @@ try {
 
     // --------------------------------------------------- forward boundaries
     $promoting = $profile->startPromotion();
-    duo_check_same('promoting', $promoting['state'], 'promotion-start transitions the signed generation to promoting');
+    wprism_check_same('promoting', $promoting['state'], 'promotion-start transitions the signed generation to promoting');
     $profile->keepalive();
     $afterKeepalive = RollbackAuthority::status($transport);
-    duo_check_same(
+    wprism_check_same(
         ['promoting', 'held'],
         [(string) $afterKeepalive['state'], (string) ($afterKeepalive['exclusion_state'] ?? '')],
         'a keepalive renews the exclusion the authority holds without leaving promoting'
     );
     $codeSelected = $profile->selectCode();
-    duo_check_same(
+    wprism_check_same(
         true,
         ($codeSelected['execution']['ok'] ?? false),
         'the desired code release is selected and independently verified through the target provider'
     );
-    duo_check_same(
+    wprism_check_same(
         "release-desired-1\n",
         (string) file_get_contents($codePointer),
         'the atomic code pointer now names the desired release'
     );
     $uploadsApplied = $profile->applyUploads();
-    duo_check_same(
+    wprism_check_same(
         true,
         ($uploadsApplied['execution']['ok'] ?? false),
         'the compiled upload inventory is published through the target provider'
     );
-    duo_check_same(
+    wprism_check_same(
         $desiredUpload,
         (string) file_get_contents($uploads . '/2026/08/photo.jpg'),
         'the desired upload bytes are live before the injected failure'
@@ -354,24 +354,24 @@ try {
     // the prior world through signed operations, never through the
     // operator-directed database dump.
     $rolledBack = $profile->rollback(true, true, true);
-    duo_check_same('rolled_back', $rolledBack['state'], 'the signed rollback reaches the rolled_back terminal state');
-    duo_check_same(true, (bool) ($rolledBack['terminal'] ?? false), 'the rolled_back generation is terminal');
-    duo_check_same(
+    wprism_check_same('rolled_back', $rolledBack['state'], 'the signed rollback reaches the rolled_back terminal state');
+    wprism_check_same(true, (bool) ($rolledBack['terminal'] ?? false), 'the rolled_back generation is terminal');
+    wprism_check_same(
         'released',
         (string) (RollbackAuthority::status($transport)['exclusion_state'] ?? ''),
         'the authority releases the exclusion it reserved, so no operator has to'
     );
-    duo_check_same(
+    wprism_check_same(
         "release-prior\n",
         (string) file_get_contents($codePointer),
         'the code pointer is restored to the exact prior release'
     );
-    duo_check_same(
+    wprism_check_same(
         'prior-upload',
         (string) file_get_contents($uploads . '/2026/08/photo.jpg'),
         'the prior upload bytes are restored from the encrypted before-image'
     );
-    duo_check_same(
+    wprism_check_same(
         'prior-effect',
         (string) file_get_contents($effectTarget),
         'the reversible lifecycle effect is inverted back to its prior bytes'
@@ -381,11 +381,11 @@ try {
     // every one of those transitions crossed captureRaw() and one mode-0600
     // handoff, which is the entire transport surface the protocol needs.
     $final = RollbackAuthority::status($transport);
-    duo_check_same(true, $final['ok'], 'the signed chain verifies from a fresh controller read');
-    duo_check_same('rolled_back', $final['state'], 'the fresh read agrees with the terminal state');
+    wprism_check_same(true, $final['ok'], 'the signed chain verifies from a fresh controller read');
+    wprism_check_same('rolled_back', $final['state'], 'the fresh read agrees with the terminal state');
 } finally {
     sodium_memzero($secret);
     lvr_remove_tree($tmp);
 }
 
-duo_check_summary('local verified rollback');
+wprism_check_summary('local verified rollback');

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Regression — DUO-3246: duo_map.entity_type/duo_state.entity_type shipped
+# Regression — issue #3246: wprism_map.entity_type/wprism_state.entity_type shipped
 # as VARCHAR(32). A table-row entity's entity_type IS its declared table
 # name (Snapshot.php's own docblock/row_tables()) -- not a short, freely-
 # chosen abbreviation the way id_kind is -- so a plugin's own long table
 # name (woocommerce_shipping_zone_locations, 35 chars;
 # woocommerce_shipping_zone_methods, 33) silently truncated on INSERT
-# (MySQL's non-strict default), harmless-latent until DUO-3209's identity-
+# (MySQL's non-strict default), harmless-latent until issue #3209's identity-
 # contradiction guard started comparing stored-vs-computed entity_type on
 # every Ledger::set() and refusing the mismatch on the very next recapture.
 # Reported live on PR #14's head via a grind-r1b run (team-lead).
@@ -30,7 +30,7 @@
 # touches r3e or any other agent's live pair.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -42,10 +42,10 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${ENTITY_TYPE_PAIR:-amergety}"
 PORT1="${ENTITY_TYPE_PORT1:-8944}"
 PORT2="${ENTITY_TYPE_PORT2:-8945}"
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-COMPOSE="docker compose -p duo-$PAIR -f pair.yml"
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+COMPOSE="docker compose -p wprism-$PAIR -f pair.yml"
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
-GIT_1="git -C siterepo/${PAIR}1 -c user.name=duo-$PAIR -c user.email=$PAIR@example.test"
+GIT_1="git -C siterepo/${PAIR}1 -c user.name=wprism-$PAIR -c user.email=$PAIR@example.test"
 
 cleanup() {
   bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
@@ -75,9 +75,9 @@ update_option(\$flat->get_instance_option_key(), \$flat->instance_settings);
 pass "zone=$ZONE_ID, location=US, flat_rate method=$FLAT_INSTANCE"
 
 say "(1b) init site repo, pin core+woocommerce"
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1/.git" "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/site.duo.json"
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1/.git" "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/site.wprism.json"
 git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {"options": {}, "post_meta": {}, "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"], "taxonomies": ["category", "post_tag", "product_cat", "product_type"]},
@@ -92,22 +92,22 @@ $GIT_1 commit -qm "policy: core + woocommerce"
 pass "site repo initialized"
 
 say "(1c) FIRST capture -- must succeed regardless of the bug (nothing to contradict yet on an empty ledger)"
-wp1 duo capture --repo=/siterepo || fail "first capture failed unexpectedly"
+wp1 wprism capture --repo=/siterepo || fail "first capture failed unexpectedly"
 LOC_FILE=$(ls "siterepo/${PAIR}1/state/tables/woocommerce_shipping_zone_locations/"*.json 2>/dev/null | head -1)
 [ -n "$LOC_FILE" ] || fail "expected a captured woocommerce_shipping_zone_locations row"
 pass "first capture succeeded, location row captured: $(basename "$LOC_FILE")"
 
-say "(1d) confirm entity_type landed FULL, not truncated, in duo_map (direct DB check, not inferred from absence of error)"
-ENTITY_TYPES=$(wp1 db query "SELECT DISTINCT entity_type FROM wp_duo_map WHERE entity_type LIKE 'woocommerce_shipping_zone%'" --skip-column-names 2>/dev/null | tr -d '\r')
+say "(1d) confirm entity_type landed FULL, not truncated, in wprism_map (direct DB check, not inferred from absence of error)"
+ENTITY_TYPES=$(wp1 db query "SELECT DISTINCT entity_type FROM wp_wprism_map WHERE entity_type LIKE 'woocommerce_shipping_zone%'" --skip-column-names 2>/dev/null | tr -d '\r')
 echo "$ENTITY_TYPES"
 grep -q '^woocommerce_shipping_zone_locations$' <<<"$ENTITY_TYPES" \
-  || fail "expected the FULL 'woocommerce_shipping_zone_locations' (35 chars) in duo_map, got: $ENTITY_TYPES"
+  || fail "expected the FULL 'woocommerce_shipping_zone_locations' (35 chars) in wprism_map, got: $ENTITY_TYPES"
 grep -q 'woocommerce_shipping_zone_locati$' <<<"$ENTITY_TYPES" \
   && fail "found the OLD truncated 32-char value still present -- widening did not take effect"
-pass "entity_type is the full, untruncated table name in duo_map"
+pass "entity_type is the full, untruncated table name in wprism_map"
 
 say "(1e) THE ACTUAL REPORTED BUG: recapture (a second Ledger::set() for the SAME uuid) -- pre-fix this threw 'identity contradiction ... refusing to retype'"
-OUT2=$(wp1 duo capture --repo=/siterepo 2>&1) || fail "recapture failed: $OUT2"
+OUT2=$(wp1 wprism capture --repo=/siterepo 2>&1) || fail "recapture failed: $OUT2"
 grep -qi "identity contradiction" <<<"$OUT2" && fail "recapture hit the identity-contradiction guard -- the bug is NOT fixed: $OUT2"
 pass "recapture succeeded cleanly -- the exact scenario from team-lead's grind-r1b report is fixed"
 
@@ -116,7 +116,7 @@ LONGNAME="this_is_a_deliberately_oversized_fake_table_name_for_the_regression_te
 [ "${#LONGNAME}" -gt 64 ] || fail "test setup bug: LONGNAME must itself exceed 64 chars (is ${#LONGNAME})"
 HOST_REPO="siterepo/${PAIR}1/.tmp-toolong"
 rm -rf "$HOST_REPO"; mkdir -p "$HOST_REPO"
-cat > "$HOST_REPO/site.duo.json" <<EOF
+cat > "$HOST_REPO/site.wprism.json" <<EOF
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
@@ -136,7 +136,7 @@ EOF
 # table BEFORE it reads a single row, which is exactly the choke point
 # under test here.
 set +e
-OUT_ASSERT=$(wp1 duo capture --repo=/siterepo/.tmp-toolong 2>&1)
+OUT_ASSERT=$(wp1 wprism capture --repo=/siterepo/.tmp-toolong 2>&1)
 RC_ASSERT=$?
 set -e
 echo "$OUT_ASSERT"
@@ -156,17 +156,17 @@ say "(3) migration repair: corrupt the ALREADY-CAPTURED real row's entity_type b
 # that captured under the old VARCHAR(32) column actually has.
 TRUNCATED='woocommerce_shipping_zone_locati'
 [ "${#TRUNCATED}" -eq 32 ] || fail "test setup bug: TRUNCATED must be exactly 32 chars (is ${#TRUNCATED})"
-REAL_UUID=$(wp1 db query "SELECT uuid FROM wp_duo_map WHERE entity_type='woocommerce_shipping_zone_locations' AND id_kind='wc_zone_loc' LIMIT 1" --skip-column-names 2>/dev/null | tr -d '\r')
-[ -n "$REAL_UUID" ] || fail "expected an already-captured wc_zone_loc row in duo_map from steps (1c)/(1e)"
-wp1 db query "UPDATE wp_duo_map SET entity_type='$TRUNCATED' WHERE uuid='$REAL_UUID'"
-wp1 db query "UPDATE wp_duo_state SET entity_type='$TRUNCATED' WHERE uuid='$REAL_UUID'" || true
-BEFORE=$(wp1 db query "SELECT entity_type FROM wp_duo_map WHERE uuid='$REAL_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+REAL_UUID=$(wp1 db query "SELECT uuid FROM wp_wprism_map WHERE entity_type='woocommerce_shipping_zone_locations' AND id_kind='wc_zone_loc' LIMIT 1" --skip-column-names 2>/dev/null | tr -d '\r')
+[ -n "$REAL_UUID" ] || fail "expected an already-captured wc_zone_loc row in wprism_map from steps (1c)/(1e)"
+wp1 db query "UPDATE wp_wprism_map SET entity_type='$TRUNCATED' WHERE uuid='$REAL_UUID'"
+wp1 db query "UPDATE wp_wprism_state SET entity_type='$TRUNCATED' WHERE uuid='$REAL_UUID'" || true
+BEFORE=$(wp1 db query "SELECT entity_type FROM wp_wprism_map WHERE uuid='$REAL_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$BEFORE" = "$TRUNCATED" ] || fail "corruption did not land as expected (got: $BEFORE)"
 pass "corrupted the real row back to pre-fix state: uuid=$REAL_UUID entity_type='$TRUNCATED' (32 chars)"
 
-OUT3=$(wp1 duo capture --repo=/siterepo 2>&1) || fail "capture (which runs the repair) failed: $OUT3"
+OUT3=$(wp1 wprism capture --repo=/siterepo 2>&1) || fail "capture (which runs the repair) failed: $OUT3"
 grep -qi "identity contradiction" <<<"$OUT3" && fail "capture hit the identity-contradiction guard against the corrupted row -- repair did not run before Ledger::set(): $OUT3"
-AFTER=$(wp1 db query "SELECT entity_type FROM wp_duo_map WHERE uuid='$REAL_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+AFTER=$(wp1 db query "SELECT entity_type FROM wp_wprism_map WHERE uuid='$REAL_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$AFTER" = "woocommerce_shipping_zone_locations" ] \
   || fail "expected the corrupted row's entity_type to be repaired to the full 'woocommerce_shipping_zone_locations', got: '$AFTER'"
 pass "migration repair confirmed: '$TRUNCATED' -> '$AFTER', verified directly against the database, same uuid throughout ($REAL_UUID)"

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * The host boundary used by orchestration workflows.
@@ -94,7 +94,7 @@ final class DriverCapability {
  * not media backup, and a raw command path is not a maintenance-mode API.
  */
 final class DriverCapabilityReport {
-    public const FORMAT = 'duo-environment-driver-capabilities/v1';
+    public const FORMAT = 'wprism-environment-driver-capabilities/v1';
     public const DRIVER_PROTOCOL = 1;
 
     /**
@@ -210,11 +210,11 @@ final class DriverCapabilityReport {
     private static function requirements(string $operation): array {
         $requirements = match ($operation) {
             'attach' => [DriverCapability::ATTACH],
-            // DUO-3500. `code-resolve` resolves on the HOST — always, on every
+            // issue #3500. `code-resolve` resolves on the HOST — always, on every
             // transport — so attach is the whole of its demand. Requiring
             // WP-CLI or raw control would refuse a resolution on a target that
             // is merely asleep, and on local and docker the bytes never leave
-            // the host at all. DUO-3514 added the ssh arm, which does contact
+            // the host at all. issue #3514 added the ssh arm, which does contact
             // the target to push and to verify; that stays out of this
             // requirement set on purpose. The requirements are the driver's
             // DECLARED capabilities, and an ssh driver declares raw and WP
@@ -226,20 +226,20 @@ final class DriverCapabilityReport {
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
             // `assess` and `contract` are read-only over WP-CLI: assess runs
-            // `wp duo assess-inventory` and `wp duo capabilities`, and every
+            // `wp wprism assess-inventory` and `wp wprism capabilities`, and every
             // contract subcommand that contacts the target does so by
             // running an assessment. They demand exactly what the other
             // read-only WP-CLI passthroughs demand and nothing more —
             // asking for raw control would refuse on drivers that can
-            // legitimately answer the question (DUO-3344).
+            // legitimately answer the question (issue #3344).
             // `verify` joins the read-only WP-CLI set (MUP §2.4): it
             // re-reads the plan and probes declared journeys over HTTP from
             // the HOST. It writes nothing to the target, so demanding raw
             // control or a snapshot capability for it would refuse a
             // verification on a driver that can honestly answer it.
             'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'env-set',
-            // `code-classify` (DUO-3499) joins the same read-only WP-CLI set:
-            // it runs `wp duo code-inventory` and writes only into the LOCAL
+            // `code-classify` (issue #3499) joins the same read-only WP-CLI set:
+            // it runs `wp wprism code-inventory` and writes only into the LOCAL
             // checkout. Demanding raw control would refuse a migration on a
             // driver that can honestly answer the one question it asks.
             'pending', 'classify', 'coverage', 'scope', 'assess', 'contract', 'verify', 'code-classify' => [

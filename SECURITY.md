@@ -2,11 +2,11 @@
 
 ## Supported versions
 
-Duo is **pre-1.0 and single-track**: `main` is the only supported line. There
+WPrism is **pre-1.0 and single-track**: `main` is the only supported line. There
 are no maintenance branches and no backports — a fix lands on `main`, and the
 answer to "am I supported?" is "are you on current `main`?".
 
-Duo runs with write access to a WordPress database, filesystem and code tree,
+WPrism runs with write access to a WordPress database, filesystem and code tree,
 and reaches production hosts over SSH. Treat findings in `agent/`, `cli/`,
 `recovery/`, `adapter-packages/*/package/`, and `platform/adapter-library/` as
 reachable from a real site. Adoption embeds the latter two sources inside the

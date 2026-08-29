@@ -1,9 +1,9 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Circular with Policy.php's own require_once of this file: safe for the
 // same reason SubKeyGrammar.php's and ActionProviderGrammar.php's identical
-// circular requires are (DUO-3348 slices 6, 8) -- require_once marks
+// circular requires are (issue #3348 slices 6, 8) -- require_once marks
 // Policy.php's path included the moment Policy.php's own require statement
 // for this file runs, before Policy.php's body finishes executing, so this
 // resolves to a no-op rather than a re-include.
@@ -11,7 +11,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
 
 /**
  * The pure manifest grammar for option names that embed a portable table-row
- * reference, extracted from `agent/src/Policy/Policy.php` (DUO-3348 slice 11).
+ * reference, extracted from `agent/src/Policy/Policy.php` (issue #3348 slice 11).
  *
  * `validate_option_name_refs()` owns only the declaration shape: class, table
  * id_kind, the positive-name regex, its required named id capture, and the
@@ -31,7 +31,7 @@ final class OptionReferenceGrammar {
         $name = (string) ($manifest['name'] ?? '?');
         $rules = $manifest['option_name_refs'] ?? [];
         if (!is_array($rules) || !array_is_list($rules)) {
-            throw new \RuntimeException("duo: manifest '$name' option_name_refs must be a list");
+            throw new \RuntimeException("wprism: manifest '$name' option_name_refs must be a list");
         }
         foreach ($rules as $i => $rule) {
             if (!is_array($rule)
@@ -42,12 +42,12 @@ final class OptionReferenceGrammar {
                 || (string) $rule['match'] === ''
                 || @preg_match('/' . $rule['match'] . '/', '') === false) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' option_name_refs[$i] must declare class, id_kind, and a valid match regex"
+                    "wprism: manifest '$name' option_name_refs[$i] must declare class, id_kind, and a valid match regex"
                 );
             }
             if (substr_count((string) $rule['match'], '(?<id>') !== 1) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' option_name_refs[$i].match must contain exactly one named (?<id>...) capture"
+                    "wprism: manifest '$name' option_name_refs[$i].match must contain exactly one named (?<id>...) capture"
                 );
             }
             if (array_key_exists('malformed_match', $rule)
@@ -55,7 +55,7 @@ final class OptionReferenceGrammar {
                     || $rule['malformed_match'] === ''
                     || @preg_match('/' . $rule['malformed_match'] . '/', '') === false)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' option_name_refs[$i].malformed_match must be a non-empty valid regex"
+                    "wprism: manifest '$name' option_name_refs[$i].malformed_match must be a non-empty valid regex"
                 );
             }
         }
@@ -78,7 +78,7 @@ final class OptionReferenceGrammar {
                 if (isset($seen[$pattern])) {
                     $prior = $seen[$pattern];
                     throw new \RuntimeException(
-                        "duo: option_name_refs rules '{$prior['manifest']}[{$prior['index']}]' and "
+                        "wprism: option_name_refs rules '{$prior['manifest']}[{$prior['index']}]' and "
                         . "'" . (string) ($manifest['name'] ?? '?') . "[$index]' have identical overlapping match regexes"
                     );
                 }

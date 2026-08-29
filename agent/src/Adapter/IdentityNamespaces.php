@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * The namespace grammar for the three flat identity spaces, and the CLOSED
@@ -15,7 +15,7 @@ namespace Duo;
  * `AdapterSources::assert_name()` — a lowercase ASCII slug — and it decides
  * shape, never ownership. Two independently-authored adapters that both pick
  * `cache` are two adapters answering to one name, and `id_kind` collision is
- * worse than ambiguous: `duo_map` is keyed by `(id_kind, local_id)`
+ * worse than ambiguous: `wprism_map` is keyed by `(id_kind, local_id)`
  * (`agent/src/Policy/CrossManifestGuards.php:429-453`), so two tables sharing a
  * kind resolve each other's rows the moment both hold the same local id. The
  * entire remediation for that today is prose advice inside the refusal — "pick
@@ -50,7 +50,7 @@ namespace Duo;
  * --------------------------------------------------
  * AGENTS.md rule 2: `ArtifactPolicyIdentity::manifest_rows()` folds every
  * manifest's JSON bytes into that adapter's `digest`, which every
- * `site.duo.json` content pin and every certificate's
+ * `site.wprism.json` content pin and every certificate's
  * `adapter.canonical_sha256` binds. A reserved-name list under `manifests/`
  * would therefore be an identity input on every adapter row: adding the 17th
  * shipped adapter would move the digest of the other 16 and invalidate every
@@ -64,7 +64,7 @@ namespace Duo;
  * WHY `id_kind` PREFIXING IS A CONVENTION AND NEVER A RULE
  * --------------------------------------------------------
  * The irreversibility register rules on it at R-17: captured state and
- * `duo_map` rows embed the BARE kind, so a prefix rule introduced later would
+ * `wprism_map` rows embed the BARE kind, so a prefix rule introduced later would
  * have to rewrite every token in every branch of every site — the one migration
  * this product cannot perform, because the branches are the customer's data.
  * So `GRANDFATHERED_ID_KINDS` is a permanent FLOOR that release-gate keeps
@@ -75,13 +75,13 @@ namespace Duo;
 final class IdentityNamespaces {
     /**
      * The 17 shipped adapter names, enumerated because shape cannot recognise
-     * them (see the header). `duo-agency-cpt` is on the list for the same
+     * them (see the header). `wprism-agency-cpt` is on the list for the same
      * reason as the other 16 — it is a name the shipped library declares — and
      * its `excluded` disposition is a claim about capability, not about
      * identity.
      *
      * Sorted and unique; `tools/wire-surface.php` refuses the release if this
-     * is not exactly `basename()` over `manifests/*.json`.
+     * is not exactly the assembled package and platform library names.
      *
      * @var list<string>
      */
@@ -92,7 +92,6 @@ final class IdentityNamespaces {
         'code-snippets',
         'contact-form-7',
         'core',
-        'duo-agency-cpt',
         'elementor',
         'ninja-forms',
         'paid-memberships-pro',
@@ -100,6 +99,7 @@ final class IdentityNamespaces {
         'redirection',
         'the-events-calendar',
         'woocommerce',
+        'wprism-agency-cpt',
         'wps-hide-login',
         'yoast',
         'yoast-duplicate-post',
@@ -183,11 +183,11 @@ final class IdentityNamespaces {
      * The § v3.9 rule, applied at the one out-of-tree boundary every source
      * passes through (`AdapterSources::assert_out_of_tree_contract()`).
      *
-     * INERT BELOW `spec_version` 3, and that is the flag-day invariant rather
-     * than an oversight: `DUO_SPEC_VERSION` is 2 and stays 2 (the flip is
-     * WP-4.12), so no manifest in the field declares 3 and this function
-     * returns before reading a single member for every one of them. The gate is
-     * the same one § v3.5's environment narrowing uses
+     * INERT BELOW `spec_version` 3, and that remains the compatibility
+     * invariant rather than an oversight: this engine is spec 3 and enforces
+     * the namespace rule for v3 manifests, while accepted v2 manifests return
+     * before this function reads a member. The gate is the same one § v3.5's
+     * environment narrowing uses
      * (`ManifestDispositions::narrowed_environment()`), deliberately: a v3-only
      * rule that fired at v2 would be refusing a manifest the acceptance window
      * (§ v3.1) has not even judged yet.
@@ -249,7 +249,7 @@ final class IdentityNamespaces {
         $vendor = self::vendor($name);
         if ($vendor === null && !self::is_grandfathered_name($name)) {
             throw new \RuntimeException(
-                "duo: $label $shown declares spec_version $spec and the unprefixed name '$name' — at "
+                "wprism: $label $shown declares spec_version $spec and the unprefixed name '$name' — at "
                 . 'spec_version ' . self::NAMESPACED_SINCE . ' an out-of-tree adapter name is '
                 . "'<vendor>-<name>', and the unprefixed space is the shipped library's closed reserved list of "
                 . count(self::GRANDFATHERED_ADAPTER_NAMES) . ' names (agent/src/Adapter/IdentityNamespaces.php, '
@@ -279,7 +279,7 @@ final class IdentityNamespaces {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: $label $shown providers[$i].id '$id' is outside the '$vendor-' namespace of adapter "
+                "wprism: $label $shown providers[$i].id '$id' is outside the '$vendor-' namespace of adapter "
                 . "'$name' — at spec_version " . self::NAMESPACED_SINCE . ' a provider id is namespaced by '
                 . 'the adapter that declares it, so every identity one adapter contributes is bound to the one '
                 . 'authority scope its name was certified against (spec/repo-format.md § v3.9). Rename it '

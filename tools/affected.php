@@ -72,11 +72,11 @@ require_once __DIR__ . '/src/AdapterChangeScopeDecision.php';
  *   (b) ANY literal repo-relative path token matching
  *       `(agent|adapter-packages|platform|integration-scenarios|cli|recovery|
  *       scripts|sandbox|docs|spec)/....(php|
- *       json|sh|md|yml|Dockerfile)`, `cli/duo`, or `Makefile` -- this also
- *       catches non-require references (file_get_contents+eval of cli/duo,
+ *       json|sh|md|yml|Dockerfile)`, `cli/wprism`, or `Makefile` -- this also
+ *       catches non-require references (file_get_contents+eval of cli/wprism,
  *       assert_file_contains($path, ...), `source "$ROOT/sandbox/lib/x.sh"`)
  *       without needing a case for each call shape.
- *   (c) a known agent/src|cli/src|recovery class token (`Duo\X`, bare `X::`,
+ *   (c) a known agent/src|cli/src|recovery class token (`WPrism\X`, bare `X::`,
  *       `new X(`) maps to X's declaring file(s) -- this is NOT redundant
  *       with (a)/(b): a suite that requires only agent/src/Code/Code.php and
  *       calls `PathSafety::assert_no_symlinked_target_path(...)` through
@@ -91,8 +91,8 @@ require_once __DIR__ . '/src/AdapterChangeScopeDecision.php';
  *       af_extract_dirs() for the three gates that keep this from
  *       degenerating into `--all`.
  * A fifth signal closes the transitive gap symmetric to (c): agent/src,
- * cli/src, and recovery are "224 flat namespace Duo files with
- * self-requires" (repo fact) that pull each other in via
+ * cli/src, and recovery are flat-namespace files with self-requires that pull
+ * each other in via
  * `require_once __DIR__ . '/Sibling.php'` (same-directory, no root prefix,
  * so (b) alone would miss it) or a rooted cross-directory literal that (b)
  * already catches. A one-time file-level require graph over those three
@@ -545,8 +545,8 @@ function af_primary_targets(string $root): array
  * costs. The one that forced this change: a suite under
  * sandbox/tests/offline/<domain>/ is in no allowlist entry, so nothing it
  * invokes -- and nothing that invokes it -- resolves, and the involved-file
- * BFS silently stops at the suite itself. The one it also fixes: the 91 files
- * under sandbox/tests/fixtures/<subject>/ were already two levels down and
+ * BFS silently stops at the suite itself. It also fixes nested files under
+ * sandbox/tests/fixtures/<subject>/, which were already two levels down and
  * therefore already unresolvable, so a grind fixture edit selected nothing.
  *
  * MULTI-VALUED because a basename is not unique in a nested tree: 20 pairs
@@ -701,7 +701,7 @@ function af_extract_paths(string $root, string $text): array
             $add($match, $offset, $text);
         }
     }
-    if (preg_match_all('/\bcli\/duo\b/', $text, $m, PREG_OFFSET_CAPTURE)) {
+    if (preg_match_all('/\bcli\/wprism\b/', $text, $m, PREG_OFFSET_CAPTURE)) {
         foreach ($m[0] as [$match, $offset]) {
             $add($match, $offset, $text);
         }
@@ -930,7 +930,7 @@ const AF_SANDBOX_RELATIVE_RX = '#(?<![A-Za-z0-9_./-])tests/[A-Za-z0-9_./-]+\.(?:
  * spellings are, why resolution rather than assumption decides between them,
  * the collision measurement the disambiguation rests on, and why three
  * standalone tools carry three implementations instead of one shared library.
- * Read that block before changing this function. (DUO-3482.)
+ * Read that block before changing this function. (issue #3482.)
  *
  * This is the READER's half of it, and the policy difference is the whole
  * reason it is not shared code: this tool only ever ADDS an index edge, where
@@ -1000,11 +1000,11 @@ function af_class_map(string $root): array
  * `\\{1,2}` rather than a single backslash: a class named inside a PHP
  * string literal -- which is how the load-boundary suites spell the classes
  * they assert must NOT be loaded, e.g.
- * `foreach (['Duo\\\\Capture', 'Duo\\\\Policy'] as $forbidden)` -- carries two
+ * `foreach (['WPrism\\\\Capture', 'WPrism\\\\Policy'] as $forbidden)` -- carries two
  * backslash bytes in the source, so the single-backslash form never matched
  * it and those suites resolved no class at all.
  */
-const AF_CLASS_TOKEN_RX = '/Duo\\\\{1,2}(?:[A-Za-z_][A-Za-z0-9_]*\\\\{1,2})*([A-Za-z_][A-Za-z0-9_]*)'
+const AF_CLASS_TOKEN_RX = '/WPrism\\\\{1,2}(?:[A-Za-z_][A-Za-z0-9_]*\\\\{1,2})*([A-Za-z_][A-Za-z0-9_]*)'
     . '|\bnew\s+([A-Za-z_][A-Za-z0-9_]*)\s*\('
     . '|\b([A-Za-z_][A-Za-z0-9_]*)::/';
 
@@ -1060,7 +1060,7 @@ function af_source_graph(string $root): array
             // can name a sibling it never requires, because it runs it as a
             // FRESH PROCESS instead -- cli/src/Refresh/RefreshPlan.php holds
             // `$worker = __DIR__ . '/RefreshPlanCompile.php';` and that
-            // worker is the entire compile body of `duo refresh --plan`.
+            // worker is the entire compile body of `wprism refresh --plan`.
             // Without this edge the worker file had no inbound reference at
             // all and editing it selected zero suites.
             foreach (af_extract_dir_relative_paths($root, $relative, $text) as $ref) {
@@ -1171,7 +1171,7 @@ function af_build_index(string $root): array
             // that token: it carries no root-directory prefix and no __DIR__
             // base. 97 such tokens over 12 corpus files today; resolving them
             // adds 15 index edges across 6 offline targets, every one of which
-            // did not exist before DUO-3482. (Most of the 97 repeat one path --
+            // did not exist before issue #3482. (Most of the 97 repeat one path --
             // regress_target_observation_premises.sh alone names the six
             // certify matrices 78 times -- and the tokens in live/ suites add
             // no edge, because a live suite is no offline leaf's primary file.)
@@ -1566,7 +1566,7 @@ function af_main(array $argv): int
     sort($changed, SORT_STRING);
 
     try {
-        $ownership = \Duo\Tooling\AdapterChangeScopeDecision::decide($ownershipChanges);
+        $ownership = \WPrism\Tooling\AdapterChangeScopeDecision::decide($ownershipChanges);
     } catch (Throwable $failure) {
         fwrite(STDERR, 'affected: closed ownership classification failed: ' . $failure->getMessage() . "\n");
         return 1;
@@ -1577,7 +1577,7 @@ function af_main(array $argv): int
     // scan and would otherwise turn every capsule edit back into the all-
     // capsule gate. Participant scenarios come from the same validated closed
     // decision, so a package edit cannot silently omit its shared evidence.
-    if ($ownership['gate'] === \Duo\Tooling\AdapterChangeScopeDecision::GATE_ADAPTER) {
+    if ($ownership['gate'] === \WPrism\Tooling\AdapterChangeScopeDecision::GATE_ADAPTER) {
         $adapter = $ownership['adapter'];
         if (!is_string($adapter) || $adapter === '') {
             fwrite(STDERR, "affected: adapter gate did not name an adapter\n");
@@ -1621,7 +1621,7 @@ function af_main(array $argv): int
     // or cross-root renames into a green zero-task run. Engine edits retain
     // their explicit static dependency map plus conservative package aggregate
     // below; every other full reason expands to the complete offline corpus.
-    if ($ownership['gate'] === \Duo\Tooling\AdapterChangeScopeDecision::GATE_FULL
+    if ($ownership['gate'] === \WPrism\Tooling\AdapterChangeScopeDecision::GATE_FULL
         && $ownership['reason_code'] !== 'engine_change') {
         $selected = $leaves;
         $selectedSet = array_fill_keys($selected, true);

@@ -3,12 +3,12 @@ authority: docker cli1 · read-only for this command · repo /siterepo
 
 surface             state_class   handling        readiness  certification       containment  recovery
 post_type:product   authored      manage          Ready      Platform-certified  prevented    provider-state restorable
-  meaning: authored catalog content Duo manages end to end
+  meaning: authored catalog content WPrism manages end to end
 post_type:shop_order runtime      preserve local  Unsupported Platform-certified prevented    not applicable
   meaning: live operational state is never copied
 table:acme_catalog  unclassified  block           Not qualified Uncertified      unknown      unknown
   next action: install adapter (release)
 
 unknown: 41 option names invisible to every installed adapter (use --format=json)
-proposed contract written: .duo/contract/mup1/proposed.json
+proposed contract written: .wprism/contract/mup1/proposed.json
 operation: 7b1c9a02-4f6d-4c3e-9b21-0a5d3e8c7f14

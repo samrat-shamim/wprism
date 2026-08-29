@@ -6,16 +6,16 @@
 //
 // WHAT THIS IS
 // ------------
-// `duo rehearse` needs a machine-local provider that can snapshot a source
+// `wprism rehearse` needs a machine-local provider that can snapshot a source
 // environment, acquire a disposable target, materialize a repository into it
-// and reap it again. Duo orchestrates providers; it does not supply hosting,
+// and reap it again. WPrism orchestrates providers; it does not supply hosting,
 // so every customer writes their own. This is the worked example, driving the
-// one host Duo's own estate has: `sandbox/bin/pair.sh`'s two-sided pair on the
+// one host WPrism's own estate has: `sandbox/bin/pair.sh`'s two-sided pair on the
 // shared MariaDB (sandbox/db.yml).
 //
-// It is DERIVED FROM sandbox/tests/fixtures/duo3324-live-provider.php and
+// It is DERIVED FROM sandbox/tests/fixtures/environment-materializer-live-provider.php and
 // keeps that file's argv and JSON contract with
-// `\Duo\Orchestrator\CommandEnvironmentProvider` byte-for-byte:
+// `\WPrism\Orchestrator\CommandEnvironmentProvider` byte-for-byte:
 //
 //   * argv is exactly `<provider> <config.json>`; the request is one canonical
 //     JSON object on stdin and the response is one canonical JSON object plus
@@ -24,7 +24,7 @@
 //     "noncanonical evidence" and the operation refuses).
 //   * the request's closed key set is {action, environment, format, input,
 //     operation_id}; `format` must be
-//     `duo-branch-environment-provider-request/v1`; `input` is an object, and
+//     `wprism-branch-environment-provider-request/v1`; `input` is an object, and
 //     the empty LIST `[]` is accepted for the capabilities probe only —
 //     mirroring CommandEnvironmentProvider's own boundary exactly.
 //   * the response is {action, environment, format, operation_id, provider,
@@ -33,7 +33,7 @@
 //     CommandEnvironmentProvider::validateActionResult() closes over.
 //   * capability negotiation happens through the `capabilities` action, and
 //     the advertised ids are members of
-//     `\Duo\Orchestrator\EnvironmentProviderCapability::all()`.
+//     `\WPrism\Orchestrator\EnvironmentProviderCapability::all()`.
 //
 // NEVER EMULATION
 // ---------------
@@ -51,7 +51,7 @@
 // `reference-env-provider.php --print-plan <config.json>` (alias `--dry-run`)
 // reads the same request from stdin, performs the same capability negotiation
 // and the same argument validation, and then prints a
-// `duo-reference-env-provider-plan/v1` document naming the external command
+// `wprism-reference-env-provider-plan/v1` document naming the external command
 // boundary the action may use — without running any command, touching the
 // pair, or writing provider state. Acquisition/reap plans consult provider
 // state and distinguish fresh, retry and receipt-replay paths; other
@@ -66,23 +66,23 @@
 // own format id and `executed: false`, so no consumer can mistake a dry run
 // for evidence that anything happened.
 //
-// CONFIG (`duo-reference-env-provider-config/v1`)
+// CONFIG (`wprism-reference-env-provider-config/v1`)
 // ----------------------------------------------
 // {
-//   "format": "duo-reference-env-provider-config/v1",
+//   "format": "wprism-reference-env-provider-config/v1",
 //   "pair": "mup",                          // sandbox/bin/pair.sh pair name
 //   "pair_script": "/abs/sandbox/bin/pair.sh",
 //   "compose_dir": "/abs/sandbox",          // cwd for docker compose (loads .env)
 //   "compose_files": ["/abs/sandbox/pair.yml", "/abs/sandbox/pair.http.yml"],
 //   "controller_repo": "/abs/origin.git",   // clone source for repository.materialize
-//   "db_container": "duo-shared-db",        // sandbox/db.yml's container_name
+//   "db_container": "wprism-shared-db",        // sandbox/db.yml's container_name
 //   "state_root": "/abs/sandbox/tmp/reference-env-provider/mup",
 //   "source_environment": "mup1",
 //   "destroy_scope": "side",                // the only safe scope for one target lease
 //   "withheld_capabilities": [],            // dev-only; see above
 //   "environments": {
 //     "mup1": {"role":"source","side":1,"port":8181,
-//              "container":"duo-mup-wp1-1","service":"cli1",
+//              "container":"wprism-mup-wp1-1","service":"cli1",
 //              "database":"wp_mup1","repo":"/abs/sandbox/siterepo/mup1"},
 //     "mup2": {"role":"target","side":2,"port":8182, ...}
 //   }
@@ -164,7 +164,7 @@ function ref_require(bool $condition, string $message): void {
 function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null, ?array $env = null): array {
     $pipes = [];
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-    $stateLock = $GLOBALS['duo_reference_provider_state_lock'] ?? null;
+    $stateLock = $GLOBALS['wprism_reference_provider_state_lock'] ?? null;
     if (is_resource($stateLock)) {
         // Explicit inheritance keeps the physical-mutation lock alive if the
         // controller kills this PHP parent while its child is still running.
@@ -203,7 +203,7 @@ function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null, ?array
                 // write(2) fails with EPIPE (errno=32) — `docker exec -i …
                 // mariadb` that rejects the first statement and exits, or any
                 // child that never reads its stdin at all. Whether that beats
-                // this parent's write is pure scheduling: DUO-3492 saw
+                // this parent's write is pure scheduling: issue #3492 saw
                 // `create` refuse with "could not send reference provider
                 // command input" on a loaded host while the same call had
                 // succeeded on an idle one, 3 failures in 32 concurrent runs.
@@ -339,10 +339,10 @@ function ref_tree_hash(string $root): string {
 /**
  * Every capability id this provider can honestly serve against a pair.
  *
- * The list is the same 19 the proven duo3324 fixture advertises, because
+ * The list is the same 19 the live materializer fixture advertises, because
  * EnvironmentMaterializer::materialize() requires all of them for a create
  * with a TTL and reap requires the rest. Every id is a member of
- * \Duo\Orchestrator\EnvironmentProviderCapability::all(); an id outside that
+ * \WPrism\Orchestrator\EnvironmentProviderCapability::all(); an id outside that
  * set makes EnvironmentProviderCapabilityReport's constructor refuse.
  *
  * @return list<string>
@@ -490,8 +490,8 @@ function ref_config(string $path): array {
     $config = ref_json_file($path, null);
     ref_require(is_array($config) && !array_is_list($config), 'reference provider config is malformed');
     ref_require(
-        ($config['format'] ?? null) === 'duo-reference-env-provider-config/v1',
-        'reference provider config format is not duo-reference-env-provider-config/v1'
+        ($config['format'] ?? null) === 'wprism-reference-env-provider-config/v1',
+        'reference provider config format is not wprism-reference-env-provider-config/v1'
     );
     foreach (['pair', 'pair_script', 'compose_dir', 'controller_repo', 'db_container', 'state_root', 'source_environment'] as $key) {
         ref_require(
@@ -536,7 +536,7 @@ function ref_config(string $path): array {
         $side = (int) $environment['side'];
         $pair = (string) $config['pair'];
         ref_require($name === $pair . $side, "environment '$name' must use pair.sh's canonical logical name '$pair$side'");
-        ref_require($environment['container'] === "duo-$pair-wp$side-1", "environment '$name' container does not belong to its pair side");
+        ref_require($environment['container'] === "wprism-$pair-wp$side-1", "environment '$name' container does not belong to its pair side");
         ref_require($environment['service'] === "cli$side", "environment '$name' service does not belong to its pair side");
         ref_require($environment['database'] === "wp_$pair$side", "environment '$name' database does not belong to its pair side");
         ref_require(
@@ -560,7 +560,7 @@ function ref_config(string $path): array {
         $environments[(string) $config['source_environment']]['role'] === 'source',
         'reference provider source_environment must name the configured source role'
     );
-    ref_require($config['db_container'] === 'duo-shared-db', 'reference provider db_container must name sandbox/db.yml\'s canonical database container');
+    ref_require($config['db_container'] === 'wprism-shared-db', 'reference provider db_container must name sandbox/db.yml\'s canonical database container');
     $source = $environments[(string) $config['source_environment']];
     $target = current(array_filter($environments, static fn (array $environment): bool => $environment['role'] === 'target'));
     ref_require(is_array($target), 'reference provider config has no target environment');
@@ -587,7 +587,7 @@ function ref_config(string $path): array {
 
 /** @param array<string,mixed> $config @param array<string,mixed> $environment */
 function ref_resource_id(array $config, array $environment): string {
-    return 'duo-' . (string) $config['pair'] . '-wp' . (int) $environment['side'];
+    return 'wprism-' . (string) $config['pair'] . '-wp' . (int) $environment['side'];
 }
 
 /** @param array<string,mixed> $environment */
@@ -645,7 +645,7 @@ function ref_source_config_sha256(array $config, string $environmentName, array 
 function ref_identity(array $config, array $environment, string $url, ?array $resource = null): array {
     $pair = (string) $config['pair'];
     $side = (int) $environment['side'];
-    $environmentIdentity = 'duo-pair-' . $pair . '-side-' . $side;
+    $environmentIdentity = 'wprism-pair-' . $pair . '-side-' . $side;
     if (($environment['role'] ?? null) === 'source') {
         // Preserve the public pre-slot source identity byte-for-byte. New
         // operations pin the configured source topology separately.
@@ -818,13 +818,13 @@ function ref_pair_up_command(array $config): array {
 /**
  * The environment a compose invocation needs on top of the caller's own.
  *
- * pair.yml interpolates ${DUO_PAIR} into the cli services' WORDPRESS_DB_NAME
- * and pair.http.yml interpolates ${DUO_PORT1}/${DUO_PORT2} into port mappings;
+ * pair.yml interpolates ${WPRISM_PAIR} into the cli services' WORDPRESS_DB_NAME
+ * and pair.http.yml interpolates ${WPRISM_PORT1}/${WPRISM_PORT2} into port mappings;
  * pair.sh exports all three for its own compose calls (sandbox/lib/
  * pair_compose.sh:62 notes callers must re-export them). This provider is NOT
  * such a caller: it is spawned by the provider-check harness with whatever
  * environment the operator's shell had, so a bare compose run interpolated
- * blanks — compose warned 'The "DUO_PORT1" variable is not set' and the cli
+ * blanks — compose warned 'The "WPRISM_PORT1" variable is not set' and the cli
  * container's database name collapsed to wp_2, and `wp option update` died
  * with 'Error establishing a database connection' (observed as the url-set
  * BLOCKED verdict in regress_env_provider_conformance_live.sh's first run).
@@ -837,16 +837,16 @@ function ref_compose_environment(array $config): array {
     foreach (getenv() as $key => $value) {
         if (is_string($value)) $env[(string) $key] = $value;
     }
-    $env['DUO_PAIR'] = (string) $config['pair'];
+    $env['WPRISM_PAIR'] = (string) $config['pair'];
     foreach ($config['environments'] as $environment) {
-        if (($environment['side'] ?? null) === 1) $env['DUO_PORT1'] = (string) $environment['port'];
-        if (($environment['side'] ?? null) === 2) $env['DUO_PORT2'] = (string) $environment['port'];
+        if (($environment['side'] ?? null) === 1) $env['WPRISM_PORT1'] = (string) $environment['port'];
+        if (($environment['side'] ?? null) === 2) $env['WPRISM_PORT2'] = (string) $environment['port'];
     }
     return $env;
 }
 
 function ref_compose_command(array $config, array $tail): array {
-    $argv = ['docker', 'compose', '-p', 'duo-' . (string) $config['pair']];
+    $argv = ['docker', 'compose', '-p', 'wprism-' . (string) $config['pair']];
     foreach ($config['compose_files'] as $file) {
         $argv[] = '-f';
         $argv[] = (string) $file;
@@ -874,7 +874,7 @@ function ref_dump_database(array $config, string $database): string {
  * `spawn_cron()` rewrites the `doing_cron` transient's value (a float
  * timestamp) on any WordPress bootstrap that finds cron due — ordinary
  * traffic on a live source does it, and so does the orchestrator's own
- * `wp duo refresh-export` on the source between snapshot-prepare and
+ * `wp wprism refresh-export` on the source between snapshot-prepare and
  * snapshot-create. That row is a lock, not authored or runtime state; a
  * witness that treated its timestamp as "the source changed" refused every
  * live WordPress source (grind_mup.sh step 5). The snapshot bytes
@@ -935,7 +935,7 @@ function ref_copy_media_from_container(string $container, string $destination): 
  * ref_media_clear_command's `mkdir -p` runs as root. The web and cli
  * containers run as 33:33 (sandbox/pair.yml `user: "33:33"`), so without
  * this hand-back the restored site cannot write inside its own uploads:
- * grind_adoption A6 saw `duo apply` on the rehearsal target fail its required
+ * grind_adoption A6 saw `wprism apply` on the rehearsal target fail its required
  * `provider:elementor-css/regenerate_css` action with "file_put_contents(
  * …/uploads/elementor/css/post-1.css): Failed to open stream: Permission
  * denied". Owner and mode are provider-side plumbing, not media bytes: the
@@ -1029,7 +1029,7 @@ function ref_save_state(string $root, array $state): void {
     if (!is_file($marker)) {
         $markerHandle = fopen($marker, 'x+b');
         if ($markerHandle === false) throw new RuntimeException('could not create reference provider initialization marker');
-        $markerBytes = "duo-reference-env-provider-state/v1\n";
+        $markerBytes = "wprism-reference-env-provider-state/v1\n";
         try {
             chmod($marker, 0600);
             if (fwrite($markerHandle, $markerBytes) !== strlen($markerBytes) || !fflush($markerHandle) || !fsync($markerHandle)) {
@@ -2102,12 +2102,12 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
         'commands' => $commands,
         'environment' => $environmentName,
         'executed' => false,
-        'format' => 'duo-reference-env-provider-plan/v1',
+        'format' => 'wprism-reference-env-provider-plan/v1',
         'identity' => $identity,
         'identity_authoritative' => $identityAuthoritative,
         'identity_input_checked' => $identityChecked,
         'operation_id' => (string) $request['operation_id'],
-        'provider' => ['id' => 'duo-reference-env-provider', 'protocol' => 1],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1],
         'state_dependent' => $stateDependent,
         'url_source' => $urlSource,
     ];
@@ -2141,7 +2141,7 @@ function ref_assert_request(array $request): void {
     // capabilities probe) while rejecting non-empty JSON lists. Mirror that
     // boundary exactly.
     ref_require(
-        $request['format'] === 'duo-branch-environment-provider-request/v1'
+        $request['format'] === 'wprism-branch-environment-provider-request/v1'
             && is_array($request['input'])
             && (!array_is_list($request['input']) || $request['input'] === []),
         'provider request has an invalid protocol shape'
@@ -2192,31 +2192,31 @@ try {
         ref_require(is_dir($root), 'reference provider state root is unavailable');
         $lock = fopen($root . '/state.lock', 'c');
         if ($lock === false || !flock($lock, LOCK_EX)) throw new RuntimeException('could not lock reference provider state');
-        $GLOBALS['duo_reference_provider_state_lock'] = $lock;
+        $GLOBALS['wprism_reference_provider_state_lock'] = $lock;
         try {
             $state = ref_load_state($root);
             ref_log($root, $request);
             $result = ref_dispatch($request, $config, $state);
             ref_save_state($root, $state);
         } finally {
-            unset($GLOBALS['duo_reference_provider_state_lock']);
+            unset($GLOBALS['wprism_reference_provider_state_lock']);
             flock($lock, LOCK_UN);
             fclose($lock);
         }
     }
     $response = [
         'action' => $request['action'], 'environment' => $request['environment'],
-        'format' => 'duo-branch-environment-provider-response/v1', 'operation_id' => $request['operation_id'],
-        'provider' => ['id' => 'duo-reference-env-provider', 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+        'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $request['operation_id'],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1], 'result' => $result, 'status' => 'ok',
     ];
     echo ref_json($response) . "\n";
 } catch (Throwable $error) {
     // Provider output is redacted by CommandEnvironmentProvider on every
     // failure, so the operator-readable detail is kept beside the state root
-    // exactly the way the duo3324 fixture does it.
+    // exactly the way the live materializer fixture does it.
     if (!$planOnly && isset($config) && is_array($config) && is_string($config['state_root'] ?? null) && is_dir($config['state_root'])) {
         @file_put_contents($config['state_root'] . '/provider-errors.log', $error->getMessage() . "\n", FILE_APPEND | LOCK_EX);
     }
-    fwrite(STDERR, 'duo reference env provider: ' . $error->getMessage() . "\n");
+    fwrite(STDERR, 'wprism reference env provider: ' . $error->getMessage() . "\n");
     exit(1);
 }

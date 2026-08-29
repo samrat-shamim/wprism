@@ -6,9 +6,9 @@
  *
  * WHY THIS SUITE EXISTS
  * ---------------------
- * The flag day (DUO_SPEC_VERSION 2 -> 3) turns on several rules at once, and
+ * The flag day (WPRISM_SPEC_VERSION 2 -> 3) turns on several rules at once, and
  * the failure mode nobody can recover from is discovering the in-repo break
- * list AFTER the defines move: `manifests/capabilities/platform.json` restates
+ * list AFTER the defines move: `platform/adapter-library/capabilities/platform.json` restates
  * both defines (AGENTS.md rule 8), so the bump is one atomic edit that every
  * deployed site sees. This suite produces that break list now, from the tree,
  * as ordinary offline evidence.
@@ -37,7 +37,7 @@
  *     (`docs/wire-surface.md`, generated and byte-checked by
  *     `tools/wire-surface.php` under `make release-gate`) instead of argued
  *     here. R-17 is the case that matters: `id_kind` prefixing can never become
- *     a rule, because captured state and `duo_map` rows embed the bare kind, so
+ *     a rule, because captured state and `wprism_map` rows embed the bare kind, so
  *     V3-NS's 20 shipped id_kinds are a permanent floor and not a break list.
  *
  * So the durable asset is the FIXTURE ESTATE plus the measurements, not the
@@ -45,7 +45,7 @@
  * partition, and the estate is untouched: what moved is the reader count (one
  * shipped reader, now two) and the two assertions that recorded F2 as open. The
  * fixtures' verdicts AT THIS ENGINE did not move at all, because the rule is
- * gated at `spec_version: 3` and every fixture here declares DUO_SPEC_VERSION.
+ * gated at `spec_version: 3` and every fixture here declares WPRISM_SPEC_VERSION.
  * The shipped library now straddles v2/v3: reviewed post-flag consumers opt in
  * per adapter, so the measurements below distinguish the
  * partition from feature-roster classification instead of assuming every
@@ -65,7 +65,8 @@
  * THE MEASUREMENT THIS SUITE OWES ITS CALLER
  * ------------------------------------------
  * WP-1.6 requires the union of top-level keys actually in use across
- * `manifests/*.json` to be MEASURED against the 33-key signer partition and
+ * the source package manifests (`adapter-packages/<slug>/package/manifest.json`
+ * plus `platform/adapter-library/core/manifest.json`) to be MEASURED against the 33-key signer partition and
  * the difference ENUMERATED, never assumed. It is measured below and the
  * difference is asserted rather than reconciled:
  *
@@ -88,7 +89,7 @@
  *       is now `null` on both halves.
  *   F3  A live in-tree producer emits a top-level key the partition does not
  *       know: `cli/src/Adapter/AdapterDraft.php:379` writes `_draft` into the
- *       manifest it hands the author. `duo adapter-draft` output is therefore
+ *       manifest it hands the author. `wprism adapter-draft` output is therefore
  *       unsignable, and § v3.3's reviewed resolution 2 KEEPS that refusal on the
  *       merits and refuses the key at v3 too, with "strip it" as the remedy.
  *
@@ -114,7 +115,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once __DIR__ . '/../../lib/check.php';
 
@@ -127,19 +128,26 @@ require_once __DIR__ . '/../../../../agent/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
+require_once __DIR__ . '/../../../../tools/src/AdapterPackageProjection.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterContractGrammar;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\ManifestDispositions;
-use Duo\ManifestValidator;
-use Duo\Policy;
+use WPrism\AdapterCertification;
+use WPrism\AdapterContractGrammar;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\ManifestDispositions;
+use WPrism\ManifestValidator;
+use WPrism\Policy;
 
 $repo = dirname(__DIR__, 4);
 $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
+$embeddedPhpFiles = [];
+foreach (\WPrism\Tooling\AdapterPackageProjection::plan($repo) as $source => $destination) {
+    if (str_ends_with($destination, '.php')) {
+        $embeddedPhpFiles[] = $source;
+    }
+}
 
 /** One indented report row. Indented so it can never look like a PHP diagnostic to the guard. */
 $report = static function (string $line): void {
@@ -149,8 +157,11 @@ $report = static function (string $line): void {
 /**
  * Every shipped PHP file naming any of these tokens, repo-relative and sorted.
  *
- * The three trees are exactly what `Adopt.php:147-150` tars to a managed site,
- * so "no reader" measured over them means no reader a deployment can have. A
+ * The checked-in agent, CLI, and recovery trees execute across a deployment.
+ * Adopt also embeds every PHP member selected by AdapterPackageProjection
+ * below the agent before archiving exactly `agent recovery`; reading the real
+ * projection here means a future package runtime cannot evade the scan. Thus
+ * "no reader" measured over this set means neither side can read the token. A
  * source scan and not a Reflection walk because the question is which FILES
  * would have to change on the flag day, which the loaded class graph cannot
  * answer.
@@ -167,9 +178,10 @@ $report = static function (string $line): void {
  * @param list<string> $tokens
  * @return list<string>
  */
-$shippedFilesNaming = static function (array $tokens) use ($repo): array {
+$shippedFilesNaming = static function (array $tokens) use ($repo, $embeddedPhpFiles): array {
     $hits = [];
-    foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
+    $files = [$repo . '/cli/wprism' => true];
+    foreach (['agent', 'cli', 'recovery'] as $tree) {
         $walk = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($repo . '/' . $tree, FilesystemIterator::SKIP_DOTS),
             RecursiveIteratorIterator::LEAVES_ONLY,
@@ -179,20 +191,26 @@ $shippedFilesNaming = static function (array $tokens) use ($repo): array {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
-            // COMMENTS STRIPPED (WP-6.1): this helper answers "which shipped
-            // files READ this name", and a docblock explaining why a section
-            // rides a channel reads nothing. It was a plain text match while
-            // `engine_features` appeared in one file's prose and code alike;
-            // the first sections to actually ship through the channel put the
-            // phrase in the docblocks of the collaborators that stage through
-            // it, which a text match reports as four readers of a definition
-            // three of them never consult.
-            $body = duo_code_without_comments((string) file_get_contents($file->getPathname()));
-            foreach ($tokens as $token) {
-                if (str_contains($body, $token)) {
-                    $hits[substr($file->getPathname(), strlen($repo) + 1)] = true;
-                    break;
-                }
+            $files[$file->getPathname()] = true;
+        }
+    }
+    foreach ($embeddedPhpFiles as $file) {
+        $files[$file] = true;
+    }
+    foreach (array_keys($files) as $file) {
+        // COMMENTS STRIPPED (WP-6.1): this helper answers "which shipped
+        // files READ this name", and a docblock explaining why a section
+        // rides a channel reads nothing. It was a plain text match while
+        // `engine_features` appeared in one file's prose and code alike;
+        // the first sections to actually ship through the channel put the
+        // phrase in the docblocks of the collaborators that stage through
+        // it, which a text match reports as four readers of a definition
+        // three of them never consult.
+        $body = wprism_code_without_comments((string) file_get_contents($file));
+        foreach ($tokens as $token) {
+            if (str_contains($body, $token)) {
+                $hits[substr($file, strlen($repo) + 1)] = true;
+                break;
             }
         }
     }
@@ -218,12 +236,12 @@ sort($closedSet, SORT_STRING);
 // (WP-4.3, § v3.3 resolution 1 — F2 below, now resolved). Both because a
 // top-level key in no arm makes its whole adapter unsignable. Pinned here so
 // the next arrival is a reviewed edit rather than a drift.
-duo_check_same(
+wprism_check_same(
     [5, 14, 14],
     [count($entitySections), count($fieldSections), count($nonSurfaceKeys)],
     'the closed key set is the signer partition, read by Reflection: 5 entity + 14 field + 14 non-surface'
 );
-duo_check_same(
+wprism_check_same(
     33,
     count(array_unique($closedSet)),
     'the three arms are disjoint, so the set is exactly 33 keys'
@@ -253,7 +271,7 @@ $signerVerdict = static function (string $name, array $manifest) use ($ratify): 
 // hand-mapping between the two key spellings is a second definition, and this
 // suite's whole claim is that its rule inputs have exactly one.
 $vocabulary = (array) (new ReflectionMethod(Policy::class, 'manifest_validator_vocabulary'))->invoke(null);
-duo_check_same(
+wprism_check_same(
     ['casts', 'classes', 'derivable_field_columns', 'field_classes', 'menu_derivable_fields', 'menu_field_classes', 'missing_user_modes'],
     (static function (array $v): array {
         $keys = array_keys($v);
@@ -283,14 +301,14 @@ foreach ($adapterLibrary->packages() as $package) {
 }
 ksort($shipped, SORT_STRING);
 
-duo_check_same(17, count($shipped), 'the shipped library under test is all 17 adapter manifests');
+wprism_check_same(17, count($shipped), 'the shipped library under test is all 17 adapter manifests');
 
 // Every fixture is a shape a candidate rule has an opinion about. manifest_a()
 // and manifest_b() are the corpus-wide pair (rule 5): a rule that refuses THEM
 // refuses the shape every other offline suite calls well-formed.
 $themeAdapter = [
     'name' => 'acme-theme',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'theme' => 'acme',
     'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'options' => ['acme_theme_setting' => ['class' => 'authored', 'autoload' => 'yes']],
@@ -307,7 +325,7 @@ $fixtures = [
         'optoins' => ['acme_a_setting' => ['class' => 'authored', 'autoload' => 'yes']],
     ]),
     'fixture:theme-adapter' => $themeAdapter,
-    // What `duo adapter-draft` actually hands an author (AdapterDraft.php:379).
+    // What `wprism adapter-draft` actually hands an author (AdapterDraft.php:379).
     'fixture:adapter-draft-output' => manifest_a([
         'name' => 'drafted',
         '_draft' => ['proposals' => [], 'evidence' => []],
@@ -322,7 +340,7 @@ $fixtures = [
 // The on-disk synthetic manifests are the other half of "every synthetic
 // manifest fixture", and they matter more than the constructed ones: an
 // out-of-tree adapter authored against v2 is the population the flag day
-// actually hits, and `sandbox/fixtures/acme-catalog/duo-adapter.json` was for a
+// actually hits, and `sandbox/fixtures/acme-catalog/wprism-adapter.json` was for a
 // long time the only one in the tree. It is no longer alone:
 // `sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json` is the tree's
 // first out-of-tree adapter authored AT `spec_version` 3 and through § v3.2's
@@ -366,13 +384,13 @@ foreach ($walk as $file) {
 }
 ksort($discovered, SORT_STRING);
 
-duo_check_same(
+wprism_check_same(
     [
-        'sandbox/fixtures/acme-catalog/duo-adapter.json',
+        'sandbox/fixtures/acme-catalog/wprism-adapter.json',
         'sandbox/fixtures/rank-math/adapters/rank-math.json',
         'sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json',
-        'sandbox/tests/fixtures/duo-sidecar-refs/manifest.json',
-        'sandbox/tests/fixtures/duo-taxonomy-keyspace/manifest.json',
+        'sandbox/tests/fixtures/wprism-sidecar-refs/manifest.json',
+        'sandbox/tests/fixtures/wprism-taxonomy-keyspace/manifest.json',
     ],
     array_keys($discovered),
     'the on-disk synthetic manifest estate is five documents; a sixth must be considered by this dry run, not silently added'
@@ -435,24 +453,24 @@ $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ?
 // F1 — the difference, enumerated in both directions. Redirection's
 // feature-claimed keys deliberately sit in § v3.21's roster rather than
 // duplicating the signer partition.
-duo_check_same(
+wprism_check_same(
     ['column_codecs', 'declaration_evidence', 'engine_features'],
     $unknownInUse,
     'F1: the only shipped keys outside the signer partition are classified by Redirection\'s declared feature roster'
 );
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
     'F1: every shipped key outside the partition has a certificate arm in the feature roster'
 );
-duo_check_same(33, count($unionKeys), 'F1: the in-use union is 33 keys');
+wprism_check_same(33, count($unionKeys), 'F1: the in-use union is 33 keys');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
 // is WP-4.3's resolution of F2 — each admitted in the change that reads it,
 // precisely so an adapter that uses it stays signable (rule V3-AXIS below
 // measures that none of the 17 uses `environment` yet).
-duo_check_same(
+wprism_check_same(
     ['environment', 'theme', 'theme_version_range'],
     $knownUnused,
     'F1: the partition/union difference is exactly three keys — `environment`, `theme` and `theme_version_range`, declared by no shipped adapter'
@@ -485,7 +503,7 @@ $report(sprintf(
 // edit here; and, one level stronger, that each member is claimed by a feature
 // the declaring manifest declares and this engine implements — which is what
 // distinguishes "shipped through the channel" from "a section nobody reads".
-duo_check_same(
+wprism_check_same(
     ['attr_id_codecs', 'body_refs', 'declaration_evidence', 'engine_features'],
     $syntheticUnknown,
     'F1: the on-disk synthetic keys the signer partition does not know are exactly the four the feature channel admits'
@@ -497,19 +515,19 @@ duo_check_same(
 // partition itself gets above: this suite's rule inputs have exactly one
 // definition, and a copy would pass on the day it was typed.
 $rosterArms = AdapterContractGrammar::feature_key_arms();
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_diff($syntheticUnknown, array_keys($rosterArms))),
     'F1 RESOLVED by § v3.21: every key the partition does not know is classified by the roster instead, so '
         . '"unknown to the signer" no longer means "unsignable"'
 );
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_intersect(array_keys($rosterArms), $closedSet)),
     'F1: and the two definitions are DISJOINT — a roster row may not name a key the partition already carries, '
         . 'which is the second-spelling failure the whole lift exists to prevent'
 );
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_diff(array_unique(array_values($rosterArms)), AdapterCertification::certificateArms())),
     'F1: every arm the roster names is one of the signer\'s three, so a typo in a roster row refuses at the '
@@ -524,7 +542,7 @@ foreach ($syntheticUnknown as $key) {
     }
 }
 sort($unclaimed, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     [],
     $unclaimed,
     'F1: and every one of them is admitted for the manifest that declares it by a feature that manifest declares — the growth rule, not an unread section'
@@ -544,7 +562,7 @@ foreach ($keysBreakList as $label => $verdict) {
 }
 
 $shippedBreaks = array_values(array_filter(array_keys($keysBreakList), static fn(string $l): bool => str_starts_with($l, 'shipped:')));
-duo_check_same([], $shippedBreaks, 'V3-KEYS refuses zero shipped adapters: the closed key set is digest-neutral for the library');
+wprism_check_same([], $shippedBreaks, 'V3-KEYS refuses zero shipped adapters: the closed key set is digest-neutral for the library');
 $syntheticBreaks = array_values(array_filter(array_keys($keysBreakList), static fn(string $l): bool => str_starts_with($l, 'synthetic:')));
 // ZERO, AND THAT IS THE CHANGE WP-6.6 LANDED. This assertion used to read
 // `['synthetic:wpforms-lite']` and carried its own sentence about the price of
@@ -554,7 +572,7 @@ $syntheticBreaks = array_values(array_filter(array_keys($keysBreakList), static 
 // the break list is empty in both populations — the digest-neutrality half AND
 // the certifiability half. This is the suite doing its job: a rider that lands
 // a rule moves the assertion that measured its absence, and not the estate.
-duo_check_same(
+wprism_check_same(
     [],
     $syntheticBreaks,
     'V3-KEYS refuses ZERO on-disk synthetic manifests: § v3.21 gave every feature-claimed key an arm, so the '
@@ -570,15 +588,15 @@ $controlAdapter = $discovered[array_key_first(array_filter(
 ))];
 $controlAdapter['acme_invented_section'] = ['x' => 1];
 $controlVerdict = (string) $signerVerdict('wpforms-lite', $controlAdapter);
-duo_check(
+wprism_check(
     str_contains($controlVerdict, "declares 'acme_invented_section'")
         && str_contains($controlVerdict, 'which this signer cannot classify as an entity or field surface')
         && str_contains($controlVerdict, 'teach the signer this section'),
     'V3-KEYS: and a key NO implemented feature claims still meets the unclassifiable-section verdict verbatim — '
         . 'the roster classified the four that arrived through the channel, not everything'
 );
-duo_check_detail('V3-KEYS control refusal: ' . $controlVerdict);
-duo_check_same(
+wprism_check_detail('V3-KEYS control refusal: ' . $controlVerdict);
+wprism_check_same(
     [],
     array_values(array_intersect(array_keys($keysBreakList), ['fixture:manifest-a', 'fixture:manifest-b'])),
     'V3-KEYS admits the corpus-wide manifest_a()/manifest_b() pair, so it does not condemn the shape every other suite calls valid'
@@ -590,17 +608,17 @@ duo_check_same(
 // shipped grammar by exactly one key. The FIXTURE is unchanged; what moved is
 // the verdict, which is this suite's whole discipline: a rider that lands a
 // rule moves the assertion that measured its absence and not the estate.
-duo_check(
+wprism_check(
     in_array('theme', $closedSet, true) && in_array('theme_version_range', $closedSet, true),
     'F2 RESOLVED: the partition knows `theme_version_range` beside `theme`'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $validatorVerdict($themeAdapter),
     'F2: a theme adapter passes the shipped validator pipeline (AdapterContractGrammar accepts theme + theme_version_range)'
 );
 $themeVerdict = $signerVerdict('acme-theme', $themeAdapter);
-duo_check_same(
+wprism_check_same(
     null,
     $themeVerdict,
     'F2: ...and is now SIGNABLE too — the signer classifies the companion key the grammar already made mandatory'
@@ -608,17 +626,17 @@ duo_check_same(
 
 // F3 — a shipped producer emits a key the partition does not know.
 $draftSource = (string) file_get_contents($repo . '/cli/src/Adapter/AdapterDraft.php');
-duo_check(
+wprism_check(
     str_contains($draftSource, "\$manifest['_draft'] = self::build_draft("),
-    'F3: `duo adapter-draft` writes a top-level `_draft` into the manifest it emits (AdapterDraft.php:379)'
+    'F3: `wprism adapter-draft` writes a top-level `_draft` into the manifest it emits (AdapterDraft.php:379)'
 );
-duo_check(!in_array('_draft', $closedSet, true), 'F3: `_draft` is in no arm of the signer partition');
+wprism_check(!in_array('_draft', $closedSet, true), 'F3: `_draft` is in no arm of the signer partition');
 $draftVerdict = $signerVerdict('drafted', $fixtures['fixture:adapter-draft-output']);
-duo_check(
+wprism_check(
     is_string($draftVerdict) && str_contains($draftVerdict, "declares '_draft'"),
     'F3: so adapter-draft output is unsignable today, and V3-KEYS would refuse it by name on the flag day'
 );
-duo_check_detail('F3 refusal: ' . (string) $draftVerdict);
+wprism_check_detail('F3 refusal: ' . (string) $draftVerdict);
 
 // THE SEAM, FLIPPED. This suite's header states that a rider landing a rule
 // moves the assertion that measured its absence and NOT the fixtures. This is
@@ -633,13 +651,13 @@ duo_check_detail('F3 refusal: ' . (string) $draftVerdict);
 // other file reaches them, so it is what "reader" means now that the set is
 // enforced from outside the class that owns it.
 $partitionDefiners = $shippedFilesNaming(['ENTITY_SECTIONS', 'FIELD_SECTIONS', 'NON_SURFACE_KEYS']);
-duo_check_same(
+wprism_check_same(
     ['agent/src/Adapter/AdapterCertification.php'],
     $partitionDefiners,
     'ONE DEFINITION: the three partition constants are declared in exactly one shipped file, and WP-4.3 did not copy them anywhere'
 );
 $partitionReaders = $shippedFilesNaming(['topLevelKeyPartition']);
-duo_check_same(
+wprism_check_same(
     [
         'agent/src/Adapter/AdapterCertification.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
@@ -649,41 +667,41 @@ duo_check_same(
     'THE FLIP: the accessor has a SECOND enforcing reader — the contract grammar, which refuses an unrecognised key at spec_version 3 — beside the class that owns it and the emitter that publishes it'
 );
 // THE FLIP (WP-4.12) LANDED ON THIS FIXTURE, and both halves are worth
-// keeping. `manifest_a()` stamps DUO_SPEC_VERSION, which is now 3 — the gate
+// keeping. `manifest_a()` stamps WPRISM_SPEC_VERSION, which is now 3 — the gate
 // itself — so the rule this suite dry-ran is LIVE against it. The era the
 // shipped library still sits in is N-1, and that is where the open behaviour
 // went: the same bytes, one version down, still admitted. Two verdicts on one
 // fixture is the whole no-restamp argument in two assertions.
 $typoAtEngine = $validatorVerdict($fixtures['fixture:typo-and-invented-section']);
-duo_check(
+wprism_check(
     is_string($typoAtEngine) && str_contains($typoAtEngine, "'optoins'")
         && str_contains($typoAtEngine, "'totally_made_up_section'"),
-    "WP-4.3's named case is now REFUSED at this engine's own version: the flip put DUO_SPEC_VERSION on the "
+    "WP-4.3's named case is now REFUSED at this engine's own version: the flip put WPRISM_SPEC_VERSION on the "
         . 'closed-key-set gate, so the rule this suite dry-ran is live and names both keys'
 );
 $typoAtLibraryEra = $fixtures['fixture:typo-and-invented-section'];
-$typoAtLibraryEra['spec_version'] = DUO_SPEC_VERSION - 1;
-duo_check(
+$typoAtLibraryEra['spec_version'] = WPRISM_SPEC_VERSION - 1;
+wprism_check(
     is_string($validatorVerdict($typoAtLibraryEra))
         && str_contains((string) $validatorVerdict($typoAtLibraryEra), "'optoins'")
         && str_contains((string) $validatorVerdict($typoAtLibraryEra), "'totally_made_up_section'"),
-    '...and the IDENTICAL bytes at spec_version ' . (DUO_SPEC_VERSION - 1) . ' are refused too — legacy '
+    '...and the IDENTICAL bytes at spec_version ' . (WPRISM_SPEC_VERSION - 1) . ' are refused too — legacy '
         . 'manifests keep their bytes and digests, but typos no longer become inert declarations'
 );
 $typoV3 = $fixtures['fixture:typo-and-invented-section'];
-$typoV3['spec_version'] = DUO_SPEC_VERSION + 1;
+$typoV3['spec_version'] = WPRISM_SPEC_VERSION + 1;
 $typoV3Verdict = $validatorVerdict($typoV3);
-duo_check(
+wprism_check(
     is_string($typoV3Verdict) && str_contains($typoV3Verdict, 'accepts spec_version'),
-    '...and the same fixture at spec_version ' . (DUO_SPEC_VERSION + 1)
+    '...and the same fixture at spec_version ' . (WPRISM_SPEC_VERSION + 1)
         . ' is refused by the WINDOW on this engine, which is why the key rule needs the N+1 probe process'
 );
 $typoVerdict = $signerVerdict('typo', $fixtures['fixture:typo-and-invented-section']);
-duo_check(
+wprism_check(
     is_string($typoVerdict) && str_contains($typoVerdict, 'which this signer cannot classify'),
     '...while the signer refuses that same manifest by name at every version — the one-sided enforcement is now one-sided only for v2'
 );
-duo_check_detail('V3-KEYS typo refusal: ' . (string) $typoVerdict);
+wprism_check_detail('V3-KEYS typo refusal: ' . (string) $typoVerdict);
 
 // ===========================================================================
 // RULE V3-FEAT — the `engine_features` declaration channel (R2 / WP-4.2)
@@ -706,9 +724,9 @@ $report('shipped manifests declaring `engine_features`: ' . count($featureDeclar
 $report('would-refuse under V3-FEAT at their declared versions: ' . count($featureBreaks));
 $report('shipped code reading `engine_features`: ' . ($featureReaders === [] ? '(none)' : implode(', ', $featureReaders)));
 $report('engine features this engine implements: '
-    . implode(', ', \Duo\AdapterContractGrammar::implemented_features()));
+    . implode(', ', \WPrism\AdapterContractGrammar::implemented_features()));
 
-duo_check_same(
+wprism_check_same(
     [
         'code-snippets',
         'elementor',
@@ -724,7 +742,7 @@ duo_check_same(
     $featureDeclarers,
     'V3-FEAT: every feature consumer declares what it consumes and existing adapters pay only their own identity change'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $featureBreaks,
     'V3-FEAT: every shipped declarer is already at the feature channel version, so the current library has no channel refusal'
@@ -755,7 +773,7 @@ duo_check_same(
 // tools/modules.json's ladder.
 //
 // cli/src/Adapter/ManifestValidate.php is not a gate at all. It PUBLISHES the
-// channel in `duo manifest-validate --emit-schema`'s grammar document, which
+// channel in `wprism manifest-validate --emit-schema`'s grammar document, which
 // until WP-6.5 could not describe the channel it was documenting: neither
 // `engine_features` nor any of the sections a feature claims appeared anywhere
 // in the emitted grammar, so an author had to read engine source to learn the
@@ -764,7 +782,7 @@ duo_check_same(
 // The invariant the census is really protecting is unchanged and is what the
 // assertion says: exactly ONE file owns the vocabulary and can refuse an
 // unimplemented name.
-duo_check_same(
+wprism_check_same(
     [
         'agent/src/Adapter/ActionProviderGrammar.php',
         'agent/src/Adapter/AdapterContractGrammar.php',
@@ -790,8 +808,8 @@ duo_check_same(
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// six of these seven shipped after the flip with DUO_SPEC_VERSION left at 3.
-duo_check_same(
+// six of these seven shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+wprism_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
@@ -802,51 +820,51 @@ duo_check_same(
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
-    \Duo\AdapterContractGrammar::implemented_features(),
+    \WPrism\AdapterContractGrammar::implemented_features(),
     'V3-FEAT: the vocabulary carries seven names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
-// since spec_version 3, and DUO_SPEC_VERSION is now 3 — so the fixture that
+// since spec_version 3, and WPRISM_SPEC_VERSION is now 3 — so the fixture that
 // was refused by SECTION NAME at every accepted version is now ADMITTED at the
 // engine's own. That is § v3.2's promise arriving: the declaration channel
 // opens with the bump, and every later primitive rides it instead of the next
 // one. The refusing half did not disappear; it moved to N-1, which is exactly
 // where the shipped library and every out-of-tree adapter authored before the
 // flip sit.
-duo_check_same(
+wprism_check_same(
     null,
     $validatorVerdict($fixtures['fixture:engine-features']),
     'V3-FEAT: the fixture that refused BY SECTION NAME at every version this engine used to accept is ADMITTED '
-        . 'at spec_version ' . DUO_SPEC_VERSION . ' — the channel opened with the flip and needs no second bump'
+        . 'at spec_version ' . WPRISM_SPEC_VERSION . ' — the channel opened with the flip and needs no second bump'
 );
 $featureAtLibraryEra = $fixtures['fixture:engine-features'];
-$featureAtLibraryEra['spec_version'] = DUO_SPEC_VERSION - 1;
+$featureAtLibraryEra['spec_version'] = WPRISM_SPEC_VERSION - 1;
 $featureFixtureVerdict = $validatorVerdict($featureAtLibraryEra);
-duo_check(
+wprism_check(
     is_string($featureFixtureVerdict) && str_contains($featureFixtureVerdict, "the section 'engine_features'")
-        && str_contains($featureFixtureVerdict, 'implements only at spec_version ' . DUO_SPEC_VERSION),
-    '...and the same declaration at spec_version ' . (DUO_SPEC_VERSION - 1) . ' still refuses BY SECTION NAME — '
+        && str_contains($featureFixtureVerdict, 'implements only at spec_version ' . WPRISM_SPEC_VERSION),
+    '...and the same declaration at spec_version ' . (WPRISM_SPEC_VERSION - 1) . ' still refuses BY SECTION NAME — '
         . 'the silence WP-4.2 replaced, now aimed at the population that has not migrated'
 );
-duo_check_detail('V3-FEAT section refusal: ' . (string) $featureFixtureVerdict);
+wprism_check_detail('V3-FEAT section refusal: ' . (string) $featureFixtureVerdict);
 
 // The coupling WP-4.2 and WP-4.3 must land together or not at all: the channel
 // is a new top-level key, and the closed key set does not know it.
-duo_check(!in_array('engine_features', $closedSet, true), 'V3-FEAT x V3-KEYS: `engine_features` is in no arm of the partition');
+wprism_check(!in_array('engine_features', $closedSet, true), 'V3-FEAT x V3-KEYS: `engine_features` is in no arm of the partition');
 // RESOLVED by § v3.21, and the resolution is not "add it to the partition". A
 // partition arm would admit the key with no feature declared, deleting the
 // staging property the channel exists for; the arm rides in `spec-window/v1`'s
 // own roster row instead, and it is `non_surface` because the claim channel
 // covers no state — the standing `spec_version` already has.
 $featureVerdict = $signerVerdict('featureful', $fixtures['fixture:engine-features']);
-duo_check_same(
+wprism_check_same(
     null,
     $featureVerdict,
     'V3-FEAT x V3-KEYS: an adapter using the channel is SIGNABLE — WP-4.3 shipped without teaching the signer '
         . 'this key and WP-6.6 closed the gap for every feature-claimed key at once, not one at a time'
 );
-duo_check_same(
+wprism_check_same(
     'non_surface',
     AdapterContractGrammar::feature_key_arms()['engine_features'] ?? null,
     'V3-FEAT x V3-KEYS: and the arm is `non_surface`, so declaring the channel adds nothing to the signed '
@@ -865,7 +883,7 @@ echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate ar
 // builds the `surfaces` list inside a signed statement, so moving a key between
 // arms invalidates every certificate already issued over an adapter declaring
 // it. A sixth row, or a moved arm, is a reviewed edit here.
-duo_check_same(
+wprism_check_same(
     [
         'attr_id_codecs' => 'field',
         'body_refs' => 'field',
@@ -895,26 +913,26 @@ $armVerdict = static function (string $key, mixed $arm) use ($assertArm): ?strin
     }
 };
 $badArm = (string) $armVerdict('acme_section', 'surface');
-duo_check(
+wprism_check(
     str_contains($badArm, "engine feature 'acme-feature/v1' classifies its top-level key 'acme_section'")
         && str_contains($badArm, "not one of the signer's certificate arms (entity, field, non_surface)"),
     'V3-ARM: an arm outside the vocabulary refuses AT THE ROSTER, naming the feature and the key — not at the '
         . 'author\'s manifest, which would report a stranger\'s document for this engine\'s typo'
 );
 $collidingArm = (string) $armVerdict('options', 'field');
-duo_check(
+wprism_check(
     str_contains($collidingArm, "classifies 'options', which the signer's own three-arm partition already carries"),
     'V3-ARM: and a roster row naming a key the partition already carries refuses too — that is two spellings '
         . 'of one arm, which is the exact failure the WP-5.3 lift and this rider both exist to prevent'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $armVerdict('acme_section', 'field'),
     'V3-ARM: while a key the partition does not carry, under a vocabulary arm, is accepted — so the two '
         . 'refusals above are the rule and not a blanket'
 );
-duo_check_detail('V3-ARM bad-arm refusal: ' . $badArm);
-duo_check_detail('V3-ARM collision refusal: ' . $collidingArm);
+wprism_check_detail('V3-ARM bad-arm refusal: ' . $badArm);
+wprism_check_detail('V3-ARM collision refusal: ' . $collidingArm);
 
 // The published half. `--emit-schema` is where an author reads the arm, and
 // `feature_section_grammars()` refuses a claimed key it cannot describe, so the
@@ -926,11 +944,11 @@ foreach (AdapterContractGrammar::implemented_feature_rows() as $feature => $row)
     }
 }
 ksort($publishedSections, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     AdapterContractGrammar::feature_key_arms(),
     $publishedSections,
     'V3-ARM: and `implemented_feature_rows()` publishes the same arm beside each claimed key, so the document '
-        . '`duo manifest-validate --emit-schema` emits is the roster rather than a second reading of it'
+        . '`wprism manifest-validate --emit-schema` emits is the roster rather than a second reading of it'
 );
 
 // ===========================================================================
@@ -952,7 +970,7 @@ try {
 } catch (\Throwable $e) {
     $dispositionsRefusal = $e->getMessage();
 }
-duo_check(
+wprism_check(
     $dispositions !== null,
     'V3-DISP: the shipped monolith loads, so the split has a well-formed source'
         . ($dispositionsRefusal === null ? '' : ' — refused: ' . $dispositionsRefusal)
@@ -964,8 +982,8 @@ $profileNames = array_keys((array) $dispositionData['profiles']);
 sort($profileNames, SORT_STRING);
 
 $report('documents the split would create: ' . count($entryNames) . ' adapter + ' . count($profileNames) . ' profile');
-duo_check_same(array_keys($shipped), $entryNames, 'V3-DISP: entry set and manifest set already agree, so the split writes one document per shipped adapter and none over');
-duo_check_same(['fse'], $profileNames, 'V3-DISP: `profiles` is one row (`fse`) and becomes its own document, as WP-4.4 specifies');
+wprism_check_same(array_keys($shipped), $entryNames, 'V3-DISP: entry set and manifest set already agree, so the split writes one document per shipped adapter and none over');
+wprism_check_same(['fse'], $profileNames, 'V3-DISP: `profiles` is one row (`fse`) and becomes its own document, as WP-4.4 specifies');
 
 // The split makes each entry KEY a filesystem path, which the monolith never
 // did. That is a new constraint, so it is measured rather than assumed.
@@ -980,7 +998,7 @@ foreach (array_merge($entryNames, $profileNames) as $entryName) {
         $unsafeNames[(string) $entryName] = 'not a single path segment';
     }
 }
-duo_check_same([], $unsafeNames, 'V3-DISP: every entry and profile key is a safe single-segment basename, so no name blocks the split');
+wprism_check_same([], $unsafeNames, 'V3-DISP: every entry and profile key is a safe single-segment basename, so no name blocks the split');
 
 // Rule 2: the disposition array is folded into the adapter digest, so the move
 // must preserve the DECODED array byte-for-byte through Canon. Round-tripping
@@ -993,7 +1011,7 @@ foreach ($entryNames as $entryName) {
         $canonUnstable[] = (string) $entryName;
     }
 }
-duo_check_same([], $canonUnstable, 'V3-DISP: all 17 entries survive a Canon encode/decode round trip unchanged — the split moves no adapter digest');
+wprism_check_same([], $canonUnstable, 'V3-DISP: all 17 entries survive a Canon encode/decode round trip unchanged — the split moves no adapter digest');
 
 // The would-refuse case: a pinned adapter whose document is missing. The
 // monolith refuses this by coverage mismatch; the split must keep refusing.
@@ -1001,7 +1019,7 @@ $missingEntry = array_values(array_filter(
     array_keys($shipped),
     static fn(string $n): bool => !array_key_exists($n, $dispositionData['manifests'])
 ));
-duo_check_same([], $missingEntry, 'V3-DISP: zero shipped adapters would be left without a document');
+wprism_check_same([], $missingEntry, 'V3-DISP: zero shipped adapters would be left without a document');
 $report('would-refuse under V3-DISP: 0 of ' . count($entryNames) . ' shipped adapters');
 
 // One entry carries no `evidence` member — the excluded regression fixture.
@@ -1011,10 +1029,10 @@ $noEvidence = array_values(array_filter(
     $entryNames,
     static fn(string $n): bool => !is_array($dispositionData['manifests'][$n]['evidence'] ?? null)
 ));
-duo_check_same(
-    ['duo-agency-cpt'],
+wprism_check_same(
+    ['wprism-agency-cpt'],
     $noEvidence,
-    'V3-DISP: exactly one entry omits `evidence` — duo-agency-cpt, the excluded fixture with no product claim'
+    'V3-DISP: exactly one entry omits `evidence` — wprism-agency-cpt, the excluded fixture with no product claim'
 );
 
 // ===========================================================================
@@ -1034,7 +1052,7 @@ try {
 } catch (\Throwable $e) {
     $platformRefusal = $e->getMessage();
 }
-duo_check(
+wprism_check(
     $platformRefusal === null,
     'V3-AXIS: the shipped platform boundary loads against this agent'
         . ($platformRefusal === null ? '' : ' — refused: ' . $platformRefusal)
@@ -1046,7 +1064,7 @@ $report('compatibility axes a v3 certificate would bind: ' . implode(', ', $axes
 // so the boundary a v3 certificate binds is five axes now. This pin exists so
 // a NEW axis is a reviewed sentence here rather than a silent widening of what
 // WP-4.7's axis-bound certificates will sign over.
-duo_check_same(['database', 'filesystem', 'php', 'process', 'wordpress'], $axes, 'V3-AXIS: the boundary declares five compatibility axes today');
+wprism_check_same(['database', 'filesystem', 'php', 'process', 'wordpress'], $axes, 'V3-AXIS: the boundary declares five compatibility axes today');
 
 // The measurement WP-4.6 inherited and must not disturb: every SHIPPED claim
 // still carries the same environment, because none of the 17 declares the
@@ -1073,8 +1091,8 @@ foreach ($entryNames as $entryName) {
     }
     $distinctEnvironments[Canon::encode($claim['environment_assumptions'])][] = (string) $entryName;
 }
-duo_check_same([], array_keys($claimRefusals), 'V3-AXIS: every shipped disposition still projects a claim against the boundary');
-duo_check_same(
+wprism_check_same([], array_keys($claimRefusals), 'V3-AXIS: every shipped disposition still projects a claim against the boundary');
+wprism_check_same(
     1,
     count($distinctEnvironments),
     'V3-AXIS: all 17 claims carry byte-identical `environment_assumptions` — none of the shipped 17 narrows, so WP-4.6 moved no shipped claim'
@@ -1089,7 +1107,7 @@ $environmentish = array_values(array_intersect(
     $closedSet,
     ['compatibility', 'database', 'environment', 'environment_assumptions', 'filesystem', 'php', 'platform', 'site_mode', 'wordpress']
 ));
-duo_check_same(
+wprism_check_same(
     ['environment'],
     $environmentish,
     'V3-AXIS x V3-KEYS: the partition names exactly one environment key — WP-4.6\'s narrowing channel — and no compatibility axis'
@@ -1107,7 +1125,7 @@ $report('shipped adapters that declare a narrower environment today: 0 of 17 (th
 // record the moment the rule landed could not tell a reader how much width was
 // actually removed.
 $certSource = (string) file_get_contents($repo . '/agent/src/Adapter/AdapterCertification.php');
-duo_check(
+wprism_check(
     !str_contains($certSource, 'hash_equals(Canon::encode($platform), Canon::encode($statementTyped->platform))')
         && str_contains($certSource, 'private static function assertPlatformBinding('),
     'V3-AXIS LANDED (WP-4.7): certificate verification no longer compares the whole platform record byte-for-byte '
@@ -1122,7 +1140,7 @@ $report(sprintf(
     count($platformFields) - 1
 ));
 $boundNow = (array) $cert->getConstant('STATEMENT_PLATFORM_KEYS');
-duo_check_same(
+wprism_check_same(
     ['agent_version', 'axes', 'site_mode', 'spec_version'],
     $boundNow,
     'V3-AXIS: and what it binds instead is four members — the axes, the two the boundary is GATED on, and '
@@ -1182,17 +1200,17 @@ foreach ($spaces as $space => $values) {
     }
 }
 
-duo_check_same(
+wprism_check_same(
     ['acf', 'core', 'elementor', 'polylang', 'redirection', 'woocommerce', 'yoast'],
     $unprefixed['adapter name'],
     'V3-NS: 7 of the 17 shipped adapter names carry no hyphen at all and can be read as <vendor>-<name> under no reading'
 );
-duo_check_same(
+wprism_check_same(
     20,
     count($unprefixed['tables.*.id_kind']),
     'V3-NS: ALL 20 shipped id_kinds are underscore-separated, so the hyphen form would refuse the entire shipped vocabulary'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $unprefixed['providers[].id'],
     'V3-NS: all 14 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the convention is de facto in force'
@@ -1206,7 +1224,7 @@ $hyphenButNotVendor = array_values(array_filter(
     array_keys($shipped),
     static fn(string $n): bool => $hyphenShaped($n)
 ));
-duo_check_same(
+wprism_check_same(
     10,
     count($hyphenButNotVendor),
     'V3-NS: the other 10 names are hyphen-shaped but their first segment is not a vendor, so the closed reserved list WP-4.10 ships must enumerate all 17 names — a shape test admits the wrong ones'
@@ -1224,15 +1242,15 @@ $r17 = '';
 if (preg_match('/^### R-17 — .*?(?=^### |\z)/ms', $register, $m) === 1) {
     $r17 = $m[0];
 }
-duo_check(
+wprism_check(
     $r17 !== '' && str_contains($r17, '`id_kind` is a flat, unprefixed namespace'),
     'V3-NS: the irreversibility register still carries R-17, the row that rules on this rule'
 );
-duo_check(
+wprism_check(
     str_contains($r17, 'A convention (a vendor-shaped name) can be recommended to authors at any time; a RULE cannot be introduced'),
     'V3-NS: R-17 reserves the CONVENTION and refuses the RULE, so WP-4.10 can only grandfather — the ' . count($idKinds) . ' shipped id_kinds are not a break list, they are the permanent floor'
 );
-$report('id_kinds the flag day must grandfather: all ' . count($idKinds) . ' — wire-surface R-17: captured state and duo_map rows embed the BARE kind, so a prefix rule would have to rewrite the customer\'s branches');
+$report('id_kinds the flag day must grandfather: all ' . count($idKinds) . ' — wire-surface R-17: captured state and wprism_map rows embed the BARE kind, so a prefix rule would have to rewrite the customer\'s branches');
 
 // Every shipped name already passes the single shared identity grammar, so the
 // namespace rule is additive over `assert_name()` rather than a replacement.
@@ -1244,11 +1262,11 @@ foreach (array_merge(array_keys($shipped), array_keys($idKinds), array_keys($pro
         $grammarRefusals[(string) $identity] = $e->getMessage();
     }
 }
-duo_check_same([], $grammarRefusals, 'V3-NS: all 51 shipped identities already pass AdapterSources::assert_name(), so the namespace rule layers over one grammar');
+wprism_check_same([], $grammarRefusals, 'V3-NS: all 51 shipped identities already pass AdapterSources::assert_name(), so the namespace rule layers over one grammar');
 
 // id_kind collisions are the correctness reason the namespace exists at all.
 $collisions = array_values(array_filter(array_keys($idKinds), static fn(string $k): bool => count(array_unique($idKinds[$k])) > 1));
-duo_check_same([], $collisions, 'V3-NS: no id_kind is claimed by two shipped adapters today, so the rule grandfathers a collision-free set');
+wprism_check_same([], $collisions, 'V3-NS: no id_kind is claimed by two shipped adapters today, so the rule grandfathers a collision-free set');
 
 // ===========================================================================
 // The flag-day break list, as one table.
@@ -1267,7 +1285,7 @@ foreach ($breakList as $rule => $count) {
 }
 $report('findings from this dry run, as resolved by § v3.3: F2 (theme_version_range) joined the partition; F3 (`_draft` emitted by adapter-draft) is refused at v3 on the merits, with "strip it" as the remedy');
 
-duo_check_same(
+wprism_check_same(
     0,
     $breakList['V3-KEYS  closed top-level key set']
         + $breakList['V3-FEAT  engine_features channel']
@@ -1275,10 +1293,10 @@ duo_check_same(
         + $breakList['V3-AXIS  per-adapter environment narrowing'],
     'four of the five candidate rules refuse nothing in the shipped library; only V3-NS breaks it, which is why WP-4.10 grandfathers rather than refuses'
 );
-duo_check_same(
+wprism_check_same(
     27,
     $breakList['V3-NS    namespace prefixing (as a REFUSAL)'],
     'V3-NS as a bare refusal would break 27 shipped identities (7 names + 20 id_kinds) — the measurement that forces the reserved closed list'
 );
 
-duo_check_summary('spec v3 static dry run');
+wprism_check_summary('spec v3 static dry run');

@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
- * Policy-aware identity pruning for authored typed tables (DUO-3349).
+ * Policy-aware identity pruning for authored typed tables (issue #3349).
  *
  * This boundary owns the option-name preservation witness and the two map-
  * pruning scopes used by full capture and lifecycle-options capture. It does
@@ -79,7 +79,7 @@ final class SnapshotPruner {
             $live = $wpdb->get_results("SELECT `option_name` FROM `$optionsTable`", ARRAY_A);
             if ($live === false || $live === null || !empty($wpdb->last_error)) {
                 throw new \RuntimeException(
-                    'duo: cannot reconcile option_name_refs identities because the wp_options scan failed'
+                    'wprism: cannot reconcile option_name_refs identities because the wp_options scan failed'
                 );
             }
             foreach ($live as $row) {
@@ -97,7 +97,7 @@ final class SnapshotPruner {
                 $id = ($this->strictPositiveLocalId)($rawId);
                 if ($id === null) {
                     throw new \RuntimeException(
-                        "duo: option '$name' has an invalid local id in option_name_refs; refusing identity pruning"
+                        "wprism: option '$name' has an invalid local id in option_name_refs; refusing identity pruning"
                     );
                 }
                 $preserve[$kind][] = $id;
@@ -140,7 +140,7 @@ final class SnapshotPruner {
                     );
                     if ($numericName === null || $replacementCount !== 1) {
                         throw new \RuntimeException(
-                            "duo: canonical option token for id_kind '$kind' could not be reconstructed safely"
+                            "wprism: canonical option token for id_kind '$kind' could not be reconstructed safely"
                         );
                     }
                     $details = $this->policy->option_name_ref_match_details($numericName);
@@ -149,7 +149,7 @@ final class SnapshotPruner {
                         || (string) ($details['rule']['id_kind'] ?? '') !== $kind
                         || ($this->strictPositiveLocalId)($details['matches']['id'][0] ?? null) !== $id) {
                         throw new \RuntimeException(
-                            "duo: canonical option token for id_kind '$kind' is not owned by exactly one authored option_name_refs rule"
+                            "wprism: canonical option token for id_kind '$kind' is not owned by exactly one authored option_name_refs rule"
                         );
                     }
                     $preserve[$kind][] = $id;

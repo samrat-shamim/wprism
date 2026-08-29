@@ -1,20 +1,20 @@
 <?php
 declare(strict_types=1);
 
-// DUO-3225: offline contract inventory for the exact WooCommerce 11.0.x
+// issue #3225: offline contract inventory for the exact WooCommerce 11.0.x
 // fixture. The live conformance suite proves behavior; this fast test keeps a
 // future option/table addition from becoming invisible by accident.
 
-define('DUO_SPEC_VERSION', 3);
+define('WPRISM_SPEC_VERSION', 3);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Code/Code.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 require dirname(__DIR__, 4) . '/agent/src/Review/Lint.php';
 
-use Duo\CaptureCandidateBuilder;
-use Duo\CommandRefusalException;
-use Duo\Policy;
+use WPrism\CaptureCandidateBuilder;
+use WPrism\CommandRefusalException;
+use WPrism\Policy;
 
 $GLOBALS['wooContractBlogId'] = 1;
 if (!function_exists('get_current_blog_id')) {
@@ -68,11 +68,11 @@ $wooDispositionDocument = json_decode((string) file_get_contents($root . '/adapt
 // were read from — the strongest form of the claim this snapshot makes.
 $policy = Policy::from_snapshot([
     'dispositions' => null,
-    'format' => 'duo-policy-snapshot/v6',
-    'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
+    'format' => 'wprism-policy-snapshot/v6',
+    'adapter_sources' => ['certificates' => [], 'format' => 'wprism-adapter-sources/v2', 'out_of_tree' => []],
     'manifests' => [$manifest],
-    'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
-], \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
+    'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => WPRISM_SPEC_VERSION],
+], \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 woo_ok($policy->option_rule_details('pickup_location_pickup_locations') === [
     'rule' => ['class' => 'authored', 'plain_data' => true, 'autoload' => 'preserve'],
     'source' => 'woocommerce',
@@ -114,7 +114,7 @@ $settingsInventory = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 require_once $root . '/tools/src/ArtifactLibrary.php';
-$artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
+$artifactLock = \WPrism\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
 $externalProductInventory = json_decode(
     (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/woocommerce-core-11.0-external-product.json'),
     true,
@@ -125,7 +125,7 @@ $termSurfaceInventory = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
-woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inventory/v1',
+woo_ok(($settingsInventory['format'] ?? null) === 'wprism-woocommerce-settings-inventory/v1',
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 148,
     'the exact 11.0.0/11.0.1 visible-settings union freezes all 148 reviewed source ids');
@@ -306,7 +306,7 @@ foreach ((array) ($settingsInventory['artifacts'] ?? []) as $version => $sha256)
 woo_ok(array_keys((array) ($settingsInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1']
     && ($manifest['version_range'] ?? null) === ['min' => '11.0.0', 'max' => '11.0.2'],
     'the source inventory and manifest admit exactly the same two official artifacts');
-woo_ok(($externalProductInventory['format'] ?? null) === 'duo-woocommerce-external-product-inventory/v1',
+woo_ok(($externalProductInventory['format'] ?? null) === 'wprism-woocommerce-external-product-inventory/v1',
     'external products use one exact source-derived inventory');
 woo_ok(array_keys((array) ($externalProductInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1']
     && count((array) ($externalProductInventory['source_files'] ?? [])) === 7,
@@ -323,7 +323,7 @@ foreach ((array) ($externalProductInventory['source_files'] ?? []) as $sourceFil
 woo_ok(($externalProductInventory['contract']['authored_post_meta'] ?? null) === ['_button_text', '_product_url']
     && ($externalProductInventory['contract']['url_semantics'] ?? null) === 'source-home-tokenized-target-home-rebound',
     'the external-product inventory closes its two authored rows and target-local URL identity');
-woo_ok(($termSurfaceInventory['format'] ?? null) === 'duo-woocommerce-term-surface-inventory/v1'
+woo_ok(($termSurfaceInventory['format'] ?? null) === 'wprism-woocommerce-term-surface-inventory/v1'
     && count((array) ($termSurfaceInventory['source_files'] ?? [])) === 15,
     'the brand/category/visual inventory binds all fifteen exact native paths');
 foreach ((array) ($termSurfaceInventory['artifacts'] ?? []) as $version => $sha256) {
@@ -615,7 +615,7 @@ woo_ok(($derivedConvergence['thumbnail_images']['background_state'] ?? null) ===
 ] && ($policy->option_rule('woocommerce_maybe_regenerate_images_hash')['class'] ?? null) === 'runtime',
 'the Customizer hash and per-blog queue remain target runtime acceleration');
 
-// DUO-3315: this is a manifest declaration, not an engine convention. The
+// issue #3315: this is a manifest declaration, not an engine convention. The
 // generic engine must obtain Woo's product/variation edge through Policy in
 // exactly the same way an unrelated adapter obtains its own CPT relationship.
 woo_ok(($manifest['post_types']['product']['children'] ?? null) === ['product_variation'],
@@ -713,11 +713,11 @@ woo_ok(($policy->option_rule('woocommerce_flat_rate_41_settings')['ref'] ?? null
     && $policy->match_option_name_ref('woocommerce_flat_rate_41_settings') !== null,
     'shipping instance settings use option-name embedded typed identity');
 
-// DUO-3509: three rows a fresh WooCommerce 11.0.1 install carries that this
+// issue #3509: three rows a fresh WooCommerce 11.0.1 install carries that this
 // inventory did not name. Two of them fall OUTSIDE this manifest's own
 // option_namespaces (`^(?:action_scheduler|wc|woocommerce)_`), which is why
 // they are asked through option_rule() rather than owned_option_rule() —
-// they reached `duo pending` through the journal, not through namespace
+// they reached `wprism pending` through the journal, not through namespace
 // enumeration, and a namespace claim for `default_product_cat` would be a
 // claim over a name WordPress core's own `default_category` is a sibling of.
 woo_ok(($policy->option_rule('default_product_cat')['class'] ?? '') === 'authored'
@@ -814,7 +814,7 @@ woo_ok(($declaredTables['wc_tax_rate_classes']['class'] ?? '') === 'authored_sna
 
 $actions = $policy->actions();
 $actionSources = array_map(
-    static fn(array $row): string => \Duo\Policy::action_source($row, (int) $row['index']),
+    static fn(array $row): string => \WPrism\Policy::action_source($row, (int) $row['index']),
     $actions
 );
 woo_ok($actionSources === [
@@ -843,7 +843,7 @@ woo_ok(in_array('option:pickup_location_pickup_locations', $cacheAction['trigger
     && in_array('option:woocommerce_pickup_location_settings', $cacheAction['triggers'] ?? [], true),
     'both local-pickup REST records trigger the receipt-bound native shipping-cache invalidation');
 $productAction = $productActions[0] ?? [];
-// DUO-3342: the third entry is a MIGRATED dispatch, not a new repair. It is
+// issue #3342: the third entry is a MIGRATED dispatch, not a new repair. It is
 // bounded by the same two post-type triggers the retired regen_dependency
 // declarations covered, and those declarations are gone — a manifest carrying
 // both would be two dispatchers over one post type, which negotiation refuses.
@@ -852,30 +852,30 @@ woo_ok(count($productActions) === 1
     'the product lookup repair stays bounded to the two product post types it always covered');
 woo_ok($policy->regen_batch_post_types() === [] && $policy->regen_dependency('product') === null,
     'and the batch regenerator channel it replaced claims no Woo post type any more');
-// DUO-3341: the legacy whole-catalog projection class is deleted outright,
+// issue #3341: the legacy whole-catalog projection class is deleted outright,
 // not quarantined. Engine core must carry no WooCommerce-named production
 // source and the bootstrap must not load one; Woo semantics live in
 // WooCommerce package manifest and the provider/native-action contract.
-// These assertions fail against the pre-DUO-3341 tree (class present,
-// require_once in agent/duo.php), which is this issue's regression proof.
+// These assertions fail against the pre-issue #3341 tree (class present,
+// require_once in agent/wprism.php), which is this issue's regression proof.
 // Recursive since the module move (ROUND 3 TRAIN 1): agent/src is a tree of
 // module directories, so a flat scandir() would enumerate module names and let
 // both checks below pass for the wrong reason. The deleted class is now looked
-// for ANYWHERE under agent/src, which is the claim DUO-3341 actually makes.
+// for ANYWHERE under agent/src, which is the claim issue #3341 actually makes.
 $engineSrcEntries = [];
 foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/agent/src', FilesystemIterator::SKIP_DOTS)) as $engineSrcEntry) {
     if ($engineSrcEntry instanceof SplFileInfo && $engineSrcEntry->isFile() && $engineSrcEntry->getExtension() === 'php') {
         $engineSrcEntries[] = $engineSrcEntry->getFilename();
     }
 }
-woo_ok(!in_array('WooCommerceContract.php', $engineSrcEntries, true), 'the whole-catalog Woo projection class is deleted from engine core (DUO-3341)');
+woo_ok(!in_array('WooCommerceContract.php', $engineSrcEntries, true), 'the whole-catalog Woo projection class is deleted from engine core (issue #3341)');
 woo_ok(count($engineSrcEntries) > 2, 'agent/src enumerates non-empty for the WooCommerce-named source scan');
 $wooNamedEngineSources = array_values(array_filter(
     $engineSrcEntries,
     static fn(string $name): bool => stripos($name, 'woocommerce') !== false || stripos($name, 'woo') === 0
 ));
-woo_ok($wooNamedEngineSources === [], 'no WooCommerce-named production class remains under agent/src (DUO-3341)');
-woo_ok(!str_contains((string) file_get_contents($root . '/agent/duo.php'), 'WooCommerce'), 'agent bootstrap loads no WooCommerce-named engine source (DUO-3341)');
+woo_ok($wooNamedEngineSources === [], 'no WooCommerce-named production class remains under agent/src (issue #3341)');
+woo_ok(!str_contains((string) file_get_contents($root . '/agent/wprism.php'), 'WooCommerce'), 'agent bootstrap loads no WooCommerce-named engine source (issue #3341)');
 $unsupportedDeletes = [
     'post:product',
     'post:product_variation',
@@ -921,7 +921,7 @@ $wooPostapplyHarness = (string) file_get_contents(dirname(__DIR__) . '/conforman
 $wooCheckHarness = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
 $wooInterpreterSource = (string) file_get_contents($root . '/adapter-packages/woocommerce/package/runtime/interpreters/woocommerce.php');
 
-// DUO-3525: deploy compiles mixed options while installed WooCommerce code can
+// issue #3525: deploy compiles mixed options while installed WooCommerce code can
 // still be inactive, so only WordPress's plugin root exists at that boundary.
 // Once Woo is active, both plugin constants must agree with that same fixed
 // slug before the byte-identical settings abstract may be included.
@@ -1032,14 +1032,14 @@ woo_ok(
         && str_contains($nativePermalinkRecord, 'native permalink authority is substituted')
         && str_contains($nativePermalinkChild, 'WpCliChildProcess::capture_with_input(')
         && str_contains($nativePermalinkChild, "'eval ' . escapeshellarg(\$code)")
-        && str_contains($nativePermalinkChild, "'duo-woocommerce-native-permalink-input/v1'")
+        && str_contains($nativePermalinkChild, "'wprism-woocommerce-native-permalink-input/v1'")
         && str_contains($nativePermalinkRunner, 'stream_get_contents(STDIN, 16385)')
-        && str_contains($nativePermalinkRunner, "'duo-woocommerce-native-permalink-receipt/v1'")
+        && str_contains($nativePermalinkRunner, "'wprism-woocommerce-native-permalink-receipt/v1'")
         && str_contains($nativePermalinkRunner, "hash('sha256', \$canonical)"),
     'inactive validation hash-binds both native files, rejects substituted loaded sanitizers, keeps formatting bytes out of the activation process, and sends bounded permalink state to a fresh child over stdin'
 );
 woo_ok(
-    substr_count($nativeValidationFiles, "'duo: WooCommerce mixed option validation requires WC_Settings_API'") === 1
+    substr_count($nativeValidationFiles, "'wprism: WooCommerce mixed option validation requires WC_Settings_API'") === 1
         && substr_count($nativeValidationFiles, 'throw new \\RuntimeException($message') >= 4,
     'missing, mismatched, and substituted settings-file authorities retain the established WC_Settings_API refusal'
 );
@@ -1053,13 +1053,13 @@ $expectedWooProviderContracts = [
         'plugin' => 'woocommerce/woocommerce.php',
         'version' => '3.0.0',
         'capability' => 'rebuild_product_lookups',
-        'class' => \Duo\Providers\WoocommerceProductLookups::class,
+        'class' => \WPrism\Providers\WoocommerceProductLookups::class,
     ],
     'woocommerce-hierarchy-lookups' => [
         'plugin' => 'woocommerce/woocommerce.php',
         'version' => '2.0.0',
         'capability' => 'rebuild_hierarchy_lookups',
-        'class' => \Duo\Providers\WoocommerceHierarchyLookups::class,
+        'class' => \WPrism\Providers\WoocommerceHierarchyLookups::class,
     ],
 ];
 $manifestWooProviderRows = [];
@@ -1163,11 +1163,11 @@ foreach (range(1, 13) as $id) {
     $termMetaRows[] = [
         'meta_id' => $id,
         'term_id' => $id,
-        'meta_key' => '_duo_uuid',
+        'meta_key' => '_wprism_uuid',
         'meta_value' => sprintf('11111111-1111-7111-8111-%012d', $id),
     ];
 }
-$scopeDb = \DuoTest\FakeWpdb::install();
+$scopeDb = \WPrismTest\FakeWpdb::install();
 $scopeDb->seedTable('wp_posts', [])
     ->seedTable('wp_terms', $termRows)
     ->seedTable('wp_term_taxonomy', $termTaxonomyRows);
@@ -1200,8 +1200,8 @@ $coreManifest = json_decode(
 );
 $capturePolicy = Policy::from_snapshot([
     'dispositions' => null,
-    'format' => 'duo-policy-snapshot/v6',
-    'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
+    'format' => 'wprism-policy-snapshot/v6',
+    'adapter_sources' => ['certificates' => [], 'format' => 'wprism-adapter-sources/v2', 'out_of_tree' => []],
     'manifests' => [],
     'site' => [
         'manifests' => [],
@@ -1210,13 +1210,13 @@ $capturePolicy = Policy::from_snapshot([
             'post_types' => [],
             'taxonomies' => $correctedTaxonomies,
             'post_meta' => [],
-            'term_meta' => ['_duo_uuid' => $coreManifest['term_meta']['_duo_uuid']],
+            'term_meta' => ['_wprism_uuid' => $coreManifest['term_meta']['_wprism_uuid']],
             'user_meta' => [],
         ],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ],
-], \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
-$captureDb = \DuoTest\FakeWpdb::install()->enableJoinedCaptureSql();
+], \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
+$captureDb = \WPrismTest\FakeWpdb::install()->enableJoinedCaptureSql();
 $captureDb->seedTable('wp_posts', [])
     ->seedTable('wp_postmeta', [])
     ->seedTable('wp_terms', $termRows)
@@ -1226,9 +1226,9 @@ $captureDb->seedTable('wp_posts', [])
     ->seedTable('wp_options', [])
     ->seedTable('wp_users', [])
     ->seedTable('wp_usermeta', [])
-    ->seedTable('wp_duo_map', [])
-    ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
-    ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
+    ->seedTable('wp_wprism_map', [])
+    ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
 $candidate = (new CaptureCandidateBuilder('/siterepo', $capturePolicy))->build(false);
 $termEntities = array_values(array_filter(
     $candidate['entities'],
@@ -1236,7 +1236,7 @@ $termEntities = array_values(array_filter(
 ));
 $capturedTaxonomies = [];
 foreach ($termEntities as $entity) {
-    $decoded = \Duo\Canon::decode((string) ($entity['content'] ?? ''));
+    $decoded = \WPrism\Canon::decode((string) ($entity['content'] ?? ''));
     $capturedTaxonomies[] = $decoded['taxonomy'] ?? null;
 }
 $capturedCounts = array_count_values($capturedTaxonomies);
@@ -1251,11 +1251,11 @@ woo_ok(count(array_filter(
 
 // Exact 11.0.1 conformance found four legitimate numeric values: v3
 // attribute-term REST menu_order 7/3 and the bounded Customizer thumbnail
-// ratio 1/1. Lint's option scan now shares DUO-3508's wholly-0/1 boolean
+// ratio 1/1. Lint's option scan now shares issue #3508's wholly-0/1 boolean
 // suppression, so only the two genuine non-boolean collisions remain findings;
 // drive the real scanner here so neither that suppression nor the reviewed
 // lint_ok declarations can drift behind a static manifest assertion.
-$lintState = sys_get_temp_dir() . '/duo-woo-lint-' . bin2hex(random_bytes(6));
+$lintState = sys_get_temp_dir() . '/wprism-woo-lint-' . bin2hex(random_bytes(6));
 mkdir($lintState . '/options', 0777, true);
 mkdir($lintState . '/terms/pa_conf-color', 0777, true);
 $lintLibrary = $lintState . '/manifest-library';
@@ -1287,8 +1287,8 @@ $removeLintTree = static function (string $path) use (&$removeLintTree): void {
 register_shutdown_function(static function () use ($lintState, $removeLintTree): void {
     $removeLintTree($lintState);
 });
-file_put_contents($lintFiles[0], \Duo\Canon::encode([
-    'format' => 'duo-options/v1',
+file_put_contents($lintFiles[0], \WPrism\Canon::encode([
+    'format' => 'wprism-options/v1',
     'records' => [
         'woocommerce_thumbnail_cropping_custom_height' => [
             'autoload' => 'auto',
@@ -1306,7 +1306,7 @@ foreach ([
     [$lintFiles[1], 'Red', 'red', '7'],
     [$lintFiles[2], 'Blue', 'blue', '3'],
 ] as [$file, $name, $slug, $order]) {
-    file_put_contents($file, \Duo\Canon::encode([
+    file_put_contents($file, \WPrism\Canon::encode([
         'description' => '',
         'meta' => ['order' => $order],
         'name' => $name,
@@ -1319,18 +1319,18 @@ foreach ([
             : '22222222-2222-5222-8222-222222222222',
     ]));
 }
-\DuoTest\WpStore::reset()->seedOptions(['home' => 'https://woo-lint.test']);
-\DuoTest\FakeWpdb::install()->seedTable('wp_posts', [
+\WPrismTest\WpStore::reset()->seedOptions(['home' => 'https://woo-lint.test']);
+\WPrismTest\FakeWpdb::install()->seedTable('wp_posts', [
     ['ID' => 1, 'post_type' => 'attachment', 'post_title' => 'Placeholder', 'post_status' => 'inherit'],
     ['ID' => 3, 'post_type' => 'page', 'post_title' => 'Cart', 'post_status' => 'publish'],
     ['ID' => 7, 'post_type' => 'page', 'post_title' => 'Catalog', 'post_status' => 'publish'],
 ]);
 $lintPolicy = static function (array $wooManifest) use ($lintLibrary, $root): Policy {
-    return \DuoTest\FrozenPolicy::policy(
+    return \WPrismTest\FrozenPolicy::policy(
         [$wooManifest],
-        \DuoTest\FrozenPolicy::site([$wooManifest], DUO_SPEC_VERSION),
+        \WPrismTest\FrozenPolicy::site([$wooManifest], WPRISM_SPEC_VERSION),
         $lintLibrary,
-        \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+        \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
     );
 };
 $preReviewManifest = $manifest;
@@ -1339,10 +1339,10 @@ unset(
     $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_height']['lint_ok'],
     $preReviewManifest['options']['woocommerce_thumbnail_cropping_custom_width']['lint_ok']
 );
-$preReviewFindings = \Duo\Lint::scan_tree(
+$preReviewFindings = \WPrism\Lint::scan_tree(
     $lintState,
     $lintPolicy($preReviewManifest),
-    \Duo\LintEnvironment::live()
+    \WPrism\LintEnvironment::live()
 );
 $preReviewLocators = array_column($preReviewFindings, 'locator');
 sort($preReviewLocators, SORT_STRING);
@@ -1352,7 +1352,7 @@ woo_ok($preReviewLocators === [
 ] && array_values(array_unique(array_column($preReviewFindings, 'class'))) === ['bare_id'],
 'the pre-review Woo policy reproduces both non-boolean bare-id collisions while wholly-1 option values stay suppressed');
 woo_ok(
-    \Duo\Lint::scan_tree($lintState, $lintPolicy($manifest), \Duo\LintEnvironment::live()) === [],
+    \WPrism\Lint::scan_tree($lintState, $lintPolicy($manifest), \WPrism\LintEnvironment::live()) === [],
     'the shipped Woo policy audits the exact term-order and thumbnail-dimension scalars without suppressing other keys'
 );
 foreach ($lintFiles as $file) {
@@ -1397,7 +1397,7 @@ $wooMatrixApplyAfterNormalization = $wooMatrixPlaceholderNormalization === false
     ? false
     : strpos(
         $woocommerceMatrixHarness,
-        'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts',
+        'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts',
         $wooMatrixPlaceholderNormalization
     );
 $wooMatrixUpgradeNormalization = $wooMatrixPlaceholderNormalization === false
@@ -1411,7 +1411,7 @@ $wooMatrixUpgradeApply = $wooMatrixUpgradeNormalization === false
     ? false
     : strpos(
         $woocommerceMatrixHarness,
-        'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts',
+        'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts',
         $wooMatrixUpgradeNormalization
     );
 $wooReinstallDeploy = strpos($wooCheckHarness, 'REINSTALL_DEPLOY=');
@@ -1503,7 +1503,7 @@ $conformanceFamilyWitnesses = [
         '3147484000',
         'Hostile selected review page',
         'target-secret-token-preserved',
-        'duo-target-runtime-session',
+        'wprism-target-runtime-session',
     ]],
     'identity-references' => [$wooCheckHarness, [
         'hostile terms and typed natural keys retain divergent >2^31 target identities',
@@ -1535,7 +1535,7 @@ $conformanceFamilyWitnesses = [
         'lookup-schema failure retains authored intent and retry authority',
     ]],
     'concurrency-idempotence' => [$wooCheckHarness, [
-        'DUO_TEST_PROMOTION_PAUSE_MS=30000',
+        'WPRISM_TEST_PROMOTION_PAUSE_MS=30000',
         'CONCURRENT_PAUSE_OBSERVED_AT))" -lt 25',
         'process_fence_held',
         'deterministic WooCommerce provider race refuses the loser',
@@ -1636,7 +1636,7 @@ foreach ([
 }
 $themeScopeMatch = [];
 woo_ok(
-    preg_match('/^# DUO_THEME_SCOPE_BEGIN\n(.*?)^# DUO_THEME_SCOPE_END$/ms', $wooSeedHarness, $themeScopeMatch) === 1,
+    preg_match('/^# WPRISM_THEME_SCOPE_BEGIN\n(.*?)^# WPRISM_THEME_SCOPE_END$/ms', $wooSeedHarness, $themeScopeMatch) === 1,
     'visual-attribute fixture exposes one executable theme-scope block for failure-path testing'
 );
 if ($themeScopeMatch !== []) {
@@ -1651,12 +1651,12 @@ wp_conf1() {
             ;;
         'theme activate')
             ACTIVE_THEME="$3"
-            printf '%s\n' "$ACTIVE_THEME" >> "$DUO_THEME_LOG"
+            printf '%s\n' "$ACTIVE_THEME" >> "$WPRISM_THEME_LOG"
             ;;
         'option update')
             ;;
         'wc product_attribute')
-            if [ "${DUO_TEST_FAIL_VISUAL:-0}" = 1 ] && [[ "$*" == *'Conf Color'* ]]; then
+            if [ "${WPRISM_TEST_FAIL_VISUAL:-0}" = 1 ] && [[ "$*" == *'Conf Color'* ]]; then
                 return 42
             fi
             printf '42\n'
@@ -1671,15 +1671,15 @@ BASH;
     $scopeScript .= <<<'BASH'
 printf 'active=%s\n' "$ACTIVE_THEME"
 BASH;
-    $scopePath = tempnam(sys_get_temp_dir(), 'duo-woo-theme-scope-');
-    $scopeLog = tempnam(sys_get_temp_dir(), 'duo-woo-theme-log-');
+    $scopePath = tempnam(sys_get_temp_dir(), 'wprism-woo-theme-scope-');
+    $scopeLog = tempnam(sys_get_temp_dir(), 'wprism-woo-theme-log-');
     file_put_contents($scopePath, $scopeScript);
     chmod($scopePath, 0700);
     $runScope = static function (string $script, string $log, bool $fail): array {
         $pipes = [];
         $environment = $_ENV;
-        $environment['DUO_THEME_LOG'] = $log;
-        $environment['DUO_TEST_FAIL_VISUAL'] = $fail ? '1' : '0';
+        $environment['WPRISM_THEME_LOG'] = $log;
+        $environment['WPRISM_TEST_FAIL_VISUAL'] = $fail ? '1' : '0';
         $process = proc_open(
             ['/bin/bash', $script],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -1848,7 +1848,7 @@ woo_ok(
         < strpos($wooCheckHarness, 'require_observed_nonempty "conf2 WooCommerce thumbnail lazy-convergence observation"'),
     'thumbnail live probe reports the raw failing command before set -e or JSON parsing can swallow it'
 );
-woo_ok(!str_contains($wooCheckHarness, 'Duo_Woo_Missing_Image_Editor'),
+woo_ok(!str_contains($wooCheckHarness, 'WPrism_Woo_Missing_Image_Editor'),
     'thumbnail failure injection asks WordPress for its native no-editor error instead of naming an unloadable callback');
 woo_ok(!str_contains($wooCheckHarness, 'failed_metadata_unchanged'),
     'thumbnail evidence does not retain the disproved metadata-preservation assertion');
@@ -1919,7 +1919,7 @@ woo_ok(
     'downgrade recapture comparator permits only both existing timestamp values on the two evidenced product fixtures'
 );
 
-$downgradeFixtureRoot = sys_get_temp_dir() . '/duo-woo-downgrade-' . bin2hex(random_bytes(6));
+$downgradeFixtureRoot = sys_get_temp_dir() . '/wprism-woo-downgrade-' . bin2hex(random_bytes(6));
 $downgradeSourceRoot = $downgradeFixtureRoot . '/source';
 $downgradeTargetRoot = $downgradeFixtureRoot . '/target';
 $removeDowngradeFixture = static function () use ($downgradeFixtureRoot): void {
@@ -1975,12 +1975,12 @@ $variationBytes = $renderDowngradeProduct('variation', '2026-08-27 00:40:00', '2
 file_put_contents($downgradeSourceRoot . '/' . $variationRelative, $variationBytes);
 file_put_contents($downgradeTargetRoot . '/' . $variationRelative, $variationBytes);
 
-\Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+\WPrism\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
 woo_ok(true, 'downgrade comparator accepts exactly the two evidenced product timestamp pairs');
 $downgradeComparatorRefuses = static function (string $message) use ($downgradeSourceRoot, $downgradeTargetRoot): void {
     $threw = false;
     try {
-        \Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+        \WPrism\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
     } catch (RuntimeException) {
         $threw = true;
     }
@@ -2013,10 +2013,10 @@ $downgradeComparatorRefuses('downgrade comparator rejects any added tree entry')
 unlink($downgradeTargetRoot . '/options/unexpected.json');
 
 file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['widget'], $downgradeSourceBytes['widget']);
-\Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+\WPrism\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
 woo_ok(true, 'downgrade comparator accepts exact equality for one evidenced product');
 file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['precision'], $downgradeSourceBytes['precision']);
-\Duo\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
+\WPrism\Tests\Support\assert_woocommerce_downgrade_recapture($downgradeSourceRoot, $downgradeTargetRoot);
 woo_ok(true, 'downgrade comparator accepts a completely byte-identical tree');
 file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['widget'], $downgradeTargetBytes['widget']);
 file_put_contents($downgradeTargetRoot . '/' . $downgradePaths['precision'], $downgradeTargetBytes['precision']);
@@ -2065,7 +2065,7 @@ woo_ok(
             $woocommerceMatrixHarness,
             'in-range downgrade recapture diverged outside declared derived product timestamps'
         )
-        && strpos($woocommerceMatrixHarness, 'wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final')
+        && strpos($woocommerceMatrixHarness, 'wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final')
             < strpos($woocommerceMatrixHarness, '$package_tests/../fixtures/woocommerce-downgrade-recapture.php')
         && strpos($woocommerceMatrixHarness, '$package_tests/../fixtures/woocommerce-downgrade-recapture.php')
             < strpos($woocommerceMatrixHarness, 'rm -rf "siterepo/${PAIR}2/.tmp-woo-downgrade-final"')
@@ -2077,7 +2077,7 @@ woo_ok(str_contains($wooCheckHarness, 'wc_product_download_directories ORDER BY 
     'provider-race storage evidence orders WooCommerce approved directories by the exact url_id primary key');
 foreach ([
     'woocommerce_preapply_authority_assertion()',
-    'duo-woocommerce-preapply-authority/v1',
+    'wprism-woocommerce-preapply-authority/v1',
     'loaded_manifests',
     'jq -se',
     'length == 1',
@@ -2097,14 +2097,14 @@ woo_ok(
         && strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
             < strpos(
                 $woocommerceMatrixHarness,
-                'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision"',
+                'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision"',
                 strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'")
             )
         && str_contains($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
         && strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
             < strpos(
                 $woocommerceMatrixHarness,
-                'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
+                'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
                 strpos($woocommerceMatrixHarness, "woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'")
             ),
     'every successful exact WooCommerce boundary, upgrade, and downgrade apply emits deterministic loaded-manifest and diagnostic-seam rule authority evidence first'
@@ -2122,10 +2122,10 @@ $wooMatrixCase = $wooMatrixCaseStart !== false
 $wooPostapplyCall = strpos($wooMatrixCase, 'postapply_woocommerce_content');
 $wooApplySuccess = strpos($wooMatrixCase, 'pass "deploy + apply succeeded on side 2');
 $wooCheck = strpos($wooMatrixCase, 'check_woocommerce_content');
-$wooCanonicalRecapture = strpos($wooMatrixCase, 'wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"');
+$wooCanonicalRecapture = strpos($wooMatrixCase, 'wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"');
 $wooBoundaryApply = strpos(
     $wooMatrixCase,
-    'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"'
+    'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"'
 );
 $wooBoundaryCanary = $wooBoundaryApply === false
     ? false
@@ -2141,7 +2141,7 @@ $wooUpgradeApply = $wooUpgradeAuthority === false
     ? false
     : strpos(
         $wooMatrixCase,
-        'wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
+        'wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV"',
         $wooUpgradeAuthority
     );
 $wooUpgradeCanary = $wooUpgradeApply === false
@@ -2218,8 +2218,8 @@ foreach ([
         "exact WooCommerce product-deletion matrix pins $deletionWitness");
 }
 woo_ok(str_contains($woocommerceMatrixHarness, 'version_matrix_preflight()')
-    && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA')
-    && str_contains($woocommerceMatrixHarness, 'export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"'),
+    && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA')
+    && str_contains($woocommerceMatrixHarness, 'export WPRISM_SOURCE_ROOT="$(cd .. && pwd -P)"'),
     'the WooCommerce artifact matrix mounts its invoking candidate worktree before pair reset');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
@@ -12,7 +12,7 @@ require_once __DIR__ . '/../Kernel/MetaRows.php';
  * Read-only capture of login-keyed authored user-meta sidecars.
  *
  * Users remain environment-local: this boundary reads the complete live
- * user/usermeta roster but never mints a user UUID or writes duo_map. Policy
+ * user/usermeta roster but never mints a user UUID or writes wprism_map. Policy
  * and token codecs are injected as collaborators, while Capture retains the
  * two security decisions that need repository/operator context -- secret and
  * personal-data refusal -- as explicit callbacks. The resulting entities are
@@ -75,7 +75,7 @@ final class UserMetaCapture {
             }
             $document = UserMetaState::document($login, $authored);
             $outByLogin[$login] = [
-                // Canonical-state key only: not a UUID, never duo_map.
+                // Canonical-state key only: not a UUID, never wprism_map.
                 'uuid' => UserMetaState::key($login),
                 'type' => 'user-meta',
                 'path' => UserMetaState::path($login),
@@ -134,7 +134,7 @@ final class UserMetaCapture {
                     || $bytes === 0
                     || $bytes > self::MAX_USER_LOGIN_BYTES) {
                     throw new \RuntimeException(
-                        "duo: user-meta user size preflight returned a malformed row at bounded position $position"
+                        "wprism: user-meta user size preflight returned a malformed row at bounded position $position"
                     );
                 }
                 $expectedUsers[$id] = [
@@ -145,7 +145,7 @@ final class UserMetaCapture {
                 $lastUserId = $id;
                 ++$seenUsers;
                 if ($seenUsers > self::MAX_USERS) {
-                    throw new \RuntimeException('duo: user-meta capture exceeds the bounded user limit');
+                    throw new \RuntimeException('wprism: user-meta capture exceeds the bounded user limit');
                 }
             }
             $ids = array_keys($expectedUsers);
@@ -159,7 +159,7 @@ final class UserMetaCapture {
                 'Capture::user_meta_users_value_read()'
             );
             if (count($userRows) !== count($expectedUsers)) {
-                throw new \RuntimeException('duo: user-meta users changed after the bounded size preflight');
+                throw new \RuntimeException('wprism: user-meta users changed after the bounded size preflight');
             }
             $users = [];
             $loginHashes = [];
@@ -181,13 +181,13 @@ final class UserMetaCapture {
                     || $characters === 0
                     || $characters > self::MAX_USER_LOGIN_CHARACTERS) {
                     throw new \RuntimeException(
-                        "duo: user-meta user value read returned a malformed row at bounded position $position"
+                        "wprism: user-meta user value read returned a malformed row at bounded position $position"
                     );
                 }
                 UserMetaState::assert_login($login);
                 $loginHash = hash('sha256', $login);
                 if (isset($loginHashes[$loginHash])) {
-                    throw new \RuntimeException('duo: user-meta capture found duplicate exact login identities');
+                    throw new \RuntimeException('wprism: user-meta capture found duplicate exact login identities');
                 }
                 $loginHashes[$loginHash] = true;
                 $users[$id] = ['login' => $login, 'meta' => [], 'values' => []];
@@ -219,7 +219,7 @@ final class UserMetaCapture {
             'Capture::user_meta_size_preflight()'
         );
         if (count($preflight) > self::MAX_CHUNK_META_ROWS) {
-            throw new \RuntimeException('duo: user-meta capture exceeds the bounded chunk row limit');
+            throw new \RuntimeException('wprism: user-meta capture exceeds the bounded chunk row limit');
         }
         $expected = [];
         $ownerRows = [];
@@ -257,7 +257,7 @@ final class UserMetaCapture {
                 || $userId < $previousOwner
                 || ($userId === $previousOwner && $metaId <= $previousMetaId)) {
                 throw new \RuntimeException(
-                    "duo: user-meta size preflight returned a malformed/oversized row at bounded position $position"
+                    "wprism: user-meta size preflight returned a malformed/oversized row at bounded position $position"
                 );
             }
             $rowBytes = strlen($row['meta_id']) + strlen($row['user_id']) + $keyBytes + ($valueBytes ?? 0);
@@ -266,7 +266,7 @@ final class UserMetaCapture {
             if ($ownerRows[$userId] > MetaRows::MAX_OWNER_ROWS
                 || $ownerBytes[$userId] > MetaRows::MAX_OWNER_BYTES
                 || $rowBytes > self::MAX_CHUNK_META_BYTES - $chunkBytes) {
-                throw new \RuntimeException('duo: user-meta capture exceeds a bounded owner/chunk frontier');
+                throw new \RuntimeException('wprism: user-meta capture exceeds a bounded owner/chunk frontier');
             }
             $chunkBytes += $rowBytes;
             $previousOwner = $userId;
@@ -291,7 +291,7 @@ final class UserMetaCapture {
             'Capture::user_meta_value_read()'
         );
         if (count($rows) !== count($expected)) {
-            throw new \RuntimeException('duo: user-meta rows changed after the bounded size preflight');
+            throw new \RuntimeException('wprism: user-meta rows changed after the bounded size preflight');
         }
         foreach ($rows as $position => $row) {
             $metaId = is_array($row) ? MetaRows::positive_id($row['meta_id'] ?? null) : null;
@@ -324,7 +324,7 @@ final class UserMetaCapture {
                     : ($witness['value_sha256'] === null
                         || !hash_equals($witness['value_sha256'], hash('sha256', $value))))) {
                 throw new \RuntimeException(
-                    "duo: user-meta value read disagrees with its bounded preflight at position $position"
+                    "wprism: user-meta value read disagrees with its bounded preflight at position $position"
                 );
             }
             // wp_usermeta.meta_value is nullable. WordPress's historical
@@ -346,7 +346,7 @@ final class UserMetaCapture {
             'Capture::user_meta_orphan_check()'
         );
         if ($rows !== []) {
-            throw new \RuntimeException('duo: user-meta capture found metadata without an exact user owner');
+            throw new \RuntimeException('wprism: user-meta capture found metadata without an exact user owner');
         }
     }
 
@@ -360,7 +360,7 @@ final class UserMetaCapture {
         );
         if ($rows !== []) {
             throw new \RuntimeException(
-                'duo: user-meta capture found collation-equal duplicate login identities'
+                'wprism: user-meta capture found collation-equal duplicate login identities'
             );
         }
     }
@@ -369,7 +369,7 @@ final class UserMetaCapture {
     private function checkedRows(mixed $sql, string $context): array {
         global $wpdb;
         if (!is_string($sql) || $sql === '') {
-            throw new \RuntimeException("duo: $context could not prepare its bounded read");
+            throw new \RuntimeException("wprism: $context could not prepare its bounded read");
         }
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($sql, ARRAY_A);
@@ -377,7 +377,7 @@ final class UserMetaCapture {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $context failed or returned a malformed row list");
+            throw new \RuntimeException("wprism: $context failed or returned a malformed row list");
         }
         return $rows;
     }
@@ -404,7 +404,7 @@ final class UserMetaCapture {
         }
         if (count($values) !== 1) {
             throw new \RuntimeException(
-                "duo: multi-value authored user meta '$key' on exact login '$login' is unsupported; "
+                "wprism: multi-value authored user meta '$key' on exact login '$login' is unsupported; "
                 . 'refusing to choose one row'
             );
         }

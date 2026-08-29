@@ -1,18 +1,18 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\AdapterCertification;
-use Duo\AdapterContractGrammar;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\NativeActions;
-use Duo\Policy;
+use WPrism\AdapterCertification;
+use WPrism\AdapterContractGrammar;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\NativeActions;
+use WPrism\Policy;
 
 /**
- * `duo manifest-validate` — the adapter author's offline grammar check.
+ * `wprism manifest-validate` — the adapter author's offline grammar check.
  *
  * An adapter author writing a manifest has, until now, had exactly one way to
  * find out whether the declaration is well-formed: install the agent on a
@@ -43,7 +43,7 @@ use Duo\Policy;
  * report `ok` (see resolve()).
  *
  * The site half is optional but it is not absent from the question. Two of
- * those guards read `site.duo.json`'s own policy as INPUT: a site-declared
+ * those guards read `site.wprism.json`'s own policy as INPUT: a site-declared
  * table extends the legal ref/token/ledger kind vocabulary, and a site
  * `policy.options` rule is the ratified resolution when two manifests declare
  * one option differently. Loading with a null repo therefore does NOT merely
@@ -52,7 +52,7 @@ use Duo\Policy;
  * `--site=<site-repo-path>` passes the real repo through to both phases; without
  * it, a refusal from either of those two guards is ANNOTATED (never rewritten)
  * as possibly site-resolvable, and the always-emitted deferred list carries the
- * missing half as a permanent, named limitation. `wp duo manifest-pin` still
+ * missing half as a permanent, named limitation. `wp wprism manifest-pin` still
  * validates one installed manifest with a null repo, and is still right to: it
  * checks one manifest in isolation, where neither guard has anything to say.
  *
@@ -76,7 +76,7 @@ use Duo\Policy;
  */
 final class ManifestValidate {
     /** Envelope of the validation report (both output modes carry it). */
-    public const FORMAT = 'duo-manifest-validation/v1';
+    public const FORMAT = 'wprism-manifest-validation/v1';
 
     /**
      * Envelope of the emitted grammar document.
@@ -90,7 +90,7 @@ final class ManifestValidate {
      * `patterns`, `native_actions`, `coverage` and `deferred` is unaffected by
      * the bump.
      */
-    public const SCHEMA = 'duo-manifest-grammar/v2';
+    public const SCHEMA = 'wprism-manifest-grammar/v2';
 
     /**
      * The two engine refusals whose verdict is a function of the SITE half of
@@ -99,7 +99,7 @@ final class ManifestValidate {
      *
      *   - the ref/token/ledger kind vocabularies union their engine base with
      *     every `id_kind` declared by a pinned manifest AND by
-     *     `site.duo.json`'s own `policy.tables` (ReferenceKindGrammar::validate_ref_kinds()),
+     *     `site.wprism.json`'s own `policy.tables` (ReferenceKindGrammar::validate_ref_kinds()),
      *     so a manifest referencing a kind the SITE declares is legal there and
      *     refused here;
      *   - two manifests declaring contradictory rules for one option name are
@@ -122,7 +122,7 @@ final class ManifestValidate {
      * naming the flag that answers the question. Getting this wrong in the safe
      * direction (annotating a refusal a site could not have fixed) costs a line
      * of output; getting it wrong in the other direction sends an author to
-     * "add a site.duo.json override" they already have.
+     * "add a site.wprism.json override" they already have.
      */
     private const SITE_SENSITIVE_REFUSALS = [
         'kind vocabulary is closed',
@@ -131,7 +131,7 @@ final class ManifestValidate {
     ];
 
     /** Verbatim annotation for a refusal that a real site policy may resolve. */
-    private const SITE_NOTE = 'note: this refusal can be resolved by a site.duo.json this offline check was not '
+    private const SITE_NOTE = 'note: this refusal can be resolved by a site.wprism.json this offline check was not '
         . 'given — re-run with --site=<repo> to validate against the real site policy';
 
     /**
@@ -166,10 +166,10 @@ final class ManifestValidate {
         }
         $rows = array_merge($rows, [
             [
-                'surface' => 'site.duo.json policy.tables / policy.options',
+                'surface' => 'site.wprism.json policy.tables / policy.options',
                 'check' => 'ReferenceKindGrammar::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 'why' => 'both guards take the SITE half of policy as INPUT, not just the manifests: a table '
-                    . 'declared in site.duo.json extends the legal ref/token/ledger kind vocabulary, and a '
+                    . 'declared in site.wprism.json extends the legal ref/token/ledger kind vocabulary, and a '
                     . 'site policy.options rule is the explicit resolution for one option two manifests declare '
                     . 'differently. Without --site=<site-repo-path> this command loads with no site policy at '
                     . 'all, so either guard can refuse a manifest its real site accepts (such a refusal is '
@@ -225,7 +225,7 @@ final class ManifestValidate {
                 'check' => 'AdapterRegistry::report()',
                 'why' => 'certification is a reviewed claim evaluated against one target and the plugin version '
                     . 'installed on it. Nothing here says whether a capability is certified, exercised, '
-                    . 'uncertified, or incompatible for your site — run `duo capabilities <env>` for that',
+                    . 'uncertified, or incompatible for your site — run `wprism capabilities <env>` for that',
             ],
             [
                 'surface' => 'block_attrs / shortcode_attrs / json_refs / key_refs',
@@ -256,7 +256,7 @@ final class ManifestValidate {
         $noCode = false;
 
         // A repeated flag is refused rather than last-wins (the same posture
-        // `duo driver-capabilities` takes): a second --pins silently replacing
+        // `wprism driver-capabilities` takes): a second --pins silently replacing
         // the first would validate a set the author did not ask for and report
         // it as though they had.
         $seen = [];
@@ -292,7 +292,7 @@ final class ManifestValidate {
             } elseif (str_starts_with($arg, '--site=')) {
                 $siteArg = trim(substr($arg, strlen('--site=')));
                 if ($siteArg === '') {
-                    return self::fail('--site needs the path of a duo site repo (the directory holding site.duo.json)');
+                    return self::fail('--site needs the path of a wprism site repo (the directory holding site.wprism.json)');
                 }
             } elseif (str_starts_with($arg, '-')) {
                 return self::fail("unsupported flag '$arg'");
@@ -326,9 +326,9 @@ final class ManifestValidate {
             return self::fail("'$dir' is not a directory");
         }
 
-        // The site half is optional and, when present, must be a real duo site
-        // repo: handing Policy::load() a directory with no site.duo.json would
-        // fail per manifest with the engine's "not a duo site repo?" message on
+        // The site half is optional and, when present, must be a real wprism site
+        // repo: handing Policy::load() a directory with no site.wprism.json would
+        // fail per manifest with the engine's "not a wprism site repo?" message on
         // every row, which reads as "your manifests are broken". This is a
         // usage error about the flag, so it is refused here, once, as one.
         $site = null;
@@ -337,10 +337,10 @@ final class ManifestValidate {
             if ($siteResolved === false) {
                 return self::fail("--site '$siteArg' is not a directory");
             }
-            if (!is_file($siteResolved . '/site.duo.json')) {
+            if (!is_file($siteResolved . '/site.wprism.json')) {
                 return self::fail(
-                    "--site '$siteResolved' has no site.duo.json — --site takes the duo SITE REPO (the directory "
-                    . 'holding site.duo.json), whose policy half these manifests are validated against'
+                    "--site '$siteResolved' has no site.wprism.json — --site takes the wprism SITE REPO (the directory "
+                    . 'holding site.wprism.json), whose policy half these manifests are validated against'
                 );
             }
             $site = $siteResolved;
@@ -354,7 +354,7 @@ final class ManifestValidate {
 
         // One physical inventory object is constructed once and passed to
         // EVERY Policy load below. Production no longer reads
-        // DUO_MANIFESTS_DIR; letting this host command set that retired global
+        // WPRISM_MANIFESTS_DIR; letting this host command set that retired global
         // would make the report describe the checkout's default packages while
         // printing paths from the caller's input. A source checkout is the
         // normal authoring input. The strict legacy reader remains available
@@ -387,7 +387,7 @@ final class ManifestValidate {
         }
 
         // Pre-flight the site half ALONE, before any manifest is judged against
-        // it. A malformed site.duo.json is an input this command was handed, not
+        // it. A malformed site.wprism.json is an input this command was handed, not
         // a verdict about anybody's manifest — but every phase below loads that
         // same file, so without this the site's own single refusal is repeated
         // once per manifest plus once for the pin set, and an author reads
@@ -405,15 +405,15 @@ final class ManifestValidate {
                 // A refusal the adapter-source scan knows by code (a site
                 // copy shadowing a shipped name, a malformed trust root…) is
                 // reported typed, whatever words it contains — its sentence
-                // may well mention site.duo.json, since that file is where
+                // may well mention site.wprism.json, since that file is where
                 // the remedy lives.
                 $typed = self::typedSourceRefusal($adapterLibrary, $site, $t->getMessage());
                 if ($typed !== null) {
                     return self::fail($typed);
                 }
-                if (str_contains($t->getMessage(), 'site.duo.json')) {
+                if (str_contains($t->getMessage(), 'site.wprism.json')) {
                     return self::fail(
-                        "--site '$site' has a site.duo.json this command cannot load, so no manifest was judged "
+                        "--site '$site' has a site.wprism.json this command cannot load, so no manifest was judged "
                         . 'against it: ' . $t->getMessage()
                     );
                 }
@@ -440,7 +440,7 @@ final class ManifestValidate {
                 $row['status'] = 'error';
                 $row['message'] = $t->getMessage();
             }
-            // DUO-3325: a manifest carrying a `duo adapter-draft` `_draft` sidecar
+            // issue #3325: a manifest carrying a `wprism adapter-draft` `_draft` sidecar
             // has facts validated by the loop above and proposals/unsupported that
             // are INERT here by construction (trigger keys renamed so the blind
             // ref-kind walk cannot collect them, no live section mirrors them). Say
@@ -507,7 +507,7 @@ final class ManifestValidate {
 
         $report = [
             'format' => self::FORMAT,
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
             'manifests_dir' => $resolved,
             'site' => $site,
             'code' => $noCode ? 'skipped' : 'resolved',
@@ -547,7 +547,7 @@ final class ManifestValidate {
      * wanted).
      *
      * Offline is not inert, and this is the honest statement of the cost:
-     * checking that a file defines `\Duo\Interpreters\<Name>` requires the file
+     * checking that a file defines `\WPrism\Interpreters\<Name>` requires the file
      * to have been `require`d, so its top level RUNS, and `new $class($this)`
      * runs its constructor. That is the same trust decision Policy::
      * package boundary already documents for the agent itself — the adapter
@@ -566,7 +566,7 @@ final class ManifestValidate {
     }
 
     /**
-     * The facts/proposals/unsupported counts of a `duo adapter-draft` `_draft`
+     * The facts/proposals/unsupported counts of a `wprism adapter-draft` `_draft`
      * sidecar, or null when the manifest carries none. Read from the file's own
      * bytes (decoded, not re-validated): the facts are the real classification
      * sections this command already validated above; the `_draft` proposals and
@@ -639,18 +639,18 @@ final class ManifestValidate {
 
         echo self::encode([
             'schema' => self::SCHEMA,
-            'spec_version' => DUO_SPEC_VERSION,
-            'agent_version' => DUO_AGENT_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
+            'agent_version' => WPRISM_AGENT_VERSION,
             'derived_from' => [
-                'Duo\\Policy::closed_vocabularies()',
-                'Duo\\Policy::grammar_patterns()',
-                'Duo\\NativeActions::vocabulary()',
-                'Duo\\NativeActions::arg_schemas()',
-                'Duo\\AdapterContractGrammar::validate_adapter_contract() (probed)',
-                'Duo\\AdapterContractGrammar::implemented_feature_rows()',
-                'Duo\\AdapterContractGrammar::feature_section_grammars()',
-                'Duo\\AdapterCertification::topLevelKeyPartition()',
-                'Duo\\AdapterCertification::certificateArms()',
+                'WPrism\\Policy::closed_vocabularies()',
+                'WPrism\\Policy::grammar_patterns()',
+                'WPrism\\NativeActions::vocabulary()',
+                'WPrism\\NativeActions::arg_schemas()',
+                'WPrism\\AdapterContractGrammar::validate_adapter_contract() (probed)',
+                'WPrism\\AdapterContractGrammar::implemented_feature_rows()',
+                'WPrism\\AdapterContractGrammar::feature_section_grammars()',
+                'WPrism\\AdapterCertification::topLevelKeyPartition()',
+                'WPrism\\AdapterCertification::certificateArms()',
             ],
             // Every consumer of this document is entitled to know what it does
             // NOT describe, in the document rather than in a guide it may never
@@ -676,8 +676,8 @@ final class ManifestValidate {
                         . 'column-name shapes, sha-256 digests, secret-shaped-value screens, the placeholder-brace '
                         . 'scan) have no engine-owned name and are deliberately not scraped into `patterns`',
                     'pin-dependent halves: ref, token, and ledger kind vocabularies publish their engine-owned '
-                        . 'BASE only; the declared half is a property of one pin set plus one site.duo.json, '
-                        . 'reported per run by `duo manifest-validate <adapter-library> [--site=<repo>]`',
+                        . 'BASE only; the declared half is a property of one pin set plus one site.wprism.json, '
+                        . 'reported per run by `wprism manifest-validate <adapter-library> [--site=<repo>]`',
                 ],
                 'spec_window' => 'MEASURED, not declared — the accepted set is whatever the shipped '
                     . 'validate_adapter_contract() answers over the probed integers, so a widened or narrowed '
@@ -741,8 +741,8 @@ final class ManifestValidate {
      *
      * The condition is a few lines inside
      * `AdapterContractGrammar::validate_adapter_contract()`, and writing the
-     * answer here — `[DUO_SPEC_VERSION]` when this was written, now
-     * `[DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]` — would be a second copy of it
+     * answer here — `[WPRISM_SPEC_VERSION]` when this was written, now
+     * `[WPRISM_SPEC_VERSION - 1, WPRISM_SPEC_VERSION]` — would be a second copy of it
      * that stays right only until the day the window changes, which is
      * precisely the day a consumer needs this document to be right. The window
      * HAS since changed (WP-4.2), and this block followed it with no edit here;
@@ -795,13 +795,13 @@ final class ManifestValidate {
             'declared_by' => 'the manifest\'s own top-level `engine_features` list (a non-empty, sorted, '
                 . 'duplicate-free list of strings)',
             'implemented' => AdapterContractGrammar::implemented_feature_rows(),
-            'enforced_by' => 'Duo\\AdapterContractGrammar::assert_engine_features()',
+            'enforced_by' => 'WPrism\\AdapterContractGrammar::assert_engine_features()',
             'certificate_arms' => AdapterCertification::certificateArms(),
             'status' => 'A manifest declaring a name in `implemented` loads; one declaring any other name is '
                 . 'refused BY FEATURE NAME, naming this list. A declared feature\'s `keys` are admitted as '
                 . 'top-level sections on top of `top_level_keys` (§ v3.3\'s growth rule), which is why that block '
                 . 'is the base set rather than the whole answer for one manifest. Each claimed key\'s '
-                . '`sections.<key>.arm` is one of `certificate_arms` and decides what `duo adapter certify` '
+                . '`sections.<key>.arm` is one of `certificate_arms` and decides what `wprism adapter certify` '
                 . 'says about that section: `entity`/`field` put it in the signed claim\'s `surfaces` list, '
                 . '`non_surface` covers no state (§ v3.21). A key with no arm is unrepresentable — the roster '
                 . 'is a map, so a feature classifies every key it claims in the row that claims it.',
@@ -809,14 +809,14 @@ final class ManifestValidate {
     }
 
     private static function specWindow(): array {
-        $supported = DUO_SPEC_VERSION;
+        $supported = WPRISM_SPEC_VERSION;
         $probed = [];
         $accepted = [];
         for ($candidate = $supported - 2; $candidate <= $supported + 1; $candidate++) {
             $probed[] = $candidate;
             try {
                 AdapterContractGrammar::validate_adapter_contract([
-                    'name' => 'duo-manifest-grammar-probe',
+                    'name' => 'wprism-manifest-grammar-probe',
                     'spec_version' => $candidate,
                 ]);
                 $accepted[] = $candidate;
@@ -833,7 +833,7 @@ final class ManifestValidate {
             'probed' => $probed,
             'accepted' => $accepted,
             'n_minus_1_accepted' => in_array($supported - 1, $accepted, true),
-            'enforced_by' => 'Duo\\AdapterContractGrammar::validate_adapter_contract()',
+            'enforced_by' => 'WPrism\\AdapterContractGrammar::validate_adapter_contract()',
             'status' => 'This engine accepts exactly the integers in `accepted`. The N/N-1 acceptance window '
                 . '(spec/repo-format.md "Spec v3" § v3.1) is ENFORCED here: an integer outside the window '
                 . 'refuses wholesale naming the window, a manifest inside it that declares a section this '
@@ -873,9 +873,9 @@ final class ManifestValidate {
 
         return $partition + [
             'all' => $all,
-            'enforced_by' => 'Duo\\AdapterCertification::siteRatification() — signing refuses a key it cannot '
+            'enforced_by' => 'WPrism\\AdapterCertification::siteRatification() — signing refuses a key it cannot '
                 . 'classify, by name, at every spec_version; and '
-                . 'Duo\\AdapterContractGrammar::validate_adapter_contract() — loading any accepted manifest '
+                . 'WPrism\\AdapterContractGrammar::validate_adapter_contract() — loading any accepted manifest '
                 . 'version refuses an unrecognised top-level key, by name, before any value in it is read',
             'not_enforced_by' => 'No accepted manifest version. The recognised `_draft` authoring sidecar is '
                 . 'admitted only at v2 and remains refused by the signer; arbitrary keys have no exception',
@@ -912,7 +912,7 @@ final class ManifestValidate {
                 $d = $row['draft'];
                 echo "          draft: {$d['facts']} facts validated, {$d['proposals']} proposals + "
                     . "{$d['unsupported']} unsupported are INERT and unvalidated here — run "
-                    . "'duo adapter-draft --check-proposals'\n";
+                    . "'wprism adapter-draft --check-proposals'\n";
             }
         }
 
@@ -963,7 +963,7 @@ final class ManifestValidate {
     private static function encode(array $document): string {
         $json = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: manifest-validate could not encode its report');
+            throw new \RuntimeException('wprism: manifest-validate could not encode its report');
         }
         return $json;
     }
@@ -1021,10 +1021,10 @@ final class ManifestValidate {
      * Load the engine's pure validation surface into this WordPress-free
      * process.
      *
-     * The two version constants are resolved out of agent/duo.php's own source
+     * The two version constants are resolved out of agent/wprism.php's own source
      * rather than defaulted, exactly as scripts/capability-registry.php already
      * does: `Policy::load()` compares a manifest's declared `spec_version`
-     * against DUO_SPEC_VERSION, so leaving it undefined would make every
+     * against WPRISM_SPEC_VERSION, so leaving it undefined would make every
      * shipped manifest fail this command for a reason that is about the
      * command, not the manifest.
      *
@@ -1036,22 +1036,22 @@ final class ManifestValidate {
      */
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
         if (!is_file($agent)) {
             throw new \RuntimeException("manifest-validate: agent source not found at $agent");
         }
         $source = (string) file_get_contents($agent);
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('manifest-validate: could not resolve DUO_AGENT_VERSION');
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('manifest-validate: could not resolve WPRISM_AGENT_VERSION');
             }
-            define('DUO_AGENT_VERSION', $m[1]);
+            define('WPRISM_AGENT_VERSION', $m[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('manifest-validate: could not resolve DUO_SPEC_VERSION');
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('manifest-validate: could not resolve WPRISM_SPEC_VERSION');
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
 
         // Policy.php requires NativeActions.php — and AdapterRegistry.php —
@@ -1066,20 +1066,20 @@ final class ManifestValidate {
         // new enters the WordPress-reach allowlist — it is simply loaded up
         // front now instead of on the first signed-adapter path, which is the
         // cheapest way for the emitter to name a class it does not own.
-        $duoAgentClassmap = require $repo . '/agent/duo-classmap.php';
-        if (!is_array($duoAgentClassmap)) {
-            throw new \RuntimeException('manifest-validate: agent/duo-classmap.php did not return a map');
+        $wprismAgentClassmap = require $repo . '/agent/wprism-classmap.php';
+        if (!is_array($wprismAgentClassmap)) {
+            throw new \RuntimeException('manifest-validate: agent/wprism-classmap.php did not return a map');
         }
-        $duoAgentFiles = [];
-        foreach ($duoAgentClassmap as $duoAgentPath) {
-            $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+        $wprismAgentFiles = [];
+        foreach ($wprismAgentClassmap as $wprismAgentPath) {
+            $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
         }
         foreach (['Canon', 'OptionState', 'ManifestDispositions', 'Policy', 'AdapterCertification'] as $class) {
-            $duoAgentFile = $duoAgentFiles[$class] ?? null;
-            if (!is_string($duoAgentFile)) {
-                throw new \RuntimeException('manifest-validate: agent source ' . $class . '.php is absent from agent/duo-classmap.php');
+            $wprismAgentFile = $wprismAgentFiles[$class] ?? null;
+            if (!is_string($wprismAgentFile)) {
+                throw new \RuntimeException('manifest-validate: agent source ' . $class . '.php is absent from agent/wprism-classmap.php');
             }
-            require_once $repo . '/agent/' . $duoAgentFile;
+            require_once $repo . '/agent/' . $wprismAgentFile;
         }
     }
 
@@ -1138,7 +1138,7 @@ final class ManifestValidate {
     }
 
     private static function fail(string $message): int {
-        fwrite(STDERR, "duo: manifest-validate: $message\n");
+        fwrite(STDERR, "wprism: manifest-validate: $message\n");
         return 2;
     }
 }

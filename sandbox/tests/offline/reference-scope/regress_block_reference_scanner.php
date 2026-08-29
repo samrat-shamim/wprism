@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: characterize the extracted generic parsed-block scanner without
+ * issue #3354: characterize the extracted generic parsed-block scanner without
  * Policy, Ledger, a database, or WordPress parsing. Product-path coverage
  * remains regress_block_refs.php; this direct pin guards scanner registry
  * extraction from changing order, locator spelling, or declared-rule gates.
@@ -19,10 +19,10 @@ require __DIR__ . '/../../../../agent/src/Review/Pending.php';
 require __DIR__ . '/../../../../agent/src/Review/LintFinding.php';
 require __DIR__ . '/../../../../agent/src/Review/BlockReferenceScanner.php';
 
-use Duo\BlockReferenceScanner;
+use WPrism\BlockReferenceScanner;
 
-check(!class_exists(\Duo\Policy::class, false), 'block scanner standalone load does not load Policy');
-check(!class_exists(\Duo\Ledger::class, false), 'block scanner standalone load does not load Ledger');
+check(!class_exists(\WPrism\Policy::class, false), 'block scanner standalone load does not load Policy');
+check(!class_exists(\WPrism\Ledger::class, false), 'block scanner standalone load does not load Ledger');
 check(!function_exists('get_option'), 'block scanner standalone load does not need WordPress runtime helpers');
 
 $home = 'https://example.test';

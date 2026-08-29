@@ -29,7 +29,7 @@ for ($i = 0; $i < 5; $i++) {
 $stale = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
     'name' => 'Target stale executable projection',
     'desc' => 'Its row is removed without plugin hooks so the old file survives.',
-    'code' => "add_filter('duo_code_snippets_runtime', static function (\$value) { return \$value . '|target-stale-runtime'; });",
+    'code' => "add_filter('wprism_code_snippets_runtime', static function (\$value) { return \$value . '|target-stale-runtime'; });",
     'scope' => 'global',
     'priority' => 2,
     'active' => true,
@@ -57,7 +57,7 @@ echo wp_json_encode([
     'flat_enabled' => Code_Snippets\Snippet_Files::is_active(),
     'next_id_floor' => (int) $stale->id,
     'row_count' => (int) $wpdb->get_var("SELECT COUNT(*) FROM `$table`"),
-    'runtime_value' => apply_filters('duo_code_snippets_runtime', 'base'),
+    'runtime_value' => apply_filters('wprism_code_snippets_runtime', 'base'),
     'stale_file' => is_file($staleFile),
 ], JSON_UNESCAPED_SLASHES);
 PHPEOF
@@ -83,7 +83,7 @@ rm -f "$HOSTILE_FILE"
 # web container as root (the same ownership boundary checks/core.sh uses).
 read -r -d '' PRIMER_PHP <<'PHPEOF' || true
 <?php
-define('DUO_CODE_SNIPPETS_CACHE_PRIMER', true);
+define('WPRISM_CODE_SNIPPETS_CACHE_PRIMER', true);
 if (file_exists('/siterepo/.code-snippets-safe-mode')) {
     define('CODE_SNIPPETS_SAFE_MODE', true);
 }
@@ -97,8 +97,8 @@ PRIMER_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-code-snippets-cache-primer.php"
 printf '%s' "$PRIMER_PHP" > "$PRIMER_FILE"
 $COMPOSE exec -T --user root wp2 install -D -m 0644 \
   /siterepo/.tmp-code-snippets-cache-primer.php \
-  /var/www/html/wp-content/mu-plugins/duo-code-snippets-cache-primer.php
+  /var/www/html/wp-content/mu-plugins/wprism-code-snippets-cache-primer.php
 rm -f "$PRIMER_FILE"
-[ "$(wp_conf2 eval 'echo defined("DUO_CODE_SNIPPETS_CACHE_PRIMER") ? "registered" : "missing";')" = registered ] \
+[ "$(wp_conf2 eval 'echo defined("WPRISM_CODE_SNIPPETS_CACHE_PRIMER") ? "registered" : "missing";')" = registered ] \
   || fail "Code Snippets target cache-primer MU fixture was not registered"
 pass "Code Snippets target starts with divergent IDs, an empty primed API cache, a stale executable projection, flat mode, and an undeclared neighbor"

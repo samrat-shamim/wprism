@@ -11,14 +11,14 @@ wp_set_current_user(1);
 
 // Establish the target-owned end-of-day policy before any all-day row exists.
 // Updating it later would execute TEC's unchecked global postmeta callback and
-// manufacture an incoherent source fixture before Duo ever captures it.
+// manufacture an incoherent source fixture before WPrism ever captures it.
 if (!tribe_update_option('multiDayCutoff', '03:00')
     && tribe_get_option('multiDayCutoff', '__missing__') !== '03:00') {
     throw new RuntimeException('TEC source multi-day cutoff did not persist');
 }
 
-$category = wp_insert_term('Duo Readiness 東京', 'tribe_events_cat', [
-    'slug' => 'duo-readiness-category',
+$category = wp_insert_term('WPrism Readiness 東京', 'tribe_events_cat', [
+    'slug' => 'wprism-readiness-category',
     'description' => 'Portable category description — বাংলা — مرحبا',
 ]);
 if (is_wp_error($category)) {
@@ -32,8 +32,8 @@ $color->set('tec-events-cat-colors-primary', '#123abc')
     ->set('tec-events-cat-colors-priority', 17)
     ->set('tec-events-cat-colors-hidden', '0')
     ->save();
-$delete_category = wp_insert_term('Duo Unsupported Delete Category', 'tribe_events_cat', [
-    'slug' => 'duo-unsupported-delete-category',
+$delete_category = wp_insert_term('WPrism Unsupported Delete Category', 'tribe_events_cat', [
+    'slug' => 'wprism-unsupported-delete-category',
     'description' => 'A colored unreferenced category retained solely for atomic deletion refusal evidence.',
 ]);
 if (is_wp_error($delete_category)) {
@@ -49,7 +49,7 @@ tribe(\TEC\Events\Category_Colors\Event_Category_Meta::class)->set_term($delete_
     ->save();
 
 $venue = tribe_venues()->set_args([
-    'venue' => 'Duo Readiness Hall 東京',
+    'venue' => 'WPrism Readiness Hall 東京',
     'address' => '100 Portable Street — ভবন ৭',
     'city' => 'Kathmandu',
     'state' => 'Bagmati',
@@ -58,26 +58,26 @@ $venue = tribe_venues()->set_args([
     'zip' => '44600',
     'country' => 'Nepal',
     'phone' => '+977-555-0100',
-    'website' => home_url('/readiness-venue/?source=duo'),
+    'website' => home_url('/readiness-venue/?source=wprism'),
     'show_map' => true,
     'show_map_link' => true,
 ])->create();
 $organizers = [];
 foreach ([
     [
-        'organizer' => 'Duo Readiness Team 東京',
+        'organizer' => 'WPrism Readiness Team 東京',
         'email' => 'events@example.test',
         'phone' => '+977-555-0101',
         'website' => home_url('/readiness-organizer/'),
     ],
     [
-        'organizer' => 'Duo Accessibility Guild বাংলা',
+        'organizer' => 'WPrism Accessibility Guild বাংলা',
         'email' => 'accessibility@example.test',
         'phone' => '+977-555-0102',
         'website' => home_url('/readiness-accessibility/'),
     ],
     [
-        'organizer' => 'Duo Night Crew مرحبا',
+        'organizer' => 'WPrism Night Crew مرحبا',
         'email' => 'night@example.test',
         'phone' => '+977-555-0103',
         'website' => home_url('/readiness-night-crew/'),
@@ -87,14 +87,14 @@ foreach ([
 }
 $organizer = $organizers[0];
 $delete_venue = tribe_venues()->set_args([
-    'venue' => 'Duo Unsupported Delete Venue',
+    'venue' => 'WPrism Unsupported Delete Venue',
     'status' => 'publish',
     'address' => '400 Atomic Refusal Street',
     'city' => 'Kathmandu',
     'country' => 'Nepal',
 ])->create();
 $delete_organizer = tribe_organizers()->set_args([
-    'organizer' => 'Duo Unsupported Delete Organizer',
+    'organizer' => 'WPrism Unsupported Delete Organizer',
     'email' => 'delete-refusal@example.test',
     'website' => home_url('/unsupported-delete-organizer/'),
 ])->create();
@@ -108,7 +108,7 @@ if (!$venue || !$venue->ID || !$delete_venue || !$delete_venue->ID
 $organizer_ids = array_map(static fn($candidate): int => (int) $candidate->ID, $organizers);
 
 $disabled_venue_id = tribe_create_venue([
-    'Venue' => 'Duo Map Disabled Venue',
+    'Venue' => 'WPrism Map Disabled Venue',
     'Address' => '200 Native False Street',
     'City' => 'Kathmandu',
     'Country' => 'Nepal',
@@ -116,7 +116,7 @@ $disabled_venue_id = tribe_create_venue([
     'ShowMapLink' => false,
 ]);
 $absent_map_venue = tribe_venues()->set_args([
-    'venue' => 'Duo Map Metadata Absent Venue',
+    'venue' => 'WPrism Map Metadata Absent Venue',
     'status' => 'publish',
     'address' => '300 Legacy Boundary Street',
     'city' => 'Kathmandu',
@@ -139,7 +139,7 @@ foreach ($organizer_ids as $organizer_id) {
         . ' /-->';
 }
 $event = tribe_events()->set_args([
-    'title' => 'Duo Production Readiness Event 東京',
+    'title' => 'WPrism Production Readiness Event 東京',
     'status' => 'publish',
     'description' => $body,
     'start_date' => '2026-09-05 22:30:00',
@@ -181,7 +181,7 @@ if (is_wp_error($terms) || is_wp_error($tags)) {
 }
 
 $all_day = tribe_events()->set_args([
-    'title' => 'Duo All Day Boundary Event',
+    'title' => 'WPrism All Day Boundary Event',
     'status' => 'publish',
     'description' => "All-day portable event with no venue or organizer.\n<!-- wp:tribe/event-organizer /-->",
     'start_date' => '2026-10-11 00:00:00',
@@ -194,7 +194,7 @@ $all_day = tribe_events()->set_args([
     'show_map_link' => false,
 ])->create();
 $delete_probe = tribe_events()->set_args([
-    'title' => 'Duo Unsupported Delete Probe',
+    'title' => 'WPrism Unsupported Delete Probe',
     'status' => 'publish',
     'description' => 'This event exists only to prove unsupported deletion refuses atomically.',
     'start_date' => '2026-11-01 08:00:00',
@@ -264,7 +264,7 @@ if (!$list_widget instanceof \Tribe\Events\Views\V2\Widgets\Widget_List
 $list_widget_id = 41;
 $qr_widget_id = 42;
 $list_widget_settings = [
-    'title' => 'Duo Sidebar Calendar 東京 ' . home_url('/calendar-readiness/'),
+    'title' => 'WPrism Sidebar Calendar 東京 ' . home_url('/calendar-readiness/'),
     'limit' => 7,
     'no_upcoming_events' => false,
     'featured_events_only' => false,
@@ -272,7 +272,7 @@ $list_widget_settings = [
     'tribe_is_list_widget' => true,
 ];
 $qr_widget_settings = [
-    'widget_title' => 'Duo Sidebar Event QR বাংলা',
+    'widget_title' => 'WPrism Sidebar Event QR বাংলা',
     'qr_code_size' => '8',
     'redirection' => 'specific',
     'event_id' => (int) $event->ID,
@@ -307,10 +307,10 @@ $embedded_widget = static function (array $settings): array {
     ];
 };
 $embedded_list_settings = $list_widget_settings;
-$embedded_list_settings['title'] = 'Duo Embedded Calendar مرحبا ' . home_url('/calendar-readiness/');
+$embedded_list_settings['title'] = 'WPrism Embedded Calendar مرحبا ' . home_url('/calendar-readiness/');
 $embedded_list_settings['limit'] = '10';
 $embedded_qr_settings = $qr_widget_settings;
-$embedded_qr_settings['widget_title'] = 'Duo Embedded Event QR 東京';
+$embedded_qr_settings['widget_title'] = 'WPrism Embedded Event QR 東京';
 $embedded_qr_settings['qr_code_size'] = '28';
 $widget_body = implode("\n", [
     '<!-- wp:paragraph --><p>TEC legacy-widget readiness surface.</p><!-- /wp:paragraph -->',
@@ -328,8 +328,8 @@ $widget_body = implode("\n", [
 $widget_page_id = wp_insert_post([
     'post_type' => 'page',
     'post_status' => 'publish',
-    'post_title' => 'Duo TEC Legacy Widget Surface',
-    'post_name' => 'duo-tec-legacy-widget-surface',
+    'post_title' => 'WPrism TEC Legacy Widget Surface',
+    'post_name' => 'wprism-tec-legacy-widget-surface',
     'post_content' => $widget_body,
 ], true);
 if (is_wp_error($widget_page_id) || (int) $widget_page_id <= 0) {
@@ -393,8 +393,8 @@ foreach ([
     'tribeEnableViews' => ['list', 'month'],
     'viewOption' => 'list',
     'dateWithYearFormat' => 'j M Y',
-    'tribeEventsBeforeHTML' => '<p class="duo-before">Readiness before 東京</p>',
-    'tribeEventsAfterHTML' => '<p class="duo-after">Readiness after বাংলা</p>',
+    'tribeEventsBeforeHTML' => '<p class="wprism-before">Readiness before 東京</p>',
+    'tribeEventsAfterHTML' => '<p class="wprism-after">Readiness after বাংলা</p>',
     'defaultCurrencySymbol' => 'रु',
     'defaultCurrencyCode' => 'NPR',
     'reverseCurrencyPosition' => true,
@@ -443,7 +443,7 @@ if (!is_array($toggle_field)
 tribe(\TEC\Events\Category_Colors\CSS\Controller::class)->generate_css();
 $category_css = get_option('tec_events_category_color_css', '');
 if (!is_string($category_css)
-    || !str_contains($category_css, '.tribe_events_cat-duo-readiness-category{')
+    || !str_contains($category_css, '.tribe_events_cat-wprism-readiness-category{')
     || !str_contains($category_css, '#123abc')) {
     throw new RuntimeException('TEC native source Category Colors CSS did not generate');
 }

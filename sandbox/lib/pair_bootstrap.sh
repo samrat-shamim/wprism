@@ -13,7 +13,7 @@
 # self-contained source boundary. The inherited-environment convention is the
 # same narrow one used by pair_db.sh and pair_readiness.sh.
 
-# DUO-3412: the "this side's database was dropped out from under it" record.
+# issue #3412: the "this side's database was dropped out from under it" record.
 # Reset writes it after a successful DROP/CREATE; bootstrap consumes it before
 # asking `wp core is-installed`, because a probe against a database the pair
 # itself just emptied is not authority to skip core install. The marker lives
@@ -67,7 +67,7 @@ pair_bootstrap_install_and_activate_theme() { # <cli service> <theme slug>
     "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install "$artifact" --force \
       || fail "theme '$theme' exact pinned artifact could not be installed"
     if [ "$archive_root" != "$theme" ]; then
-      "${PAIR_COMPOSE[@]}" run --rm -T "$cli" sh /duo-harness/artifact-archive-root.sh \
+      "${PAIR_COMPOSE[@]}" run --rm -T "$cli" sh /wprism-harness/artifact-archive-root.sh \
         /var/www/html/wp-content/themes "$archive_root" "$theme" \
         || fail "theme '$theme' pinned archive root '$archive_root' could not be normalized"
     fi

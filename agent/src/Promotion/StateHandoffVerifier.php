@@ -1,9 +1,9 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Before/after canonical options snapshot comparison for one lifecycle
- * phase (DUO-3350 slice 7, the "StateHandoffVerifier" target seam,
+ * phase (issue #3350 slice 7, the "StateHandoffVerifier" target seam,
  * extracted from Deploy): captures a hash-bound options/core snapshot
  * immediately before and after a lifecycle phase's own activate/deactivate/
  * switch-theme mutations run, then proves any canonical option that changed
@@ -15,7 +15,7 @@ namespace Duo;
  * All three methods here are read-only: no activate_plugin()/
  * deactivate_plugins()/switch_theme() call, no promotion-lock/canary call,
  * no WordPress hook fire. That machinery lives in LifecycleExecutor::execute()
- * (DUO-3350 slice 8, the "LifecycleExecutor" half of a different target
+ * (issue #3350 slice 8, the "LifecycleExecutor" half of a different target
  * seam, extracted from Deploy::run()), which Deploy::run() calls into at
  * specific points in its own required sequence -- before the mutations
  * (captures the "before" snapshot, via this collaborator) and after
@@ -33,7 +33,7 @@ namespace Duo;
  * reaches via ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options')
  * for a genuine behavioral test -- a hidden reflection-based caller, not a
  * bare method-name mention, caught by grepping for it specifically before
- * writing any code, the same discipline this series has used since DUO-3347
+ * writing any code, the same discipline this series has used since issue #3347
  * slice 12's assign_locations() precedent.
  *
  * Deliberately requires nothing: every external class these three methods
@@ -58,7 +58,7 @@ final class StateHandoffVerifier {
         $hash = is_array($row) ? (string) ($row['hash'] ?? '') : '';
         $content = is_array($row) ? (string) ($row['content'] ?? '') : '';
         if (!preg_match('/^[a-f0-9]{64}$/', $hash) || $content === '') {
-            throw new \RuntimeException('duo: lifecycle state handoff could not snapshot canonical options/core');
+            throw new \RuntimeException('wprism: lifecycle state handoff could not snapshot canonical options/core');
         }
         try {
             $document = Canon::decode($content);
@@ -74,7 +74,7 @@ final class StateHandoffVerifier {
             }
         } catch (\Throwable $t) {
             throw new \RuntimeException(
-                'duo: lifecycle state handoff captured malformed canonical options/core',
+                'wprism: lifecycle state handoff captured malformed canonical options/core',
                 0,
                 $t
             );
@@ -91,11 +91,11 @@ final class StateHandoffVerifier {
      * Exact authored options already arrive as bound tombstones when their
      * row is absent before a hook. After activation, however, a hook-created
      * ref-bearing option may exist while its new target-local entity has no
-     * Duo identity yet; the non-minting snapshot correctly projects that row
+     * WPrism identity yet; the non-minting snapshot correctly projects that row
      * as state=absent. Elementor's elementor_active_kit is the proven case.
      * Rebinding that post-hook missing projection makes it byte-identical to
      * the pre-hook proof. Sub-key/dynamic options can have the same absent
-     * projection because Duo owns only part of their value. Converting only
+     * projection because WPrism owns only part of their value. Converting only
      * desired-present/missing observations gives the record gate the same
      * proof without granting deletion authority or reviving the unsafe
      * generic absent-to-present exception.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DUO-3209: parent-aware adoption and ambiguous full-key refusal.
+# issue #3209: parent-aware adoption and ambiguous full-key refusal.
 set -euo pipefail
 
 # Dirty-target rewrite premise: a real, non-empty target-native rule set for a
@@ -36,7 +36,7 @@ DUP=$(wp_conf2 post create --post_type=page --post_title='Ambiguous Child' --pos
 require_fixture_ids DUP
 wp_conf2 db query "UPDATE wp_posts SET post_name='shared-child' WHERE ID=$DUP" >/dev/null
 
-# DUO-3381: the premise, asserted before the behavior. Everything above is a
+# issue #3381: the premise, asserted before the behavior. Everything above is a
 # `docker compose run` that can fail silently under host load (see run.sh's
 # require_fixture_ids for the live case this cost), and the refusal below
 # CANNOT fire unless the ambiguity actually exists in conf2's database: two
@@ -52,12 +52,12 @@ SHAPE=$(wp_conf2 db query "SELECT CONCAT(
 require_fixture_state "conf2's ambiguous adoption key (published 'shared-child' pages under branch A ($A) / branch B ($B))" "2/1" "$SHAPE"
 
 RC=0
-OUT=$(wp_conf2 duo plan --repo=/siterepo --adopt-by-slug=posts 2>&1) || RC=$?
-# DUO-3391: `|| RC=$?` is what lets the assertion below inspect $OUT, and it
+OUT=$(wp_conf2 wprism plan --repo=/siterepo --adopt-by-slug=posts 2>&1) || RC=$?
+# issue #3391: `|| RC=$?` is what lets the assertion below inspect $OUT, and it
 # is also what stops `set -e` from firing when this `docker compose run` dies
 # at the docker layer with nothing but container-creation chatter in $OUT.
 # Assert the invocation was answered before asserting what the answer was.
-require_duo_answered "conf2 duo plan --adopt-by-slug=posts" human "$OUT"
+require_wprism_answered "conf2 wprism plan --adopt-by-slug=posts" human "$OUT"
 [ "$RC" -ne 0 ] && grep -q 'conflicting adoption key.*parent' <<<"$OUT" \
   || fail "duplicate full hierarchical adoption key was not rejected: $OUT"
 wp_conf2 post delete "$DUP" --force >/dev/null
@@ -177,9 +177,9 @@ echo hash("sha256", wp_json_encode([
 ]));
 ')
 DIRTY_REFUSAL_RC=0
-DIRTY_REFUSAL=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) \
+DIRTY_REFUSAL=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) \
   || DIRTY_REFUSAL_RC=$?
-require_duo_answered "conf2 core dirty target without adoption authority" human "$DIRTY_REFUSAL"
+require_wprism_answered "conf2 core dirty target without adoption authority" human "$DIRTY_REFUSAL"
 [ "$DIRTY_REFUSAL_RC" -ne 0 ] \
   && grep -Fq 'slug collisions need explicit resolution' <<<"$DIRTY_REFUSAL" \
   && grep -Fq 'posts/attachment/' <<<"$DIRTY_REFUSAL" \
@@ -201,15 +201,15 @@ echo hash("sha256", wp_json_encode([
 ]));
 ')
 require_fixture_state "core dirty-target refusal target digest" "$DIRTY_BEFORE" "$DIRTY_AFTER"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = clear ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = clear ] \
   || fail "pre-mutation collision refusal retained apply_in_progress"
 
-# DUO-3278: unrelated target defaults deliberately reuse every source
+# issue #3278: unrelated target defaults deliberately reuse every source
 # counter. Planning must expose their removal, and apply must allocate the
 # canonical UUIDs at free target-local counters instead of copying 21.
 #
 # Read the manufactured shape straight back out through WordPress's own
-# option API in the SAME eval (DUO-3381 — no extra container run): these
+# option API in the SAME eval (issue #3381 — no extra container run): these
 # rows are the premise for checks/core.sh's own "colliding target widget
 # defaults survived apply" and free-target-counter assertions, and a
 # silently unseeded counter 21 would make both of those pass VACUOUSLY
@@ -226,7 +226,7 @@ foreach (["widget_block", "widget_text", "widget_nav_menu"] as $option) {
 }
 echo implode(",", (array) (get_option("sidebars_widgets")["sidebar-1"] ?? [])) . "|" . $seeded;
 ')
-require_fixture_state "conf2's colliding widget defaults at counter 21 (DUO-3278)" \
+require_fixture_state "conf2's colliding widget defaults at counter 21 (issue #3278)" \
   "block-21,text-21,nav_menu-21|3" "$WIDGET_DEFAULTS"
 
 echo "target hierarchy, activation defaults, post/term/menu/media/custom-CSS collisions, target-runtime sentinels, /target/%post_id%/ rewrite state, and colliding widget defaults seeded; no-authority and ambiguous-key refusals verified"

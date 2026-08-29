@@ -2,18 +2,18 @@
 declare(strict_types=1);
 
 /**
- * Build the offline fixture environment the three `duo assess` / `duo
+ * Build the offline fixture environment the three `wprism assess` / `wprism
  * contract` suites drive (round-3 MUP §6.2).
  *
  * Usage: php make-fixture.php <dir> [--surfaces=<n>] [--pending=<n>]
  *
- * The fixture is a real site repository, a real `.duo-envs.json`-shaped
- * registry, and a fake `wp` on PATH — so the suites exercise `php cli/duo`
+ * The fixture is a real site repository, a real `.wprism-envs.json`-shaped
+ * registry, and a fake `wp` on PATH — so the suites exercise `php cli/wprism`
  * itself over a `local` transport, dispatch and preflight included, rather
  * than calling a command class directly. That matters here more than usual:
  * three of the things under test (the verb reaching the dispatcher, the
  * environment preflight accepting it, and the driver capability report
- * knowing the operation) live in `cli/duo` and its collaborators, and a
+ * knowing the operation) live in `cli/wprism` and its collaborators, and a
  * suite that constructed the command object by hand would pass with all
  * three broken.
  *
@@ -25,31 +25,31 @@ declare(strict_types=1);
  *
  * The fake `wp` answers exactly the calls `Doctor::run()`, `Init::proposal()`
  * and `AssessCommand::assess()` make, records every invocation to
- * `$DUO_CALLS` for the composition-order assertion, and honours these
+ * `$WPRISM_CALLS` for the composition-order assertion, and honours these
  * failure-injection switches:
  *
- *   DUO_DOCTOR_FAIL=1        `core is-installed` fails -> assess must refuse
- *   DUO_MULTISITE=1          the inventory reports multisite
- *   DUO_LIBRARY_SKEW=1       the target answers from a DIFFERENT reviewed
+ *   WPRISM_DOCTOR_FAIL=1        `core is-installed` fails -> assess must refuse
+ *   WPRISM_MULTISITE=1          the inventory reports multisite
+ *   WPRISM_LIBRARY_SKEW=1       the target answers from a DIFFERENT reviewed
  *                            library than this checkout ships — the
  *                            mid-upgrade window of docs/adoption.md, where an
  *                            operator has pulled a revision that edited an
  *                            adapter disposition and has not
- *                            re-adopted the site yet (DUO-3484)
- *   DUO_MUTATE_CONTRACT=<f>  copy <f> over the site's contract.json during
+ *                            re-adopted the site yet (issue #3484)
+ *   WPRISM_MUTATE_CONTRACT=<f>  copy <f> over the site's contract.json during
  *                            the capabilities call — a concurrent reviewer
  *                            landing a contract inside accept's own
  *                            read-modify-write window, which is the only
  *                            way to reach ContractStore's compare-and-swap
  *                            from the command line.
- *   DUO_CAPS_AFTER=<name>    from the Nth `duo capabilities` call onward,
+ *   WPRISM_CAPS_AFTER=<name>    from the Nth `wprism capabilities` call onward,
  *                            answer with `caps-<op>.<name>.json` instead —
  *                            the target as it is AFTER the operator started
  *                            reading the authorization page. The window the
  *                            mutation gate exists to close; the variants and
  *                            what each one models are documented beside the
  *                            files they generate.
- *   DUO_CAPS_AFTER_CALL=<n>  the 1-based call index DUO_CAPS_AFTER starts at
+ *   WPRISM_CAPS_AFTER_CALL=<n>  the 1-based call index WPRISM_CAPS_AFTER starts at
  *                            (default 2: call 1 is the freeze-time read,
  *                            call 2 is the gate's own re-probe)
  */
@@ -90,14 +90,14 @@ foreach (['repo', 'wordpress', 'bin', 'fixtures'] as $child) {
     }
 }
 
-file_put_contents("$dir/repo/site.duo.json", json_encode([
+file_put_contents("$dir/repo/site.wprism.json", json_encode([
     'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
     'manifests' => ['core'],
     'policy' => new stdClass(),
     'spec_version' => 2,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
-// A Git worktree root: `duo contract accept` refuses to write review
+// A Git worktree root: `wprism contract accept` refuses to write review
 // artifacts anywhere else, because they exist to be committed.
 exec('git -C ' . escapeshellarg("$dir/repo") . ' init -q 2>/dev/null');
 exec('git -C ' . escapeshellarg("$dir/repo") . ' config user.email fixture@example.invalid 2>/dev/null');
@@ -152,7 +152,7 @@ for ($i = 0; $i < $pending; $i++) {
 }
 
 $inventory = [
-    'format' => 'duo-assess-inventory/v1',
+    'format' => 'wprism-assess-inventory/v1',
     'spec_version' => 2,
     'agent_version' => '0.5.0',
     'target' => [
@@ -171,7 +171,7 @@ $inventory = [
             'version' => '3.1.0', 'active' => true],
     ],
     // T6 §3.6. An ACTIVE plugin no pinned manifest declares — the single
-    // largest thing Duo cannot version on a real site, and the thing assess
+    // largest thing WPrism cannot version on a real site, and the thing assess
     // said nothing at all about before this. The agent publishes all three
     // identity parts (AssessInventory::plugins_without_adapter()), so the
     // host splits nothing.
@@ -191,7 +191,7 @@ $inventory = [
         'surface_groups' => $surfaceGroups,
     ],
     'coverage' => [
-        'format' => 'duo-coverage/v1',
+        'format' => 'wprism-coverage/v1',
         'options' => [
             'total' => 100, 'captured' => 20, 'pending' => 2,
             'invisible_total' => 41, 'invisible_transient' => 0, 'invisible_other' => 41,
@@ -218,12 +218,12 @@ $multisite['target']['site_mode'] = 'multisite';
 file_put_contents("$dir/fixtures/inventory-multisite.json", json_encode($multisite, JSON_UNESCAPED_SLASHES));
 // The adoption-seed variant (T7 grind A3): the agent projected the inventory
 // against the init proposal and says so in an `adoption` block. Selected at
-// `wp` invocation like the multisite variant (DUO_ADOPTION_SEED=1).
+// `wp` invocation like the multisite variant (WPRISM_ADOPTION_SEED=1).
 $seed = $inventory;
 $seed['adoption'] = [
     'mode' => 'seed',
     'preview' => 'init-proposal',
-    'reason' => 'the repository is an adoption seed; surfaces are projected against the policy duo init would propose',
+    'reason' => 'the repository is an adoption seed; surfaces are projected against the policy wprism init would propose',
     'adapters' => ['core', 'fixture-shop'],
     'scope' => [
         'post_types' => ['attachment', 'page', 'post', 'fixture_item'],
@@ -232,8 +232,8 @@ $seed['adoption'] = [
     ],
     'advisories' => [[
         'code' => 'unmanaged_scope_left_local', 'extension' => 'post_type:fixture_log', 'kind' => 'scope',
-        'reason' => 'registered by no selected adapter and holding 3 row(s); left local (class runtime) until an adapter declares it or duo classify decides it',
-        'remediation' => 'to manage it later, run duo classify and decide scope:post_type:fixture_log, or install an adapter that declares it',
+        'reason' => 'registered by no selected adapter and holding 3 row(s); left local (class runtime) until an adapter declares it or wprism classify decides it',
+        'remediation' => 'to manage it later, run wprism classify and decide scope:post_type:fixture_log, or install an adapter that declares it',
     ]],
     'unsupported' => [],
     'ready' => true,
@@ -281,7 +281,7 @@ $claim = static function (
         'deletion_semantics' => new stdClass(),
         'unsupported' => $unsupported,
         'evidence' => [
-            'bundle_schema' => 'duo-subject-certification-bundle/v1',
+            'bundle_schema' => 'wprism-subject-certification-bundle/v1',
             'tests' => ['conformance-' . $name],
         ],
         'platform' => ['compatibility' => [
@@ -328,8 +328,8 @@ $adapterUnsupported = [
  *
  * A real target reports the hash of the library it was adopted with, so an
  * agreeing fixture has to carry the real number rather than a memorable one:
- * `duo assess` reads the host half from the live source adapter library and
- * there is no flag that redirects it. Before DUO-3484 this fixture
+ * `wprism assess` reads the host half from the live source adapter library and
+ * there is no flag that redirects it. Before issue #3484 this fixture
  * reported a hand-written `eeee…` and the suites still passed, which is the
  * defect: nothing compared the two numbers.
  */
@@ -339,8 +339,8 @@ require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 // Reassembled exactly as ManifestDispositions::data() does — one document per
 // package plus the platform-owned profiles map — so `registry_sha256` here is
 // still the number a running agent computes.
-$library = \Duo\AdapterLibrary::fromSourceTree($root);
-$dispositions = ['format' => 'duo-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
+$library = \WPrism\AdapterLibrary::fromSourceTree($root);
+$dispositions = ['format' => 'wprism-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
 foreach ($library->packages() as $package) {
     $document = $package->dispositionPath();
     $decoded = json_decode((string) file_get_contents($document), true);
@@ -361,12 +361,12 @@ if (!is_array($profiles)) {
 }
 $dispositions['profiles'] = $profiles;
 ksort($dispositions['manifests'], SORT_STRING);
-$hostRegistrySha = hash('sha256', \Duo\Canon::encode($dispositions));
+$hostRegistrySha = hash('sha256', \WPrism\Canon::encode($dispositions));
 // The skewed library: a different content address, and nothing else. What
 // makes the mid-upgrade window legitimate is precisely that the target is
 // answering correctly — from an older reviewed library — so its verdicts stay
 // identical here and the hash is the only thing that moves.
-$skewRegistrySha = hash('sha256', 'duo-3484 an older reviewed library');
+$skewRegistrySha = hash('sha256', 'older-reviewed-library an older reviewed library');
 
 $report = static function (string $operation, string $registrySha) use (
     $claim,
@@ -396,7 +396,7 @@ $report = static function (string $operation, string $registrySha) use (
     }
 
     return [
-        'schema_version' => 'duo-capability-report/v1',
+        'schema_version' => 'wprism-capability-report/v1',
         'registry_sha256' => $registrySha,
         'platform' => new stdClass(),
         'evidence' => null,
@@ -433,10 +433,10 @@ foreach (['capture', 'plan', 'promote', 'delete'] as $operation) {
  * The target as it is AFTER the operator started reading the authorization
  * page — the confirmation window the mutation gate exists to close.
  *
- * Selected by `DUO_CAPS_AFTER` from the Nth `duo capabilities` call onward
- * (`DUO_CAPS_AFTER_CALL`, default 2), mirroring the release fixture's own
- * `DUO_PLAN_AFTER` counter. `promote` only, because that is the one registry
- * operation `duo release` reads (`SurfaceCatalog::REGISTRY_OPERATION`).
+ * Selected by `WPRISM_CAPS_AFTER` from the Nth `wprism capabilities` call onward
+ * (`WPRISM_CAPS_AFTER_CALL`, default 2), mirroring the release fixture's own
+ * `WPRISM_PLAN_AFTER` counter. `promote` only, because that is the one registry
+ * operation `wprism release` reads (`SurfaceCatalog::REGISTRY_OPERATION`).
  *
  * Each variant is one drift shape the gate must name, and each one RELEASES
  * against a build whose gate re-probes only plan/HEAD/artifact:
@@ -502,14 +502,14 @@ $fakeWp = <<<'SH'
 # records each one for the composition-order assertion, and injects the
 # failures the suites need.
 set -u
-printf '%s\n' "$*" >> "$DUO_CALLS"
+printf '%s\n' "$*" >> "$WPRISM_CALLS"
 op=""
 for a in "$@"; do
   case "$a" in --operation=*) op="${a#--operation=}" ;; esac
 done
 case " $* " in
   *" core is-installed "*)
-      if [ "${DUO_DOCTOR_FAIL:-0}" = 1 ]; then
+      if [ "${WPRISM_DOCTOR_FAIL:-0}" = 1 ]; then
         echo "This does not seem to be a WordPress installation." >&2
         exit 1
       fi
@@ -518,59 +518,59 @@ case " $* " in
       printf '%s\n' 'single-site'
       exit 0 ;;
   *class_exists*DISALLOW_FILE_MODS*db_server_info*)
-      # DUO-3511: Doctor::run() asks for agent presence, DISALLOW_FILE_MODS and
+      # issue #3511: Doctor::run() asks for agent presence, DISALLOW_FILE_MODS and
       # the PHP/database/WordPress facts in ONE eval, so this answers with the
       # one JSON object it decodes. This case is FIRST-MATCH-WINS against the
       # three narrower patterns it replaced -- a *class_exists* case would have
-      # matched the composed snippet too and answered "duo-ok", which Doctor
+      # matched the composed snippet too and answered "wprism-ok", which Doctor
       # cannot decode, so there is deliberately no such case left to shadow it.
-      # site_mode joins the same composed payload and honours DUO_MULTISITE,
+      # site_mode joins the same composed payload and honours WPRISM_MULTISITE,
       # so a fixture that tells assess-inventory it is a network does not tell
       # doctor it is a single site.
-      if [ "${DUO_MULTISITE:-0}" = 1 ]; then
-        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"multisite","filesystem":{"directory_separator":"/","os_family":"Linux","functions":{"chmod":true,"flock":true,"fsync":true,"lstat":true,"rename":true}},"process":{"os_family":"Linux","functions":{"passthru":true,"posix_kill":true,"posix_setsid":true,"proc_close":true,"proc_get_status":true,"proc_open":true,"proc_terminate":true},"shell":{"executable":true,"path":"/bin/sh"}}}'
+      if [ "${WPRISM_MULTISITE:-0}" = 1 ]; then
+        printf '%s\n' '{"agent":"wprism-ok","file_mods":"wprism-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"multisite","filesystem":{"directory_separator":"/","os_family":"Linux","functions":{"chmod":true,"flock":true,"fsync":true,"lstat":true,"rename":true}},"process":{"os_family":"Linux","functions":{"passthru":true,"posix_kill":true,"posix_setsid":true,"proc_close":true,"proc_get_status":true,"proc_open":true,"proc_terminate":true},"shell":{"executable":true,"path":"/bin/sh"}}}'
       else
-        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"single-site","filesystem":{"directory_separator":"/","os_family":"Linux","functions":{"chmod":true,"flock":true,"fsync":true,"lstat":true,"rename":true}},"process":{"os_family":"Linux","functions":{"passthru":true,"posix_kill":true,"posix_setsid":true,"proc_close":true,"proc_get_status":true,"proc_open":true,"proc_terminate":true},"shell":{"executable":true,"path":"/bin/sh"}}}'
+        printf '%s\n' '{"agent":"wprism-ok","file_mods":"wprism-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"single-site","filesystem":{"directory_separator":"/","os_family":"Linux","functions":{"chmod":true,"flock":true,"fsync":true,"lstat":true,"rename":true}},"process":{"os_family":"Linux","functions":{"passthru":true,"posix_kill":true,"posix_setsid":true,"proc_close":true,"proc_get_status":true,"proc_open":true,"proc_terminate":true},"shell":{"executable":true,"path":"/bin/sh"}}}'
       fi
       exit 0 ;;
-  *" duo assess-inventory "*)
-      if [ "${DUO_MULTISITE:-0}" = 1 ]; then
-        cat "$DUO_FIXTURES/inventory-multisite.json"
-      elif [ "${DUO_ADOPTION_SEED:-0}" = 1 ]; then
-        cat "$DUO_FIXTURES/inventory-adoption-seed.json"
+  *" wprism assess-inventory "*)
+      if [ "${WPRISM_MULTISITE:-0}" = 1 ]; then
+        cat "$WPRISM_FIXTURES/inventory-multisite.json"
+      elif [ "${WPRISM_ADOPTION_SEED:-0}" = 1 ]; then
+        cat "$WPRISM_FIXTURES/inventory-adoption-seed.json"
       else
-        cat "$DUO_FIXTURES/inventory.json"
+        cat "$WPRISM_FIXTURES/inventory.json"
       fi
       exit 0 ;;
-  *" duo capabilities "*)
-      if [ -n "${DUO_MUTATE_CONTRACT:-}" ] && [ -f "$DUO_MUTATE_CONTRACT" ]; then
+  *" wprism capabilities "*)
+      if [ -n "${WPRISM_MUTATE_CONTRACT:-}" ] && [ -f "$WPRISM_MUTATE_CONTRACT" ]; then
         # A concurrent reviewer landing a contract inside accept's own
         # read-modify-write window. Done once, then disarmed.
-        cp "$DUO_MUTATE_CONTRACT" "$DUO_SITE_REPO/.duo/contract/contract.json"
-        rm -f "$DUO_MUTATE_CONTRACT"
+        cp "$WPRISM_MUTATE_CONTRACT" "$WPRISM_SITE_REPO/.wprism/contract/contract.json"
+        rm -f "$WPRISM_MUTATE_CONTRACT"
       fi
-      # DUO mutation gate: from the Nth call onward, answer with the target
+      # WPRISM mutation gate: from the Nth call onward, answer with the target
       # as it is AFTER the operator started reading the plan. Inert unless
-      # DUO_CAPS_AFTER names a variant that exists for this operation, so
+      # WPRISM_CAPS_AFTER names a variant that exists for this operation, so
       # every suite that does not set it sees exactly the base report.
       caps="caps-$op"
-      if [ -n "${DUO_CAPS_AFTER:-}" ]; then
-        seen=$(cat "$DUO_FIXTURES/caps-calls" 2>/dev/null || echo 0)
+      if [ -n "${WPRISM_CAPS_AFTER:-}" ]; then
+        seen=$(cat "$WPRISM_FIXTURES/caps-calls" 2>/dev/null || echo 0)
         seen=$((seen + 1))
-        printf '%s' "$seen" > "$DUO_FIXTURES/caps-calls"
-        if [ "$seen" -ge "${DUO_CAPS_AFTER_CALL:-2}" ] \
-          && [ -f "$DUO_FIXTURES/caps-$op.${DUO_CAPS_AFTER}.json" ]; then
-          caps="caps-$op.${DUO_CAPS_AFTER}"
+        printf '%s' "$seen" > "$WPRISM_FIXTURES/caps-calls"
+        if [ "$seen" -ge "${WPRISM_CAPS_AFTER_CALL:-2}" ] \
+          && [ -f "$WPRISM_FIXTURES/caps-$op.${WPRISM_CAPS_AFTER}.json" ]; then
+          caps="caps-$op.${WPRISM_CAPS_AFTER}"
         fi
       fi
-      if [ "${DUO_LIBRARY_SKEW:-0}" = 1 ]; then
-        cat "$DUO_FIXTURES/caps-$op.skew.json"
+      if [ "${WPRISM_LIBRARY_SKEW:-0}" = 1 ]; then
+        cat "$WPRISM_FIXTURES/caps-$op.skew.json"
       else
-        cat "$DUO_FIXTURES/$caps.json"
+        cat "$WPRISM_FIXTURES/$caps.json"
       fi
       exit 0 ;;
-  *" duo init "*)
-      printf '%s\n' '{"format":"duo-command-refusal/v1","ok":false,"command":"init","error":"repository_owned","reason_code":"repository_owned","message":"the repository is already owned by duo","remediation":"nothing to do"}'
+  *" wprism init "*)
+      printf '%s\n' '{"format":"wprism-command-refusal/v1","ok":false,"command":"init","error":"repository_owned","reason_code":"repository_owned","message":"the repository is already owned by wprism","remediation":"nothing to do"}'
       exit 1 ;;
 esac
 echo "fake wp: unhandled invocation: $*" >&2

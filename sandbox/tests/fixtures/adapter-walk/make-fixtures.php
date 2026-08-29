@@ -75,7 +75,7 @@ declare(strict_types=1);
  *
  * A wholesale re-run reproduces every committed byte beside it, and
  * `sandbox/tests/offline/guards/regress_fixture_makers.sh` fails the corpus if
- * it stops doing so. That was not true between #471 and DUO-3483: the fixtures
+ * it stops doing so. That was not true between #471 and issue #3483: the fixtures
  * were delta-edited four times while this script stood still, so a re-run
  * failed `grind_adapter_walk.sh --self-check` on four checks. The four causes
  * are recorded here because each one is a shape a future edit can reintroduce:
@@ -128,18 +128,18 @@ require_once $root . '/cli/src/Recovery/RecoveryProfileSelection.php';
 require_once $root . '/cli/src/Release/AuthorizationPlan.php';
 require_once $root . '/cli/src/Release/JourneyOracle.php';
 
-use Duo\Canon;
-use Duo\Orchestrator\ApplicationContract;
-use Duo\Orchestrator\AssessRenderer;
-use Duo\Orchestrator\AssessReport;
-use Duo\Orchestrator\AuthorizationPlan;
-use Duo\Orchestrator\CheckpointCatalog;
-use Duo\Orchestrator\ClassificationBatch;
-use Duo\Orchestrator\ContractProposal;
-use Duo\Orchestrator\Init;
-use Duo\Orchestrator\JourneyOracle;
-use Duo\Orchestrator\RecoveryClaim;
-use Duo\Orchestrator\RecoveryProfileSelection;
+use WPrism\Canon;
+use WPrism\Orchestrator\ApplicationContract;
+use WPrism\Orchestrator\AssessRenderer;
+use WPrism\Orchestrator\AssessReport;
+use WPrism\Orchestrator\AuthorizationPlan;
+use WPrism\Orchestrator\CheckpointCatalog;
+use WPrism\Orchestrator\ClassificationBatch;
+use WPrism\Orchestrator\ContractProposal;
+use WPrism\Orchestrator\Init;
+use WPrism\Orchestrator\JourneyOracle;
+use WPrism\Orchestrator\RecoveryClaim;
+use WPrism\Orchestrator\RecoveryProfileSelection;
 
 /** @var list<string> $argvList */
 $argvList = $_SERVER['argv'] ?? [];
@@ -260,7 +260,7 @@ $s1Surfaces = [
         'id' => 'post_type:product',
         'kind' => 'post_type',
         'label' => 'post_type:product',
-        'meaning' => 'authored catalog content Duo manages end to end',
+        'meaning' => 'authored catalog content WPrism manages end to end',
         'next_action' => 'nothing — supported',
         'operations' => [
             'release' => $projection(
@@ -270,7 +270,7 @@ $s1Surfaces = [
                 'Platform-certified',
                 'prevented',
                 'provider-state restorable',
-                'authored catalog content Duo manages end to end',
+                'authored catalog content WPrism manages end to end',
                 'nothing — supported'
             ),
         ],
@@ -301,7 +301,7 @@ $s1Surfaces = [
     [
         // §3.6's new surface kind. `install adapter` is its next action because
         // the surface IS a plugin: the smallest safe thing an operator can do
-        // about an unmanaged plugin is give Duo an adapter for it.
+        // about an unmanaged plugin is give WPrism an adapter for it.
         'decided_by' => 'unresolved',
         'handling' => 'block',
         'id' => 'plugin:wpforms-lite',
@@ -415,7 +415,7 @@ $evidence = [
     ],
     'registry_sha256' => str_repeat('8f', 32),
 ];
-// DUO-3484's host/target comparison, pinned AGREEING: this walk is about
+// issue #3484's host/target comparison, pinned AGREEING: this walk is about
 // adapter certification words, and a skewed reviewed library would withhold
 // the proposal and change what every step after it reads. The mismatch case
 // has its own fixtures in regress_assess_composition.sh and
@@ -480,7 +480,7 @@ $siteCertifiedSurfaces = [
         'id' => 'post_type:wpforms',
         'kind' => 'post_type',
         'label' => 'post_type:wpforms',
-        'meaning' => 'form definitions the operator authors and Duo manages end to end',
+        'meaning' => 'form definitions the operator authors and WPrism manages end to end',
         'next_action' => 'nothing — supported',
         'operations' => [
             'release' => $projection(
@@ -490,7 +490,7 @@ $siteCertifiedSurfaces = [
                 'Site-certified',
                 'prevented',
                 'provider-state restorable',
-                'form definitions the operator authors and Duo manages end to end',
+                'form definitions the operator authors and WPrism manages end to end',
                 'nothing — supported',
                 $authorityKeyId,
                 'site'
@@ -504,7 +504,7 @@ $siteCertifiedSurfaces = [
         'id' => 'post_type:acme_item',
         'kind' => 'post_type',
         'label' => 'post_type:acme_item',
-        'meaning' => 'catalog items the operator authors and Duo manages end to end',
+        'meaning' => 'catalog items the operator authors and WPrism manages end to end',
         'next_action' => 'nothing — supported',
         'operations' => [
             'release' => $projection(
@@ -514,7 +514,7 @@ $siteCertifiedSurfaces = [
                 'Site-certified',
                 'prevented',
                 'provider-state restorable',
-                'catalog items the operator authors and Duo manages end to end',
+                'catalog items the operator authors and WPrism manages end to end',
                 'nothing — supported',
                 $authorityKeyId,
                 'site'
@@ -533,7 +533,7 @@ $siteCertifiedSurfaces = [
         'id' => 'post_type:product',
         'kind' => 'post_type',
         'label' => 'post_type:product',
-        'meaning' => 'authored catalog content Duo manages end to end',
+        'meaning' => 'authored catalog content WPrism manages end to end',
         'next_action' => 'nothing — supported',
         'operations' => [
             'release' => $projection(
@@ -543,7 +543,7 @@ $siteCertifiedSurfaces = [
                 'Site-certified',
                 'prevented',
                 'provider-state restorable',
-                'authored catalog content Duo manages end to end',
+                'authored catalog content WPrism manages end to end',
                 'nothing — supported',
                 $authorityKeyId,
                 'site'
@@ -569,7 +569,7 @@ walk_json("$out/assess-report.site-certified.json", $siteCertified);
 // One edit: the certified word goes back to the platform's. The walk's
 // Site-certified reader must not smooth that into a pass, because
 // `Platform-certified` on an operator-signed adapter would be the product
-// claiming a Duo endorsement it never made (§2).
+// claiming a WPrism endorsement it never made (§2).
 //
 // `assess_digest` is deliberately NOT rebound (#477's negative-fixture rule):
 // it keeps the SOURCE report's digest, so this stays a document the builder
@@ -641,7 +641,7 @@ walk_json("$out/assess-report.fail-install-adapter-for-uncertified.json", $certi
 // a live site. The PASS fixture is the fixed shape; the FAIL fixture is
 // today's, byte for byte.
 $coverage = [
-    'format' => 'duo-coverage-report/v1',
+    'format' => 'wprism-coverage-report/v1',
     'options' => [
         'captured' => 214,
         // `prefix` is `Coverage::guess_prefix()`'s output, which never carries
@@ -694,7 +694,7 @@ foreach ($coverageToday['tables']['undeclared'] as $index => $row) {
 walk_json("$out/coverage.fail-no-logical-name.json", $coverageToday);
 
 // -------------------------------------------------------- adapter catalog
-// `duo-adapter-catalog/v2` rows as §3.2 leaves them: the existing keys plus
+// `wprism-adapter-catalog/v2` rows as §3.2 leaves them: the existing keys plus
 // `trust_root` and `principal` on every row, and the new `site_signed`
 // certification word. Hand-authored from the contract — the catalog is
 // produced by a live survey (AdapterSources::survey()), which needs a target,
@@ -709,7 +709,7 @@ $catalogDeferred = [[
 $catalogSources = [
     [
         'note' => 'the agent manifest library that deploys with the agent',
-        'path' => '/duo-manifests',
+        'path' => '/wprism-manifests',
         'scanned' => true,
         'source' => 'shipped',
     ],
@@ -720,7 +720,7 @@ $catalogSources = [
         'source' => 'site',
     ],
     [
-        'note' => 'an active plugin\'s bundled duo-adapter.json; not reachable from a WordPress-free host process',
+        'note' => 'an active plugin\'s bundled wprism-adapter.json; not reachable from a WordPress-free host process',
         'path' => null,
         'scanned' => false,
         'source' => 'plugin',
@@ -755,14 +755,14 @@ $siteSignedCatalog = [
         . 'additionally exposes trust_root and principal. Hand-authored because the catalog is produced by '
         . 'AdapterSources::survey() against a live repository and no host-side builder can mint one offline.',
     'adapters' => [
-        $catalogRow('core', 'shipped', 'registry', 'platform', null, '/duo-manifests/core.json'),
-        $catalogRow('woocommerce', 'shipped', 'registry', 'platform', null, '/duo-manifests/woocommerce.json'),
+        $catalogRow('core', 'shipped', 'registry', 'platform', null, '/wprism-manifests/core.json'),
+        $catalogRow('woocommerce', 'shipped', 'registry', 'platform', null, '/wprism-manifests/woocommerce.json'),
         $catalogRow('wpforms', 'site', 'site_signed', 'site', $authorityKeyId, '/siterepo/adapters/wpforms.json'),
     ],
     'command' => 'list',
     'deferred' => $catalogDeferred,
-    'format' => 'duo-adapter-catalog/v2',
-    'manifests_dir' => '/duo-manifests',
+    'format' => 'wprism-adapter-catalog/v2',
+    'manifests_dir' => '/wprism-manifests',
     'not_installed' => [],
     'refusals' => [],
     'repo' => '/siterepo',
@@ -790,17 +790,17 @@ walk_json("$out/adapter-catalog.uncertified.json", $uncertifiedCatalog);
 $shadowedCatalog = $siteSignedCatalog;
 $shadowedCatalog['_provenance'] = 'round-3-adapter-walk.md §3.3: an explicit {name,source:"site",digest} pin '
     . 'selects the site copy for a shipped name; the shipped copy is reported as `shadowed_by_site` on every '
-    . 'catalog row and in `duo adapter list`, and the site copy carries the site certification words.';
+    . 'catalog row and in `wprism adapter list`, and the site copy carries the site certification words.';
 $shadowedCatalog['adapters'] = [
-    $catalogRow('core', 'shipped', 'registry', 'platform', null, '/duo-manifests/core.json'),
+    $catalogRow('core', 'shipped', 'registry', 'platform', null, '/wprism-manifests/core.json'),
     $catalogRow('woocommerce', 'site', 'site_signed', 'site', $authorityKeyId, '/siterepo/adapters/woocommerce.json'),
 ];
 $shadowedCatalog['not_installed'] = [[
-    'message' => "adapter 'woocommerce' is shipped at /duo-manifests/woocommerce.json, and the site repository "
+    'message' => "adapter 'woocommerce' is shipped at /wprism-manifests/woocommerce.json, and the site repository "
         . 'carries an explicit {name,source:"site",digest} pin for that name, so the site copy answers to it '
         . 'and the shipped copy is not loaded',
     'name' => 'woocommerce',
-    'path' => '/duo-manifests/woocommerce.json',
+    'path' => '/wprism-manifests/woocommerce.json',
     'reason_code' => 'shadowed_by_site',
     'source' => 'shipped',
     'winner' => ['path' => '/siterepo/adapters/woocommerce.json', 'source' => 'site'],
@@ -808,28 +808,28 @@ $shadowedCatalog['not_installed'] = [[
 walk_json("$out/adapter-catalog.shadowed.json", $shadowedCatalog);
 
 // --------------------------------------------------------- adapter survey
-// `wp duo adapter-survey` is the same document produced ON the target, which
+// `wp wprism adapter-survey` is the same document produced ON the target, which
 // is the only place the plugin source exists (a WordPress-free host process
 // cannot read WP_PLUGIN_DIR). S3 reads the bundled adapter's row here.
 $bundledSurvey = [
-    '_provenance' => 'agent/src/Command/Cli.php::adapter_survey() builds duo-adapter-catalog/v2 from '
+    '_provenance' => 'agent/src/Command/Cli.php::adapter_survey() builds wprism-adapter-catalog/v2 from '
         . "AdapterSources::survey(\$repo) on the target. A bundled adapter's certification word is "
         . '`uncertified` ALWAYS (certification binds source "site" and adapters/<name>.json inside the signed '
         . 'statement, so no certificate can name a bundled one); the promotion path is the remediation '
         . 'AdapterSources::diagnostics() carries for the plugin source.',
     'adapters' => [
-        $catalogRow('core', 'shipped', 'registry', 'platform', null, '/duo-manifests/core.json'),
-        $catalogRow('woocommerce', 'shipped', 'registry', 'platform', null, '/duo-manifests/woocommerce.json'),
+        $catalogRow('core', 'shipped', 'registry', 'platform', null, '/wprism-manifests/core.json'),
+        $catalogRow('woocommerce', 'shipped', 'registry', 'platform', null, '/wprism-manifests/woocommerce.json'),
         [
             'certification' => 'uncertified',
             'disposition_status' => null,
             'grammar' => ['message' => null, 'status' => 'ok'],
             'name' => 'acme-catalog',
-            'path' => '/var/www/html/wp-content/plugins/acme-catalog/duo-adapter.json',
+            'path' => '/var/www/html/wp-content/plugins/acme-catalog/wprism-adapter.json',
             'principal' => null,
             'remediation' => 'install this adapter as a repository package at adapters/acme-catalog.json, '
                 . 'obtain a certificate signed by an authority this agent trusts at '
-                . 'adapters/certifications/acme-catalog.json, then run `wp duo manifest-pin --repo=... '
+                . 'adapters/certifications/acme-catalog.json, then run `wp wprism manifest-pin --repo=... '
                 . '--name=acme-catalog` and commit the emitted {name,source:"site",digest} pin. The site copy '
                 . 'wins by precedence and the bundled copy reports as not installed; the plugin stays active '
                 . 'throughout',
@@ -842,8 +842,8 @@ $bundledSurvey = [
     ],
     'command' => 'survey',
     'deferred' => $catalogDeferred,
-    'format' => 'duo-adapter-catalog/v2',
-    'manifests_dir' => '/duo-manifests',
+    'format' => 'wprism-adapter-catalog/v2',
+    'manifests_dir' => '/wprism-manifests',
     'not_installed' => [],
     'refusals' => [],
     'repo' => '/siterepo',
@@ -851,7 +851,7 @@ $bundledSurvey = [
         $catalogSources[0],
         $catalogSources[1],
         [
-            'note' => "each active plugin's own duo-adapter.json",
+            'note' => "each active plugin's own wprism-adapter.json",
             'path' => '/var/www/html/wp-content/plugins',
             'scanned' => true,
             'source' => 'plugin',
@@ -915,7 +915,7 @@ $declaredEffects = [[
 ]];
 $operatorClaim = RecoveryClaim::build([
     'additional_does_not_restore' => [],
-    'covered_resources' => ['encrypted database checkpoint /siterepo/.duo/checkpoints/promote-1.sql.enc'],
+    'covered_resources' => ['encrypted database checkpoint /siterepo/.wprism/checkpoints/promote-1.sql.enc'],
     'declared_external_effects' => $declaredEffects,
     'profile' => RecoveryClaim::OPERATOR_DIRECTED,
 ]);
@@ -1002,14 +1002,14 @@ walk_json("$out/authorization-plan.fail-no-recovery-reason.json", $noReason);
 $journeys = [
     [
         'affected_surfaces' => ['post_type:wpforms'],
-        'expect_contains' => 'Duo walk contact form',
+        'expect_contains' => 'WPrism walk contact form',
         'expect_status' => 200,
         'id' => 'forms-index',
         'url' => '/?post_type=wpforms',
     ],
     [
         'affected_surfaces' => ['post_type:page'],
-        'expect_contains' => 'Duo walk landing page',
+        'expect_contains' => 'WPrism walk landing page',
         'expect_status' => 200,
         'id' => 'landing-page',
         'url' => '/?page_id=1',
@@ -1017,10 +1017,10 @@ $journeys = [
 ];
 JourneyOracle::validateJourneys($journeys);
 $rows = [
-    ['detail' => '', 'expect_contains' => 'Duo walk contact form', 'expect_status' => 200,
+    ['detail' => '', 'expect_contains' => 'WPrism walk contact form', 'expect_status' => 200,
         'http_status' => 200, 'id' => 'forms-index', 'ok' => true,
         'status' => JourneyOracle::PASS, 'url' => '/?post_type=wpforms'],
-    ['detail' => '', 'expect_contains' => 'Duo walk landing page', 'expect_status' => 200,
+    ['detail' => '', 'expect_contains' => 'WPrism walk landing page', 'expect_status' => 200,
         'http_status' => 200, 'id' => 'landing-page', 'ok' => true,
         'status' => JourneyOracle::PASS, 'url' => '/?page_id=1'],
 ];
@@ -1063,7 +1063,7 @@ $catalog = CheckpointCatalog::fromStatus(
         'generation' => 1,
         'ok' => true,
         'owner' => 'direct-0000000000000000',
-        'receipt_format' => 'duo-scoped-promotion-receipt/v1',
+        'receipt_format' => 'wprism-scoped-promotion-receipt/v1',
         'receipt_id' => 'scoped-20260817-091300-0001',
         'state' => 'committed',
         'terminal' => true,
@@ -1113,7 +1113,7 @@ walk_write(
 $humanLines = AssessRenderer::render($s1, 50, [
     'contract_present' => false,
     'operation' => 'release',
-    'proposal_path' => '.duo/contract/awalk1/proposed.json',
+    'proposal_path' => '.wprism/contract/awalk1/proposed.json',
 ]);
 $clean = implode("\n", $humanLines) . "\n";
 walk_write("$out/assess-human.clean.txt", $clean);
@@ -1135,7 +1135,7 @@ walk_write("$out/assess-human.no-undeclared-table-line.txt", $noTableLine);
 
 // §5.2's leak rule as the walk mechanises it: the human view may print an
 // internal identifier only when a documented command consumes one, and nothing
-// consumes an operation id or an artifact hash from `duo assess`.
+// consumes an operation id or an artifact hash from `wprism assess`.
 walk_write("$out/assess-human.leaks-uuid.txt", $clean . "operation: 7b1c9a02-4f6d-4c3e-9b21-0a5d3e8c7f14\n");
 walk_write("$out/assess-human.leaks-artifact-hash.txt", $clean . 'artifact: ' . str_repeat('a1', 32) . "\n");
 
@@ -1154,7 +1154,7 @@ $initProposal = static function (bool $ready, array $unsupported, array $advisor
         ],
         'config' => ['manifests' => ['core', 'woocommerce']],
         'digest' => 'sha256:' . str_repeat('5', 64),
-        'format' => 'duo-init-proposal/v1',
+        'format' => 'wprism-init-proposal/v1',
         'media' => ['attachments' => 0, 'strategy' => 'inline', 'unavailable' => 0],
         'ready' => $ready,
         'state' => [
@@ -1172,7 +1172,7 @@ $unmanagedRow = [
     'extension' => 'wpforms-lite/wpforms.php',
     'kind' => 'plugin',
     'reason' => 'no installed manifest declares this active plugin identity',
-    'remediation' => 'install or review one versioned adapter, then rerun duo init, or proceed with '
+    'remediation' => 'install or review one versioned adapter, then rerun wprism init, or proceed with '
         . '--allow-unmanaged-plugins and record the decision in the contract',
 ];
 $blockedLines = Init::render($initProposal(false, [$unmanagedRow], []));
@@ -1200,8 +1200,8 @@ $uncertifiedRow = [
     'kind' => 'adapter',
     'reason' => "'wpforms' is installed from the site adapter source (/siterepo/adapters/wpforms.json) and is "
         . 'uncertified by construction: out-of-tree adapters carry no reviewed certification evidence',
-    'remediation' => 'certify it with duo adapter certify <site-repo> --name=wpforms, or remove it, then rerun '
-        . 'duo init',
+    'remediation' => 'certify it with wprism adapter certify <site-repo> --name=wpforms, or remove it, then rerun '
+        . 'wprism init',
     'source' => 'site',
     'trust_tier' => 'declarative',
 ];
@@ -1217,7 +1217,7 @@ walk_write(
 // command failed".
 $refusal = static function (string $command, string $code, string $message, string $remediation, array $diagnostics): string {
     $payload = [
-        'format' => 'duo-command-refusal/v1',
+        'format' => 'wprism-command-refusal/v1',
         'ok' => false,
         'command' => $command,
         'error' => $code,
@@ -1248,20 +1248,20 @@ walk_write("$out/refusal.adapter-source-uncertified.json", $refusal(
     'init',
     'adapter_source_uncertified',
     'an installed adapter carries no reviewed certification evidence',
-    'certify it with duo adapter certify <site-repo> --name=wpforms, or remove it, then rerun duo init',
+    'certify it with wprism adapter certify <site-repo> --name=wpforms, or remove it, then rerun wprism init',
     []
 ));
-// The human half of the same stop: `wp duo capture` without --format=json
+// The human half of the same stop: `wp wprism capture` without --format=json
 // prints the operator message, which names the surface and the remedy but not
 // the code. The walk's reader must recognise the stop from either shape, so
 // both are recorded.
 walk_write(
     "$out/refusal.incomplete-policy-scope.txt",
-    "Error: duo: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):\n"
+    "Error: wprism: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):\n"
     . "  - post_type 'wpforms' has 2 capturable entities but is absent from policy.post_types; include it there, "
     . "or record a deliberate exclusion with scope:post_type:wpforms=runtime|derived|env\n"
-    . "Run: wp duo pending --repo=/siterepo for evidence, then either add the type/taxonomy to policy scope or "
-    . "run wp duo classify --repo=/siterepo --set='scope:<kind>:<name>=<class>'.\n"
+    . "Run: wp wprism pending --repo=/siterepo for evidence, then either add the type/taxonomy to policy scope or "
+    . "run wp wprism classify --repo=/siterepo --set='scope:<kind>:<name>=<class>'.\n"
 );
 
 sort($written, SORT_STRING);

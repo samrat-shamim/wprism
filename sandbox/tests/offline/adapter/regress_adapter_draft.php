@@ -1,10 +1,10 @@
 <?php
 /**
- * Offline (no docker, no WordPress bootstrap) regression harness for DUO-3325:
- * `duo adapter-draft`, the safe adapter-DRAFT generator (offline slice).
+ * Offline (no docker, no WordPress bootstrap) regression harness for issue #3325:
+ * `wprism adapter-draft`, the safe adapter-DRAFT generator (offline slice).
  *
  * Nothing is faked. Every check runs the REAL host CLI as a subprocess —
- * `php cli/duo adapter-draft …` and `php cli/duo manifest-validate …` — against
+ * `php cli/wprism adapter-draft …` and `php cli/wprism manifest-validate …` — against
  * REAL fixture site-repos this test writes to a scratch directory, reading the
  * real exit code and stdout/stderr. That is the whole point: the command is
  * WordPress-free by construction (it boots the pure half of Policy::load(), the
@@ -24,8 +24,8 @@
 
 $repo = dirname(__DIR__, 4);
 
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($repo . '/agent/duo.php'), $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($repo . '/agent/wprism.php'), $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
 define('SPEC', (int) $m[1]);
@@ -34,7 +34,7 @@ define('SPEC', (int) $m[1]);
  *
  * § v3.3 closes the top-level key set at spec_version 3 and refuses `_draft`
  * there by name, so after the flip a draft stamped at SPEC is a document the
- * engine's own validator rejects — which is exactly what `duo adapter-draft`
+ * engine's own validator rejects — which is exactly what `wprism adapter-draft`
  * started doing on the bumped tree until `AdapterDraft::draft_spec_version()`
  * began choosing the stamp from the rule. The hand-built fixtures below carry
  * the sidecar without going through that method, so they follow the same rule
@@ -52,7 +52,7 @@ require $repo . '/agent/src/Kernel/OptionState.php';
 require $repo . '/agent/src/Policy/Policy.php';
 require $repo . '/sandbox/tests/lib/frozen_policy.php';
 
-$root = sys_get_temp_dir() . '/duo_regress_adapter_draft_' . bin2hex(random_bytes(4));
+$root = sys_get_temp_dir() . '/wprism_regress_adapter_draft_' . bin2hex(random_bytes(4));
 mkdir($root, 0777, true);
 register_shutdown_function(function () use ($root) {
     if (!is_dir($root)) {
@@ -88,9 +88,9 @@ function wrj(string $path, array $data): void {
  * Run the real host CLI as a subprocess.
  * @return array{exit:int, stdout:string, stderr:string}
  */
-function duo(array $args): array {
+function wprism(array $args): array {
     global $repo;
-    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/duo');
+    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/wprism');
     foreach ($args as $arg) {
         $cmd .= ' ' . escapeshellarg($arg);
     }
@@ -106,22 +106,22 @@ function duo(array $args): array {
     return ['exit' => proc_close($proc), 'stdout' => $stdout, 'stderr' => $stderr];
 }
 
-/** A minimal core-only manifest library every site.duo.json pins. */
+/** A minimal core-only manifest library every site.wprism.json pins. */
 function make_lib(string $dir): string {
     wrj($dir . '/core.json', ['name' => 'core', 'spec_version' => SPEC, 'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) []]);
-    \DuoTest\FrozenPolicy::adapterLibrary($dir);
+    \WPrismTest\FrozenPolicy::adapterLibrary($dir);
     return $dir;
 }
 
 /** Publish one manifest and close the explicit historical-layout test archive around it. */
 function publish_manifest(string $dir, string $name, array $manifest): void {
     wr($dir . '/' . $name . '.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    \DuoTest\FrozenPolicy::adapterLibrary($dir);
+    \WPrismTest\FrozenPolicy::adapterLibrary($dir);
 }
 
-/** A site.duo.json with the given policy sections. */
+/** A site.wprism.json with the given policy sections. */
 function make_site(string $repoDir, array $policy = []): void {
-    wrj($repoDir . '/site.duo.json', [
+    wrj($repoDir . '/site.wprism.json', [
         'manifests' => ['core'],
         'spec_version' => SPEC,
         'policy' => $policy + ['options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [], 'post_types' => (object) [], 'taxonomies' => (object) []],
@@ -130,7 +130,7 @@ function make_site(string $repoDir, array $policy = []): void {
 
 /** Decode a generated draft artifact (--format=json). */
 function gen_draft(string $repoDir, string $name, array $extra = []): array {
-    $r = duo(array_merge(['adapter-draft', $repoDir, '--name=' . $name, '--format=json'], $extra));
+    $r = wprism(array_merge(['adapter-draft', $repoDir, '--name=' . $name, '--format=json'], $extra));
     if ($r['exit'] !== 0) {
         throw new \RuntimeException("adapter-draft failed ({$r['exit']}): {$r['stderr']}");
     }
@@ -141,7 +141,7 @@ function gen_draft(string $repoDir, string $name, array $extra = []): array {
 function source_library_hashes(): array {
     global $repo;
     $hashes = [];
-    foreach (\Duo\AdapterLibrary::fromSourceTree($repo)->scanFiles() as $file) {
+    foreach (\WPrism\AdapterLibrary::fromSourceTree($repo)->scanFiles() as $file) {
         $sha256 = hash_file('sha256', $file);
         if ($sha256 === false) {
             throw new \RuntimeException("could not hash adapter source: $file");
@@ -153,7 +153,7 @@ function source_library_hashes(): array {
 
 /** Compare decoded JSON values with the engine's canonical semantic encoding. */
 function same_canon(mixed $left, mixed $right): bool {
-    return \Duo\Canon::encode($left) === \Duo\Canon::encode($right);
+    return \WPrism\Canon::encode($left) === \WPrism\Canon::encode($right);
 }
 
 /** @return array<string,array<string,mixed>> generated unsupported candidates by structural evidence locator. */
@@ -194,7 +194,7 @@ echo "\n== 1. envelope + validate acceptance ==\n";
     check(($draft['options']['my_hero_id']['class'] ?? null) === 'authored', 'classified option is a FACT in the real options section');
     check(!str_contains(json_encode($draft['_draft']), 'my_hero_id'), 'facts are NOT duplicated into _draft (facts live only in real sections)');
     check(isset($draft['_draft']), 'the draft carries a top-level _draft sidecar');
-    check(($draft['_draft']['format'] ?? '') === 'duo-adapter-draft/v1', '_draft declares the duo-adapter-draft/v1 format');
+    check(($draft['_draft']['format'] ?? '') === 'wprism-adapter-draft/v1', '_draft declares the wprism-adapter-draft/v1 format');
     $tables = $draft['_draft']['proposals']['tables'] ?? [];
     check(count($tables) === 1 && $tables[0]['target'] === 'tables.nf3_forms', 'observed table is a PROPOSAL under _draft, not a fact');
     // facts sections carry no `tables` key (facts core is options/post_meta/…)
@@ -204,12 +204,12 @@ echo "\n== 1. envelope + validate acceptance ==\n";
     $md = "$t/md";
     make_lib($md);
     publish_manifest($md, 'nf-draft', $draft);
-    $v = duo(['manifest-validate', $md, '--manifest=nf-draft', '--pins=nf-draft,core']);
+    $v = wprism(['manifest-validate', $md, '--manifest=nf-draft', '--pins=nf-draft,core']);
     check($v['exit'] === 0, 'manifest-validate exits 0 on the draft (facts valid, sidecar inert)');
     check(str_contains($v['stdout'], 'draft:') && str_contains($v['stdout'], 'facts validated'), 'manifest-validate prints the _draft annotation distinguishing facts / proposals / unsupported');
-    check(str_contains($v['stdout'], "run 'duo adapter-draft --check-proposals'"), 'the annotation points the author at --check-proposals');
+    check(str_contains($v['stdout'], "run 'wprism adapter-draft --check-proposals'"), 'the annotation points the author at --check-proposals');
 
-    $invalidName = duo(['adapter-draft', "$t/repo", '--name=../invalid', '--format=json']);
+    $invalidName = wprism(['adapter-draft', "$t/repo", '--name=../invalid', '--format=json']);
     check($invalidName['exit'] === 2
         && str_contains($invalidName['stderr'], 'canonical lowercase adapter-name grammar')
         && !str_contains($invalidName['stdout'] . $invalidName['stderr'], '../invalid'),
@@ -236,7 +236,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
         'spec_version' => DRAFT_SPEC,
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [], 'user_meta' => (object) [],
         '_draft' => [
-            'format' => 'duo-adapter-draft/v1',
+            'format' => 'wprism-adapter-draft/v1',
             'proposals' => ['tables' => [[
                 'target' => 'tables.widgets', 'candidate' => $tableFrag,
                 'status' => 'proposal', 'confidence' => 0.3, 'evidence' => [], 'questions' => [],
@@ -246,7 +246,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
         ],
     ];
     publish_manifest($md, 'inert-draft', $draft);
-    $v = duo(['manifest-validate', $md, '--manifest=inert-draft', '--pins=inert-draft,core']);
+    $v = wprism(['manifest-validate', $md, '--manifest=inert-draft', '--pins=inert-draft,core']);
     check($v['exit'] === 0, 'a draft whose _draft table proposal names an UNDECLARED id_kind still validates ok (sidecar is inert)');
     check(!str_contains($v['stdout'], 'kind vocabulary is closed'), 'the closed-vocabulary refusal is NOT tripped by the renamed proposal');
 
@@ -259,7 +259,7 @@ echo "\n== 2. INERTNESS (load-bearing): undeclared id_kind under _draft stays ok
     $mutated['_draft']['proposals']['tables'][0]['candidate'] = $frag;
     $mutated['name'] = 'mutant-draft';
     publish_manifest($md, 'mutant-draft', $mutated);
-    $vm = duo(['manifest-validate', $md, '--manifest=mutant-draft', '--pins=mutant-draft,core']);
+    $vm = wprism(['manifest-validate', $md, '--manifest=mutant-draft', '--pins=mutant-draft,core']);
     check($vm['exit'] !== 0, 'MUTATION PROOF: un-renaming the trigger key makes manifest-validate FAIL — the rename is load-bearing');
     check(str_contains($vm['stdout'] . $vm['stderr'], 'kind vocabulary is closed'), 'the un-renamed proposal trips exactly the closed-vocabulary refusal the rename prevents');
 }
@@ -598,7 +598,7 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
             'version' => '1.0.0', 'capabilities' => ['rebuild_hand'],
         ]],
         'notes' => ['human' => 'retain this exact editorial intent'],
-        '_draft' => ['format' => 'duo-adapter-draft/v1', 'proposals' => (object) [], 'unsupported' => [], '_meta' => (object) []],
+        '_draft' => ['format' => 'wprism-adapter-draft/v1', 'proposals' => (object) [], 'unsupported' => [], '_meta' => (object) []],
     ];
     wr("$t/repo/adapters/intent-draft.json", json_encode($prior, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     $out = gen_draft("$t/repo", 'intent-draft');
@@ -632,7 +632,7 @@ echo "\n== 6d. prior manifest intent and graduated facts survive a policy export
     $md = "$t/md";
     make_lib($md);
     publish_manifest($md, 'intent-draft', $out);
-    $v = duo(['manifest-validate', $md, '--manifest=intent-draft', '--pins=intent-draft,core']);
+    $v = wprism(['manifest-validate', $md, '--manifest=intent-draft', '--pins=intent-draft,core']);
     check($v['exit'] === 0, 'the preserved intent and inert fact-conflict sidecar still pass the real manifest validator');
 }
 
@@ -657,7 +657,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $saved['_draft']['unsupported'][0]['legacy_machine_trace'] = $uuid;
     $saved['_draft']['_meta'][$target]['ratified'] = true;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($saved, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $r = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $r = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($r['exit'] === 0, 'a prior candidate with unsafe machine evidence is safely regenerated by redaction');
     check($r['stderr'] === '', 'safe prior-candidate regeneration emits no PHP warnings or stderr diagnostics');
     check(!str_contains($r['stdout'], $uuid) && !str_contains($r['stdout'], $token),
@@ -674,7 +674,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $unsafe = $saved;
     $unsafe['_draft']['unsupported'][0]['candidate']['api_key'] = $token;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unsafe, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $secretRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $secretRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($secretRefusal['exit'] === 2 && str_contains($secretRefusal['stderr'], 'possible secret')
         && !str_contains($secretRefusal['stderr'] . $secretRefusal['stdout'], $token),
         'a secret in the prior semantic fragment fails closed without echoing the secret');
@@ -682,7 +682,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $secretNotes = $g1;
     $secretNotes['notes'] = ['operator_note' => $token];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($secretNotes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $notesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $notesRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($notesRefusal['exit'] === 2 && str_contains($notesRefusal['stderr'], 'regenerated artifact contains a possible secret')
         && !str_contains($notesRefusal['stderr'] . $notesRefusal['stdout'], $token),
         'a secret in preserved top-level notes refuses rather than being replayed or silently redacted');
@@ -691,7 +691,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $capturedPath = "state/posts/page/{$uuid}--local.md";
     $coordinateNotes['notes'] = ['captured_path' => $capturedPath];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($coordinateNotes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $coordinateNotesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $coordinateNotesRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($coordinateNotesRefusal['exit'] === 2
         && str_contains($coordinateNotesRefusal['stderr'], 'entity-local UUID/path')
         && !str_contains($coordinateNotesRefusal['stderr'] . $coordinateNotesRefusal['stdout'], $uuid)
@@ -702,7 +702,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $phpStub = '<?= "not-safe" ?>';
     $executableNotes['notes'] = ['example' => $phpStub];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($executableNotes, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $executableNotesRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $executableNotesRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($executableNotesRefusal['exit'] === 2
         && str_contains($executableNotesRefusal['stderr'], 'executable/interpreter semantics')
         && !str_contains($executableNotesRefusal['stderr'] . $executableNotesRefusal['stdout'], $phpStub),
@@ -711,7 +711,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $unsafeCoordinate = $g1;
     $unsafeCoordinate['_draft']['unsupported'][0]['candidate']['legacy_locator'] = "state/posts/page/{$uuid}--unsafe.md";
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unsafeCoordinate, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $coordinateRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $coordinateRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($coordinateRefusal['exit'] === 2 && str_contains($coordinateRefusal['stderr'], 'entity-local UUID/path')
         && !str_contains($coordinateRefusal['stderr'] . $coordinateRefusal['stdout'], $uuid),
         'an entity-local path in a prior semantic fragment fails closed without replaying its UUID');
@@ -729,7 +729,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $malformed = $g1;
     $malformed['_draft']['_meta'][$target]['ratified'] = 'yes';
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $markerRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $markerRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($markerRefusal['exit'] === 2 && str_contains($markerRefusal['stderr'], '_meta.ratified must be a boolean'),
         'a malformed ratified authority marker fails closed instead of reading as unratified');
 
@@ -741,7 +741,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $malformed = $g1;
         $malformed['_draft']['_meta'][$target][$marker] = $badValue;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformed, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $markerRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+        $markerRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($markerRefusal['exit'] === 2 && str_contains($markerRefusal['stderr'], '_meta.' . $marker),
             "a malformed $marker authority marker fails closed rather than becoming fresh/untracked");
     }
@@ -749,28 +749,28 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $unknownMeta = $g1;
     $unknownMeta['_draft']['_meta'][$target]['old_authority'] = true;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unknownMeta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $unknownMetaRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $unknownMetaRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($unknownMetaRefusal['exit'] === 2 && str_contains($unknownMetaRefusal['stderr'], 'unrecognized authority'),
         'an unrecognized prior _meta authority field fails closed instead of being ignored');
 
     $wrongDraftFormat = $g1;
-    $wrongDraftFormat['_draft']['format'] = 'duo-adapter-draft/v999';
+    $wrongDraftFormat['_draft']['format'] = 'wprism-adapter-draft/v999';
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($wrongDraftFormat, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $formatRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
-    check($formatRefusal['exit'] === 2 && str_contains($formatRefusal['stderr'], 'prior _draft.format must be duo-adapter-draft/v1'),
+    $formatRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    check($formatRefusal['exit'] === 2 && str_contains($formatRefusal['stderr'], 'prior _draft.format must be wprism-adapter-draft/v1'),
         'an unknown prior draft contract is refused rather than interpreted as v1');
 
     $unknownRoot = $g1;
     $unknownRoot['_draft']['future_authority'] = true;
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unknownRoot, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $unknownRootRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $unknownRootRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($unknownRootRefusal['exit'] === 2 && str_contains($unknownRootRefusal['stderr'], 'unrecognized v1 field'),
         'an unknown prior _draft root field is refused rather than silently discarded');
 
     $unknownBucket = $g1;
     $unknownBucket['_draft']['proposals']['future_bucket'] = [];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($unknownBucket, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $unknownBucketRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $unknownBucketRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($unknownBucketRefusal['exit'] === 2 && str_contains($unknownBucketRefusal['stderr'], 'unknown v1 bucket'),
         'an unknown prior proposal bucket is refused rather than re-bucketed');
 
@@ -780,7 +780,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         'status' => 'proposal', 'confidence' => 0.5, 'evidence' => [], 'questions' => [],
     ];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($wrongBucket, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $wrongBucketRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $wrongBucketRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($wrongBucketRefusal['exit'] === 2 && str_contains($wrongBucketRefusal['stderr'], 'different v1 proposal bucket'),
         'a prior candidate whose target family disagrees with its bucket is refused rather than moved');
 
@@ -791,7 +791,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $malformedCandidate = $g1;
         $malformedCandidate['_draft']['unsupported'][0][$field] = $badValue;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformedCandidate, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $candidateRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+        $candidateRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($candidateRefusal['exit'] === 2 && str_contains($candidateRefusal['stderr'], $message),
             "a malformed prior candidate $field is refused rather than silently normalized");
     }
@@ -804,7 +804,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $executablePrior = $g1;
         $executablePrior['_draft']['unsupported'][0]['candidate'][$executableKey] = $executableValue;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($executablePrior, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $executableRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+        $executableRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($executableRefusal['exit'] === 2
             && str_contains($executableRefusal['stderr'], 'executable/interpreter semantics')
             && !str_contains($executableRefusal['stdout'] . $executableRefusal['stderr'], $executableValue),
@@ -818,7 +818,7 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
         $colliding = $g1;
         $colliding['_draft']['unsupported'][0]['candidate'] = $collidingFragment;
         wr("$t/repo/adapters/safe-prior-draft.json", json_encode($colliding, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $collisionRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+        $collisionRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
         check($collisionRefusal['exit'] === 2 && str_contains($collisionRefusal['stderr'], 'colliding live/inert trigger keys'),
             'both insertion orders of a live/inert trigger collision refuse instead of silently dropping intent');
     }
@@ -826,12 +826,12 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $wrongName = $g1;
     $wrongName['name'] = 'other-draft';
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($wrongName, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $nameRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $nameRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($nameRefusal['exit'] === 2 && str_contains($nameRefusal['stderr'], 'must declare name'),
         'a name-mismatched prior artifact is refused rather than merged into this adapter');
 
     wr("$t/repo/adapters/safe-prior-draft.json", '{ invalid json');
-    $jsonRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $jsonRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($jsonRefusal['exit'] === 2 && str_contains($jsonRefusal['stderr'], 'invalid JSON'),
         'a malformed prior artifact is refused rather than silently ignored');
 
@@ -840,14 +840,14 @@ echo "\n== 6e. prior draft preservation redacts old evidence and refuses unsafe/
     $malformedActions = $g1;
     $malformedActions['actions'] = ['not-an-action-object'];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformedActions, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $actionsRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $actionsRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($actionsRefusal['exit'] === 2 && str_contains($actionsRefusal['stderr'], 'actions[0] must be an object'),
         'an unpinned prior artifact with malformed actions is refused by the real Policy grammar before merge');
 
     $malformedFact = $g1;
     $malformedFact['user_meta'] = ['bad_prior_meta' => ['class' => 'not-a-class']];
     wr("$t/repo/adapters/safe-prior-draft.json", json_encode($malformedFact, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $factRefusal = duo(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
+    $factRefusal = wprism(['adapter-draft', "$t/repo", '--name=safe-prior-draft', '--format=json']);
     check($factRefusal['exit'] === 2 && str_contains($factRefusal['stderr'], 'user_meta.bad_prior_meta has an invalid or missing class'),
         'an unpinned prior artifact with a malformed fact rule is refused by the real Policy grammar before merge');
 }
@@ -865,7 +865,7 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     // Snapshot every adapter/platform source byte to prove the private package
     // check never writes into the authoring library it was launched from.
     $before = source_library_hashes();
-    $r = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--format=json']);
+    $r = wprism(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--format=json']);
     check($r['exit'] === 0, '--check-proposals runs and reports (exit 0)');
     $rep = json_decode($r['stdout'], true);
     $res = [];
@@ -876,7 +876,7 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     check(($res['tables.nopk']['liftable'] ?? null) === false && str_contains(strtolower($res['tables.nopk']['message'] ?? ''), 'pk'), 'a proposal the live loader refuses reports the engine\'s real refusal (naming pk)');
     check(($res['deletions.table:liftable']['liftable'] ?? null) === false
         && str_contains($res['deletions.table:liftable']['message'] ?? '', 'live-policy conditional')
-        && !str_contains($res['deletions.table:liftable']['message'] ?? '', 'Class "Duo\\Snapshot" not found'),
+        && !str_contains($res['deletions.table:liftable']['message'] ?? '', 'Class "WPrism\\Snapshot" not found'),
         'a table deletion proposal is explicitly deferred because attached-meta cascade ownership is not available offline');
     $after = source_library_hashes();
     check($before === $after, '--check-proposals writes NOTHING live (adapter/platform source bytes are unchanged)');
@@ -913,7 +913,7 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
         'status' => 'proposal', 'confidence' => 0.5, 'evidence' => [], 'questions' => [],
     ];
     wr("$t/repo/adapters/contract-check.json", json_encode($prior, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    $contractCheck = duo(['adapter-draft', "$t/repo", '--name=contract-check', '--check-proposals', '--format=json']);
+    $contractCheck = wprism(['adapter-draft', "$t/repo", '--name=contract-check', '--check-proposals', '--format=json']);
     check($contractCheck['exit'] === 0, 'structured prior proposals produce a bounded check report');
     $contractRows = [];
     foreach ((array) (json_decode($contractCheck['stdout'], true)['results'] ?? []) as $row) {
@@ -935,10 +935,10 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     // refused, as draft rows for tools/engine-gaps.json. The `tables.nopk`
     // fixture above is a real observed shape with no expressible identity, so it
     // is the row; `tables.liftable` is expressible and must NOT be one.
-    $gap = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--gap-report', '--format=json']);
+    $gap = wprism(['adapter-draft', "$t/repo", '--name=chk-draft', '--gap-report', '--format=json']);
     check($gap['exit'] === 0, '--gap-report runs and reports (exit 0)');
     $gapReport = json_decode($gap['stdout'], true);
-    check(($gapReport['format'] ?? '') === 'duo-adapter-draft-gap-report/v1', '--gap-report declares its own envelope');
+    check(($gapReport['format'] ?? '') === 'wprism-adapter-draft-gap-report/v1', '--gap-report declares its own envelope');
     $gapRows = [];
     foreach (($gapReport['rows'] ?? []) as $row) {
         $gapRows[$row['coordinate']] = $row;
@@ -963,7 +963,7 @@ echo "\n== 7. --check-proposals: grammar-valid reports liftable; malformed repor
     $lastLib = source_library_hashes();
     check($before === $lastLib, '--gap-report writes NOTHING live either');
 
-    $both = duo(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--gap-report', '--format=json']);
+    $both = wprism(['adapter-draft', "$t/repo", '--name=chk-draft', '--check-proposals', '--gap-report', '--format=json']);
     check($both['exit'] === 2 && str_contains($both['stderr'], 'two reports over one lift'),
         'asking for both reports at once is refused rather than silently answering one of the two questions');
 }
@@ -977,7 +977,7 @@ echo "\n== 8. guardrails: no PHP stubs; secret dropped to a question; no reserve
     wrj("$t/repo/state/tables/creds/r2.json", ['table' => 'creds', 'columns' => ['id' => 2, 'apikey' => 'ghp_ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210']]);
     wr("$t/repo/state/posts/page/g.md", "---\n" . json_encode(['type' => 'page', 'meta' => ['elementor_data' => 'a:1:{s:1:"x";i:1;}']]) . "\n---\nbody\n");
 
-    $r = duo(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json']);
+    $r = wprism(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json']);
     check($r['exit'] === 0, 'generation succeeds');
     $raw = $r['stdout'];
     check(!str_contains($raw, 'ghp_ABCDEFG') && !str_contains($raw, 'ghp_ZYXWV'), 'a secret-shaped value NEVER appears in the draft output');
@@ -993,7 +993,7 @@ echo "\n== 8. guardrails: no PHP stubs; secret dropped to a question; no reserve
     }
     // The exact refusal a draft-turned-site-adapter must pass, called directly.
     try {
-        \Duo\AdapterSources::assert_out_of_tree_contract($draft, 'guard-draft', 'adapters/guard-draft.json');
+        \WPrism\AdapterSources::assert_out_of_tree_contract($draft, 'guard-draft', 'adapters/guard-draft.json');
         check(true, 'installed as a site adapter, the draft passes AdapterSources::assert_out_of_tree_contract()');
     } catch (\Throwable $e) {
         check(false, 'assert_out_of_tree_contract() rejected the draft: ' . $e->getMessage());
@@ -1001,7 +1001,7 @@ echo "\n== 8. guardrails: no PHP stubs; secret dropped to a question; no reserve
 
     @mkdir("$t/repo/adapters", 0777, true);
     wr("$t/repo/adapters/guard-draft.json", $raw);
-    $second = duo(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json']);
+    $second = wprism(['adapter-draft', "$t/repo", '--name=guard-draft', '--format=json']);
     $secondDraft = json_decode($second['stdout'], true);
     $redactedTable = null;
     foreach ((array) ($secondDraft['_draft']['proposals']['tables'] ?? []) as $candidate) {
@@ -1034,7 +1034,7 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
         'hard_blob' => 'a:1:{s:5:"token";s:40:"' . $hardToken . '";}',
     ]]) . "\n---\nbody\n");
 
-    $r = duo(['adapter-draft', "$t/repo", '--name=heur-draft', '--format=json']);
+    $r = wprism(['adapter-draft', "$t/repo", '--name=heur-draft', '--format=json']);
     check($r['exit'] === 0, 'generation succeeds');
     $raw = $r['stdout'];
     // BITE for fix 1: only fires if suspicious() got the real key 'api_key'.
@@ -1051,7 +1051,7 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
     // BITE for fix 2: the blob's embedded secret must never be pasted verbatim.
     check(!str_contains($raw, 'dddd4444eeee5555ffff6666'), 'a secret EMBEDDED in a generated blob never appears verbatim in evidence (bytes withheld)');
     check(preg_match('/opaque ~\d+-char [A-Za-z\/-]+ blob/', $raw) === 1, 'generated-surface evidence describes the SHAPE (opaque ~N-char blob), never the bytes');
-    $hardTarget = 'unsupported.generated.' . hash('sha256', \Duo\Canon::encode(['kind' => 'post_meta', 'key' => 'hard_blob']));
+    $hardTarget = 'unsupported.generated.' . hash('sha256', \WPrism\Canon::encode(['kind' => 'post_meta', 'key' => 'hard_blob']));
     $hardCandidate = unsupported_by_target($draft)[$hardTarget] ?? null;
     check($hardCandidate !== null
         && ($hardCandidate['status'] ?? null) === 'unsupported'
@@ -1074,7 +1074,7 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
     make_site("$t/repo");
     $seed = "$t/coverage.json";
     wrj($seed, [
-        'format' => 'duo-coverage-report/v1',
+        'format' => 'wprism-coverage-report/v1',
         'options' => [
             'total' => 5, 'captured' => 1, 'pending' => 0, 'invisible_total' => 4,
             'invisible_transient' => 0, 'invisible_other' => 4,
@@ -1115,9 +1115,9 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
     // own — keys on the code rather than on the sentence.
     @mkdir("$t/repo/adapters", 0777, true);
     $out = "$t/repo/adapters/wpforms.json";
-    $first = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out]);
+    $first = wprism(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out]);
     check($first['exit'] === 0 && is_file($out), '--out writes the draft (exit ' . $first['exit'] . ')');
-    $narrowed = duo([
+    $narrowed = wprism([
         'adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed,
         '--match=^_?wpforms_', '--out=' . $out, '--force',
     ]);
@@ -1130,20 +1130,20 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
             && $targets($narrowedDraft, 'tables') === ['tables.wpforms_tasks_meta'],
         'a scoped --force drops stale, unchanged, unratified machine proposals from the prior unscoped draft'
     );
-    $again = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out]);
+    $again = wprism(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out]);
     check(
         $again['exit'] === 2 && str_contains($again['stderr'], '[draft_output_exists]')
             && str_contains($again['stderr'], 'never replaces a reviewed draft silently'),
         'a second --out to the same path refuses under its typed reason code (got: ' . trim($again['stderr']) . ')'
     );
-    $forced = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out, '--force']);
+    $forced = wprism(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out, '--force']);
     check($forced['exit'] === 0, '--force regenerates over it (exit ' . $forced['exit'] . ': ' . substr($forced['stderr'], 0, 200) . ')');
 }
 
-echo "\n== 10. --evidence: a duo-adapter-probe/v1 document answers the NAMED questions and promotes nothing ==\n";
+echo "\n== 10. --evidence: a wprism-adapter-probe/v1 document answers the NAMED questions and promotes nothing ==\n";
 // ---------------------------------------------------------------------------
 // WP-2.1. `--evidence=` used to be accepted and explicitly ignored. It now
-// takes the live half's own document (`wp duo adapter-probe --format=json`),
+// takes the live half's own document (`wp wprism adapter-probe --format=json`),
 // and the property under test is the one the seam exists to protect: live
 // facts land as `evidence[]` rows at confidence 1.0 answering the questions
 // the offline proposer NAMED, and NOTHING else moves. The probe is built here
@@ -1177,7 +1177,7 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     $probe = [
         'authority' => false,
         'deferred' => ['a probe proposes no class, identity, deletion authority or capability'],
-        'format' => 'duo-adapter-probe/v1',
+        'format' => 'wprism-adapter-probe/v1',
         'redaction' => 'values_omitted',
         'tables' => [
             'rooms' => [
@@ -1205,15 +1205,15 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
         ],
         'target' => ['agent_version' => '0.0.0-test', 'spec_version' => SPEC],
     ];
-    $probe['probe_hash'] = \Duo\AdapterProbe::hash_document($probe);
+    $probe['probe_hash'] = \WPrism\AdapterProbe::hash_document($probe);
     $probePath = "$t/probe.json";
-    wr($probePath, \Duo\Canon::encode($probe));
+    wr($probePath, \WPrism\Canon::encode($probe));
 
     $answered = gen_draft("$t/repo", 'rooms-draft', ['--evidence=' . $probePath]);
     $candidate = ($answered['_draft']['proposals']['tables'] ?? [])[0] ?? [];
     $rows = [];
     foreach (($candidate['evidence'] ?? []) as $row) {
-        if (($row['source'] ?? '') === 'duo-adapter-probe/v1') {
+        if (($row['source'] ?? '') === 'wprism-adapter-probe/v1') {
             $rows[$row['locator']] = $row;
         }
     }
@@ -1275,7 +1275,7 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
         'no live section was written: a probe never advertises a table or a deletion'
     );
     check(
-        str_contains((string) ($answered['_draft']['evidence_seam'] ?? ''), 'duo-adapter-probe/v1 consumed')
+        str_contains((string) ($answered['_draft']['evidence_seam'] ?? ''), 'wprism-adapter-probe/v1 consumed')
             && str_contains((string) ($answered['_draft']['evidence_seam'] ?? ''), $probe['probe_hash'])
             && str_contains((string) ($answered['_draft']['evidence_seam'] ?? ''), 'Probed but not proposed here: never_proposed'),
         'the seam records the consumed document by hash and names the probed table nothing proposed'
@@ -1285,7 +1285,7 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     $md = "$t/md";
     make_lib($md);
     publish_manifest($md, 'rooms-draft', $answered);
-    $validated = duo(['manifest-validate', $md, '--manifest=rooms-draft', '--pins=rooms-draft,core']);
+    $validated = wprism(['manifest-validate', $md, '--manifest=rooms-draft', '--pins=rooms-draft,core']);
     check(
         $validated['exit'] === 0,
         'a draft carrying probe evidence still validates (exit ' . $validated['exit'] . ': ' . trim($validated['stderr']) . ')'
@@ -1294,9 +1294,9 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
     // The load-bearing refusal: a document that tries to classify.
     $forged = $probe;
     $forged['tables']['rooms']['class'] = 'authored_snapshot';
-    $forged['probe_hash'] = \Duo\AdapterProbe::hash_document($forged);
-    wr("$t/forged.json", \Duo\Canon::encode($forged));
-    $refused = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/forged.json"]);
+    $forged['probe_hash'] = \WPrism\AdapterProbe::hash_document($forged);
+    wr("$t/forged.json", \WPrism\Canon::encode($forged));
+    $refused = wprism(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/forged.json"]);
     check(
         $refused['exit'] === 2 && str_contains($refused['stderr'], 'outside the closed probe vocabulary'),
         'a probe document carrying a `class` refuses the whole run (got: ' . trim($refused['stderr']) . ')'
@@ -1304,17 +1304,17 @@ require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
 
     $tampered = $probe;
     $tampered['tables']['rooms']['primary_key'] = ['id'];
-    wr("$t/tampered.json", \Duo\Canon::encode($tampered));
-    $stale = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/tampered.json"]);
+    wr("$t/tampered.json", \WPrism\Canon::encode($tampered));
+    $stale = wprism(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/tampered.json"]);
     check(
         $stale['exit'] === 2 && str_contains($stale['stderr'], 'probe_hash does not describe the document'),
         'a hand-edited fact is refused rather than attached at confidence 1.0'
     );
 
-    wr("$t/not-a-probe.json", json_encode(['format' => 'duo-coverage-report/v1']));
-    $wrongFormat = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/not-a-probe.json"]);
+    wr("$t/not-a-probe.json", json_encode(['format' => 'wprism-coverage-report/v1']));
+    $wrongFormat = wprism(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/not-a-probe.json"]);
     check(
-        $wrongFormat['exit'] === 2 && str_contains($wrongFormat['stderr'], 'duo-adapter-probe/v1'),
+        $wrongFormat['exit'] === 2 && str_contains($wrongFormat['stderr'], 'wprism-adapter-probe/v1'),
         'a document of another format is refused by name'
     );
 }

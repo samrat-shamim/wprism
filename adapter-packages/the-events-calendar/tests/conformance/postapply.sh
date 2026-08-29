@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The hostile target owns one all-day event solely to prove that Duo's
+# The hostile target owns one all-day event solely to prove that WPrism's
 # hook-bypassing mixed-option write neither executes TEC's unbounded cutoff
 # migration nor deletes old events. It must survive apply byte-for-byte, then
 # leave through the native post lifecycle before generic canonical recapture.

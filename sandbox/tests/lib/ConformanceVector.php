@@ -1,6 +1,6 @@
 <?php
 /**
- * `duo-conformance-vector/v1` — record once live, replay forever offline.
+ * `wprism-conformance-vector/v1` — record once live, replay forever offline.
  *
  * WHAT A VECTOR IS
  * ----------------
@@ -16,7 +16,7 @@
  *   `rows`      the LIVE rows of every table the adapter declares, at the
  *               moment capture read them — the seeded state as the database
  *               held it, not as a suite author imagined it;
- *   `ledger`    conf1's `duo_map` rows. Identity is the reason this is a
+ *   `ledger`    conf1's `wprism_map` rows. Identity is the reason this is a
  *               separate field and a hard requirement (`assert_document()`):
  *               `Snapshot::capture()` MINTS a uuid for an unmapped row
  *               (`SnapshotIdentity->identifyRow()`), so a vector without the
@@ -24,7 +24,7 @@
  *               different `tables/<t>/<uuid>--<slug>.json` path and different
  *               canonical bytes — on every single run. Recording the ledger is
  *               what makes "byte-identical" a property rather than a wish;
- *   `probe`     WP-2.1's `duo-adapter-probe/v1` document over those same
+ *   `probe`     WP-2.1's `wprism-adapter-probe/v1` document over those same
  *               tables. This is the field that answers `sandbox/tests/lib/README.md`'s
  *               standing objection to a synthetic `information_schema`: the
  *               README refuses one because facts fed from `setColumns()` would
@@ -50,7 +50,7 @@
  * into a vector only after run.sh's own acceptance passed; `replay()` returns
  * REPLAY_VERDICT ('vector_replayed') or REPLAY_REFUSED, and every envelope
  * carries `verdict_is_not`, `verdict_note` and the `deferred()` rows — on a
- * PASS as much as on a failure, which is the discipline `duo manifest-validate`
+ * PASS as much as on a failure, which is the discipline `wprism manifest-validate`
  * uses when it stamps `status: deferred` rows on every run
  * (`cli/src/Adapter/AdapterCatalog.php:193-195`) so silence cannot read as
  * verified.
@@ -58,7 +58,7 @@
  * WHAT REPLAY ACTUALLY RUNS
  * -------------------------
  * The real, unmodified engine on both legs — `Policy::from_snapshot()` over
- * FrozenPolicy's fail-closed `duo-policy-snapshot/v6` envelope, then
+ * FrozenPolicy's fail-closed `wprism-policy-snapshot/v6` envelope, then
  * `Snapshot::capture()` for the capture leg and `Snapshot::ensure_row()` +
  * `Snapshot::finalize_row()` (the two calls `AuthoredTransactionExecutor.php:172,203`
  * makes) into a SECOND, EMPTY FakeWpdb for the apply leg, then capture again.
@@ -70,15 +70,15 @@
  */
 declare(strict_types=1);
 
-namespace DuoTest;
+namespace WPrismTest;
 
 final class ConformanceVector
 {
     /** The wire generation of a recorded vector. */
-    public const FORMAT = 'duo-conformance-vector/v1';
+    public const FORMAT = 'wprism-conformance-vector/v1';
 
     /** The probe generation `probe` must carry (`AdapterProbe::FORMAT`). */
-    public const PROBE_FORMAT = 'duo-adapter-probe/v1';
+    public const PROBE_FORMAT = 'wprism-adapter-probe/v1';
 
     /**
      * The verdict a LIVE `sandbox/conformance/run.sh` sweep earns, stamped
@@ -94,11 +94,11 @@ final class ConformanceVector
     public const REPLAY_REFUSED = 'vector_replay_refused';
 
     /**
-     * `duo_map`'s shape, from Ledger's own `CREATE TABLE`
-     * (`agent/src/Repository/Ledger.php:81-88`). Duo's ledger is a SHIPPED
+     * `wprism_map`'s shape, from Ledger's own `CREATE TABLE`
+     * (`agent/src/Repository/Ledger.php:81-88`). WPrism's ledger is a SHIPPED
      * fact, not a site fact, which is why it comes from here and not from the
      * probe: a probe describes the ADAPTER's declared tables, and stamping
-     * Duo's own schema into it would let a site's answer redefine the ledger.
+     * WPrism's own schema into it would let a site's answer redefine the ledger.
      */
     private const LEDGER_MAP_COLUMNS = [
         'entity_type' => 'varchar(64)',
@@ -121,12 +121,12 @@ final class ConformanceVector
         $required = ['ledger', 'manifest', 'probe', 'recapture', 'recorded', 'rows', 'state'];
         foreach ($required as $key) {
             if (!array_key_exists($key, $parts)) {
-                throw new \RuntimeException("duo: conformance vector is missing '$key'");
+                throw new \RuntimeException("wprism: conformance vector is missing '$key'");
             }
         }
         foreach (array_keys($parts) as $key) {
             if (!in_array((string) $key, $required, true)) {
-                throw new \RuntimeException("duo: conformance vector carries an unknown field '$key'");
+                throw new \RuntimeException("wprism: conformance vector carries an unknown field '$key'");
             }
         }
         $document = ['format' => self::FORMAT] + $parts;
@@ -139,7 +139,7 @@ final class ConformanceVector
     public static function hash_document(array $document): string
     {
         unset($document['vector_hash']);
-        return 'sha256:' . hash('sha256', \Duo\Canon::encode($document));
+        return 'sha256:' . hash('sha256', \WPrism\Canon::encode($document));
     }
 
     /**
@@ -151,43 +151,43 @@ final class ConformanceVector
     {
         if (($document['format'] ?? '') !== self::FORMAT) {
             throw new \RuntimeException(
-                'duo: not a ' . self::FORMAT . ' document (found \'' . (string) ($document['format'] ?? '') . '\')'
+                'wprism: not a ' . self::FORMAT . ' document (found \'' . (string) ($document['format'] ?? '') . '\')'
             );
         }
         if (($document['vector_hash'] ?? '') !== self::hash_document($document)) {
-            throw new \RuntimeException('duo: conformance vector self-hash does not match its bytes');
+            throw new \RuntimeException('wprism: conformance vector self-hash does not match its bytes');
         }
         if (($document['probe']['format'] ?? '') !== self::PROBE_FORMAT) {
             throw new \RuntimeException(
-                'duo: conformance vector carries no ' . self::PROBE_FORMAT . ' probe; without one the replay '
+                'wprism: conformance vector carries no ' . self::PROBE_FORMAT . ' probe; without one the replay '
                 . 'would have to invent column types, which is the synthetic information_schema '
                 . 'sandbox/tests/lib/README.md refuses'
             );
         }
         if (!empty($document['probe']['authority'])) {
             throw new \RuntimeException(
-                'duo: the recorded probe claims authority; AdapterProbe stamps authority:false '
+                'wprism: the recorded probe claims authority; AdapterProbe stamps authority:false '
                 . '(agent/src/Adapter/AdapterProbe.php:115) and a vector never upgrades that'
             );
         }
         if (($document['recorded']['verdict'] ?? '') !== self::LIVE_VERDICT) {
             throw new \RuntimeException(
-                'duo: conformance vector was not recorded under the live verdict \'' . self::LIVE_VERDICT
+                'wprism: conformance vector was not recorded under the live verdict \'' . self::LIVE_VERDICT
                 . '\'; only a sweep whose own acceptance passed may leave a vector behind'
             );
         }
-        if (!is_array($document['ledger']['duo_map'] ?? null) || $document['ledger']['duo_map'] === []) {
+        if (!is_array($document['ledger']['wprism_map'] ?? null) || $document['ledger']['wprism_map'] === []) {
             throw new \RuntimeException(
-                'duo: conformance vector records no duo_map rows; capture MINTS a uuid for an unmapped row, so '
+                'wprism: conformance vector records no wprism_map rows; capture MINTS a uuid for an unmapped row, so '
                 . 'the replay would produce different canonical paths and bytes on every run'
             );
         }
         if (($document['state'] ?? []) === []) {
-            throw new \RuntimeException('duo: conformance vector records an empty canonical state tree');
+            throw new \RuntimeException('wprism: conformance vector records an empty canonical state tree');
         }
         if (($document['state'] ?? null) !== ($document['recapture'] ?? null)) {
             throw new \RuntimeException(
-                'duo: conformance vector records a state tree and a recapture that already disagree; the live '
+                'wprism: conformance vector records a state tree and a recapture that already disagree; the live '
                 . 'sweep asserts they are byte-identical before the recorder runs, so this vector did not come '
                 . 'from a passing round trip'
             );
@@ -199,7 +199,7 @@ final class ConformanceVector
      *
      * `$withRows = false` gives the APPLY leg its empty target: the same
      * schema, the same declared tables, no rows and no identity — which is
-     * what conf2 is when `duo apply` starts.
+     * what conf2 is when `wprism apply` starts.
      */
     public static function seed(array $document, bool $withRows = true): FakeWpdb
     {
@@ -235,25 +235,25 @@ final class ConformanceVector
             }
         }
 
-        $wpdb->seedTable('wp_duo_map', $withRows ? array_values((array) $document['ledger']['duo_map']) : []);
-        $wpdb->setColumns('wp_duo_map', self::LEDGER_MAP_COLUMNS);
+        $wpdb->seedTable('wp_wprism_map', $withRows ? array_values((array) $document['ledger']['wprism_map']) : []);
+        $wpdb->setColumns('wp_wprism_map', self::LEDGER_MAP_COLUMNS);
         // Both of Ledger's declared keys: `Ledger::set()` writes ON DUPLICATE
         // KEY UPDATE, and FakeWpdb refuses that statement outright unless the
         // colliding key is declared (FakeWpdb.php findUniqueConflict()).
-        $wpdb->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
-        $wpdb->setUniqueKey('wp_duo_map', ['uuid', 'id_kind']);
+        $wpdb->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
+        $wpdb->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind']);
 
-        $wpdb->seedTable('wp_duo_state', []);
-        $wpdb->setColumns('wp_duo_state', [
+        $wpdb->seedTable('wp_wprism_state', []);
+        $wpdb->setColumns('wp_wprism_state', [
             'content_hash' => 'char(64)',
             'entity_type' => 'varchar(64)',
             'uuid' => 'varchar(64)',
         ]);
-        $wpdb->setUniqueKey('wp_duo_state', ['uuid']);
+        $wpdb->setUniqueKey('wp_wprism_state', ['uuid']);
 
-        $wpdb->seedTable('wp_duo_kv', []);
-        $wpdb->setColumns('wp_duo_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
-        $wpdb->setUniqueKey('wp_duo_kv', ['k']);
+        $wpdb->seedTable('wp_wprism_kv', []);
+        $wpdb->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext']);
+        $wpdb->setUniqueKey('wp_wprism_kv', ['k']);
 
         return $wpdb;
     }
@@ -262,9 +262,9 @@ final class ConformanceVector
      * The adapter, loaded the way a deployed site loads it: through
      * `Policy::from_snapshot()` over FrozenPolicy's fail-closed v6 envelope,
      * which publishes the manifest bytes into a scratch library so the
-     * `duo-adapter-sources/v2` membership proof has something real to compare.
+     * `wprism-adapter-sources/v2` membership proof has something real to compare.
      */
-    public static function policy(array $manifest): \Duo\Policy
+    public static function policy(array $manifest): \WPrism\Policy
     {
         return FrozenPolicy::policy([$manifest], FrozenPolicy::site([$manifest]));
     }
@@ -275,10 +275,10 @@ final class ConformanceVector
      *
      * @return array<string,string>
      */
-    public static function capture_tree(\Duo\Policy $policy): array
+    public static function capture_tree(\WPrism\Policy $policy): array
     {
         $tree = [];
-        foreach (\Duo\Snapshot::capture($policy, new \Duo\Tokens(), true) as $entity) {
+        foreach (\WPrism\Snapshot::capture($policy, new \WPrism\Tokens(), true) as $entity) {
             $tree[(string) $entity['path']] = (string) $entity['content'];
         }
         ksort($tree, SORT_STRING);
@@ -319,10 +319,10 @@ final class ConformanceVector
         self::reset_target();
         self::seed($document, false);
         $policy = self::policy($manifest);
-        $tokens = new \Duo\Tokens();
+        $tokens = new \WPrism\Tokens();
         $entities = [];
         foreach ($captured as $path => $content) {
-            $front = \Duo\Canon::decode($content);
+            $front = \WPrism\Canon::decode($content);
             $entities[] = [
                 'content' => $content,
                 'data' => $front,
@@ -332,10 +332,10 @@ final class ConformanceVector
             ];
         }
         foreach ($entities as $entity) {
-            \Duo\Snapshot::ensure_row($policy, $entity);
+            \WPrism\Snapshot::ensure_row($policy, $entity);
         }
         foreach ($entities as $entity) {
-            \Duo\Snapshot::finalize_row($policy, $tokens, $entity);
+            \WPrism\Snapshot::finalize_row($policy, $tokens, $entity);
         }
         $recaptured = self::capture_tree(self::policy($manifest));
         $mismatches = array_merge(
@@ -390,7 +390,7 @@ final class ConformanceVector
             ],
             [
                 'surface' => 'the suspicious-ref lint gate',
-                'check' => 'wp duo lint --repo=/siterepo --format=json (run.sh\'s hard gate)',
+                'check' => 'wp wprism lint --repo=/siterepo --format=json (run.sh\'s hard gate)',
                 'why' => 'lint scans the captured tree for ref-shaped values with no declared rewrite path; the '
                     . 'recorded tree passed it once, on the pair. A replay re-derives that same tree and learns '
                     . 'nothing new about it',
@@ -416,7 +416,7 @@ final class ConformanceVector
      */
     private static function reset_target(): void
     {
-        WpStore::reset()->seedOptions(['home' => 'https://duo-vector.invalid']);
+        WpStore::reset()->seedOptions(['home' => 'https://wprism-vector.invalid']);
     }
 
     /**

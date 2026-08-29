@@ -39,7 +39,7 @@ A candidate-bound run — the form that produces evidence — adds the source ga
 that `sandbox/bin/pair.sh` enforces *before* it drops a database:
 
 ```sh
-DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
+WPRISM_SOURCE_ROOT=$(pwd -P) WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
   make grind-mup MUP_PORT1=9400 MUP_PORT2=9401
 ```
 
@@ -52,11 +52,11 @@ DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
 | `MUP_KEEP` | unset | `1` leaves the pair and both site repos in place for inspection. |
 | `MUP_WOO_VERSION` | `11.0.0` | The pinned WooCommerce artifact. Must exist in `adapter-packages/woocommerce/evidence/artifacts.lock.json`. |
 | `MUP_THEME_SLUG` / `MUP_THEME_VERSION` | `storefront` / resolved from the lock | The pinned storefront theme. See *Deliberate deviations* — Storefront is not pinned in this tree yet, so this is the one knob a first run has to set. |
-| `MUP_BOOTSTRAP` | `init` | `init` uses the product path (`duo init <env> --yes`); `manual` writes `site.duo.json` by hand and captures, the way `conformance/run.sh` does. |
+| `MUP_BOOTSTRAP` | `init` | `init` uses the product path (`wprism init <env> --yes`); `manual` writes `site.wprism.json` by hand and captures, the way `conformance/run.sh` does. |
 | `MUP_STEP11` | `required` | See *The step-11 transport gate*. |
 | `MUP_JOURNEY_SHOP_URL` | `/shop/` | The path the shop journey probes. |
-| `DUO_EXPECTED_SOURCE_SHA` | unset | Forwarded to `pair.sh`'s candidate-source gate. Unset means this run is **not** bound to a commit, and the driver says so. |
-| `DUO_WORDPRESS_ORG_OFFLINE` | `0` | Forwarded to `pair.sh` and `fetch-artifact.sh`. |
+| `WPRISM_EXPECTED_SOURCE_SHA` | unset | Forwarded to `pair.sh`'s candidate-source gate. Unset means this run is **not** bound to a commit, and the driver says so. |
+| `WPRISM_WORDPRESS_ORG_OFFLINE` | `0` | Forwarded to `pair.sh` and `fetch-artifact.sh`. |
 
 ### Offline modes (no docker, no pair, no network)
 
@@ -68,8 +68,8 @@ bash sandbox/tests/grind/grind_mup.sh --dry-run      # --self-check, then the re
 `--self-check` runs each jq/bash helper in the driver against the PASS document
 in `sandbox/tests/fixtures/mup/` **and** against a hand-mutated FAIL document,
 because a helper that cannot fail proves nothing about the run that trusts it.
-It also writes the exact `.duo-envs.json` the run writes and pushes it through
-`\Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment()` — the real
+It also writes the exact `.wprism-envs.json` the run writes and pushes it through
+`\WPrism\Orchestrator\CommandEnvironmentProvider::fromEnvironment()` — the real
 `EnvironmentLifecycle` provider-config schema — so a malformed provider block
 refuses on a laptop instead of at materialization time with a snapshot already
 taken.
@@ -85,15 +85,15 @@ nothing and its cleanup trap removes nothing.
 Everything the run reads is kept under a `mktemp -d` inside `sandbox/tmp/`:
 
 ```
-<scratch>/.duo-envs.json                 the machine-local registry
-<scratch>/reference-env-provider.json    duo-reference-env-provider-config/v1
-<scratch>/evidence/assess-mup1.json      duo-assess-report/v1
+<scratch>/.wprism-envs.json                 the machine-local registry
+<scratch>/reference-env-provider.json    wprism-reference-env-provider-config/v1
+<scratch>/evidence/assess-mup1.json      wprism-assess-report/v1
 <scratch>/evidence/assess-mup1.txt       the human view the leak gate reads
 <scratch>/evidence/rehearse.txt          banner + "what a release would touch"
-<scratch>/evidence/authorization-plan.json   duo-authorization-plan/v1
+<scratch>/evidence/authorization-plan.json   wprism-authorization-plan/v1
 <scratch>/evidence/release.txt           promote's own `promote phase:` receipts
-<scratch>/evidence/verify.json           duo-verify-report/v1
-<scratch>/evidence/checkpoint-catalog.json   duo-checkpoint-catalog/v1
+<scratch>/evidence/verify.json           wprism-verify-report/v1
+<scratch>/evidence/checkpoint-catalog.json   wprism-checkpoint-catalog/v1
 <scratch>/evidence/recover.txt           the claim, printed before acting
 <scratch>/evidence/assess-mup2-{pre,post}-recovery.json
 <scratch>/evidence/reap-{1,2}.txt
@@ -118,19 +118,19 @@ created nothing to remove.
 | # | Command | Assertion, and why it is the assertion |
 |---|---|---|
 | 1 | `pair.sh reset` + `up <pair> <p1> <p2> --http --artifacts`; pinned WooCommerce + theme on both sides; three products and a page on side 1 | The pair is healthy and both sides carry the **exact** pinned artifacts. Side 1 is authored (activated, set up); side 2 gets extension **files only**, so the release's own deploy phase is what reconciles activation — the same split `conformance/run.sh` makes, and the reason step 9's ordering assertion is not free. |
-| 2 | `duo adopt mup1` (refusal asserted), `duo init mup1 --yes`, `duo status mup1` | The baseline is clean. `adopt` is asserted to refuse *by name* on the pair's docker transport (`AdoptCommand` accepts only an `AdoptionTransport`, and a pair side already carries the agent): a verb skipped for taste is invisible, a verb whose refusal is asserted is documented. |
-| 3 | `duo assess mup1 --format=json`, then `duo assess mup1` | The document is a `duo-assess-report/v1`; `post_type:product` projects `authored / manage / Ready / Platform-certified / prevented`; `post_type:shop_order` projects `runtime / preserve local / Unsupported`; **every** unclassified row carries a gap action that is not `nothing — supported`; and the **human** view contains no UUID and no 32-or-more-hex identifier. That last one is MUP §5.2 mechanised: a human view may print an internal identifier only when a documented command consumes it, and nothing consumes an operation id, session id, lease owner or artifact hash from `assess`. |
-| 4 | `duo contract mup1 propose` → jq review → `accept` → `show` twice | `contract.json` + `projection.json` exist; `contract_digest` is identical across two `show` runs; `attestation.state == "unsigned"`. The review step is the real one: the generated `code-lifecycle-window` entry arrives `decided_by: unresolved`, and `ApplicationContract::validate()` refuses to accept it that way (`external_effect_unreviewed`). The grind performs §3.2's reviewed edit — `containment: live`, `effect_recovery_semantics: provider-state restorable`, `restored_by: code release`, a reviewed reason, `decided_by: operator` — and declares the two journeys step 10 verifies. Without the declaration step 9 must refuse; that is §1.6's consequence, and it is load-bearing here rather than decorative. |
-| 5 | `duo rehearse mup2 --from mup1 --branch main` | The containment banner is the **first** line and appears **once**, byte for byte; the report states that a rehearsal cannot authorize an Experimental or Uncertified capability; "what a release would touch" is present; side 2 carries a materialized site repository. The preview is driven by `tools/reference-env-provider.php` through the machine-local `environment_provider` block — the same `CommandEnvironmentProvider` negotiation a customer's own provider gets. |
-| 6 | Edit one product price and one page body on the preview; `duo capture preview` twice | Capture is deterministic: two captures of the same converged environment differ by zero bytes. |
+| 2 | `wprism adopt mup1` (refusal asserted), `wprism init mup1 --yes`, `wprism status mup1` | The baseline is clean. `adopt` is asserted to refuse *by name* on the pair's docker transport (`AdoptCommand` accepts only an `AdoptionTransport`, and a pair side already carries the agent): a verb skipped for taste is invisible, a verb whose refusal is asserted is documented. |
+| 3 | `wprism assess mup1 --format=json`, then `wprism assess mup1` | The document is a `wprism-assess-report/v1`; `post_type:product` projects `authored / manage / Ready / Platform-certified / prevented`; `post_type:shop_order` projects `runtime / preserve local / Unsupported`; **every** unclassified row carries a gap action that is not `nothing — supported`; and the **human** view contains no UUID and no 32-or-more-hex identifier. That last one is MUP §5.2 mechanised: a human view may print an internal identifier only when a documented command consumes it, and nothing consumes an operation id, session id, lease owner or artifact hash from `assess`. |
+| 4 | `wprism contract mup1 propose` → jq review → `accept` → `show` twice | `contract.json` + `projection.json` exist; `contract_digest` is identical across two `show` runs; `attestation.state == "unsigned"`. The review step is the real one: the generated `code-lifecycle-window` entry arrives `decided_by: unresolved`, and `ApplicationContract::validate()` refuses to accept it that way (`external_effect_unreviewed`). The grind performs §3.2's reviewed edit — `containment: live`, `effect_recovery_semantics: provider-state restorable`, `restored_by: code release`, a reviewed reason, `decided_by: operator` — and declares the two journeys step 10 verifies. Without the declaration step 9 must refuse; that is §1.6's consequence, and it is load-bearing here rather than decorative. |
+| 5 | `wprism rehearse mup2 --from mup1 --branch main` | The containment banner is the **first** line and appears **once**, byte for byte; the report states that a rehearsal cannot authorize an Experimental or Uncertified capability; "what a release would touch" is present; side 2 carries a materialized site repository. The preview is driven by `tools/reference-env-provider.php` through the machine-local `environment_provider` block — the same `CommandEnvironmentProvider` negotiation a customer's own provider gets. |
+| 6 | Edit one product price and one page body on the preview; `wprism capture preview` twice | Capture is deterministic: two captures of the same converged environment differ by zero bytes. |
 | 7 | `git commit` in the preview's clone; `git push origin HEAD:main` | Ordinary git. The origin's `main` now carries the authored edit. |
 | 7b | Revert the two **live** values on side 2 | Not in §6.1's table, and deliberate — see *Deliberate deviations* #3. Without it the release has nothing to apply and steps 9–12 prove nothing. |
-| 8 | `duo release mup2 --from=<main sha> --plan-only --format=json` | The plan validates as `duo-authorization-plan/v1`; it cites the **accepted** `contract_digest`; its embedded recovery claim's `does_not_restore` is non-empty; the recovery profile is named **with the reason it was selected**; `effects.unknown_blocking` is empty; the plan authorizes at least one entity change; and `--plan-only` wrote nothing to `.duo/releases/`. A profile named without a reason is an assertion, not evidence, which is why the reason is asserted separately. |
-| 9 | `duo release mup2 --from=<main sha> --yes` | Exit 0; the run printed `authorization frozen: <path>` (the plan was durably bound before any mutation); and promote's own `promote phase:` receipts appear in the order `promotion-begin → checkpoint → lifecycle-retire → lifecycle-activate → apply`. When the artifact declares code, `code-stage` and `code-finalize` are additionally asserted to bracket the lifecycle *before* apply. Deploy-before-apply is read from the receipts, not from a comment. |
-| 10 | `duo verify mup2 --format=json` | `verdict: pass`, `convergence.status: pass`, both declared journeys `pass`, and `uncovered_surfaces` **present** as a list (an empty list is a report; a missing key is a silence). The grind then reads the target directly to confirm the release actually wrote the authored price and page body, and records the pre-recovery projection. |
-| 11 | Write a `post_type:shop_order` row on mup2 **after** the checkpoint; `duo recover mup2 --list` → `--restore=<id> --writers-excluded` | **The gate.** (a) The claim is printed *before* the first driven step — asserted by line number, because a claim printed after recovery started was read too late to stop. (b) The `maximum_loss_boundary` printed at recovery is byte-identical to the one the frozen plan printed. (c) The product price and page body are back at their pre-release values. (d) The post-checkpoint runtime row's fate matches the boundary **exactly**: a boundary of `writes committed after checkpoint <ts>` means the row must be **gone**, and a surviving row fails the test with that sentence quoted back. The runtime surface is chosen by the pinned manifest (`shop_order` is `class: runtime` in `adapter-packages/woocommerce/package/manifest.json`), not by this script. |
-| 12 | `duo assess mup2 --format=json` | For exactly the surfaces the frozen plan named in scope, the post-recovery projection is byte-identical to the pre-release one. Only the projected words are compared — `state_class`, `handling`, and the release projection's readiness / provenance / containment / recovery semantics — because a digest or timestamp differing between two assessments of an unchanged site is the clock moving, not the site moving. |
-| 13 | `duo rehearse mup2 --reap`, twice | The first receipt says `destroyed` or `detached`; the second says the same and exits 0. Repeated reap is idempotent, which is the property that makes a reap safe to retry. |
+| 8 | `wprism release mup2 --from=<main sha> --plan-only --format=json` | The plan validates as `wprism-authorization-plan/v1`; it cites the **accepted** `contract_digest`; its embedded recovery claim's `does_not_restore` is non-empty; the recovery profile is named **with the reason it was selected**; `effects.unknown_blocking` is empty; the plan authorizes at least one entity change; and `--plan-only` wrote nothing to `.wprism/releases/`. A profile named without a reason is an assertion, not evidence, which is why the reason is asserted separately. |
+| 9 | `wprism release mup2 --from=<main sha> --yes` | Exit 0; the run printed `authorization frozen: <path>` (the plan was durably bound before any mutation); and promote's own `promote phase:` receipts appear in the order `promotion-begin → checkpoint → lifecycle-retire → lifecycle-activate → apply`. When the artifact declares code, `code-stage` and `code-finalize` are additionally asserted to bracket the lifecycle *before* apply. Deploy-before-apply is read from the receipts, not from a comment. |
+| 10 | `wprism verify mup2 --format=json` | `verdict: pass`, `convergence.status: pass`, both declared journeys `pass`, and `uncovered_surfaces` **present** as a list (an empty list is a report; a missing key is a silence). The grind then reads the target directly to confirm the release actually wrote the authored price and page body, and records the pre-recovery projection. |
+| 11 | Write a `post_type:shop_order` row on mup2 **after** the checkpoint; `wprism recover mup2 --list` → `--restore=<id> --writers-excluded` | **The gate.** (a) The claim is printed *before* the first driven step — asserted by line number, because a claim printed after recovery started was read too late to stop. (b) The `maximum_loss_boundary` printed at recovery is byte-identical to the one the frozen plan printed. (c) The product price and page body are back at their pre-release values. (d) The post-checkpoint runtime row's fate matches the boundary **exactly**: a boundary of `writes committed after checkpoint <ts>` means the row must be **gone**, and a surviving row fails the test with that sentence quoted back. The runtime surface is chosen by the pinned manifest (`shop_order` is `class: runtime` in `adapter-packages/woocommerce/package/manifest.json`), not by this script. |
+| 12 | `wprism assess mup2 --format=json` | For exactly the surfaces the frozen plan named in scope, the post-recovery projection is byte-identical to the pre-release one. Only the projected words are compared — `state_class`, `handling`, and the release projection's readiness / provenance / containment / recovery semantics — because a digest or timestamp differing between two assessments of an unchanged site is the clock moving, not the site moving. |
+| 13 | `wprism rehearse mup2 --reap`, twice | The first receipt says `destroyed` or `detached`; the second says the same and exits 0. Repeated reap is idempotent, which is the property that makes a reap safe to retry. |
 
 ---
 
@@ -171,11 +171,11 @@ not fixture rot.
 
 ## The step-11 transport gate
 
-`duo recover` is a front end over the adopted rollback-authority runtime, and
+`wprism recover` is a front end over the adopted rollback-authority runtime, and
 `RecoverCommand::authorityTransport()` accepts an **SSH** transport and nothing
 else — every other transport receives the typed refusal
 `recovery_authority_unavailable`. `sandbox/bin/pair.sh` publishes no sshd, so on
-this pair `duo recover mup2 --list` refuses **by construction**.
+this pair `wprism recover mup2 --list` refuses **by construction**.
 
 That is a real gap between MUP §6.1's grind (a docker pair) and MUP §2.5's verb
 (SSH only), and it is not worked around:
@@ -205,10 +205,10 @@ are outside this file.
    `MUP_THEME_SLUG=twentytwentyone MUP_THEME_VERSION=2.8`. A silent substitution
    would make the run claim a Storefront it never installed.
 
-2. **`duo adopt` is asserted as a refusal, not performed.** A `pair.sh` side is
+2. **`wprism adopt` is asserted as a refusal, not performed.** A `pair.sh` side is
    a docker transport and already carries the agent, so there is no control
    plane to transfer. Step 2 asserts the refusal names the transport, then uses
-   `duo init` — which is the half of "adopt/init" a pair side actually has.
+   `wprism init` — which is the half of "adopt/init" a pair side actually has.
 
 3. **Step 7b reverts two live values before the release.** §6.1 makes side 2
    both the rehearsal preview *and* the release target, so an edit authored on
@@ -247,11 +247,11 @@ live run knows what to look at rather than rediscovering it.
    reason rather than a product one. Check `MUP_WOO_VERSION` against that range,
    and that `adapter-packages/woocommerce/package/disposition.json` still reads
    `certified`, first.
-2. **`duo init` is preflight-gated.** `MUP_BOOTSTRAP=init` runs the product path;
+2. **`wprism init` is preflight-gated.** `MUP_BOOTSTRAP=init` runs the product path;
    its proposal refuses when the target has no Git, and an installed but
-   uncertified adapter blocks it too (`cli/duo:509-510`). `MUP_BOOTSTRAP=manual`
+   uncertified adapter blocks it too (`cli/wprism:509-510`). `MUP_BOOTSTRAP=manual`
    is the escape hatch and reproduces `conformance/run.sh`'s hand-written
-   `site.duo.json` + capture.
+   `site.wprism.json` + capture.
 3. **The provider's `attach` re-runs `pair.sh up` without `--artifacts`.**
    `ref_pair_up_command()` builds `pair.sh up <pair> <p1> <p2>` and no flags, so
    a re-converge during step 5 may bring the pair up without the artifact-cache

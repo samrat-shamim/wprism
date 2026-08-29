@@ -7,31 +7,31 @@ verified production release:
 authorize → verify.**
 
 It assumes the site has an accepted application contract. If it does not,
-`duo release` refuses immediately with the gap action `declare in contract`,
+`wprism release` refuses immediately with the gap action `declare in contract`,
 and [assess.md](assess.md) is the fifteen minutes that fixes it.
 
-The quickstart keeps an absolute `$DUO_CLI` for a source checkout. An installed
+The quickstart keeps an absolute `$WPRISM_CLI` for a source checkout. An installed
 CLI needs no special path; initialize the same command variable once:
 
 ```sh
-DUO_CLI="${DUO_CLI:-duo}"
+WPRISM_CLI="${WPRISM_CLI:-wprism}"
 ```
 
-`duo release` **composes** `duo promote` rather than replacing it.
+`wprism release` **composes** `wprism promote` rather than replacing it.
 Deploy-before-apply ordering, the promotion lease and the target fence are
 promote's, byte for byte, and so are the rollback-profile selection and the
 trailing state `apply`. The database checkpoint is not exclusive to promote any
-more: `duo deploy` takes and retains its own under its own lease. Release adds
+more: `wprism deploy` takes and retains its own under its own lease. Release adds
 authorization in front and verification behind.
-`duo promote` remains documented and supported as the lower-level verb; see
+`wprism promote` remains documented and supported as the lower-level verb; see
 [daily-workflow.md](daily-workflow.md).
 
 ## Create a preview
 
-Preview is not available from the one-entry registry `duo connect` creates.
-Duo orchestrates hosting; it does not supply it. Configure both the source and
+Preview is not available from the one-entry registry `wprism connect` creates.
+WPrism orchestrates hosting; it does not supply it. Configure both the source and
 target transports and both `environment_provider` blocks in the machine-local
-`.duo-envs.json`. This complete schematic is loadable after replacing its
+`.wprism-envs.json`. This complete schematic is loadable after replacing its
 host/path values with real ones:
 
 ```json
@@ -41,9 +41,9 @@ host/path values with real ones:
       "transport": "ssh",
       "host": "deploy@production.example.com",
       "wp_path": "/var/www/html",
-      "repo_path": "/srv/duo-production",
+      "repo_path": "/srv/wprism-production",
       "environment_provider": {
-        "command": ["/opt/acme/duo-env-provider", "/etc/duo/production.json"],
+        "command": ["/opt/acme/wprism-env-provider", "/etc/wprism/production.json"],
         "timeout_seconds": 30
       }
     },
@@ -51,9 +51,9 @@ host/path values with real ones:
       "transport": "ssh",
       "host": "deploy@preview-control.example.com",
       "wp_path": "/var/www/html",
-      "repo_path": "/srv/duo-preview",
+      "repo_path": "/srv/wprism-preview",
       "environment_provider": {
-        "command": ["/opt/acme/duo-env-provider", "/etc/duo/preview.json"],
+        "command": ["/opt/acme/wprism-env-provider", "/etc/wprism/preview.json"],
         "timeout_seconds": 30
       }
     }
@@ -68,8 +68,8 @@ TTL capabilities. Check both configurations without mutation before creating
 anything:
 
 ```sh
-"$DUO_CLI" env provider-check production --role=source
-"$DUO_CLI" env provider-check preview --role=target
+"$WPRISM_CLI" env provider-check production --role=source
+"$WPRISM_CLI" env provider-check preview --role=target
 ```
 
 The exact capability sets and refusal contract are in the
@@ -78,11 +78,11 @@ The exact capability sets and refusal contract are in the
 ```sh
 BRANCH=$(git branch --show-current)
 test -n "$BRANCH"
-"$DUO_CLI" preview create preview --from production --branch "$BRANCH" --create --ttl 86400
+"$WPRISM_CLI" preview create preview --from production --branch "$BRANCH" --create --ttl 86400
 ```
 
-`duo preview create` is the first-contact spelling of `duo rehearse`, which is
-`duo env materialize` plus a preview: the same option
+`wprism preview create` is the first-contact spelling of `wprism rehearse`, which is
+`wprism env materialize` plus a preview: the same option
 grammar, the same machine-local provider registry, the same capability
 negotiation, the same journal, the same exact resource/lease/ownership
 compare. A missing provider capability is a refusal naming that capability id;
@@ -129,7 +129,7 @@ containment: unknown — not enforced in this profile; do not point this environ
 consequence: this rehearsal cannot authorize an Experimental or Uncertified capability — the spec permits that only after containment is proven. Rehearsal in this profile is a preview and evidence-gathering environment, not a qualification environment.
 ```
 
-Read it literally. Duo does not strip or rebind production credentials, does
+Read it literally. WPrism does not strip or rebind production credentials, does
 not default-deny outbound HTTP, mail, payment, webhook or queue traffic, and
 does not verify containment before you exercise a workflow. A plugin in your
 preview can and will send real mail and call a real payment API if you give it
@@ -140,7 +140,7 @@ rehearsal here **cannot** qualify anything. "I rehearsed it" is not "I
 qualified it", and a surface reading `Experimental` or `Uncertified` still
 reads that way afterwards.
 
-`duo assess` now says the same thing in its next actions rather than
+`wprism assess` now says the same thing in its next actions rather than
 contradicting it: `qualify in rehearsal` is never printed, and the rows that
 used to carry it name what actually closes them — `certify adapter` for
 evidence that expired or was never obtained, `install adapter` or `classify`
@@ -153,30 +153,30 @@ Author the change on the preview environment, in WordPress, the way it is
 meant to be authored. Then:
 
 ```sh
-"$DUO_CLI" capture preview
+"$WPRISM_CLI" capture preview
 ```
 
 Capture is the only command that mints identity and publishes canonical state.
 Review the result as an ordinary diff, merge it as an ordinary merge —
-[daily-workflow.md](daily-workflow.md) covers `duo refresh` and `duo rebase`
-when production moved underneath you. Duo adds no branching model; git stays
+[daily-workflow.md](daily-workflow.md) covers `wprism refresh` and `wprism rebase`
+when production moved underneath you. WPrism adds no branching model; git stays
 git.
 
 After the captured revision is committed and pushed or merged somewhere you
 intend to keep it, clean up the disposable preview explicitly:
 
 ```sh
-"$DUO_CLI" preview remove preview
+"$WPRISM_CLI" preview remove preview
 ```
 
-That is `duo env reap` with the same compare-and-reap. Created targets are
+That is `wprism env reap` with the same compare-and-reap. Created targets are
 destroyed, attached targets are detached, a repeated reap is idempotent, and a
 stale identity refuses.
 
 ## Read the plan before you authorize it
 
 ```sh
-"$DUO_CLI" release production --from=main --plan-only
+"$WPRISM_CLI" release production --from=main --plan-only
 ```
 
 `--plan-only` prints the frozen-shape authorization plan and exits 0 having
@@ -230,7 +230,7 @@ recovery
     webhooks already delivered
     third-party systems that observed the change
     orders and sessions written by live traffic after the checkpoint
-  writer exclusion: held by Duo — the rollback authority reserves and releases the exclusion for the window itself; the operator asserts nothing
+  writer exclusion: held by WPrism — the rollback authority reserves and releases the exclusion for the window itself; the operator asserts nothing
   maximum loss boundary: writes committed after checkpoint 2026-08-17T09:14:02Z
 
 effects
@@ -261,20 +261,20 @@ restored" would be the failure the claim exists to prevent.
 window`. The code lifecycle window is not, and it is only allowed to proceed
 because your contract *declared* it live with a reviewed reason.
 
-**`authority still required` is a list of humans, not a checklist Duo ticks.**
+**`authority still required` is a list of humans, not a checklist WPrism ticks.**
 It is what the plan says you still owe before the single question at the
 bottom is honestly answerable.
 
 **The plan digest is printed because a documented command consumes it.** That
-is the standing rule for internal identifiers in a human view: `duo verify
---plan=<digest>` consumes this one, and the receipt ids `duo recover --list`
+is the standing rule for internal identifiers in a human view: `wprism verify
+--plan=<digest>` consumes this one, and the receipt ids `wprism recover --list`
 prints are consumed by `--restore`. Artifact hashes, lease owners and
 operation ids stay in `--format=json`.
 
 ## `--from` delivers one verified fast-forward
 
 ```sh
-"$DUO_CLI" release production --from=main
+"$WPRISM_CLI" release production --from=main
 ```
 
 Release resolves the ref and commit in your local site repository. If the
@@ -293,7 +293,7 @@ code descriptor into WordPress — see [code-updates.md](code-updates.md).
 
 ## `--profile` and `--accept-weaker-recovery`
 
-Duo selects the strongest recovery profile the target can actually prove:
+WPrism selects the strongest recovery profile the target can actually prove:
 `verified-automatic` when it proves the rollback signing key, the recovery
 executor, and the checkpoint, code-release, upload and effect providers;
 otherwise `operator-directed`. The plan states which one and *why*.
@@ -307,7 +307,7 @@ than the target proves is a named human authority: it needs
 claim it weakens, and still ends in the plan's own typed confirmation.
 
 ```sh
-"$DUO_CLI" release production --from=main --profile=operator-directed --accept-weaker-recovery
+"$WPRISM_CLI" release production --from=main --profile=operator-directed --accept-weaker-recovery
 ```
 
 Whatever you select, the claim in the plan changes to match it. Under
@@ -318,12 +318,12 @@ remedy stated on the row. Under `none`, so does the database.
 ## Authorize
 
 ```sh
-"$DUO_CLI" release production --from=main --yes
+"$WPRISM_CLI" release production --from=main --yes
 ```
 
 Answering `yes` to the question (or passing `--yes`, which confirms the plan
 you were just shown) freezes the plan to
-`.duo/releases/<plan_digest>.json` in your site repository **before any target
+`.wprism/releases/<plan_digest>.json` in your site repository **before any target
 mutation**, then executes through promote. `--plan-only` and `--yes`
 contradict each other and are refused together.
 
@@ -356,7 +356,7 @@ skipped.
 
 Neither of these is a `retry`. Retrying after a plugin was deactivated walks
 into the identical refusal; the fix is evidence, so both answer `requalify`:
-re-run `duo assess`, read the fresh plan, and confirm that one.
+re-run `wprism assess`, read the fresh plan, and confirm that one.
 
 A release that succeeds records what it re-observed:
 
@@ -369,14 +369,14 @@ released to production
 `{at, checked, conditions, manifests}`, and a released outcome without one is
 refused rather than written.
 
-Commit the frozen plan. It is the document `duo recover` matches a checkpoint
+Commit the frozen plan. It is the document `wprism recover` matches a checkpoint
 against, which is what makes "the claim you saw at authorization is the claim
 you see at recovery" checkable rather than aspirational.
 
 ## Verify
 
 ```sh
-"$DUO_CLI" verify production --plan=sha256:7b1c…
+"$WPRISM_CLI" verify production --plan=sha256:7b1c…
 ```
 
 Two independent parts, both required for a pass.
@@ -403,7 +403,7 @@ verify production: pass
 An undeclared journey is never silently skipped. With none declared at all the
 report says `journeys: 0 declared`, and for every surface the release touched
 with no journey covering it you get that byte-level-only line. Round-trip
-equality is necessary and not sufficient, and this is where Duo says so out
+equality is necessary and not sufficient, and this is where WPrism says so out
 loud.
 
 `--plan=<digest>` binds the report to one frozen plan. If the contract moved
@@ -439,10 +439,10 @@ under the frozen plan's own authority. The alternative is a silent unknown
 reaching production.
 
 `release_deletes_not_authorized` is the one row with a counterpart outside
-release, and the two postures differ deliberately. An ordinary `duo promote
+release, and the two postures differ deliberately. An ordinary `wprism promote
 <env>` does not refuse on an unauthorized deletion: it warns that it performed
 none of the planned deletions, applies the rest, and records the revision as
-applied — the tombstone stays pending and `duo status <env>` stays non-zero
+applied — the tombstone stays pending and `wprism status <env>` stays non-zero
 until you rerun with `--with-deletes`. Release does not inherit that posture,
 because its whole job in front of promotion is to freeze what is authorized
 before a byte moves. Its own "is this target clean enough to authorize
@@ -463,18 +463,18 @@ produces.
 | `reconcile` | ambiguous commitment, uncertain receipt, drift after freeze, `--from` ref mismatch | The controller cannot prove what the target did, or the target moved. Establish the truth and merge it. **Never retry an ambiguous commitment** — replaying an unprovable commitment is how a release applies twice. |
 | `retry` | transient transport failure, or `plan_changed` | The only two classes that earn a repeat, and a transport retry only after durable receipt reconciliation proves replay safe. Retry reuses the same operation identity. |
 | `recover` | `incomplete_lifecycle` or `incomplete_apply` | The target is between two worlds and only the recovery profile can converge it. [recovery.md](recovery.md) is the whole procedure. |
-| `requalify` | a gate-time condition no longer holds, or the reviewed dispositions moved since the contract was accepted | The fix is the reviewed input, not repetition: re-propose and re-accept the contract (or re-pin), then re-run `duo assess`. |
-| `escalate` | checkpoint unavailable, authority required, nothing safe | The explicit terminal case. Duo refuses and names the human authority required rather than guessing. |
+| `requalify` | a gate-time condition no longer holds, or the reviewed dispositions moved since the contract was accepted | The fix is the reviewed input, not repetition: re-propose and re-accept the contract (or re-pin), then re-run `wprism assess`. |
+| `escalate` | checkpoint unavailable, authority required, nothing safe | The explicit terminal case. WPrism refuses and names the human authority required rather than guessing. |
 
 Each printed action comes with the one sentence explaining *why* it is that
 action. Read that sentence before reaching for a flag.
 
 ## Where to go next
 
-- [recovery.md](recovery.md) — `duo recover`, the literal claim, and the
+- [recovery.md](recovery.md) — `wprism recover`, the literal claim, and the
   code-first ordering rule.
 - [assess.md](assess.md) — where every pre-freeze gap action gets fixed.
 - [capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy) —
-  the bucket-by-bucket refusal table `duo status` reports against.
+  the bucket-by-bucket refusal table `wprism status` reports against.
 - [cli/README.md](../../cli/README.md) — flag-by-flag reference for every verb
   named here.

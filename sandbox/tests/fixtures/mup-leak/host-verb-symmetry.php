@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * The `duo` verb surface is symmetric: every verb the Usage block publishes
+ * The `wprism` verb surface is symmetric: every verb the Usage block publishes
  * is a verb `main()` dispatches, and every verb `main()` dispatches is a
  * verb the Usage block publishes.
  *
@@ -13,7 +13,7 @@ declare(strict_types=1);
  *
  * ## Why this belongs in the leak audit
  *
- * MUP §5.1's rule is about `wp duo` commands and part (b) already gates it.
+ * MUP §5.1's rule is about `wp wprism` commands and part (b) already gates it.
  * The HOST half has the same failure mode and had no gate: a verb published
  * in Usage but reachable from no dispatch arm is a documented command that
  * does not exist, and a verb dispatched but absent from Usage is an
@@ -28,19 +28,19 @@ declare(strict_types=1);
  *
  * ## Where "dispatched" is read from — three places, not one
  *
- * `cli/duo`'s `main()` is not a single table, and a check that assumed one
+ * `cli/wprism`'s `main()` is not a single table, and a check that assumed one
  * would report six false leaks:
  *
  *   1. `EnvironmentCommandPreflight::ENVIRONMENT_VERBS` — the closed list
  *      `requiresEnvironment()` reads. Every `<env>`-taking verb is here, and
  *      an unknown verb is refused against exactly this list
- *      (cli/duo:1152-1155).
+ *      (cli/wprism:1152-1155).
  *   2. the ENV-FREE arms — `if ($verb === '…')` in `main()` before that
  *      refusal (`envs`, `env`, `manifest-validate`, `adapter-draft`,
  *      `adapter`, `code-import`). These take no environment and never reach
  *      ENVIRONMENT_VERBS.
  *   3. `driver-capabilities`, dispatched by its own `if` AFTER the transport
- *      is resolved but BEFORE the capability report (cli/duo:1194-1196),
+ *      is resolved but BEFORE the capability report (cli/wprism:1194-1196),
  *      because it is the verb that reports what the driver can do.
  *
  * Comments are stripped with `token_get_all()` before the source is scanned,
@@ -69,7 +69,7 @@ foreach ($options as $option) {
     }
 }
 
-$hostCli = $sourceOverride ?? ($root . '/cli/duo');
+$hostCli = $sourceOverride ?? ($root . '/cli/wprism');
 $preflight = $root . '/cli/src/Command/EnvironmentCommandPreflight.php';
 foreach ([$hostCli, $preflight] as $required) {
     if (!is_file($required)) {
@@ -96,8 +96,8 @@ function hvs_code_only(string $path): string {
 }
 
 // ------------------------------------------------------------- the Usage side
-// RENDERED, not parsed out of the heredoc: `duo` with no arguments prints
-// duo_usage() (cli/duo:1096-1098), so a Usage block that could not render is
+// RENDERED, not parsed out of the heredoc: `wprism` with no arguments prints
+// wprism_usage() (cli/wprism:1096-1098), so a Usage block that could not render is
 // not evidence of anything. `--usage=<path>` lets the suite's self-test point
 // this half at a mutated copy.
 if ($usageOverride !== null) {
@@ -109,11 +109,11 @@ if (trim($usage) === '') {
     fwrite(STDERR, "host-verb-symmetry: the Usage block rendered nothing\n");
     exit(2);
 }
-preg_match_all('/^  duo ([a-z][a-z0-9-]*)(?:\s|$)/m', $usage, $usageMatches);
+preg_match_all('/^  wprism ([a-z][a-z0-9-]*)(?:\s|$)/m', $usage, $usageMatches);
 $published = array_values(array_unique($usageMatches[1]));
 sort($published);
 if ($published === []) {
-    fwrite(STDERR, "host-verb-symmetry: no `duo <verb>` lines were found in the Usage block\n");
+    fwrite(STDERR, "host-verb-symmetry: no `wprism <verb>` lines were found in the Usage block\n");
     exit(2);
 }
 
@@ -138,7 +138,7 @@ if ($envList === []) {
 preg_match_all("/\\\$verb\s*===\s*'([a-z][a-z0-9-]*)'/", $hostCode, $armMatches);
 $arms = $armMatches[1];
 if ($arms === []) {
-    fwrite(STDERR, "host-verb-symmetry: no `\$verb === '…'` dispatch arms were found in cli/duo\n");
+    fwrite(STDERR, "host-verb-symmetry: no `\$verb === '…'` dispatch arms were found in cli/wprism\n");
     exit(2);
 }
 
@@ -151,7 +151,7 @@ $dispatchedOnly = array_values(array_diff($dispatched, $published));
 
 if ($json) {
     echo json_encode([
-        'format' => 'duo-host-verb-symmetry/v1',
+        'format' => 'wprism-host-verb-symmetry/v1',
         'published' => $published,
         'dispatched' => $dispatched,
         'published_not_dispatched' => $publishedOnly,
@@ -167,10 +167,10 @@ if ($json) {
 }
 
 foreach ($publishedOnly as $verb) {
-    fwrite(STDERR, "host-verb-symmetry: `duo $verb` is published in the Usage block and dispatched by nothing\n");
+    fwrite(STDERR, "host-verb-symmetry: `wprism $verb` is published in the Usage block and dispatched by nothing\n");
 }
 foreach ($dispatchedOnly as $verb) {
-    fwrite(STDERR, "host-verb-symmetry: `duo $verb` is dispatched and published in no Usage line\n");
+    fwrite(STDERR, "host-verb-symmetry: `wprism $verb` is dispatched and published in no Usage line\n");
 }
 
 exit($publishedOnly === [] && $dispatchedOnly === [] ? 0 : 1);

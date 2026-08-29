@@ -1,13 +1,13 @@
-# format duo-target-observation-premises/v1
+# format wprism-target-observation-premises/v1
 # expected observations=9 fixtures=1
 # kind	package-relative or @repo source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty "conf2 PMPro runtime observation"
 observation	tests/conformance/seed.sh	require_observed_nonempty "conf1 PMPro seed output"
 observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_observed_nonempty "target initial PMPro restriction count"
-observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_duo_answered "target PMPro deletion plan" json
-observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_duo_answered "target PMPro deletion apply" json
+observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_wprism_answered "target PMPro deletion plan" json
+observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_wprism_answered "target PMPro deletion apply" json
 observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_observed_nonempty "target PMPro restriction count after delete"
 observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_observed_nonempty "target retained PMPro membership level id"
 observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_observed_nonempty "target retained PMPro page id"
-observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_duo_answered "target PMPro deletion retry plan" json
+observation	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_wprism_answered "target PMPro deletion retry plan" json
 fixture	@repo/sandbox/tests/certify/certify_deletion_matrix.sh	require_fixture_ids LEVEL_B PAGE_B

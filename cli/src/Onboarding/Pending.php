@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
 
 /**
- * Renders the JSON from `wp duo pending --format=json` (agent-side
- * Pending::scan(), agent/src/Review/Pending.php — task #12) into `duo pending`'s
- * human table. Also shared by `duo classify`'s interactive per-item blocks
+ * Renders the JSON from `wp wprism pending --format=json` (agent-side
+ * Pending::scan(), agent/src/Review/Pending.php — task #12) into `wprism pending`'s
+ * human table. Also shared by `wprism classify`'s interactive per-item blocks
  * (Triage.php), so evidence/ref-hint formatting reads identically in both
  * places. Confirmed shape, one list item per unclassified key:
  *   {section: 'options'|'post_meta'|'term_meta', key: string,
@@ -36,8 +36,8 @@ require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
  */
 final class Pending {
     /**
-     * DUO-3521: bounded like every other human view. The review queue on a
-     * real site is the largest listing `duo` prints — one row per
+     * issue #3521: bounded like every other human view. The review queue on a
+     * real site is the largest listing `wprism` prints — one row per
      * unclassified option/meta key — and it was the last host-rendered one
      * with no ceiling at all. The count line below stays the TRUE total: a
      * truncated sample is honest, a truncated count is a lie about the site.
@@ -80,7 +80,7 @@ final class Pending {
             $lines[] = $cut;
         }
         $lines[] = '';
-        $lines[] = "$total item(s) in the review queue. Run \`duo classify <env>\` to triage.";
+        $lines[] = "$total item(s) in the review queue. Run \`wprism classify <env>\` to triage.";
 
         return ['lines' => $lines, 'ok' => true];
     }

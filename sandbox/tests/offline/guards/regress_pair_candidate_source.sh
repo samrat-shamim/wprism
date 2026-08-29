@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Regression — DUO-3377: pair.sh's exact-source gate for live evidence.
+# Regression — issue #3377: pair.sh's exact-source gate for live evidence.
 #
-# DUO-3277 made every pair's agent/adapter-packages/platform bind mounts resolve to the
+# issue #3277 made every pair's agent/adapter-packages/platform bind mounts resolve to the
 # CANONICAL checkout through git's own common-dir, so a persistent pair can
 # outlive the per-issue worktree that created it. The unintended consequence
 # this suite pins down: a live regression or conformance sweep launched from
 # an issue WORKTREE mounts the canonical checkout's bytes, not the candidate
-# branch's, with nothing comparing the two — observed live during DUO-3316
+# branch's, with nothing comparing the two — observed live during issue #3316
 # (worktree at 3ae1ea5, pair mounted canonical b69fdf; the stale-code
 # warnings that produced read as a candidate regression for a day).
 #
@@ -20,7 +20,7 @@
 #
 # What this proves, case by case:
 #   - unset gate: the stale canonical source is mounted silently and the run
-#     succeeds (the pre-DUO-3377 behavior, now at least PRINTED);
+#     succeeds (the pre-issue #3377 behavior, now at least PRINTED);
 #   - gate set to the candidate commit: refusal BEFORE the budget lock, the
 #     shared DB, the pair databases, the site-repo roots, and any container;
 #   - gate set to the source's own commit: proceeds (a source assertion, not
@@ -30,7 +30,7 @@
 #   - `start` verifies the source BAKED into existing containers, not what
 #     canonical_root() resolves today, reading BOTH of them and refusing when
 #     they disagree;
-#   - DUO-3277's own dead-mount refusal (and its recovery text) still fires
+#   - issue #3277's own dead-mount refusal (and its recovery text) still fires
 #     for a vanished baked source, gate or no gate;
 #   - an ungated run from a copy of pair.sh outside any checkout still works,
 #     because the gate reports when it is off and never adds a failure mode;
@@ -42,10 +42,10 @@ ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 # common-dir, which is always symlink-resolved, while pair.sh's `pwd` is not.
 # On macOS ${TMPDIR} is itself a symlink (/var -> /private/var), so a logical
 # fixture root would compare a resolved path against an unresolved one.
-TMP="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/duo-pair-candidate-source.XXXXXX")" && pwd -P)"
+TMP="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/wprism-pair-candidate-source.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$TMP"' EXIT
 ORIGINAL_PATH="$PATH"
-# DUO-3396: pair.sh's budget refusal now consults the host certification
+# issue #3396: pair.sh's budget refusal now consults the host certification
 # rendezvous (read-only) to see whether the candidate is the pair a HELD
 # certification lock reserved. Point it at a path under this suite's own
 # scratch that is never created, so these cases decide against a fixture
@@ -104,9 +104,9 @@ assert_no_pair_mutation() { # assert_no_pair_mutation <label> <case-root> <pair>
   local log="$case_root/docker.log"
   assert_file_lacks "$log" 'docker <compose> <ls>' \
     "$label queried live pairs (budget reservation) before refusing"
-  assert_file_lacks "$log" '<-p> <duo-db>' \
+  assert_file_lacks "$log" '<-p> <wprism-db>' \
     "$label reached the shared DB before refusing"
-  assert_file_lacks "$log" "<-p> <duo-$pair>" \
+  assert_file_lacks "$log" "<-p> <wprism-$pair>" \
     "$label reached this pair's Compose project before refusing"
   assert_file_lacks "$log" 'docker <exec> <-i>' \
     "$label ran admin SQL (database drop/create) before refusing"
@@ -127,12 +127,12 @@ write_fake_docker() {
   cat > "$fake_bin/docker" <<'FAKE_DOCKER'
 #!/usr/bin/env bash
 set -euo pipefail
-log="${DUO_PAIR_TEST_LOG:?}"
+log="${WPRISM_PAIR_TEST_LOG:?}"
 {
   printf 'docker'
   for arg in "$@"; do printf ' <%s>' "$arg"; done
-  printf ' env[DUO_AGENT_SRC]=%s env[DUO_ADAPTER_PACKAGES_SRC]=%s env[DUO_PLATFORM_SRC]=%s\n' \
-    "${DUO_AGENT_SRC:-}" "${DUO_ADAPTER_PACKAGES_SRC:-}" "${DUO_PLATFORM_SRC:-}"
+  printf ' env[WPRISM_AGENT_SRC]=%s env[WPRISM_ADAPTER_PACKAGES_SRC]=%s env[WPRISM_PLATFORM_SRC]=%s\n' \
+    "${WPRISM_AGENT_SRC:-}" "${WPRISM_ADAPTER_PACKAGES_SRC:-}" "${WPRISM_PLATFORM_SRC:-}"
 } >> "$log"
 
 if [ "${1:-}" = inspect ]; then
@@ -151,9 +151,9 @@ if [ "${1:-}" = inspect ]; then
   # come from the same variable: no configured mounts means no container.
   # wp2 can be given its OWN mount table, which is how a case expresses two
   # web containers baked against different checkouts.
-  mounts="${DUO_PAIR_TEST_MOUNTS:-}"
+  mounts="${WPRISM_PAIR_TEST_MOUNTS:-}"
   case "${2:-}" in
-    *-wp2-1) mounts="${DUO_PAIR_TEST_MOUNTS_WP2:-$mounts}" ;;
+    *-wp2-1) mounts="${WPRISM_PAIR_TEST_MOUNTS_WP2:-$mounts}" ;;
   esac
   [ -n "$mounts" ] || exit 1
   if [ "${3:-}" = --format ]; then
@@ -168,14 +168,14 @@ if [ "${1:-}" = inspect ]; then
   fi
 elif [ "${1:-}" = info ]; then
   case "${3:-}" in
-    "{{.NCPU}}") printf '%s\n' "${DUO_PAIR_TEST_CPU:-8}" ;;
-    "{{.MemTotal}}") printf '%s\n' "${DUO_PAIR_TEST_MEM:-8589934592}" ;;
+    "{{.NCPU}}") printf '%s\n' "${WPRISM_PAIR_TEST_CPU:-8}" ;;
+    "{{.MemTotal}}") printf '%s\n' "${WPRISM_PAIR_TEST_MEM:-8589934592}" ;;
   esac
 elif [ "${1:-}" = ps ]; then
-  printf '%s\n' "${DUO_PAIR_TEST_CONTAINERS:-}"
+  printf '%s\n' "${WPRISM_PAIR_TEST_CONTAINERS:-}"
 elif [ "${1:-}" = compose ] && [ "${2:-}" = ls ]; then
-  if [ -n "${DUO_PAIR_TEST_LIVE_FILE:-}" ] && [ -f "$DUO_PAIR_TEST_LIVE_FILE" ]; then
-    cat "$DUO_PAIR_TEST_LIVE_FILE"
+  if [ -n "${WPRISM_PAIR_TEST_LIVE_FILE:-}" ] && [ -f "$WPRISM_PAIR_TEST_LIVE_FILE" ]; then
+    cat "$WPRISM_PAIR_TEST_LIVE_FILE"
   else
     printf '[]\n'
   fi
@@ -187,8 +187,8 @@ elif [ "${1:-}" = compose ]; then
     previous="$arg"
   done
   # `start` waits for Compose visibility; publish the pair once it has run.
-  if [ "$has_start" = 1 ] && [ -n "${DUO_PAIR_TEST_LIVE_FILE:-}" ]; then
-    printf '[{"ConfigFiles":"/fake/pair.yml","Name":"%s"}]\n' "$project" > "$DUO_PAIR_TEST_LIVE_FILE"
+  if [ "$has_start" = 1 ] && [ -n "${WPRISM_PAIR_TEST_LIVE_FILE:-}" ]; then
+    printf '[{"ConfigFiles":"/fake/pair.yml","Name":"%s"}]\n' "$project" > "$WPRISM_PAIR_TEST_LIVE_FILE"
   fi
 fi
 FAKE_DOCKER
@@ -198,7 +198,7 @@ FAKE_DOCKER
 git_scratch() { # git_scratch <repo> <args...> — host-config-independent git
   local repo="$1"; shift
   git -C "$repo" \
-    -c user.name=duo -c user.email=duo@example.test \
+    -c user.name=wprism -c user.email=wprism@example.test \
     -c commit.gpgsign=false -c gc.auto=0 "$@"
 }
 
@@ -221,7 +221,7 @@ build_fixture() { # build_fixture <label>
 
   copy_pair_launcher "$CANONICAL/sandbox/bin"
   chmod +x "$CANONICAL/sandbox/bin/pair.sh"
-  printf 'canonical (stale) agent bytes\n' > "$CANONICAL/agent/duo.php"
+  printf 'canonical (stale) agent bytes\n' > "$CANONICAL/agent/wprism.php"
   printf '{"canonical":true}\n' > "$CANONICAL/adapter-packages/demo.json"
   printf '{"platform":true}\n' > "$CANONICAL/platform/demo.json"
   git -C "$CANONICAL" init -q -b main .
@@ -230,7 +230,7 @@ build_fixture() { # build_fixture <label>
   SHA_CANONICAL="$(git -C "$CANONICAL" rev-parse HEAD)"
 
   git_scratch "$CANONICAL" checkout -q -b candidate
-  printf 'candidate agent bytes under test\n' > "$CANONICAL/agent/duo.php"
+  printf 'candidate agent bytes under test\n' > "$CANONICAL/agent/wprism.php"
   git_scratch "$CANONICAL" add -A
   git_scratch "$CANONICAL" commit -qm "candidate fix under test"
   SHA_CANDIDATE="$(git -C "$CANONICAL" rev-parse HEAD)"
@@ -246,20 +246,20 @@ build_fixture() { # build_fixture <label>
 }
 
 # One pair.sh invocation from the WORKTREE's own copy — the launch shape the
-# whole issue is about. DUO_EXPECTED_SOURCE_SHA is passed per call so an unset
+# whole issue is about. WPRISM_EXPECTED_SOURCE_SHA is passed per call so an unset
 # gate cannot leak in from a previous case.
 run_pair() { # run_pair <expected-sha-or-empty> <subcommand> [args...]
   local expected="$1"; shift
   ( cd "$WORKTREE" \
     && env PATH="$FAKE_BIN:$ORIGINAL_PATH" \
-       DUO_PAIR_TEST_LOG="$LOG" \
-       DUO_PAIR_TEST_MOUNTS="${MOUNTS:-}" \
-       DUO_PAIR_TEST_MOUNTS_WP2="${MOUNTS_WP2:-}" \
-       DUO_PAIR_TEST_CONTAINERS="${CONTAINERS:-}" \
-       DUO_PAIR_TEST_LIVE_FILE="${LIVE_FILE:-}" \
-       DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-       DUO_SOURCE_ROOT="${SOURCE_OVERRIDE:-}" \
-       DUO_EXPECTED_SOURCE_SHA="$expected" \
+       WPRISM_PAIR_TEST_LOG="$LOG" \
+       WPRISM_PAIR_TEST_MOUNTS="${MOUNTS:-}" \
+       WPRISM_PAIR_TEST_MOUNTS_WP2="${MOUNTS_WP2:-}" \
+       WPRISM_PAIR_TEST_CONTAINERS="${CONTAINERS:-}" \
+       WPRISM_PAIR_TEST_LIVE_FILE="${LIVE_FILE:-}" \
+       WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+       WPRISM_SOURCE_ROOT="${SOURCE_OVERRIDE:-}" \
+       WPRISM_EXPECTED_SOURCE_SHA="$expected" \
        bash "$WORKTREE/sandbox/bin/pair.sh" "$@" ) >"$OUTPUT" 2>&1
 }
 
@@ -267,17 +267,17 @@ run_unset_gate_documents_stale_source_case() {
   local label=unset_gate_stale_source pair=stalesrc
   build_fixture "$label"
 
-  # Prior (pre-DUO-3377) behavior, byte for byte: the run succeeds against
+  # Prior (pre-issue #3377) behavior, byte for byte: the run succeeds against
   # the canonical checkout's agent/adapter-packages/platform even though it was launched from
   # a worktree sitting on a different commit. It is now at least legible —
   # the source path and HEAD are printed — but nothing refuses, which is the
-  # contract for every persistent-pair workflow DUO-3277 protects.
+  # contract for every persistent-pair workflow issue #3277 protects.
   run_pair "" up "$pair" 9911 9912 --headless \
     || { cat "$OUTPUT" >&2; fail "$label refused an ungated run (unset must stay unchanged behavior)"; }
 
-  assert_file_contains "$LOG" "env[DUO_AGENT_SRC]=$CANONICAL/agent" \
+  assert_file_contains "$LOG" "env[WPRISM_AGENT_SRC]=$CANONICAL/agent" \
     "$label did not mount the canonical agent source"
-  assert_file_lacks "$LOG" "env[DUO_AGENT_SRC]=$WORKTREE/agent" \
+  assert_file_lacks "$LOG" "env[WPRISM_AGENT_SRC]=$WORKTREE/agent" \
     "$label mounted the worktree's own agent source"
   assert_file_contains "$LOG" '<up> <-d> <wp1> <wp2>' \
     "$label did not create the pair's web containers"
@@ -287,7 +287,7 @@ run_unset_gate_documents_stale_source_case() {
     "$label did not print the mounted source HEAD"
   assert_file_contains "$OUTPUT" "invoked from:   $WORKTREE/sandbox" \
     "$label did not print where this pair.sh copy ran from"
-  assert_file_contains "$OUTPUT" 'expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset' \
+  assert_file_contains "$OUTPUT" 'expected SHA:   (WPRISM_EXPECTED_SOURCE_SHA unset' \
     "$label did not state that the run is not candidate-bound"
   assert_file_contains "$OUTPUT" "pair '$pair' ready" \
     "$label did not complete the ungated bootstrap"
@@ -300,7 +300,7 @@ run_mismatch_refusal_case() {
   local label=mismatch_refusal pair=mismatch
   build_fixture "$label"
 
-  # The DUO-3316 shape: an agent in the worktree asks for ITS commit's
+  # The issue #3316 shape: an agent in the worktree asks for ITS commit's
   # evidence. The mounted source is the canonical checkout's older commit, so
   # this must refuse rather than produce a verdict about untested bytes.
   if run_pair "$SHA_CANDIDATE" up "$pair" 9911 9912 --headless; then
@@ -310,13 +310,13 @@ run_mismatch_refusal_case() {
 
   assert_file_contains "$OUTPUT" 'candidate-source MISMATCH' \
     "$label did not name the mismatch"
-  assert_file_contains "$OUTPUT" "expected (DUO_EXPECTED_SOURCE_SHA): $SHA_CANDIDATE" \
+  assert_file_contains "$OUTPUT" "expected (WPRISM_EXPECTED_SOURCE_SHA): $SHA_CANDIDATE" \
     "$label did not print the expected candidate SHA"
   assert_file_contains "$OUTPUT" "actual mounted source HEAD:         $SHA_CANONICAL" \
     "$label did not print the actual mounted source HEAD"
   assert_file_contains "$OUTPUT" "actual mounted source:              $CANONICAL/{agent,adapter-packages,platform}" \
     "$label did not print the actual mounted source path"
-  assert_file_contains "$OUTPUT" 'DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)' \
+  assert_file_contains "$OUTPUT" 'WPRISM_SOURCE_ROOT=$(pwd -P) WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)' \
     "$label did not name the linked-worktree source remedy"
   assert_no_pair_mutation "$label" "$CASE_ROOT" "$pair"
   pass "$label: a stale canonical source cannot yield candidate evidence, green or red"
@@ -333,13 +333,13 @@ run_worktree_source_case() {
     "$label did not report the selected worktree"
   assert_file_contains "$OUTPUT" "source HEAD:    $SHA_CANDIDATE" \
     "$label did not report the candidate worktree HEAD"
-  assert_file_contains "$LOG" "env[DUO_AGENT_SRC]=$WORKTREE/agent" \
+  assert_file_contains "$LOG" "env[WPRISM_AGENT_SRC]=$WORKTREE/agent" \
     "$label did not mount the candidate worktree agent"
-  assert_file_contains "$LOG" "env[DUO_ADAPTER_PACKAGES_SRC]=$WORKTREE/adapter-packages" \
+  assert_file_contains "$LOG" "env[WPRISM_ADAPTER_PACKAGES_SRC]=$WORKTREE/adapter-packages" \
     "$label did not mount the candidate worktree adapter packages"
-  assert_file_contains "$LOG" "env[DUO_PLATFORM_SRC]=$WORKTREE/platform" \
+  assert_file_contains "$LOG" "env[WPRISM_PLATFORM_SRC]=$WORKTREE/platform" \
     "$label did not mount the candidate worktree platform library"
-  assert_file_lacks "$LOG" "env[DUO_AGENT_SRC]=$CANONICAL/agent" \
+  assert_file_lacks "$LOG" "env[WPRISM_AGENT_SRC]=$CANONICAL/agent" \
     "$label silently fell back to the canonical checkout"
   pass "$label: an explicit exact worktree is mounted and verified without moving the canonical checkout"
 }
@@ -360,15 +360,15 @@ run_expected_match_case() {
     "$label did not confirm the bound source"
   assert_file_contains "$OUTPUT" "pair '$pair' ready" \
     "$label did not complete the gated bootstrap"
-  assert_file_contains "$LOG" "env[DUO_AGENT_SRC]=$CANONICAL/agent" \
-    "$label changed which source DUO-3277 binds"
+  assert_file_contains "$LOG" "env[WPRISM_AGENT_SRC]=$CANONICAL/agent" \
+    "$label changed which source issue #3277 binds"
   pass "$label: an expected-source match proceeds, abbreviated SHA included"
 }
 
 run_dirty_source_refusal_case() {
   local label=dirty_source pair=dirtysrc
   build_fixture "$label"
-  printf 'uncommitted edit\n' >> "$CANONICAL/agent/duo.php"
+  printf 'uncommitted edit\n' >> "$CANONICAL/agent/wprism.php"
   printf '{"untracked":true}\n' > "$CANONICAL/adapter-packages/scratch.json"
 
   # Right commit, wrong bytes: the mount would carry edits no commit records,
@@ -379,13 +379,13 @@ run_dirty_source_refusal_case() {
   fi
   assert_file_contains "$OUTPUT" 'candidate source is DIRTY' \
     "$label did not name the dirty mount source"
-  assert_file_contains "$OUTPUT" 'agent/duo.php' \
+  assert_file_contains "$OUTPUT" 'agent/wprism.php' \
     "$label did not list the modified mounted file"
   assert_file_contains "$OUTPUT" 'adapter-packages/scratch.json' \
     "$label did not list the untracked mounted file"
   # Every porcelain line carries the two-space indent, not just the first:
   # printf with one multi-line argument silently indents only line one.
-  grep -qE '^  [ M?]{1,2} .*agent/duo\.php' "$OUTPUT" \
+  grep -qE '^  [ M?]{1,2} .*agent/wprism\.php' "$OUTPUT" \
     || fail "$label did not indent the modified-file line"
   grep -qE '^  [ M?]{1,2} .*adapter-packages/scratch\.json' "$OUTPUT" \
     || fail "$label did not indent the second dirty line (multi-line listing lost its indent)"
@@ -430,7 +430,7 @@ run_reset_gate_case() {
     || fail "$label cleared site-repo state before refusing"
   assert_file_lacks "$LOG" 'docker <exec> <-i>' \
     "$label ran DROP/CREATE before refusing"
-  assert_file_lacks "$LOG" '<-p> <duo-db>' \
+  assert_file_lacks "$LOG" '<-p> <wprism-db>' \
     "$label reached the shared DB before refusing the reset"
   assert_file_lacks "$LOG" 'docker <ps>' \
     "$label ran reset's codebind preflight before the source gate"
@@ -440,12 +440,12 @@ run_reset_gate_case() {
 run_start_baked_source_case() {
   local label=start_baked_source pair=startbaked
   build_fixture "$label"
-  # A pair created BEFORE DUO-3277 shipped: its containers carry a worktree
+  # A pair created BEFORE issue #3277 shipped: its containers carry a worktree
   # path baked in at create time, which compose start reuses verbatim. The
   # honest answer to "what will this mount" is that baked path, not what
   # canonical_root() resolves now — so the gate must verify the former.
-  MOUNTS="$WORKTREE/agent"$'\t/var/www/html/wp-content/mu-plugins/duo'
-  CONTAINERS="duo-${pair}-wp1-1"
+  MOUNTS="$WORKTREE/agent"$'\t/var/www/html/wp-content/mu-plugins/wprism'
+  CONTAINERS="wprism-${pair}-wp1-1"
   LIVE_FILE="$CASE_ROOT/live.json"
 
   if run_pair "$SHA_CANONICAL" start "$pair"; then
@@ -468,7 +468,7 @@ run_start_baked_source_case() {
     || { cat "$OUTPUT" >&2; fail "$label refused a start whose baked source IS the expected commit"; }
   assert_file_contains "$OUTPUT" "mounted source: $WORKTREE/{agent,adapter-packages,platform}" \
     "$label did not print the baked mount source on the accepted start"
-  assert_file_contains "$LOG" "<-p> <duo-$pair> <-f> <pair.yml> <start>" \
+  assert_file_contains "$LOG" "<-p> <wprism-$pair> <-f> <pair.yml> <start>" \
     "$label did not resume the pair after the gate passed"
   MOUNTS=""; CONTAINERS=""; LIVE_FILE=""
   pass "$label: start verifies the source baked into its containers, both ways"
@@ -477,12 +477,12 @@ run_start_baked_source_case() {
 run_dead_baked_mount_case() {
   local label=dead_baked_mount pair=deadmount
   build_fixture "$label"
-  # DUO-3277's own hazard, unchanged by this gate: the checkout a pair's
+  # issue #3277's own hazard, unchanged by this gate: the checkout a pair's
   # containers were created against is simply gone. The gate must report what
   # it can and then get out of the way — check_dead_mounts still owns this
   # refusal, and its recovery instructions must still be what an operator
   # sees.
-  MOUNTS="$CASE_ROOT/removed-worktree/agent"$'\t/var/www/html/wp-content/mu-plugins/duo'
+  MOUNTS="$CASE_ROOT/removed-worktree/agent"$'\t/var/www/html/wp-content/mu-plugins/wprism'
   LIVE_FILE="$CASE_ROOT/live.json"
 
   if run_pair "" start "$pair"; then
@@ -490,9 +490,9 @@ run_dead_baked_mount_case() {
     fail "$label started a pair whose baked bind-mount source no longer exists"
   fi
   assert_file_contains "$OUTPUT" 'has a dead bind-mount source' \
-    "$label lost DUO-3277's dead-mount refusal"
+    "$label lost issue #3277's dead-mount refusal"
   assert_file_contains "$OUTPUT" "recovery: run \"pair.sh up $pair" \
-    "$label lost DUO-3277's dead-mount recovery instructions"
+    "$label lost issue #3277's dead-mount recovery instructions"
   assert_file_contains "$OUTPUT" 'source HEAD:    <none' \
     "$label did not report honestly that the vanished source has no HEAD"
   assert_file_lacks "$LOG" '<start>' "$label resumed containers on a dead mount"
@@ -507,7 +507,7 @@ run_dead_baked_mount_case() {
     "$label did not refuse a vanished source at the gate"
   assert_file_lacks "$LOG" '<start>' "$label resumed containers under the gate"
   MOUNTS=""; LIVE_FILE=""
-  pass "$label: DUO-3277's dead-mount protection is intact, and the gate refuses earlier still"
+  pass "$label: issue #3277's dead-mount protection is intact, and the gate refuses earlier still"
 }
 
 run_disagreeing_baked_sources_case() {
@@ -517,9 +517,9 @@ run_disagreeing_baked_sources_case() {
   # from one pair.yml today, which is exactly why reading only wp1 would be a
   # trap rather than an optimization: there is no single answer to "which code
   # does this pair run", so the only honest outcome is a refusal naming both.
-  MOUNTS="$CANONICAL/agent"$'\t/var/www/html/wp-content/mu-plugins/duo'
-  MOUNTS_WP2="$WORKTREE/agent"$'\t/var/www/html/wp-content/mu-plugins/duo'
-  CONTAINERS="duo-${pair}-wp1-1"
+  MOUNTS="$CANONICAL/agent"$'\t/var/www/html/wp-content/mu-plugins/wprism'
+  MOUNTS_WP2="$WORKTREE/agent"$'\t/var/www/html/wp-content/mu-plugins/wprism'
+  CONTAINERS="wprism-${pair}-wp1-1"
   LIVE_FILE="$CASE_ROOT/live.json"
 
   if run_pair "$SHA_CANONICAL" start "$pair"; then
@@ -528,16 +528,16 @@ run_disagreeing_baked_sources_case() {
   fi
   assert_file_contains "$OUTPUT" 'DISAGREEING agent bind-mount sources' \
     "$label did not refuse containers baked against different checkouts"
-  assert_file_contains "$OUTPUT" "duo-${pair}-wp1-1: $CANONICAL/agent" \
+  assert_file_contains "$OUTPUT" "wprism-${pair}-wp1-1: $CANONICAL/agent" \
     "$label did not name the wp1 baked source"
-  assert_file_contains "$OUTPUT" "duo-${pair}-wp2-1: $WORKTREE/agent" \
+  assert_file_contains "$OUTPUT" "wprism-${pair}-wp2-1: $WORKTREE/agent" \
     "$label did not name the wp2 baked source"
   assert_file_lacks "$LOG" '<start>' "$label resumed containers before refusing"
   assert_file_lacks "$LOG" 'docker <compose> <ls>' \
     "$label reserved budget before refusing"
 
   # Deliberately ungated, and the ONE place this issue's changes refuse
-  # without DUO_EXPECTED_SOURCE_SHA: a pair whose two containers mount
+  # without WPRISM_EXPECTED_SOURCE_SHA: a pair whose two containers mount
   # different code is broken whether or not the run is candidate-bound, which
   # is the same judgement check_dead_mounts already makes on `start` for the
   # structurally identical "baked mount is incoherent" case.
@@ -566,13 +566,13 @@ run_non_git_copy_case() {
   # directories relative to its own cwd. An ungated run from a copy of this
   # script outside any checkout therefore has to keep working exactly as it
   # did — the gate REPORTS when it is off, it never adds a failure mode. (This
-  # regressed once during DUO-3377: an unconditional refusal here turned
+  # regressed once during issue #3377: an unconditional refusal here turned
   # regress_pair_bootstrap_unit.sh's reset_codebind_refusal case into a
   # source-resolution error instead of its codebind refusal.)
   ( cd "$case_root/sandbox" \
-    && env PATH="$fake_bin:$ORIGINAL_PATH" DUO_PAIR_TEST_LOG="$log" \
-       DUO_PAIR_TEST_MOUNTS='' DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_LIVE_FILE='' \
-       DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 DUO_EXPECTED_SOURCE_SHA='' \
+    && env PATH="$fake_bin:$ORIGINAL_PATH" WPRISM_PAIR_TEST_LOG="$log" \
+       WPRISM_PAIR_TEST_MOUNTS='' WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_LIVE_FILE='' \
+       WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 WPRISM_EXPECTED_SOURCE_SHA='' \
        bash "$case_root/sandbox/bin/pair.sh" reset "$pair" ) >"$output" 2>&1 \
     || { cat "$output" >&2; fail "$label: an ungated reset outside a Git checkout stopped working"; }
   assert_file_contains "$output" 'mounted source: <unresolvable' \
@@ -583,10 +583,10 @@ run_non_git_copy_case() {
   # With the gate ON the same run must refuse: a run that names an exact
   # commit cannot proceed against a source nothing can identify.
   ( cd "$case_root/sandbox" \
-    && env PATH="$fake_bin:$ORIGINAL_PATH" DUO_PAIR_TEST_LOG="$log" \
-       DUO_PAIR_TEST_MOUNTS='' DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_LIVE_FILE='' \
-       DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
-       DUO_EXPECTED_SOURCE_SHA=0123456789abcdef0123456789abcdef01234567 \
+    && env PATH="$fake_bin:$ORIGINAL_PATH" WPRISM_PAIR_TEST_LOG="$log" \
+       WPRISM_PAIR_TEST_MOUNTS='' WPRISM_PAIR_TEST_CONTAINERS='' WPRISM_PAIR_TEST_LIVE_FILE='' \
+       WPRISM_PAIR_TEST_CPU=8 WPRISM_PAIR_TEST_MEM=8589934592 \
+       WPRISM_EXPECTED_SOURCE_SHA=0123456789abcdef0123456789abcdef01234567 \
        bash "$case_root/sandbox/bin/pair.sh" reset "$pair" ) >"$output" 2>&1 \
     && { cat "$output" >&2; fail "$label: a gated reset proceeded against an unidentifiable source"; }
   assert_file_contains "$output" 'could not resolve a safe source checkout via git' \
@@ -605,7 +605,7 @@ run_malformed_expected_case() {
     cat "$OUTPUT" >&2
     fail "$label accepted a non-SHA candidate-source value"
   fi
-  assert_file_contains "$OUTPUT" 'DUO_EXPECTED_SOURCE_SHA must be a 7-40 character hex commit SHA' \
+  assert_file_contains "$OUTPUT" 'WPRISM_EXPECTED_SOURCE_SHA must be a 7-40 character hex commit SHA' \
     "$label did not explain the required value shape"
   assert_no_pair_mutation "$label" "$CASE_ROOT" "$pair"
   pass "$label: a non-SHA gate value refuses before any mutation"
@@ -621,12 +621,12 @@ run_teardown_ungated_case() {
     || { cat "$OUTPUT" >&2; fail "$label blocked 'stop' behind the candidate-source gate"; }
   assert_file_lacks "$OUTPUT" 'candidate source for' \
     "$label ran the source gate for a teardown subcommand"
-  assert_file_contains "$LOG" "<-p> <duo-$pair> <-f> <pair.yml> <stop>" \
+  assert_file_contains "$LOG" "<-p> <wprism-$pair> <-f> <pair.yml> <stop>" \
     "$label did not stop the pair"
 
   run_pair 0000000000000000000000000000000000000000 destroy "$pair" \
     || { cat "$OUTPUT" >&2; fail "$label blocked 'destroy' behind the candidate-source gate"; }
-  assert_file_contains "$LOG" "<-p> <duo-$pair> <-f> <pair.yml> <down> <-v> <--remove-orphans>" \
+  assert_file_contains "$LOG" "<-p> <wprism-$pair> <-f> <pair.yml> <down> <-v> <--remove-orphans>" \
     "$label did not destroy the pair"
   pass "$label: stop/destroy stay ungated so cleanup can never be blocked"
 }
@@ -638,13 +638,13 @@ run_conformance_passthrough_case() {
   # exactly "map CONF_EXPECTED_SOURCE_SHA onto pair.sh's variable, before the
   # first pair.sh call". Both halves matter — an export placed after `pair.sh
   # reset` would gate nothing that reset already destroyed.
-  assert_file_contains "$run_sh" 'export DUO_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"' \
+  assert_file_contains "$run_sh" 'export WPRISM_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"' \
     "$label: run.sh does not plumb CONF_EXPECTED_SOURCE_SHA through to pair.sh"
   assert_before "$run_sh" \
-    'export DUO_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"' \
+    'export WPRISM_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"' \
     'bash bin/pair.sh reset "$CONF_PAIR"'
   assert_before "$run_sh" \
-    'export DUO_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"' \
+    'export WPRISM_EXPECTED_SOURCE_SHA="$CONF_EXPECTED_SOURCE_SHA"' \
     'bash bin/pair.sh up "$CONF_PAIR"'
   pass "$label: conformance binds its sweep before the first pair mutation"
 }
@@ -655,10 +655,10 @@ run_version_matrix_passthrough_case() {
   # The matrix has no reset between its boundary cells, but its first `up`
   # still reserves pair resources and can start containers. Its candidate
   # bridge must therefore be in scope before that call, just like run.sh.
-  assert_file_contains "$matrix" 'export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
+  assert_file_contains "$matrix" 'export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
     "$label: certify_version_matrix.sh does not plumb VMATRIX_EXPECTED_SOURCE_SHA through to pair.sh"
   assert_before "$matrix" \
-    'export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
+    'export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
     'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"'
   pass "$label: exact-artifact matrix binds its candidate before pair startup"
 }
@@ -679,20 +679,20 @@ run_parallel_compose_source_pin_case() {
   done
 
   (
-    unset PAIR_SOURCE_ROOT DUO_AGENT_SRC DUO_ADAPTER_PACKAGES_SRC DUO_PLATFORM_SRC
-    export DUO_SOURCE_ROOT="$ROOT"
+    unset PAIR_SOURCE_ROOT WPRISM_AGENT_SRC WPRISM_ADAPTER_PACKAGES_SRC WPRISM_PLATFORM_SRC
+    export WPRISM_SOURCE_ROOT="$ROOT"
     # shellcheck source=../../../lib/pair_identity.sh
     source "$identity"
     pair_identity_export_source_mounts
-    [ "$DUO_AGENT_SRC" = "$ROOT/agent" ]
-    [ "$DUO_ADAPTER_PACKAGES_SRC" = "$ROOT/adapter-packages" ]
-    [ "$DUO_PLATFORM_SRC" = "$ROOT/platform" ]
+    [ "$WPRISM_AGENT_SRC" = "$ROOT/agent" ]
+    [ "$WPRISM_ADAPTER_PACKAGES_SRC" = "$ROOT/adapter-packages" ]
+    [ "$WPRISM_PLATFORM_SRC" = "$ROOT/platform" ]
     # Model a parallel teardown selecting canonical bytes in shared .env.
     # Compose gives these exported values precedence, so neither may move.
-    printf 'DUO_AGENT_SRC=/stale/agent\nDUO_ADAPTER_PACKAGES_SRC=/stale/adapter-packages\nDUO_PLATFORM_SRC=/stale/platform\n' > "$TMP/stale.env"
-    [ "$DUO_AGENT_SRC" = "$ROOT/agent" ]
-    [ "$DUO_ADAPTER_PACKAGES_SRC" = "$ROOT/adapter-packages" ]
-    [ "$DUO_PLATFORM_SRC" = "$ROOT/platform" ]
+    printf 'WPRISM_AGENT_SRC=/stale/agent\nWPRISM_ADAPTER_PACKAGES_SRC=/stale/adapter-packages\nWPRISM_PLATFORM_SRC=/stale/platform\n' > "$TMP/stale.env"
+    [ "$WPRISM_AGENT_SRC" = "$ROOT/agent" ]
+    [ "$WPRISM_ADAPTER_PACKAGES_SRC" = "$ROOT/adapter-packages" ]
+    [ "$WPRISM_PLATFORM_SRC" = "$ROOT/platform" ]
   ) || fail "$label: caller-local candidate mounts did not survive a stale shared environment record"
   pass "$label: common adapter evidence lanes keep candidate mounts process-local across parallel pair teardown"
 }
@@ -703,13 +703,13 @@ run_multisite_passthrough_case() {
   # Multisite refusal must describe the candidate that could have reached the
   # destructive capture/journal paths, not whichever canonical checkout the
   # host happened to mount. reset is the earliest mutation in this harness.
-  assert_file_contains "$multisite" 'export DUO_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
+  assert_file_contains "$multisite" 'export WPRISM_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
     "$label: regress_multisite_refusal.sh does not plumb MULTISITE_EXPECTED_SOURCE_SHA through to pair.sh"
   assert_before "$multisite" \
-    'export DUO_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
+    'export WPRISM_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
     'bash bin/pair.sh reset "$PAIR"'
   assert_before "$multisite" \
-    'export DUO_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
+    'export WPRISM_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"' \
     'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"'
   pass "$label: multisite refusal binds its candidate before pair mutation"
 }
@@ -756,7 +756,7 @@ run_reset_gate_case
 say "start verifies the source baked into existing containers"
 run_start_baked_source_case
 
-say "DUO-3277's dead-mount protection survives the gate"
+say "issue #3277's dead-mount protection survives the gate"
 run_dead_baked_mount_case
 
 say "web containers baked against different sources refuse instead of picking one"
@@ -765,7 +765,7 @@ run_disagreeing_baked_sources_case
 say "an ungated run from a non-Git copy keeps working; a gated one refuses"
 run_non_git_copy_case
 
-say "malformed DUO_EXPECTED_SOURCE_SHA refuses closed"
+say "malformed WPRISM_EXPECTED_SOURCE_SHA refuses closed"
 run_malformed_expected_case
 
 say "teardown subcommands are deliberately ungated"

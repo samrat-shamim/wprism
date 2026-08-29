@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Policy remains the standalone entry point for the aggregate collaborators
 // used below. The circular require_once matches ManifestValidator and
@@ -43,7 +43,7 @@ final class PolicyLoadFinalizer {
         // reaches the guard with `[]` and its refusal is unchanged, which is
         // the whole compatibility argument for this section.
         $claimResolutions = AdapterClaimResolutions::declared($policy->site['policy'] ?? []);
-        AdapterClaimResolutions::assert_binds($policy->manifests, $policy->site['policy'] ?? [], 'site.duo.json');
+        AdapterClaimResolutions::assert_binds($policy->manifests, $policy->site['policy'] ?? [], 'site.wprism.json');
         AdapterContractGrammar::validate_no_conflicting_adapter_claims($policy->manifests, $claimResolutions);
         ActionProviderGrammar::validate_no_conflicting_provider_ids($policy->manifests);
         CrossManifestGuards::validate_no_conflicting_post_type_contracts($policy->manifests);

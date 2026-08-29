@@ -10,7 +10,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__, 3);
 require_once $root . '/sandbox/tests/lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 require_once $root . '/sandbox/tests/lib/wp_stubs.php';
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 require_once $root . '/agent/src/Kernel/Canon.php';
@@ -45,7 +45,7 @@ final class PolylangTermGroupWpdb {
     private bool $nextRepeatableRead = false;
     private bool $savepointExists = false;
 
-    public function __construct(private readonly \DuoTest\FakeWpdb $inner) {
+    public function __construct(private readonly \WPrismTest\FakeWpdb $inner) {
         foreach (['prefix', 'base_prefix', 'terms', 'term_taxonomy', 'termmeta', 'options'] as $property) {
             $this->$property = $inner->$property;
         }
@@ -116,12 +116,12 @@ final class PolylangTermGroupWpdb {
             $this->nextRepeatableRead = true;
             return 1;
         }
-        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->activeTransaction) return false;
             $this->savepointExists = true;
             return 1;
         }
-        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->activeTransaction || !$this->savepointExists) return false;
             $this->savepointExists = false;
             return 1;
@@ -161,7 +161,7 @@ final class PolylangTermGroupWpdb {
     }
 }
 
-$wpdb = new PolylangTermGroupWpdb(new \DuoTest\FakeWpdb());
+$wpdb = new PolylangTermGroupWpdb(new \WPrismTest\FakeWpdb());
 $GLOBALS['wpdb'] = $wpdb;
 $wpdb->setColumns('termmeta', [
     'meta_id' => 'bigint unsigned',
@@ -179,20 +179,20 @@ $wpdb->setColumns('options', [
 $wpdb->seedTable('options', []);
 $wpdb->setUniqueKey('options', ['option_name']);
 
-$policy = \Duo\Policy::load(
+$policy = \WPrism\Policy::load(
     null,
     ['core', 'polylang'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'polylang')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'polylang')
 );
-$tokens = new \Duo\Tokens('http://source.test', 'http://source.test/wp-content/uploads');
-$meta = new \Duo\EntityMetaCapture(
+$tokens = new \WPrism\Tokens('http://source.test', 'http://source.test/wp-content/uploads');
+$meta = new \WPrism\EntityMetaCapture(
     $policy,
     $tokens,
     static function (): void {},
     static function (): void {},
     static function (): void {}
 );
-$capture = new \Duo\TermCapture($policy, $tokens, $meta);
+$capture = new \WPrism\TermCapture($policy, $tokens, $meta);
 $uuid = '00000000-0000-4000-8000-000000000201';
 $languageDescription = serialize(['locale' => 'ar', 'rtl' => 1, 'flag_code' => 'sa']);
 $language = $capture->capture((object) [
@@ -204,7 +204,7 @@ $language = $capture->capture((object) [
     'parent' => 0,
     'term_group' => 2,
 ], $uuid, []);
-$languageFront = \Duo\Canon::decode($language['content']);
+$languageFront = \WPrism\Canon::decode($language['content']);
 $category = $capture->capture((object) [
     'term_id' => 20,
     'taxonomy' => 'category',
@@ -214,7 +214,7 @@ $category = $capture->capture((object) [
     'parent' => 0,
     'term_group' => 77,
 ], '00000000-0000-4000-8000-000000000202', []);
-$categoryFront = \Duo\Canon::decode($category['content']);
+$categoryFront = \WPrism\Canon::decode($category['content']);
 $malformedDescriptionRefusal = '';
 try {
     $capture->capture((object) [
@@ -267,10 +267,10 @@ $stringTermGroup = $capture->capture((object) [
     'parent' => 0,
     'term_group' => '2',
 ], '00000000-0000-4000-8000-000000000298', []);
-$stringTermGroupFront = \Duo\Canon::decode($stringTermGroup['content']);
+$stringTermGroupFront = \WPrism\Canon::decode($stringTermGroup['content']);
 
 $findings = [];
-$validator = new \Duo\RepositorySchemaValidator(
+$validator = new \WPrism\RepositorySchemaValidator(
     $policy,
     'sidebar',
     static function (string $code, string $path, string $locator, string $message) use (&$findings): void {
@@ -289,19 +289,19 @@ $foreign = $categoryFront;
 $foreign['term_group'] = 77;
 $validator->validate('term', 'terms/category/foreign.json', $foreign, null);
 
-$wpdb->setColumns('duo_map', [
+$wpdb->setColumns('wprism_map', [
     'uuid' => 'char(36)',
     'entity_type' => 'varchar(32)',
     'id_kind' => 'varchar(32)',
     'local_id' => 'bigint unsigned',
 ]);
-$wpdb->seedTable('duo_map', [[
+$wpdb->seedTable('wprism_map', [[
     'uuid' => $uuid,
     'entity_type' => 'term',
-    'id_kind' => \Duo\Ledger::KIND_TERM,
+    'id_kind' => \WPrism\Ledger::KIND_TERM,
     'local_id' => 29,
 ]]);
-$wpdb->setUniqueKey('duo_map', ['uuid', 'id_kind']);
+$wpdb->setUniqueKey('wprism_map', ['uuid', 'id_kind']);
 $wpdb->seedTable('terms', [[
     'term_id' => 29,
     'name' => 'Target Arabic',
@@ -316,21 +316,21 @@ $wpdb->seedTable('term_taxonomy', [[
     'parent' => 0,
     'count' => 0,
 ]]);
-$fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
-$materializer = new \Duo\TermMaterializer(
+$fieldMaterializer = new \WPrism\ApplyFieldMaterializer($policy, $tokens);
+$materializer = new \WPrism\TermMaterializer(
     $policy,
     $tokens,
     $fieldMaterializer
 );
-\Duo\Db::start_repeatable_read('Polylang term fixture transaction start');
+\WPrism\Db::start_repeatable_read('Polylang term fixture transaction start');
 $fieldMaterializer->begin_authored_transaction();
 $materializer->begin_authored_transaction();
-\Duo\CacheInvalidationTransaction::begin();
-\Duo\CacheInvalidationTransaction::prepare_term_hierarchy_options(['language' => false]);
+\WPrism\CacheInvalidationTransaction::begin();
+\WPrism\CacheInvalidationTransaction::prepare_term_hierarchy_options(['language' => false]);
 $materializer->finalize_term($languageFront, []);
-\Duo\Db::commit('Polylang term fixture transaction commit');
-\Duo\CacheInvalidationTransaction::finish();
-\Duo\CacheInvalidationTransaction::end();
+\WPrism\Db::commit('Polylang term fixture transaction commit');
+\WPrism\CacheInvalidationTransaction::finish();
+\WPrism\CacheInvalidationTransaction::end();
 $materializer->end_authored_transaction();
 $fieldMaterializer->end_authored_transaction();
 $materializedRows = $wpdb->rows('terms');
@@ -338,7 +338,7 @@ $materializedTaxonomyRows = $wpdb->rows('term_taxonomy');
 
 $invalidExact = '';
 try {
-    \Duo\TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+    \WPrism\TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
         'name' => 'bad-exact',
         'taxonomies' => ['language' => ['term_group' => 'derived']],
     ]);
@@ -347,7 +347,7 @@ try {
 }
 $invalidPattern = '';
 try {
-    \Duo\TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+    \WPrism\TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
         'name' => 'bad-pattern',
         'taxonomy_patterns' => [['match' => '^lang_', 'term_group' => 'authored']],
     ]);
@@ -355,7 +355,7 @@ try {
     $invalidPattern = $failure->getMessage();
 }
 
-echo \Duo\Canon::encode([
+echo \WPrism\Canon::encode([
     'captured_category_has_term_group' => array_key_exists('term_group', $categoryFront),
     'captured_language_term_group' => $languageFront['term_group'] ?? null,
     'invalid_exact' => $invalidExact,

@@ -1,11 +1,11 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // The topology gate the Policy-free verbs below call directly. Required here
-// rather than left to agent/duo.php's bootstrap order, exactly like
+// rather than left to agent/wprism.php's bootstrap order, exactly like
 // CommandRefusal.php above: the offline refusal suites load this file against
-// pre-declared \Duo stubs and never run that bootstrap.
+// pre-declared \WPrism stubs and never run that bootstrap.
 require_once __DIR__ . '/../Kernel/SiteTopology.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
@@ -13,7 +13,7 @@ require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
 // WP-2.8: plan()'s code_mismatch rendering names the graduated verdict by
 // constant. Required here for the same reason as the two above — the offline
-// refusal suites load this file without agent/duo.php's bootstrap — and it is
+// refusal suites load this file without agent/wprism.php's bootstrap — and it is
 // a leaf grammar file that requires nothing of its own.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/../Adapter/LifecycleSettlement.php';
@@ -22,10 +22,10 @@ require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
+ * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
-    private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
+    private const REFUSAL_FORMAT = 'wprism-command-refusal/v1';
 
     /**
      * JSON is a command contract, including on refusal.  The old exception
@@ -34,7 +34,7 @@ final class Cli {
      * ordinary plan/apply gates returned human stderr to machine callers.
      * Keep reviewed typed diagnostics intact, but put every JSON-mode
      * throwable in one versioned envelope before WP-CLI can add its human
-     * "Error:" layer. A human-facing `duo: ` prefix is not JSON authority:
+     * "Error:" layer. A human-facing `wprism: ` prefix is not JSON authority:
      * only a typed refusal (or one of the legacy typed diagnostic classes)
      * may contribute public evidence.
      */
@@ -77,7 +77,7 @@ final class Cli {
             // stderr. Any absolute-path shape means the premise broke, so it
             // falls through to the redacted catch-all rather than publishing.
             && preg_match('~(?:^|[\s:(\'"])/[^\s\'")]+~', $t->getMessage()) !== 1) {
-            // DUO-3421: a refusal CLASS with a closed, audited message
+            // issue #3421: a refusal CLASS with a closed, audited message
             // vocabulary (see PUBLIC_REFUSAL_CLASSES below) is itself the
             // typed contract this function's doctrine demands — its sentence
             // IS the public answer. The shared sensitivity screen still gates
@@ -102,7 +102,7 @@ final class Cli {
             ];
             // Every catch-all Throwable is private operator evidence. Never
             // copy its message, previous chain, file, or trace into public
-            // JSON; a `duo: ` prefix is a human-rendering convention only.
+            // JSON; a `wprism: ` prefix is a human-rendering convention only.
             $redacted = true;
         }
 
@@ -152,7 +152,7 @@ final class Cli {
             // Keep the one-value stdout contract even if an established typed
             // diagnostic contains a value PHP cannot serialize (for example
             // INF).  The fallback is deliberately constant and secret-free.
-            $encoded = '{"format":"duo-command-refusal/v1","ok":false,"command":"'
+            $encoded = '{"format":"wprism-command-refusal/v1","ok":false,"command":"'
                 . str_replace(['\\', '"'], ['\\\\', '\\"'], $command)
                 . '","error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
                 . '"message":"structured refusal serialization failed","remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
@@ -168,21 +168,21 @@ final class Cli {
      * Where "inspect private operator evidence" points.
      *
      * A redacted envelope is the whole machine answer, and the doctrine
-     * (DUO-3404) is that the operator reruns in human mode to read the
+     * (issue #3404) is that the operator reruns in human mode to read the
      * sentence — but the orchestrator itself is a machine caller: a
      * rehearsal's promotion runs the target's apply in --format=json, so an
      * unclassified Throwable there reached nobody. grind_adoption A6
      * (docs/grind/adoption.md) lost a rehearsal to `apply_failed` twice
      * before the sentence could be read on a kept pair. So the redacted
      * chain (class, message, file:line, causes) is written under the
-     * repository's private, gitignored `.duo/` — next to the promotion
-     * checkpoints — as `.duo/refusals/<utc>-<command>-<pid>.json`. The
+     * repository's private, gitignored `.wprism/` — next to the promotion
+     * checkpoints — as `.wprism/refusals/<utc>-<command>-<pid>.json`. The
      * envelope stays byte-identical; the record is best-effort (no repo, no
      * writable directory → nothing written, never a second failure), carries
      * no trace, and is 0600 like every other private artifact there.
      */
     /**
-     * The repository inode `init` started against, or null (DUO-3516).
+     * The repository inode `init` started against, or null (issue #3516).
      *
      * `init` is the only command that binds a repository root and then holds
      * it across a lease, a pause and a re-review, so it is the only one whose
@@ -196,20 +196,20 @@ final class Cli {
     private static ?string $initRepositoryIdentityAtEntry = null;
 
     /**
-     * Whether that same directory was ALREADY a Duo repository at init entry
-     * (DUO-3522).
+     * Whether that same directory was ALREADY a WPrism repository at init entry
+     * (issue #3522).
      *
-     * DUO-3516 asked "is this already a Duo repository?" at REFUSAL time, and
+     * issue #3516 asked "is this already a WPrism repository?" at REFUSAL time, and
      * for init that is the wrong moment: init is the command that CREATES the
-     * marker. An init that published site.duo.json and then failed during
-     * capture answered its own question yes, recorded `.duo/refusals`, and left
-     * it behind -- the rollback has no deletion authority over `.duo`, so the
+     * marker. An init that published site.wprism.json and then failed during
+     * capture answered its own question yes, recorded `.wprism/refusals`, and left
+     * it behind -- the rollback has no deletion authority over `.wprism`, so the
      * repository was not byte-empty after a recovery that correctly reported it
-     * restored (regress_duo_init's post-next-link case, live 2026-08-21).
-     * Asking at ENTRY is what DUO-3516's own docblock already claimed happens:
+     * restored (regress_wprism_init's post-next-link case, live 2026-08-21).
+     * Asking at ENTRY is what issue #3516's own docblock already claimed happens:
      * "a fresh init therefore records nothing".
      */
-    private static bool $initRepositoryWasDuoAtEntry = false;
+    private static bool $initRepositoryWasWPrismAtEntry = false;
 
     /** dev:ino of an ordinary, non-symlinked directory, or null. */
     private static function directory_identity(string $path): ?string {
@@ -225,27 +225,27 @@ final class Cli {
     /**
      * Whether a redacted refusal may write its private evidence into $repo.
      *
-     * DUO-3516. The recorder used to resolve `--repo` lexically at refusal
-     * time and `mkdir(0700, recursive)` its way to `.duo/refusals` in whatever
+     * issue #3516. The recorder used to resolve `--repo` lexically at refusal
+     * time and `mkdir(0700, recursive)` its way to `.wprism/refusals` in whatever
      * now sat at that path. After an identity-gate refusal -- whose entire
      * meaning is "this path is no longer the reviewed repository" -- that
-     * planted Duo state in an unrelated operator directory, and through a
+     * planted WPrism state in an unrelated operator directory, and through a
      * swapped-in symlink it planted it OUTSIDE the repository altogether
-     * (regress_duo_init's post-proposal swap cases, live 2026-08-21).
+     * (regress_wprism_init's post-proposal swap cases, live 2026-08-21).
      *
      * Three conditions, each closing one of those doors:
      *
-     * 1. The path is an ordinary directory Duo is not following a link to.
+     * 1. The path is an ordinary directory WPrism is not following a link to.
      *    Nothing else in the code half follows a symlinked repository root
      *    either (InitRepositoryBoundary::root_blocker refuses one), and a
-     *    poisoned `site.duo.json` behind that link must not qualify it.
-     * 2. It is ALREADY a Duo repository -- a regular `site.duo.json`, or a
-     *    real `.duo/` beside the promotion checkpoints this record was always
+     *    poisoned `site.wprism.json` behind that link must not qualify it.
+     * 2. It is ALREADY a WPrism repository -- a regular `site.wprism.json`, or a
+     *    real `.wprism/` beside the promotion checkpoints this record was always
      *    meant to sit next to. Creating that directory as a side effect of a
      *    refusal is what let the recorder reach anywhere at all.
      * 3. For `init`, the directory is still the one the command started
      *    against. A fresh init therefore records nothing (its target is not a
-     *    Duo repository yet, and its evidence is the sealed attempt journal);
+     *    WPrism repository yet, and its evidence is the sealed attempt journal);
      *    an init recovering an interrupted attempt in a real repository still
      *    records, which is the init refusal actually worth reading.
      *
@@ -259,33 +259,33 @@ final class Cli {
         if ($identity === null) {
             return false;
         }
-        if (!self::is_duo_repository($repo)) {
+        if (!self::is_wprism_repository($repo)) {
             return false;
         }
         if ($command === 'init') {
             // Both entry-time facts, not one of each: the directory must still
-            // be the one init bound (DUO-3516) AND must have been a Duo
-            // repository before init touched it (DUO-3522). A fresh init
+            // be the one init bound (issue #3516) AND must have been a WPrism
+            // repository before init touched it (issue #3522). A fresh init
             // satisfies neither half of that by publishing its own marker
             // mid-command.
             return self::$initRepositoryIdentityAtEntry !== null
                 && self::$initRepositoryIdentityAtEntry === $identity
-                && self::$initRepositoryWasDuoAtEntry;
+                && self::$initRepositoryWasWPrismAtEntry;
         }
         return true;
     }
 
     /**
-     * The marker that says a directory is a Duo repository: a regular
-     * site.duo.json, or a real `.duo/` beside the promotion checkpoints this
+     * The marker that says a directory is a WPrism repository: a regular
+     * site.wprism.json, or a real `.wprism/` beside the promotion checkpoints this
      * record was always meant to sit next to. Neither is followed through a
      * symlink.
      */
-    private static function is_duo_repository(string $repo): bool {
+    private static function is_wprism_repository(string $repo): bool {
         $root = rtrim($repo, '/');
-        $site = $root . '/site.duo.json';
-        $duo = $root . '/.duo';
-        return (!is_link($site) && is_file($site)) || (!is_link($duo) && is_dir($duo));
+        $site = $root . '/site.wprism.json';
+        $wprism = $root . '/.wprism';
+        return (!is_link($site) && is_file($site)) || (!is_link($wprism) && is_dir($wprism));
     }
 
     private static function record_private_refusal_evidence(
@@ -298,7 +298,7 @@ final class Cli {
         if (!is_string($repo) || !self::refusal_evidence_repository($repo, $command)) {
             return;
         }
-        $dir = rtrim($repo, '/') . '/.duo/refusals';
+        $dir = rtrim($repo, '/') . '/.wprism/refusals';
         if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
             return;
         }
@@ -312,7 +312,7 @@ final class Cli {
             ];
         }
         $record = json_encode([
-            'format' => 'duo-private-refusal-evidence/v1',
+            'format' => 'wprism-private-refusal-evidence/v1',
             'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
             'command' => $command,
             'reason_code' => $reasonCode,
@@ -354,7 +354,7 @@ final class Cli {
             return null;
         }
         if (!$assoc['adapter_library'] instanceof AdapterLibrary) {
-            throw new \InvalidArgumentException('adapter_library must be a Duo\\AdapterLibrary');
+            throw new \InvalidArgumentException('adapter_library must be a WPrism\\AdapterLibrary');
         }
         return $assoc['adapter_library'];
     }
@@ -363,10 +363,10 @@ final class Cli {
      * May this Throwable's message be published verbatim in the JSON
      * refusal envelope?
      *
-     * The `duo: ` prefix marks a refusal deliberately authored for the
+     * The `wprism: ` prefix marks a refusal deliberately authored for the
      * operator — but the prefix alone is not proof of authorship: three
      * wrapper families re-prefix text the engine does NOT write (a
-     * provider/regenerator's own exit tail per DUO-3282, and wpdb's
+     * provider/regenerator's own exit tail per issue #3282, and wpdb's
      * last_error on the deletion-guard paths — which Db.php's own header
      * warns "can echo option/meta payloads"). Those stay redacted here even
      * though their non-JSON rendering is unchanged. Beyond the shared
@@ -377,7 +377,7 @@ final class Cli {
      * explicitly, and guard_personal_data() deliberately keeps them
      * operator-only) and absolute filesystem paths (the shared screen only
      * catches home-dir shapes). A refusal excluded here falls back to the
-     * fully-redacted envelope — exactly the pre-DUO-3398 behavior, so
+     * fully-redacted envelope — exactly the pre-issue #3398 behavior, so
      * fail-closed is never a regression. A multi-line refusal also stays
      * redacted (the control-byte screen): the loud multi-line gates keep
      * their non-JSON rendering and are a candidate for typed refusals, not
@@ -391,10 +391,10 @@ final class Cli {
      * suite pins; a class is never admitted to spare a command the audit, and
      * admitting one grants that command nothing else.
      *
-     * DUO-3421 admits InitialStateBoundaryException. Audited: every throw site
+     * issue #3421 admits InitialStateBoundaryException. Audited: every throw site
      * in Publish and Capture is a fixed engine sentence; the only
      * interpolations are $label, drawn from a closed set of engine-authored
-     * artifact names (`site.duo.json`, `Git metadata root`, `code staging
+     * artifact names (`site.wprism.json`, `Git metadata root`, `code staging
      * file`, `initial state reservation`, `intent`, `receipt`, …), the bound
      * helper's own fixed reason vocabulary (`copy source digest changed`,
      * `parent identity changed`, …), and — once — a nested message from this
@@ -432,7 +432,7 @@ final class Cli {
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
             'refresh-export' => 'inspect private operator evidence, then complete or recover the interrupted apply, promotion lease, identity, or code receipt before observing production again',
             'scope' => 'inspect private operator evidence, then compile the revision or correct the root selectors before resolving scope again',
-            // DUO-3399: one reviewed arm per newly enveloped command, each
+            // issue #3399: one reviewed arm per newly enveloped command, each
             // naming that command's own real blockers.  The default arm below
             // promises to "correct the named blocker" while the unclassified
             // path deliberately redacts every detail, so it contradicts itself
@@ -465,7 +465,7 @@ final class Cli {
             'adapter-observe' => 'inspect private target evidence and restore the existing provenance-journal prerequisite or policy inputs before collecting a new adapter observation',
             'adapter-probe' => 'inspect the named unprefixed tables and this target\'s own schema reads (SHOW COLUMNS, SHOW INDEX, information_schema), then correct that selection or access before probing again',
             'adapter-deletion-feasibility' => 'inspect the proposed deletion selectors and their guards in --proposal, and this target\'s own SHOW TABLES/SHOW INDEX access, then correct that proposal or access before asking again',
-            'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
+            'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.wprism.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
             default => "correct the named $command blocker, then retry the command",
         };
     }
@@ -490,16 +490,16 @@ final class Cli {
         $hasContract = array_key_exists('scope-contract', $assoc);
         $hasWire = array_key_exists('scope-request-b64', $assoc);
         if ($hasContract && $hasWire) {
-            throw new \RuntimeException("duo: $command received more than one scope request source");
+            throw new \RuntimeException("wprism: $command received more than one scope request source");
         }
         if ($hasContract) {
             if (!$allowLocalContract) {
-                throw new \RuntimeException("duo: $command accepts only an internal compact scope request");
+                throw new \RuntimeException("wprism: $command accepts only an internal compact scope request");
             }
             try {
                 return ScopedStateOverlay::load_contract((string) $assoc['scope-contract']);
             } catch (\Throwable $_failure) {
-                throw new \RuntimeException("duo: $command received a malformed or unsupported scope contract");
+                throw new \RuntimeException("wprism: $command received a malformed or unsupported scope contract");
             }
         }
         if (!$hasWire) {
@@ -523,7 +523,7 @@ final class Cli {
             $keys = array_keys($decoded);
             sort($keys, SORT_STRING);
             if ($keys !== ['format', 'scope_hash', 'selectors']
-                || ($decoded['format'] ?? null) !== 'duo-scope-request/v1'
+                || ($decoded['format'] ?? null) !== 'wprism-scope-request/v1'
                 || !is_string($decoded['scope_hash'] ?? null)
                 || preg_match('/^[a-f0-9]{64}$/D', $decoded['scope_hash']) !== 1
                 || !is_array($decoded['selectors'] ?? null)
@@ -534,12 +534,12 @@ final class Cli {
             }
             return $decoded;
         } catch (\Throwable $_failure) {
-            throw new \RuntimeException("duo: $command received an invalid compact scope request");
+            throw new \RuntimeException("wprism: $command received an invalid compact scope request");
         }
     }
 
     /**
-     * Compile a canonical revision into Duo's immutable, content-addressed
+     * Compile a canonical revision into WPrism's immutable, content-addressed
      * apply artifact without reading or mutating the target environment.
      *
      * ## OPTIONS
@@ -577,7 +577,7 @@ final class Cli {
      * hash but no promotion lease.
      *
      * ## OPTIONS
-     * --repo=<path> : Site repo root (contains site.duo.json).
+     * --repo=<path> : Site repo root (contains site.wprism.json).
      * --compiled=<path> : Frozen compiler artifact selected by the host.
      * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
      * --promotion-owner=<token> : Required host promotion lease owner.
@@ -670,7 +670,7 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path> : Site repo root.
-     * --output=<path> : Canonical .duo/checkpoints/*.sql.enc output.
+     * --output=<path> : Canonical .wprism/checkpoints/*.sql.enc output.
      *
      * @subcommand checkpoint-seal
      */
@@ -690,7 +690,7 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path> : Site repo root.
-     * --input=<path> : Canonical .duo/checkpoints/*.sql.enc input.
+     * --input=<path> : Canonical .wprism/checkpoints/*.sql.enc input.
      *
      * @subcommand checkpoint-open
      */
@@ -721,7 +721,7 @@ final class Cli {
     public function promotion_begin($args, $assoc) {
         try {
             // FIRST, before the argument gates and before Ledger::ensure():
-            // the lease row is written to `{$wpdb->prefix}duo_kv`
+            // the lease row is written to `{$wpdb->prefix}wprism_kv`
             // (agent/src/Promotion/PromotionLease.php:372) and Ledger::ensure() CREATEs four tables on
             // whatever blog wp-cli happened to bootstrap
             // (agent/src/Repository/Ledger.php:81-105), so on a network both land
@@ -889,13 +889,13 @@ final class Cli {
     public function promotion_abort($args, $assoc) {
         try {
             // Gated like the other three, deliberately, even though this is the
-            // compensating verb: writing `{$wpdb->prefix}duo_kv` on a network
+            // compensating verb: writing `{$wpdb->prefix}wprism_kv` on a network
             // writes it on whichever blog wp-cli bootstrapped, which may be the
             // wrong ledger entirely. A lease taken before a conversion is not
             // stranded forever -- it clears by its own TTL
             // (agent/src/Promotion/PromotionLease.php:93, 300s default) -- and an expired lease
             // cannot be revived (:408), so a network is simply
-            // no longer a surface duo may write to, even to clean up.
+            // no longer a surface wprism may write to, even to clean up.
             SiteTopology::assert_single_site();
             $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('promotion-abort', '--promotion-owner');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('promotion-abort', '--artifact-hash');
@@ -923,8 +923,8 @@ final class Cli {
      * staged-only MU file so a reviewed retry can recover WordPress bootstrap.
      *
      * ## OPTIONS
-     * --repo=<path> : Site repo root (contains site.duo.json).
-     * --compiled=<path> : Required frozen compiler artifact from host duo deploy.
+     * --repo=<path> : Site repo root (contains site.wprism.json).
+     * --compiled=<path> : Required frozen compiler artifact from host wprism deploy.
      * --promotion-owner=<token> : Required internal orchestrator lease token.
      * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
      * [--json] : JSON summary.
@@ -957,7 +957,7 @@ final class Cli {
             return;
         }
         $recovered = count((array) ($summary['abandoned_stage_removed'] ?? []));
-        // DUO-3501: the success line below is pinned bytes (AGENTS.md rule 8),
+        // issue #3501: the success line below is pinned bytes (AGENTS.md rule 8),
         // so the write/skip split arrives as its own line. It is unconditional
         // and reads both keys directly: an operator must be able to tell
         // "this stage moved nothing" from "this receipt does not say", and a
@@ -982,8 +982,8 @@ final class Cli {
      * --promotion-hold when the following state apply must keep the lease.
      *
      * ## OPTIONS
-     * --repo=<path> : Site repo root (contains site.duo.json).
-     * --compiled=<path> : Required frozen compiler artifact from host duo deploy.
+     * --repo=<path> : Site repo root (contains site.wprism.json).
+     * --compiled=<path> : Required frozen compiler artifact from host wprism deploy.
      * --promotion-owner=<token> : Required internal orchestrator lease token.
      * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
      * [--promotion-hold] : Retain the lease for the following state apply.
@@ -1025,7 +1025,7 @@ final class Cli {
 
     /**
      * Decode `--code-lock-b64` into the classification list the planner
-     * verifies (DUO-3499).
+     * verifies (issue #3499).
      *
      * Strict base64 and a JSON list, or nothing: a silently-empty
      * classification would produce an unclassified proposal whose every
@@ -1073,7 +1073,7 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         $result = [
-            'format' => 'duo-code-inventory/v1',
+            'format' => 'wprism-code-inventory/v1',
             'components' => $components,
             'source' => CodeDescriptorCompiler::SOURCE,
         ];
@@ -1130,14 +1130,14 @@ final class Cli {
                     WP_CLI::line(json_encode($result, JSON_UNESCAPED_SLASHES));
                     return;
                 }
-                WP_CLI::success('archived interrupted init at ' . $result['archive'] . '; rerun duo init');
+                WP_CLI::success('archived interrupted init at ' . $result['archive'] . '; rerun wprism init');
                 return;
             }
-            // DUO-3516: before anything can move it. The evidence recorder
+            // issue #3516: before anything can move it. The evidence recorder
             // compares against this to refuse writing into a directory that
             // replaced the one this command reviewed.
             self::$initRepositoryIdentityAtEntry = self::directory_identity((string) $repo);
-            self::$initRepositoryWasDuoAtEntry = self::is_duo_repository((string) $repo);
+            self::$initRepositoryWasWPrismAtEntry = self::is_wprism_repository((string) $repo);
             // The literal, not InitPlanner::ALLOW_UNMANAGED_PLUGINS: this file
             // deliberately requires four small things, and naming the constant
             // would drag the whole Init loader graph (AdapterSources, Policy,
@@ -1182,13 +1182,13 @@ final class Cli {
      * Capture this environment's authored state into the site repo.
      *
      * ## OPTIONS
-     * --repo=<path>    : Site repo root (contains site.duo.json).
+     * --repo=<path>    : Site repo root (contains site.wprism.json).
      * [--out=<path>]   : Write the state tree elsewhere (determinism checks); skips ledger/media updates.
      * [--force-unresolved-refs] : drop an authored, ref-typed option whose target row exists but is out of
      *   policy scope the same way a dangling (deleted-target) reference is dropped, instead of aborting
      *   (task #73's loud-and-blocking gate; the honest fix is adding the target's post type/taxonomy to
      *   policy scope — this flag is the explicit best-effort escape hatch for when that isn't wanted).
-     * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The target recompiles
+     * [--scope-contract=<path>] : Consume one canonical wprism-scope-contract/v1 file. The target recompiles
      *   the associated repository revision, derives a transaction-bound overlay, and preserves every
      *   excluded live row/media blob/tombstone byte-for-byte. Exact option roots update only their named
      *   record inside options/core; sibling record bytes remain source-owned. Version 1 can delete only a
@@ -1203,7 +1203,7 @@ final class Cli {
     public function capture($args, $assoc) {
         try {
             if (isset($assoc['scope-contract']) && isset($assoc['scope-request-b64'])) {
-                throw new \RuntimeException('duo: capture accepts one scope contract source');
+                throw new \RuntimeException('wprism: capture accepts one scope contract source');
             }
             $scopeRequest = null;
             if (isset($assoc['scope-contract'])) {
@@ -1211,11 +1211,11 @@ final class Cli {
             } elseif (isset($assoc['scope-request-b64'])) {
                 $bytes = base64_decode((string) $assoc['scope-request-b64'], true);
                 if ($bytes === false || strlen($bytes) > 262144) {
-                    throw new \RuntimeException('duo: capture received an invalid compact scope request');
+                    throw new \RuntimeException('wprism: capture received an invalid compact scope request');
                 }
                 $decoded = Canon::decode($bytes);
                 if (!is_array($decoded)) {
-                    throw new \RuntimeException('duo: capture compact scope request must be one object');
+                    throw new \RuntimeException('wprism: capture compact scope request must be one object');
                 }
                 $scopeRequest = $decoded;
             }
@@ -1223,14 +1223,14 @@ final class Cli {
             if ($hostEnvironment !== null
                 && (!is_string($hostEnvironment)
                     || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $hostEnvironment) !== 1)) {
-                throw new \RuntimeException('duo: capture received an invalid orchestrator environment context');
+                throw new \RuntimeException('wprism: capture received an invalid orchestrator environment context');
             }
             $expectedBranch = $assoc['expected-repository-branch'] ?? null;
             if ($expectedBranch !== null
                 && (!is_string($expectedBranch) || $expectedBranch === '' || strlen($expectedBranch) > 255
                     || str_contains($expectedBranch, "\0") || str_contains($expectedBranch, "\n")
                     || str_contains($expectedBranch, "\r"))) {
-                throw new \RuntimeException('duo: capture received an invalid expected repository branch');
+                throw new \RuntimeException('wprism: capture received an invalid expected repository branch');
             }
             $summary = Capture::run(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('capture', '--repo'),
@@ -1273,14 +1273,14 @@ final class Cli {
     /**
      * Export a strict, read-only canonical observation of live production.
      *
-     * This is deliberately NOT a replacement for `wp duo capture`: capture
+     * This is deliberately NOT a replacement for `wp wprism capture`: capture
      * is the only gate allowed to mint/repair identity and publish state.
      * Refresh export requires that completed durable identity already exists,
      * binds records/maps/code receipt to one READ ONLY DB snapshot, and
      * refuses an interrupted apply or an active promotion lease.
      *
      * ## OPTIONS
-     * --repo=<path> : Site repo root (contains site.duo.json and captured state/).
+     * --repo=<path> : Site repo root (contains site.wprism.json and captured state/).
      * [--scope-contract=<path>] : Emit only the selected production projection plus explicit
      *   omitted-not-absent scope evidence. The contract is associated with this exact target repo.
      * [--json] : Emit the canonical production export as JSON.
@@ -1298,7 +1298,7 @@ final class Cli {
                 throw CommandRefusalException::invalidArgument('refresh-export', '--repo');
             }
             if (isset($assoc['scope-contract']) && isset($assoc['scope-request-b64'])) {
-                throw new \RuntimeException('duo: refresh-export accepts one scope contract source');
+                throw new \RuntimeException('wprism: refresh-export accepts one scope contract source');
             }
             $scopeRequest = null;
             if (isset($assoc['scope-contract'])) {
@@ -1306,11 +1306,11 @@ final class Cli {
             } elseif (isset($assoc['scope-request-b64'])) {
                 $bytes = base64_decode((string) $assoc['scope-request-b64'], true);
                 if ($bytes === false || strlen($bytes) > 262144) {
-                    throw new \RuntimeException('duo: refresh-export received an invalid compact scope request');
+                    throw new \RuntimeException('wprism: refresh-export received an invalid compact scope request');
                 }
                 $decoded = Canon::decode($bytes);
                 if (!is_array($decoded)) {
-                    throw new \RuntimeException('duo: refresh-export compact scope request must be one object');
+                    throw new \RuntimeException('wprism: refresh-export compact scope request must be one object');
                 }
                 $scopeRequest = $decoded;
             }
@@ -1391,9 +1391,9 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * [--adopt-by-slug=<kinds>] : e.g. terms,posts,menus
-     * [--force-unresolved-refs] : see `duo capture`'s option of the same name — plan's own drift
+     * [--force-unresolved-refs] : see `wprism capture`'s option of the same name — plan's own drift
      *   detection captures the live environment too, so it hits the identical gate.
-     * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The direct
+     * [--scope-contract=<path>] : Consume one canonical wprism-scope-contract/v1 file. The direct
      *   agent accepts the local evidence; host transports replace it with a compact request.
      * [--scoped-promotion] : Internal SSH orchestrator preflight; includes selected drift in the
      *   read-only action projection so it exactly matches receipt-bearing scoped Apply.
@@ -1426,7 +1426,7 @@ final class Cli {
                     'plan --view-only requires a JSON plan-view request',
                     'supply --format=json plus a category, action, entity, cursor, or limit view argument',
                     [],
-                    'duo: --view-only requires --format=json and a plan-view argument'
+                    'wprism: --view-only requires --format=json and a plan-view argument'
                 );
             }
             $options = [
@@ -1454,7 +1454,7 @@ final class Cli {
                     'the requested plan view is unavailable for a scoped plan',
                     'rerun the scoped plan without view filters; its closed scoped projection is already bounded to the selected contract',
                     [],
-                    'duo: scoped plan view filters are unsupported'
+                    'wprism: scoped plan view filters are unsupported'
                 );
             }
             $scopeRequest = self::scope_request($assoc, 'plan');
@@ -1468,7 +1468,7 @@ final class Cli {
                     'scoped promotion preflight requires a compact scope request',
                     'supply --scope-request-b64 through the SSH orchestrator',
                     [],
-                    'duo: --scoped-promotion is valid only with the compact scoped plan wire'
+                    'wprism: --scoped-promotion is valid only with the compact scoped plan wire'
                 );
             }
             $plan = Apply::plan(
@@ -1494,7 +1494,7 @@ final class Cli {
         if ($viewRequest !== null) {
             $view = $plan['plan_view'] ?? null;
             if (!is_array($view)) {
-                throw new \RuntimeException('duo: requested plan view was not attached');
+                throw new \RuntimeException('wprism: requested plan view was not attached');
             }
             foreach (PlanView::humanHeaderLines($view) as $line) {
                 WP_CLI::line($line);
@@ -1555,7 +1555,7 @@ final class Cli {
             WP_CLI::line($line);
             if (is_string($r['uuid'] ?? null) && $r['uuid'] !== '') {
                 WP_CLI::line(
-                    '  EXPLAIN wp duo explain '
+                    '  EXPLAIN wp wprism explain '
                     . PlanExplanation::selectorForOutput($kind, $r['uuid'])
                     . ' --repo=<repo>'
                 );
@@ -1593,7 +1593,7 @@ final class Cli {
         ));
         // WP-2.8: the graduated verdict is rendered on its own, immediately
         // below, and is excluded here for the reason the warning at the foot
-        // of this method makes plain: "duo apply will refuse until resolved"
+        // of this method makes plain: "wprism apply will refuse until resolved"
         // is false about a row apply does not refuse.
         $graduatedVersionRange = array_values(array_filter(
             $codeMismatch,
@@ -1607,7 +1607,7 @@ final class Cli {
         ));
         foreach ($codeRevisionStale as $r) {
             WP_CLI::line('CODE_REVISION_STALE code payload');
-            WP_CLI::line('  ' . ($r['message'] ?? 'run the host duo deploy workflow'));
+            WP_CLI::line('  ' . ($r['message'] ?? 'run the host wprism deploy workflow'));
         }
         foreach ($runtimeCompatibility as $r) {
             WP_CLI::line(
@@ -1646,10 +1646,10 @@ final class Cli {
             WP_CLI::line("SKIPPED_USER_META {$r['path']} (exact login '{$r['login']}')");
         }
         foreach ($plan['adapter_dispositions'] ?? [] as $r) {
-            // DUO-3314: the source rides on the row itself. An out-of-tree
+            // issue #3314: the source rides on the row itself. An out-of-tree
             // adapter is conspicuous here rather than looking like a shipped
             // adapter that failed review — mirrored in cli/src/Plan/PlanSummary.php
-            // so `duo status` and a plain `wp duo plan` never differ.
+            // so `wprism status` and a plain `wp wprism plan` never differ.
             WP_CLI::line(
                 'CAPABILITY_' . strtoupper((string) ($r['status'] ?? 'unsupported')) . ' '
                 . ($r['name'] ?? '?') . ' [source=' . ($r['source'] ?? 'shipped')
@@ -1662,12 +1662,12 @@ final class Cli {
                 WP_CLI::line('  remediation: ' . $r['remediation']);
             }
         }
-        // DUO-3339: provider negotiation's problem rows, reported at plan for
+        // issue #3339: provider negotiation's problem rows, reported at plan for
         // the first time (spec/repo-format.md's bound (4)). Row shape is
         // Providers::problem()'s — {provider,manifest,plugin,code,expected,
         // found,remediation,message}, no uuid/path — so it gets its own block,
         // mirrored in cli/src/Plan/PlanSummary.php exactly like the block above it
-        // so `duo status` and a plain `wp duo plan` never differ.
+        // so `wprism status` and a plain `wp wprism plan` never differ.
         foreach ($plan['provider_problems'] ?? [] as $r) {
             WP_CLI::line(
                 'PROVIDER_PROBLEM ' . ($r['provider'] ?? '?')
@@ -1679,17 +1679,17 @@ final class Cli {
                 WP_CLI::line('  remediation: ' . $r['remediation']);
             }
         }
-        // regen_pending (DUO-3234, design review addition 1): a derived
+        // regen_pending (issue #3234, design review addition 1): a derived
         // table with a hard per-entity availability dependency whose
         // post-apply verification failed and hasn't resolved yet — see
         // Apply::regen_dependencies()'s own docblock. Same shape/reasoning
         // as incomplete_apply immediately above; mirrored in
-        // cli/src/Plan/PlanSummary.php's render() so `duo status` and a plain
-        // `wp duo plan` never give an operator different advice.
+        // cli/src/Plan/PlanSummary.php's render() so `wprism status` and a plain
+        // `wp wprism plan` never give an operator different advice.
         foreach ($plan['regen_pending'] ?? [] as $r) {
             WP_CLI::line('REGEN_PENDING ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid'])) . " (post type '{$r['post_type']}')");
         }
-        // regen_context (DUO-3342): an outstanding pre-delete inventory or
+        // regen_context (issue #3342): an outstanding pre-delete inventory or
         // pre-move receipt whose derived-state repair no consumer has verified
         // yet. Same shape and reasoning as regen_pending immediately above —
         // and it became worth surfacing for the same reason: those markers now
@@ -1699,12 +1699,12 @@ final class Cli {
             WP_CLI::line('REGEN_CONTEXT ' . ($r['path'] ?? ($r['type'] . ' ' . $r['uuid']))
                 . " (post type '{$r['post_type']}', {$r['kind']} receipt)");
         }
-        // env_missing (DUO-3232): a manifest-declared `class: "env"` option
+        // env_missing (issue #3232): a manifest-declared `class: "env"` option
         // unset on this environment — see Apply::build_plan()'s own
         // docblock. No uuid/path (row shape is {name,required}), so this
         // does not fit the $kinds loop above. Mirrored in
-        // cli/src/Plan/PlanSummary.php's render() so `duo status` and a plain
-        // `wp duo plan` never give an operator different advice.
+        // cli/src/Plan/PlanSummary.php's render() so `wprism status` and a plain
+        // `wp wprism plan` never give an operator different advice.
         foreach ($plan['env_missing'] ?? [] as $r) {
             $flag = !empty($r['required']) ? 'required' : 'optional';
             WP_CLI::line('ENV_MISSING ' . ($r['name'] ?? '?') . " ($flag)");
@@ -1748,19 +1748,19 @@ final class Cli {
             WP_CLI::warning('environment drift detected — capture-first workflow recommended');
         }
         if ($codeRevisionStale) {
-            WP_CLI::warning('code_revision_stale — run host `duo deploy <env>`; force flags cannot bypass this ordering invariant');
+            WP_CLI::warning('code_revision_stale — run host `wprism deploy <env>`; force flags cannot bypass this ordering invariant');
         }
         if ($forceableCodeMismatch) {
-            WP_CLI::warning('code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)');
+            WP_CLI::warning('code_mismatch findings — wprism apply will refuse until resolved (or run with --force-code-mismatch)');
         }
         if (!empty($plan['code_drift'])) {
-            WP_CLI::warning('code_drift findings — duo apply will refuse until resolved (or run with --force-code-drift)');
+            WP_CLI::warning('code_drift findings — wprism apply will refuse until resolved (or run with --force-code-drift)');
         }
         if (!empty($plan['regen_pending'])) {
-            WP_CLI::warning('regen_pending markers outstanding — the next duo apply will retry them automatically');
+            WP_CLI::warning('regen_pending markers outstanding — the next wprism apply will retry them automatically');
         }
         if (!empty($plan['regen_context'])) {
-            WP_CLI::warning('regen_context receipts outstanding — the next duo apply that reaches their surface will '
+            WP_CLI::warning('regen_context receipts outstanding — the next wprism apply that reaches their surface will '
                 . 'redeliver them to their declared consumer');
         }
         if (!empty($plan['adapter_dispositions'])) {
@@ -1768,16 +1768,16 @@ final class Cli {
         }
         if (!empty($plan['provider_problems'])) {
             WP_CLI::warning(
-                'declared provider capabilities are missing or incompatible here — duo apply refuses before mutation '
+                'declared provider capabilities are missing or incompatible here — wprism apply refuses before mutation '
                 . 'on any of these its own work reaches'
             );
         }
         if (!empty($plan['missing_user'])) {
-            WP_CLI::warning('required exact login(s) missing — duo apply will refuse before target mutation');
+            WP_CLI::warning('required exact login(s) missing — wprism apply will refuse before target mutation');
         }
         $envMissingRequired = array_filter($plan['env_missing'] ?? [], fn($r) => !empty($r['required']));
         if ($envMissingRequired) {
-            WP_CLI::warning('required env value(s) missing — pipe the value to `wp duo env-set --name=<name> --stdin` before promoting');
+            WP_CLI::warning('required env value(s) missing — pipe the value to `wp wprism env-set --name=<name> --stdin` before promoting');
         }
     }
 
@@ -1828,7 +1828,7 @@ final class Cli {
                 WP_CLI::error($t->publicMessage . '; ' . $t->remediation);
             }
             WP_CLI::error(
-                'duo: explain refused at a private safety gate; run plan or capture for operator diagnosis, then rerun explain'
+                'wprism: explain refused at a private safety gate; run plan or capture for operator diagnosis, then rerun explain'
             );
         }
     }
@@ -1843,7 +1843,7 @@ final class Cli {
      */
     private static function plan_conflict_view_lines(array $row): array {
         $view = $row['conflict_view'] ?? null;
-        if (!is_array($view) || ($view['format'] ?? null) !== 'duo-plan-conflict/v1') {
+        if (!is_array($view) || ($view['format'] ?? null) !== 'wprism-plan-conflict/v1') {
             return [];
         }
         $base = (array) ($view['base'] ?? []);
@@ -1886,17 +1886,17 @@ final class Cli {
 
     /**
      * Provision one manifest-declared `class: "env"` option value directly
-     * into this environment — DUO-3232. Deliberately outside the ordinary
+     * into this environment — issue #3232. Deliberately outside the ordinary
      * capture/apply pipeline: env values are never captured, so there is no
      * repo-side record for this command to reconcile against, only a
      * direct write, gated by Apply::set_env_option() to option names the
      * loaded policy actually declared `class: "env"` (never an arbitrary
-     * option). See `wp duo plan`'s env_missing bucket for the current
+     * option). See `wp wprism plan`'s env_missing bucket for the current
      * per-environment checklist this command exists to satisfy.
      *
      * ## OPTIONS
      * --repo=<path>
-     * --name=<name>       : Must be declared class="env" in a loaded manifest or site.duo.json.
+     * --name=<name>       : Must be declared class="env" in a loaded manifest or site.wprism.json.
      * [--stdin]           : Read the value interactively from STDIN with terminal echo disabled
      *   (`stty -echo`, restored afterward) — never printed back. Non-interactive callers pipe one
      *   newline-terminated value; command-line values are refused because argv is observable.
@@ -1906,7 +1906,7 @@ final class Cli {
      *   always false), so this command needs its own, non-colliding name. The "value for '<name>':
      *   " prompt itself writes to STDERR, never STDOUT (found live: printing it to STDOUT
      *   interleaved with --format=json's own output and broke every caller parsing stdout as
-     *   JSON) — safe to pipe `wp duo env-set ... --stdin --format=json` and parse stdout as pure
+     *   JSON) — safe to pipe `wp wprism env-set ... --stdin --format=json` and parse stdout as pure
      *   JSON even while a prompt is also being shown.
      * [--json]            : JSON output (wp-cli rewrites this to --format=json). The value is
      *   never included in the response, only in this command's own request.
@@ -2029,18 +2029,18 @@ final class Cli {
      * [--force-delete-referenced] : override referential delete guards.
      * [--force-theirs]
      * [--force-code-mismatch] : override the cross-partition invariant's missing_in_code/outside_version_range block.
-     * [--force-code-drift] : override the code_drift block (DUO-3231) — installed plugin/theme versions changed
-     *   outside 'duo deploy'/'duo capture' since the last recorded baseline.
-     * [--force-unresolved-refs] : see `duo capture`'s option of the same name — apply's own drift
+     * [--force-code-drift] : override the code_drift block (issue #3231) — installed plugin/theme versions changed
+     *   outside 'wprism deploy'/'wprism capture' since the last recorded baseline.
+     * [--force-unresolved-refs] : see `wprism capture`'s option of the same name — apply's own drift
      *   detection captures the live environment too, so it hits the identical gate.
-     * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The direct
+     * [--scope-contract=<path>] : Consume one canonical wprism-scope-contract/v1 file. The direct
      *   agent accepts the local evidence; host transports replace it with a compact request.
      * [--default-author=<login>]
      * [--revision=<rev>]
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash supplied only by the SSH scoped-promotion orchestrator.
-     * [--rebind-from-home=<url>] : Internal materializer flag (see `duo plan`): the restored snapshot's home URL;
+     * [--rebind-from-home=<url>] : Internal materializer flag (see `wprism plan`): the restored snapshot's home URL;
      *   foreign-bound entities are converged as updates marked `rebind` instead of being left as drift.
      * [--rebind-from-uploads=<url>] : The restored snapshot's uploads base URL; requires --rebind-from-home.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
@@ -2073,8 +2073,8 @@ final class Cli {
                 && !array_key_exists('scope-request-b64', $assoc)) {
                 throw CommandRefusalException::applyRefused(
                     'scoped promotion accepts only the orchestrator-minted compact scope request',
-                    'invoke SSH host `duo promote --scope-contract=<local-path>` instead of the direct agent',
-                    'duo: direct scope contract cannot enter scoped promotion'
+                    'invoke SSH host `wprism promote --scope-contract=<local-path>` instead of the direct agent',
+                    'wprism: direct scope contract cannot enter scoped promotion'
                 );
             }
             $scopeRequest = self::scope_request($assoc, 'apply');
@@ -2110,11 +2110,11 @@ final class Cli {
 
     /**
      * List structural-ref orphans in one declared authored snapshot table,
-     * or repair one listed scalar row through Duo's typed mutation path.
+     * or repair one listed scalar row through WPrism's typed mutation path.
      *
      * ## OPTIONS
      * <table> : Declared authored_snapshot table name.
-     * --repo=<path> : Site repo root (contains site.duo.json).
+     * --repo=<path> : Site repo root (contains site.wprism.json).
      * [--row=<local-id>] : Exact listed scalar row to mutate.
      * [--delete] : Delete the selected row with declared cascades/invalidation.
      * [--reparent=<column>=<target-local-id>] : Point one declared ref at a managed target.
@@ -2217,12 +2217,12 @@ final class Cli {
                 $opts
             );
         } catch (\Throwable $t) {
-            // DUO-3489: this command's ONLY --format=json caller is apply's own
+            // issue #3489: this command's ONLY --format=json caller is apply's own
             // in-process convergence gate (ConvergenceVerifier.php:97-107), and
             // that caller reads the diagnosis from STDERR
             // (ConvergenceVerifier::subprocess_diagnosis()). halt_json_failure()
             // publishes the value-free envelope on STDOUT and halts, so since
-            // DUO-3399 (aa58959) the failed-invariant sentence
+            // issue #3399 (aa58959) the failed-invariant sentence
             // spec/repo-format.md:1235 promises reached nobody: a live drifted
             // apply refused with "post-apply convergence verification
             // subprocess failed" and named nothing. The envelope on stdout stays
@@ -2251,7 +2251,7 @@ final class Cli {
      * Reconcile this environment's active_plugins/template/stylesheet to
      * what state/options/core.json declares — the ONLY place
      * activate_plugin()/deactivate_plugins()/switch_theme() run, and
-     * deliberately OUTSIDE `wp duo apply`'s hook-free canary
+     * deliberately OUTSIDE `wp wprism apply`'s hook-free canary
      * (docs/code-half.md §3.4): activation hooks MUST fire here
      * (that's how plugins do one-time setup/migrations); apply's canary
      * requires the opposite, so the two can never share a transaction.
@@ -2265,8 +2265,8 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path>
      * [--force-code-mismatch] : proceed despite missing_in_code / outside_version_range findings.
-     * [--force-code-drift] : proceed despite code_drift findings (DUO-3231) — installed plugin/theme versions
-     *   changed outside 'duo deploy'/'duo capture' since the last recorded baseline.
+     * [--force-code-drift] : proceed despite code_drift findings (issue #3231) — installed plugin/theme versions
+     *   changed outside 'wprism deploy'/'wprism capture' since the last recorded baseline.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with apply.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
@@ -2406,7 +2406,7 @@ final class Cli {
         }
         if (!is_array($report)) {
             // Unreachable on a target: the catch above always halts.
-            throw new \RuntimeException('duo: effect-coverage reached its output path without a report');
+            throw new \RuntimeException('wprism: effect-coverage reached its output path without a report');
         }
         if (isset($assoc['json']) || ($assoc['format'] ?? '') === 'json') {
             WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
@@ -2449,8 +2449,8 @@ final class Cli {
      */
     public function version($args, $assoc) {
         WP_CLI::line(json_encode([
-            'agent' => DUO_AGENT_VERSION,
-            'spec_version' => DUO_SPEC_VERSION,
+            'agent' => WPRISM_AGENT_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ], JSON_UNESCAPED_SLASHES));
     }
 
@@ -2463,7 +2463,7 @@ final class Cli {
         global $wpdb;
         try {
             // Before Ledger::ensure() and before the TRUNCATE below: on a
-            // network this verb created four `wp_N_duo_*` tables on whichever
+            // network this verb created four `wp_N_wprism_*` tables on whichever
             // blog wp-cli bootstrapped and then emptied that blog's journal,
             // with no gate at any layer. The try/catch is what makes the
             // refusal machine-readable; every WP_CLI string in this method is
@@ -2474,24 +2474,24 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         Ledger::ensure();
-        // DUO-3497: options outside a claimed adapter namespace are visible
+        // issue #3497: options outside a claimed adapter namespace are visible
         // ONLY through the journal — capture whitelists options, so nothing
         // else ever names them (agent/src/Review/Pending.php:16-19). This
-        // TRUNCATE is therefore the one operation that empties `duo pending`
+        // TRUNCATE is therefore the one operation that empties `wprism pending`
         // while the writes it named are still in the database, which is the
         // silent-uncapture the product exists to refuse. Say the size of the
         // loss before taking it; a read that fails is not a zero.
-        $observations = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}duo_journal");
+        $observations = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}wprism_journal");
         if (!empty($wpdb->last_error) || !is_numeric($observations)) {
-            WP_CLI::error('duo: journal-reset could not read the observations it would destroy; repair the journal before resetting it');
+            WP_CLI::error('wprism: journal-reset could not read the observations it would destroy; repair the journal before resetting it');
         }
         if ((int) $observations > 0) {
             WP_CLI::warning(sprintf(
-                'destroying %d observation row(s): options no adapter declares are recorded nowhere else, so duo pending loses them permanently and no capture gate will name them again',
+                'destroying %d observation row(s): options no adapter declares are recorded nowhere else, so wprism pending loses them permanently and no capture gate will name them again',
                 (int) $observations
             ));
         }
-        Db::query("TRUNCATE TABLE {$wpdb->prefix}duo_journal", 'journal truncate');
+        Db::query("TRUNCATE TABLE {$wpdb->prefix}wprism_journal", 'journal truncate');
         WP_CLI::success('journal truncated');
     }
 
@@ -2500,7 +2500,7 @@ final class Cli {
      * /term_meta on in-scope entities, representable authored user_meta,
      * plus registered/adapter-declared
      * entity types with live rows but no scope disposition (the same gates
-     * `duo capture` aborts on), plus journal-observed unclassified options (options are
+     * `wprism capture` aborts on), plus journal-observed unclassified options (options are
      * whitelist-only at capture, so an unlisted option is only visible via
      * the journal). Each item carries whatever evidence exists — entity
      * counts, journal surfaces/caps/proposal, a post/term ref-hint, a
@@ -2529,10 +2529,10 @@ final class Cli {
             WP_CLI::success('no pending unclassified state');
             return;
         }
-        // DUO-3521: the review queue on a first-adoption site is the largest
+        // issue #3521: the review queue on a first-adoption site is the largest
         // listing this agent prints, and it was the one human listing with no
         // ceiling at all — `coverage` and `scope` have been bounded through
-        // scope_listing() at Coverage::LARGE_LISTING_THRESHOLD since DUO-3290.
+        // scope_listing() at Coverage::LARGE_LISTING_THRESHOLD since issue #3290.
         // The SAME helper and the SAME threshold, never a second constant:
         // one bound is a rule an operator learns once. The success line below
         // still counts $items, so the number stays exact.
@@ -2586,12 +2586,12 @@ final class Cli {
             ));
         }
         WP_CLI::line('');
-        WP_CLI::success(count($items) . " pending item(s) — classify with: wp duo classify --repo=<repo> --set='section:key=class'");
+        WP_CLI::success(count($items) . " pending item(s) — classify with: wp wprism classify --repo=<repo> --set='section:key=class'");
     }
 
     /**
-     * DUO-3290: names and counts what this site actually has versus what
-     * Duo can see (options, custom tables) — deliberately NOT the
+     * issue #3290: names and counts what this site actually has versus what
+     * WPrism can see (options, custom tables) — deliberately NOT the
      * loud-and-blocking gate `pending` already is. Never throws on finding
      * gaps, never affects capture/plan/apply, purely additive visibility.
      * See Coverage.php's own class docblock for the full reasoning.
@@ -2619,7 +2619,7 @@ final class Cli {
         $o = $report['options'];
         WP_CLI::line('OPTIONS');
         WP_CLI::line(sprintf(
-            // DUO-3505: declared-excluded is the fourth bucket, published so
+            // issue #3505: declared-excluded is the fourth bucket, published so
             // the line reconciles on screen (total === captured +
             // declared-excluded + pending + invisible). A name an adapter
             // declares env/runtime/derived is modelled and deliberately not
@@ -2691,11 +2691,11 @@ final class Cli {
             }
         }
         WP_CLI::line('');
-        WP_CLI::success('coverage report complete — this never blocks capture/plan/apply; run `wp duo pending` for the loud, blocking queue.');
+        WP_CLI::success('coverage report complete — this never blocks capture/plan/apply; run `wp wprism pending` for the loud, blocking queue.');
     }
 
     /**
-     * DUO-3344: resolve a bounded scope from explicit roots and show what it
+     * issue #3344: resolve a bounded scope from explicit roots and show what it
      * would carry — the requested roots, everything pulled in by a declared
      * dependency edge (each row naming the edge responsible), and how much
      * unrelated state is left out.
@@ -2715,7 +2715,7 @@ final class Cli {
      * would strand.
      *
      * Note this is entity selection, unrelated to `policy.scope` in
-     * site.duo.json — that classifies whole post types and taxonomies as
+     * site.wprism.json — that classifies whole post types and taxonomies as
      * authored/runtime/derived/env and is site-local policy. This command
      * selects individual entities inside whatever policy already admits.
      *
@@ -2733,10 +2733,10 @@ final class Cli {
      *   separate code path.
      * [--format=<format>] : Output format. Accepts json (machine-readable,
      *                        versioned by the report's own "format" field).
-     * [--contract] : Emit immutable `duo-scope-contract/v1` read-only
+     * [--contract] : Emit immutable `wprism-scope-contract/v1` read-only
      *                evidence instead of the legacy preview. Contract mode
-     *                requires the isolated DUO control-plane bootstrap; use
-     *                `duo scope <env> --roots=... --contract` so plugins,
+     *                requires the isolated WPRISM control-plane bootstrap; use
+     *                `wprism scope <env> --roots=... --contract` so plugins,
      *                themes, and ordinary MU code cannot run first.
      */
     public function scope($args, $assoc) {
@@ -2755,9 +2755,9 @@ final class Cli {
                 [],
                 '--roots required (or --roots=all for the whole revision)'
             );
-            if ($contractMode && (!defined('DUO_CONTROL_PLANE') || DUO_CONTROL_PLANE !== true)) {
+            if ($contractMode && (!defined('WPRISM_CONTROL_PLANE') || WPRISM_CONTROL_PLANE !== true)) {
                 throw new \RuntimeException(
-                    'duo: scope --contract requires the isolated DUO control-plane; run `duo scope <env> --roots=... --contract`'
+                    'wprism: scope --contract requires the isolated WPRISM control-plane; run `wprism scope <env> --roots=... --contract`'
                 );
             }
             $policy = Policy::load($repo);
@@ -2845,14 +2845,14 @@ final class Cli {
      * large listings. JSON is never truncated.
      *
      * Deliberately BELOW scope(): a private helper between a command and its
-     * docblock silently orphans the wp-cli synopsis, leaving `wp duo scope
+     * docblock silently orphans the wp-cli synopsis, leaving `wp wprism scope
      * --help` empty and the declared options unvalidated.
      *
      * @param list<array<string,mixed>> $rows
      * @return list<array<string,mixed>>
      */
     private static function scope_listing(array $rows, string $noun): array {
-        // Also the bound for pending() above (DUO-3521); the name is scope's
+        // Also the bound for pending() above (issue #3521); the name is scope's
         // by history, the discipline is the whole agent's.
         if (count($rows) <= Coverage::LARGE_LISTING_THRESHOLD) {
             return $rows;
@@ -2865,8 +2865,8 @@ final class Cli {
     }
 
     /**
-     * Write policy classification rules — the `wp duo pending` -> `wp duo
-     * classify` step of the core loop. Rules land in site.duo.json's policy
+     * Write policy classification rules — the `wp wprism pending` -> `wp wprism
+     * classify` step of the core loop. Rules land in site.wprism.json's policy
      * overrides (Policy::set_rule); this command does not itself capture.
      *
      * ## OPTIONS
@@ -2904,7 +2904,7 @@ final class Cli {
         try {
             // First, before the selector gates: --set reads LIVE values,
             // including network-global `$wpdb->usermeta`
-            // (agent/src/Review/Pending.php:231), and writes site.duo.json from
+            // (agent/src/Review/Pending.php:231), and writes site.wprism.json from
             // them. A network reading is not a classification of the site the
             // repository describes.
             SiteTopology::assert_single_site();
@@ -2932,7 +2932,7 @@ final class Cli {
             }
             $allowSecret = isset($assoc['allow-secret']);
             // A refusal partway through a multi-spec --set leaves the earlier
-            // specs already written to site.duo.json, exactly as before: this
+            // specs already written to site.wprism.json, exactly as before: this
             // is one record about why the run stopped, not a rollback claim.
             foreach ($specs as $spec) {
                 $written[] = self::parse_and_write_classify_spec($repo, $spec, $allowSecret);
@@ -2955,7 +2955,7 @@ final class Cli {
             }
             // The storage/provisioning decisions echo like every other written
             // field: additive, so a rule that carries neither prints the exact
-            // bytes it printed before DUO-3496 added them.
+            // bytes it printed before issue #3496 added them.
             if (isset($w['rule']['autoload'])) {
                 $extra[] = "autoload={$w['rule']['autoload']}";
             }
@@ -2967,7 +2967,7 @@ final class Cli {
             }
             WP_CLI::line("set {$w['section']}:{$w['key']} = {$w['rule']['class']}" . ($extra ? ' (' . implode(', ', $extra) . ')' : ''));
         }
-        WP_CLI::success(count($written) . " rule(s) written to site.duo.json — run: wp duo capture --repo=$repo");
+        WP_CLI::success(count($written) . " rule(s) written to site.wprism.json — run: wp wprism capture --repo=$repo");
     }
 
     /**
@@ -2979,7 +2979,7 @@ final class Cli {
         $colon = strpos($spec, ':');
         $eq = strpos($spec, '=');
         if ($colon === false || $eq === false || $eq < $colon) {
-            throw new \RuntimeException("duo: bad --set spec '$spec' (expected section:key=class[,ref=..][,cast=..])");
+            throw new \RuntimeException("wprism: bad --set spec '$spec' (expected section:key=class[,ref=..][,cast=..])");
         }
         $section = substr($spec, 0, $colon);
         $key = substr($spec, $colon + 1, $eq - $colon - 1);
@@ -3007,13 +3007,13 @@ final class Cli {
                 // which of them the operator meant.
                 if ($v !== 'true' && $v !== 'false') {
                     throw new \RuntimeException(
-                        "duo: bad required='$v' in --set spec '$spec' (expected required=true or required=false)"
+                        "wprism: bad required='$v' in --set spec '$spec' (expected required=true or required=false)"
                     );
                 }
                 $rule['required'] = $v === 'true';
             } else {
                 throw new \RuntimeException(
-                    "duo: unknown option '$k' in --set spec '$spec' (expected ref=|cast=|autoload=|required=)"
+                    "wprism: unknown option '$k' in --set spec '$spec' (expected ref=|cast=|autoload=|required=)"
                 );
             }
         }
@@ -3025,7 +3025,7 @@ final class Cli {
                 if ($label !== null) {
                     if (!$allowSecret) {
                         throw new \RuntimeException(
-                            "duo: refusing '$spec' — current value of $section:$key looks like a $label; pass --allow-secret to override"
+                            "wprism: refusing '$spec' — current value of $section:$key looks like a $label; pass --allow-secret to override"
                         );
                     }
                     $rule['allow_secret'] = true;
@@ -3043,7 +3043,7 @@ final class Cli {
      * ever passing through a declared rewrite path. This is the correctness
      * gate byte-identical round-tripping cannot be: a value the tokenizer
      * never looks at gets captured and re-applied as the exact same wrong
-     * bytes on every environment, so `duo capture`'s own determinism check reports
+     * bytes on every environment, so `wprism capture`'s own determinism check reports
      * "clean" on real corruption — the FSE, Polylang and Elementor frontier
      * explorations each hit this blind spot independently and each lost real
      * content to it.
@@ -3082,15 +3082,15 @@ final class Cli {
      * WP-2.4 adds two optional flags, and neither changes a byte of what this
      * command prints without them:
      *
-     *   --evidence=<probe.json> reads a `duo-adapter-probe/v1` document
-     *     (`wp duo adapter-probe --format=json`) so a custom-table `bare_id`
+     *   --evidence=<probe.json> reads a `wprism-adapter-probe/v1` document
+     *     (`wp wprism adapter-probe --format=json`) so a custom-table `bare_id`
      *     collision on a column whose LIVE MySQL type bounds it to {0,1} is
      *     re-classed `proposed_lint_ok`, carrying the type as its premise. It
      *     proposes; the `lint_ok` declaration stays a human's edit.
-     *   --emit-environment=<file> writes the `duo-lint-environment/v1`
+     *   --emit-environment=<file> writes the `wprism-lint-environment/v1`
      *     transcript of everything this scan read that was NOT a byte of the
      *     state tree — home URL, every id resolution, the probe's types, the
-     *     state-tree digest. `duo lint <repo> --environment=<file>` replays it
+     *     state-tree digest. `wprism lint <repo> --environment=<file>` replays it
      *     into the same `Lint::scan_tree()` on a host with no WordPress and
      *     produces byte-identical findings.
      *
@@ -3098,11 +3098,11 @@ final class Cli {
      * --repo=<path>
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
-     * [--evidence=<path>] : a duo-adapter-probe/v1 document; live column types
+     * [--evidence=<path>] : a wprism-adapter-probe/v1 document; live column types
      *                       turn a bare_id on a boolean column into a PROPOSED
      *                       lint_ok carrying its premise.
-     * [--emit-environment=<path>] : write the duo-lint-environment/v1 transcript
-     *                       this scan consumed, for `duo lint --environment=`.
+     * [--emit-environment=<path>] : write the wprism-lint-environment/v1 transcript
+     *                       this scan consumed, for `wprism lint --environment=`.
      */
     public function lint($args, $assoc) {
         try {
@@ -3130,7 +3130,7 @@ final class Cli {
         } elseif (!$findings) {
             WP_CLI::success('no findings — captured state is clean');
         } else {
-            // One renderer, shared with `duo lint-tree` (Lint::render_lines()).
+            // One renderer, shared with `wprism lint-tree` (Lint::render_lines()).
             // These bytes are pinned by AGENTS.md rule 8; the extraction is what
             // keeps them pinned for the host verb too.
             foreach (Lint::render_lines($findings) as $line) {
@@ -3145,7 +3145,7 @@ final class Cli {
     }
 
     /**
-     * Read `lint --evidence=<file>` — a `duo-adapter-probe/v1` document.
+     * Read `lint --evidence=<file>` — a `wprism-adapter-probe/v1` document.
      *
      * `json_decode()`, not `Canon::decode()`: this is a document handed in
      * from outside the repository, exactly as `AdapterDraft::read_probe()`
@@ -3162,18 +3162,18 @@ final class Cli {
         $path = (string) $path;
         if ($path === '' || !is_file($path) || !is_readable($path)) {
             throw new \RuntimeException(
-                "duo: lint --evidence '$path' is not a readable file (`wp duo adapter-probe --format=json > $path`)"
+                "wprism: lint --evidence '$path' is not a readable file (`wp wprism adapter-probe --format=json > $path`)"
             );
         }
         $decoded = json_decode((string) file_get_contents($path), true);
         if (!is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException("duo: lint --evidence '$path' is not a JSON object");
+            throw new \RuntimeException("wprism: lint --evidence '$path' is not a JSON object");
         }
         return $decoded;
     }
 
     /**
-     * Write the `duo-lint-environment/v1` transcript.
+     * Write the `wprism-lint-environment/v1` transcript.
      *
      * Canonical bytes, atomically: the host verb compares this document's own
      * recorded `state_hash` against the tree it is handed, so a half-written
@@ -3181,20 +3181,20 @@ final class Cli {
      */
     private static function write_lint_environment(string $path, array $document): void {
         if ($path === '') {
-            throw new \RuntimeException('duo: lint --emit-environment needs a file path');
+            throw new \RuntimeException('wprism: lint --emit-environment needs a file path');
         }
         $directory = dirname($path);
         if (!is_dir($directory) || !is_writable($directory)) {
-            throw new \RuntimeException("duo: lint --emit-environment cannot write into '$directory'");
+            throw new \RuntimeException("wprism: lint --emit-environment cannot write into '$directory'");
         }
         $encoded = Canon::encode($document);
-        $temporary = tempnam($directory, '.duo-lint-environment-');
+        $temporary = tempnam($directory, '.wprism-lint-environment-');
         if ($temporary === false || file_put_contents($temporary, $encoded, LOCK_EX) === false
             || !chmod($temporary, 0644) || !rename($temporary, $path)) {
             if (is_string($temporary) && is_file($temporary)) {
                 unlink($temporary);
             }
-            throw new \RuntimeException("duo: lint could not write the environment transcript to '$path'");
+            throw new \RuntimeException("wprism: lint could not write the environment transcript to '$path'");
         }
     }
 
@@ -3202,11 +3202,11 @@ final class Cli {
      * Draft-manifest export: every site-policy rule (not inherited manifest
      * rules — the human is promoting decisions they made) whose key matches
      * --match, grouped into a manifest-shaped JSON document on stdout.
-     * site.duo.json is left untouched; promoting rules into a real manifest
+     * site.wprism.json is left untouched; promoting rules into a real manifest
      * file upstream is a deliberate, separate human act.
      *
      * This emits ONLY facts and has no proposers by a reviewed decision. Its
-     * generator sibling is the host verb `duo adapter-draft` (DUO-3325), which
+     * generator sibling is the host verb `wprism adapter-draft` (issue #3325), which
      * reuses THIS export as its facts core (Policy::export_manifest, verbatim) and
      * adds offline proposers that observe captured state/** into an inert `_draft`
      * sidecar — never applied, never auto-promoted. This command's facts-only,
@@ -3220,7 +3220,7 @@ final class Cli {
      * @subcommand policy-to-manifest
      */
     public function policy_to_manifest($args, $assoc) {
-        // DUO-3399, reviewed and deliberately left human-only: this command
+        // issue #3399, reviewed and deliberately left human-only: this command
         // and manifest-pin print canonical JSON unconditionally and advertise
         // no --format, so there is no JSON mode to honor and no format the
         // caller negotiated.  halt_json_failure() answers only a caller that
@@ -3243,21 +3243,21 @@ final class Cli {
     }
 
     /**
-     * Emit a copy-pasteable content-addressed site.duo.json pin for one
+     * Emit a copy-pasteable content-addressed site.wprism.json pin for one
      * installed manifest. A stale declared digest still cannot prevent
      * calculating the reviewed replacement digest: the requested name is
      * passed as an explicit pin, so the repository's own (possibly stale)
      * `manifests` array is never resolved even when --repo is given.
      *
      * --repo does, however, put the whole repository through ordinary policy
-     * loading, so an UNRELATED site.duo.json error (a malformed policy
+     * loading, so an UNRELATED site.wprism.json error (a malformed policy
      * override, an invalid code declaration) blocks pin generation with that
      * error. Fix the repository, or omit --repo when pinning a shipped
      * adapter, which needs no repository at all.
      *
      * The emitted pin carries whatever source the name actually resolved
-     * from, including DUO-3339's `"plugin"`. There is deliberately no flag to
-     * ask for that: pasting the emitted object into site.duo.json IS the
+     * from, including issue #3339's `"plugin"`. There is deliberately no flag to
+     * ask for that: pasting the emitted object into site.wprism.json IS the
      * deliberate act — the same place bind_explicit_pins() puts deliberateness
      * for a signed site adapter — and a pin naming `plugin` then refuses
      * loudly the day a reviewed definition claims that name instead.
@@ -3273,7 +3273,7 @@ final class Cli {
         // policy_to_manifest() above: no --format is advertised, so no
         // machine caller ever asked this command for a JSON contract.
         $name = $assoc['name'] ?? WP_CLI::error('--name required');
-        // --repo names the adapter source explicitly (DUO-3314). Without it
+        // --repo names the adapter source explicitly (issue #3314). Without it
         // only the shipped library is searched, exactly as before, so pinning
         // a site-installed adapter is a deliberate act that states where the
         // adapter came from rather than a lookup that silently widens.
@@ -3313,7 +3313,7 @@ final class Cli {
         // invocations. Normal plugin bootstrap may have already buffered a
         // query observation; leaving the shutdown hook attached on an early
         // argument refusal would still turn this supposedly non-mutating
-        // command request into a later Duo INSERT.
+        // command request into a later WPrism INSERT.
         Journal::suspend_for_observation();
         try {
             if ($args !== [] || array_diff(array_keys($assoc), ['repo', 'format']) !== []) {
@@ -3370,12 +3370,12 @@ final class Cli {
     /**
      * Live SCHEMA facts for the tables one adapter draft proposes.
      *
-     * `duo adapter-draft` is WordPress-free, so its typed-table candidates
+     * `wprism adapter-draft` is WordPress-free, so its typed-table candidates
      * carry NAMED questions instead of live facts: column types and
      * nullability, the real PRIMARY KEY, delete-guard index coverage,
      * declared foreign keys, an EAV twin, and natural-key uniqueness across
      * the whole keyspace. This is the only half that can answer them, and
-     * `duo adapter-draft --evidence=<file>` is what consumes the answer.
+     * `wprism adapter-draft --evidence=<file>` is what consumes the answer.
      *
      * It answers; it never decides. The document declares `authority: false`,
      * carries no `class`/identity/deletion word at all, and the host
@@ -3392,7 +3392,7 @@ final class Cli {
     public function adapter_probe($args, $assoc) {
         // Same entry-point discipline as adapter-observe: a read-only verb
         // must not leave the journal's shutdown flush attached, or asking a
-        // target what its schema is becomes a later Duo INSERT — including on
+        // target what its schema is becomes a later WPrism INSERT — including on
         // an argument refusal, where bootstrap has already buffered.
         Journal::suspend_for_observation();
         $document = null;
@@ -3403,7 +3403,7 @@ final class Cli {
             // flag and a stray positional with one sentence about the flag
             // SYNTAX and the remediation "name the tables one adapter draft
             // proposes" — which is not the problem in either case. Measured:
-            // `wp duo coverage`, `pending`, `lint` and `adapter-observe` all
+            // `wp wprism coverage`, `pending`, `lint` and `adapter-observe` all
             // REQUIRE `--repo`, adapter-probe is the one verb that rejects it,
             // and an author who carried the flag over from the previous
             // command was told to re-check a `--tables=` spelling that was
@@ -3481,7 +3481,7 @@ final class Cli {
             // It exists so the output path below can never be entered
             // without a document in a process that replaced WP_CLI's error
             // handler, rather than printing a half-built one.
-            throw new \RuntimeException('duo: adapter-probe reached its output path without a document');
+            throw new \RuntimeException('wprism: adapter-probe reached its output path without a document');
         }
 
         if (($assoc['format'] ?? '') === 'json') {
@@ -3580,7 +3580,7 @@ final class Cli {
     public function adapter_deletion_feasibility($args, $assoc) {
         // Same entry-point discipline as adapter-probe: a read-only verb must
         // not leave the journal's shutdown flush attached, or asking a target
-        // whether a guard could lock becomes a later Duo INSERT — including on
+        // whether a guard could lock becomes a later WPrism INSERT — including on
         // an argument refusal, where bootstrap has already buffered.
         Journal::suspend_for_observation();
         $document = null;
@@ -3623,7 +3623,7 @@ final class Cli {
             // Unreachable on a target: every arm of the catch above halts. It
             // exists so the output path below cannot be entered without a
             // document in a process that replaced WP_CLI's error handler.
-            throw new \RuntimeException('duo: adapter-deletion-feasibility reached its output path without a document');
+            throw new \RuntimeException('wprism: adapter-deletion-feasibility reached its output path without a document');
         }
 
         if (($assoc['format'] ?? '') === 'json') {
@@ -3691,11 +3691,11 @@ final class Cli {
 
     /**
      * Every adapter installed ON THIS TARGET, across all three sources, with
-     * everything that is wrong with them (DUO-3339).
+     * everything that is wrong with them (issue #3339).
      *
      * This verb is structurally required rather than a convenience. The host
-     * command `duo adapter list|inspect|doctor` runs WordPress-free, so it can
-     * never see the third adapter source: a bundled `duo-adapter.json` lives
+     * command `wprism adapter list|inspect|doctor` runs WordPress-free, so it can
+     * never see the third adapter source: a bundled `wprism-adapter.json` lives
      * under WP_PLUGIN_DIR, which only the target has. Without this verb the
      * plugin source would be discoverable by nothing, and "never silently
      * omit" is the whole point of the catalog surface.
@@ -3724,7 +3724,7 @@ final class Cli {
         $library = null;
         try {
             // This command advertises --format=json, so its refusals belong
-            // inside DUO-3399's common envelope like every other one that
+            // inside issue #3399's common envelope like every other one that
             // does: an orchestrator polling the target's adapter inventory
             // must not get human stderr and no record when the manifest
             // library itself is unreadable. survey() reports rather than
@@ -3754,8 +3754,8 @@ final class Cli {
             ));
         }
         $document = [
-            'format' => 'duo-adapter-catalog/v2',
-            'spec_version' => DUO_SPEC_VERSION,
+            'format' => 'wprism-adapter-catalog/v2',
+            'spec_version' => WPRISM_SPEC_VERSION,
             'command' => 'survey',
             'manifests_dir' => $library instanceof AdapterLibrary ? $library->root() : $library,
             'repo' => $repo,
@@ -3878,7 +3878,7 @@ final class Cli {
 
     /**
      * What the survey does not answer, emitted unconditionally for the reason
-     * `duo manifest-validate` and `duo adapter doctor` both give: a tool that
+     * `wprism manifest-validate` and `wprism adapter doctor` both give: a tool that
      * listed its limits only on failure would let silence read as "everything
      * about these adapters is verified".
      *
@@ -3912,19 +3912,19 @@ final class Cli {
                     . 'AdapterContractGrammar::validate_no_conflicting_adapter_claims()',
                 'why' => "each adapter's grammar verdict here is an ISOLATED load, so a manifest can read `ok` "
                     . 'and still be illegal in company — one owner per declared name, globally unique provider '
-                    . 'ids, and one plugin/theme range per claim are properties of a SET, which `duo plan` and '
-                    . '`duo apply` co-load',
+                    . 'ids, and one plugin/theme range per claim are properties of a SET, which `wprism plan` and '
+                    . '`wprism apply` co-load',
             ],
             [
-                'surface' => 'site.duo.json policy.tables / policy.options',
+                'surface' => 'site.wprism.json policy.tables / policy.options',
                 'check' => 'ReferenceKindGrammar::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 'why' => $repo === null
-                    ? 'both guards take the SITE half of policy as INPUT: a table declared in site.duo.json '
+                    ? 'both guards take the SITE half of policy as INPUT: a table declared in site.wprism.json '
                         . 'extends the legal ref/token/ledger kind vocabulary, and a site policy.options rule is '
                         . 'the explicit resolution for one option two manifests declare differently. This run was '
                         . 'given no --repo, so the grammar verdicts above were produced with no site policy at '
                         . 'all, and one can read `error` for an adapter its real site accepts'
-                    : 'the grammar verdicts above were produced against the site.duo.json at the path this run '
+                    : 'the grammar verdicts above were produced against the site.wprism.json at the path this run '
                         . 'was given. Whether that is the revision this environment is meant to run is a fact '
                         . 'about the repository, not about the adapters',
             ],
@@ -3933,8 +3933,8 @@ final class Cli {
                 'check' => 'Providers::negotiate() / AdapterRegistry::report()',
                 'why' => 'whether a declared provider answers, whether its owning plugin is inside its version '
                     . 'window, and whether a capability claim holds for this WordPress/PHP/database are '
-                    . 'negotiated and evaluated facts, not declared ones — run `wp duo capabilities --repo=<path>` '
-                    . 'and `duo plan <env>` for those',
+                    . 'negotiated and evaluated facts, not declared ones — run `wp wprism capabilities --repo=<path>` '
+                    . 'and `wprism plan <env>` for those',
             ],
         ];
         foreach ($rows as $i => $row) {
@@ -3952,7 +3952,7 @@ final class Cli {
      * [--all] : Report every shipped manifest instead of a site repository.
      * [--operation=<operation>] : Capability to evaluate. Defaults to promote.
      * [--surface=<surface>] : Exact registry surface to evaluate.
-     * [--adoption-preview] : On an adoption seed, evaluate against the policy duo init would propose (what duo assess reads); inert on an init-owned repository.
+     * [--adoption-preview] : On an adoption seed, evaluate against the policy wprism init would propose (what wprism assess reads); inert on an init-owned repository.
      * [--format=<format>] : Output format. Accepts json.
      */
     public function capabilities($args, $assoc) {
@@ -3964,7 +3964,7 @@ final class Cli {
             // operator cannot redirect production discovery to arbitrary disk.
             $adapterLibrary = $assoc['adapter_library'] ?? null;
             if ($adapterLibrary !== null && !$adapterLibrary instanceof AdapterLibrary) {
-                throw new \RuntimeException('duo: internal capabilities adapter library must be an AdapterLibrary');
+                throw new \RuntimeException('wprism: internal capabilities adapter library must be an AdapterLibrary');
             }
             // Both selector gates move inside the boundary, keeping their
             // original order relative to each other and to the registry reads
@@ -3996,7 +3996,7 @@ final class Cli {
                 $dir = $library->root();
                 $dispositions = ManifestDispositions::load_library($library);
                 if ($dispositions === null) {
-                    throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
+                    throw new \RuntimeException("wprism: $dir has no external manifest disposition registry");
                 }
                 $manifests = [];
                 // No `dispositions.json` filter any more: WP-4.4 moved the
@@ -4009,7 +4009,7 @@ final class Cli {
                 }
                 foreach ($manifestFiles as $expectedName => $file) {
                     $manifest = Canon::decode(Canon::read_file($file));
-                    // DUO-3371: this path loads the library without Policy::load(),
+                    // issue #3371: this path loads the library without Policy::load(),
                     // so it must hold the same name==basename rule itself — a
                     // mismatch otherwise surfaces as a malformed registry claim
                     // that never says the name field is wrong.
@@ -4021,7 +4021,7 @@ final class Cli {
                     );
                     $manifests[] = $manifest;
                 }
-                // DUO-3339: real provenance, not the absent-sources default.
+                // issue #3339: real provenance, not the absent-sources default.
                 // Every row here IS shipped, so the source word does not
                 // change — but the tier and the file each row came from are
                 // now READ from the same scan `--repo` uses instead of being
@@ -4053,13 +4053,13 @@ final class Cli {
                     );
                 }
                 if (isset($assoc['adoption-preview'])) {
-                    // `duo assess`'s own capability reads: on an adoption seed
+                    // `wprism assess`'s own capability reads: on an adoption seed
                     // they must be answered against the policy the inventory
                     // was projected against (the init proposal), or the
                     // catalog joins preview surfaces to core-only claims and
                     // reads `missing_disposition_entry` for adapters the library
                     // certifies (T7 grind A4). An init-owned repository is
-                    // unchanged; a plain `wp duo capabilities --repo` without
+                    // unchanged; a plain `wp wprism capabilities --repo` without
                     // the flag keeps reporting the pinned set as it stands.
                     require_once __DIR__ . '/../Assess/AssessInventory.php';
                     [$policy] = AssessInventory::policy_for_assessment($repo);
@@ -4133,7 +4133,7 @@ final class Cli {
      * pinned policy already say about it" — the stack, the installed plugin
      * and theme set, media, the pinned adapters, the policy's surface groups,
      * `coverage`, the `pending` queue and the adapter survey, in one
-     * `duo-assess-inventory/v1` document.
+     * `wprism-assess-inventory/v1` document.
      *
      * It exists as ONE command rather than as host-side composition of six
      * because the host would otherwise have to make six round trips to the
@@ -4157,19 +4157,19 @@ final class Cli {
      *                        changes the process's production library.
      * [--format=<format>] : Output format. Accepts json (machine-readable,
      *                        versioned by the document's own "format" field —
-     *                        this is the shape `duo assess` consumes, so treat
+     *                        this is the shape `wprism assess` consumes, so treat
      *                        it as contract, not incidental).
      *
      * @subcommand assess-inventory
      */
     public function assess_inventory($args, $assoc) {
-        // agent/duo.php loads this projection eagerly with every other
+        // agent/wprism.php loads this projection eagerly with every other
         // agent/src class; requiring it here as well is the same net every
         // file in this tree carries for the partially-loaded contexts the
         // drop-in also runs in, and it keeps this verb's dependency named in
         // its own source. It is required INSIDE the handler rather than at
         // the top of the file because the offline refusal suites load
-        // Cli.php against pre-declared \Duo stubs.
+        // Cli.php against pre-declared \WPrism stubs.
         require_once __DIR__ . '/../Assess/AssessInventory.php';
         // Definite assignment before the boundary, not after it: every
         // failure path below leaves this function through WP_CLI, so the
@@ -4197,13 +4197,13 @@ final class Cli {
             // REPORT an unsupported topology (it emits site_mode), not refuse
             // before it can describe it.
             //
-            // On an ADOPTION SEED (a site.duo.json init has not yet owned —
+            // On an ADOPTION SEED (a site.wprism.json init has not yet owned —
             // T7 grind A3), the seed's own pin set is `core` alone, so an
             // assessment against it read every active plugin as `plugin:<slug>
             // install adapter` and every WooCommerce table as unclassified on
             // a shop the library ships a certified adapter for. The honest
-            // first look is the site as `duo init` would propose it: the same
-            // read-only proposal `duo assess` already probes for readiness
+            // first look is the site as `wprism init` would propose it: the same
+            // read-only proposal `wprism assess` already probes for readiness
             // (with the unmanaged-plugins allowance, so an unowned plugin
             // reads as its advisory rather than aborting the preview), loaded
             // as the policy the surfaces are projected against, and named as
@@ -4266,4 +4266,4 @@ final class Cli {
     }
 }
 
-WP_CLI::add_command('duo', Cli::class);
+WP_CLI::add_command('wprism', Cli::class);

@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
- * The environment registry: `envs` from the site repo's site.duo.json
- * (committable, no secrets) overlaid by a machine-local .duo-envs.json
+ * The environment registry: `envs` from the site repo's site.wprism.json
+ * (committable, no secrets) overlaid by a machine-local .wprism-envs.json
  * (gitignored — compose file paths, ssh aliases, anything host-specific).
  * The overlay wins whole-entry per environment name; there is no
  * per-key deep merge.
  *
- * site.duo.json is found by walking upward from the starting directory and,
+ * site.wprism.json is found by walking upward from the starting directory and,
  * inside Git, accepted only at that worktree's root. The automatically trusted
  * overlay is pinned beside it, or to the current Git root when no site file
  * exists. Nested registries are refused rather than allowed to shadow target
@@ -26,12 +26,12 @@ final class Registry {
         $envs = [];
 
         $gitRoot = self::findGitRoot($startDir);
-        $siteFile = self::findUpwards($startDir, 'site.duo.json');
+        $siteFile = self::findUpwards($startDir, 'site.wprism.json');
         if ($siteFile !== null && $gitRoot !== null && dirname($siteFile) !== $gitRoot) {
             throw new \RuntimeException(
-                "$siteFile: refusing a nested site.duo.json outside Git worktree root $gitRoot; "
+                "$siteFile: refusing a nested site.wprism.json outside Git worktree root $gitRoot; "
                 . 'the site registry must be rooted in the repository whose environments it controls; '
-                . 'make the site repo its own Git worktree root (git init inside it) or move site.duo.json '
+                . 'make the site repo its own Git worktree root (git init inside it) or move site.wprism.json '
                 . 'to the enclosing worktree root and run this command from there'
             );
         }
@@ -48,19 +48,19 @@ final class Registry {
             $registryDir = $siteFile !== null
                 ? dirname($siteFile)
                 : ($gitRoot ?? (realpath($startDir) ?: $startDir));
-            $nearestOverlay = self::findUpwards($startDir, '.duo-envs.json');
+            $nearestOverlay = self::findUpwards($startDir, '.wprism-envs.json');
             if ($nearestOverlay !== null && dirname($nearestOverlay) !== $registryDir) {
                 throw new \RuntimeException(
-                    "$nearestOverlay: refusing an auto-discovered .duo-envs.json outside registry root "
-                    . "$registryDir; keep the machine-local overlay beside site.duo.json (or at the Git root "
+                    "$nearestOverlay: refusing an auto-discovered .wprism-envs.json outside registry root "
+                    . "$registryDir; keep the machine-local overlay beside site.wprism.json (or at the Git root "
                     . 'when no site file exists), or select another trusted file explicitly with --envs-file'
                 );
             }
-            $candidate = $registryDir . '/.duo-envs.json';
+            $candidate = $registryDir . '/.wprism-envs.json';
             $overlayFile = is_file($candidate) ? $candidate : null;
             if ($overlayFile !== null && self::isGitTracked($overlayFile)) {
                 throw new \RuntimeException(
-                    "$overlayFile: refusing a Git-tracked .duo-envs.json; "
+                    "$overlayFile: refusing a Git-tracked .wprism-envs.json; "
                     . 'privileged environment providers must be machine-local and untracked'
                 );
             }

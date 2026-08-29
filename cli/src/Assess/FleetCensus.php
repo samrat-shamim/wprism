@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
- * The refusal type for `duo census`, shaped exactly like MergeCheckRefusal
+ * The refusal type for `wprism census`, shaped exactly like MergeCheckRefusal
  * (cli/src/Refresh/MergeCheck.php:16-26) so the two env-free verbs publish one
  * refusal vocabulary rather than two.
  */
@@ -21,7 +21,7 @@ final class FleetCensusRefusal extends \RuntimeException {
 }
 
 /**
- * `duo census` — the fleet census: demand rank, coverage ratio, adoption funnel.
+ * `wprism census` — the fleet census: demand rank, coverage ratio, adoption funnel.
  *
  * ## What was missing
  *
@@ -29,8 +29,8 @@ final class FleetCensusRefusal extends \RuntimeException {
  * assessment already names what one site cannot version — `Coverage` groups
  * the genuinely-invisible option rows by prefix with a probable owner and
  * counts every undeclared custom table beside its own owner guess
- * (agent/src/Review/Coverage.php:336-364, :296-317) — and `duo assess` carries
- * that block through verbatim inside `duo-assess-inventory/v1`. What did not
+ * (agent/src/Review/Coverage.php:336-364, :296-317) — and `wprism assess` carries
+ * that block through verbatim inside `wprism-assess-inventory/v1`. What did not
  * exist was the fold: N of those documents put side by side so the answer to
  * "which plugin costs the most sites the most surface" is a number rather than
  * an opinion, and so the three-step adoption story — an adapter EXISTS, it
@@ -41,7 +41,7 @@ final class FleetCensusRefusal extends \RuntimeException {
  * No WordPress, no database, no environment, no transport. The only inputs are
  * documents an operator already produces locally and a manifest library on
  * this machine, which is why this sits beside `manifest-validate`,
- * `adapter-draft` and `merge-check` in cli/duo's env-free block rather than in
+ * `adapter-draft` and `merge-check` in cli/wprism's env-free block rather than in
  * the environment-bound vocabulary.
  *
  * ## Redaction is a projection, not a promise
@@ -105,12 +105,12 @@ final class FleetCensusRefusal extends \RuntimeException {
  *
  * ## Fleet health rides here because this is where the operator already looks
  *
- * `duo adapter proposals` derives, per adapter, the newest release that probed
+ * `wprism adapter proposals` derives, per adapter, the newest release that probed
  * green (`last_verified`, the shape `manifests/capabilities/platform.json`
  * already uses per axis) and how many recorded releases are newer than it. That
  * fact deliberately lives OUTSIDE `manifests/`: stored beside a manifest it
  * would be a rule-2 identity input, and every re-verification would move an
- * `adapter_digest` and every `site.duo.json` content pin in the fleet.
+ * `adapter_digest` and every `site.wprism.json` content pin in the fleet.
  *
  * So it arrives here as a document, and `fleet_health` joins it to what this
  * census already knows — how many sites install and pin each adapter — because
@@ -126,19 +126,19 @@ final class FleetCensusRefusal extends \RuntimeException {
  * URL contributes no key at all.
  */
 final class FleetCensus {
-    public const FORMAT = 'duo-fleet-census/v1';
+    public const FORMAT = 'wprism-fleet-census/v1';
 
     /** The one document this verb consumes (agent/src/Assess/AssessInventory.php:68). */
-    public const INVENTORY_FORMAT = 'duo-assess-inventory/v1';
+    public const INVENTORY_FORMAT = 'wprism-assess-inventory/v1';
 
     /**
      * The optional second input: the derived adapter-freshness document
-     * `duo adapter proposals` emits (cli/src/Adapter/AdapterProposals.php).
+     * `wprism adapter proposals` emits (cli/src/Adapter/AdapterProposals.php).
      * Optional because the census answers its own questions without it, and a
      * verb that refused without a document produced by a different verb would
      * make the demand rank hostage to a ledger nobody has recorded yet.
      */
-    public const HEALTH_FORMAT = 'duo-adapter-boundary-proposals/v1';
+    public const HEALTH_FORMAT = 'wprism-adapter-boundary-proposals/v1';
 
     /**
      * The freshness vocabulary, restated so the census's own reader is closed
@@ -199,8 +199,8 @@ final class FleetCensus {
      *
      * @param list<array{label:string,inventory:array<string,mixed>}> $submissions
      * @param array{adapters:array<string,array<string,mixed>>,reviewed:int,sha256:string,site_mode:string} $library
-     * @param array<string,mixed> $health a `duo-adapter-boundary-proposals/v1` document, or `[]`
-     * @return array<string,mixed> a `duo-fleet-census/v1` document
+     * @param array<string,mixed> $health a `wprism-adapter-boundary-proposals/v1` document, or `[]`
+     * @return array<string,mixed> a `wprism-fleet-census/v1` document
      */
     public static function project(array $submissions, array $library, array $health = []): array {
         $eligible = [];
@@ -238,8 +238,8 @@ final class FleetCensus {
 
         return [
             'format' => self::FORMAT,
-            'spec_version' => defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0,
-            'agent_version' => defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown',
+            'spec_version' => defined('WPRISM_SPEC_VERSION') ? (int) WPRISM_SPEC_VERSION : 0,
+            'agent_version' => defined('WPRISM_AGENT_VERSION') ? (string) WPRISM_AGENT_VERSION : 'unknown',
             'library' => [
                 'adapters' => count($library['adapters']),
                 'reviewed' => (int) $library['reviewed'],
@@ -300,7 +300,7 @@ final class FleetCensus {
             // no health document says so, rather than leaving a reader to read
             // an absent key as "nothing is stale".
             'disclosure' => 'no --health document was supplied, so no adapter freshness is known here; '
-                . 'derive one with `duo adapter proposals --format=json`',
+                . 'derive one with `wprism adapter proposals --format=json`',
         ];
         if ($health === []) {
             return $block;
@@ -309,7 +309,7 @@ final class FleetCensus {
             throw new FleetCensusRefusal(
                 'census_health_unsupported',
                 'the --health document is not a ' . self::HEALTH_FORMAT . ' document',
-                'derive one with `duo adapter proposals --format=json`, then pass it to --health'
+                'derive one with `wprism adapter proposals --format=json`, then pass it to --health'
             );
         }
 
@@ -403,7 +403,7 @@ final class FleetCensus {
         $selectedLibrary = $options['manifests'] ?? null;
         $library = self::library(is_string($selectedLibrary)
             ? $selectedLibrary
-            : \Duo\Policy::shipped_adapter_library());
+            : \WPrism\Policy::shipped_adapter_library());
         $submissions = [];
         foreach ($options['sites'] as $label => $path) {
             // Before the read, not after: a `--dir` collection labelled by
@@ -432,7 +432,7 @@ final class FleetCensus {
      * against the manifest library of their own day — the only way to do that,
      * because a checkout holds one library and a past one cannot be re-derived
      * from it. Without it the current side is measured HERE, from the same
-     * submissions and library an ordinary `duo census` would fold, so the
+     * submissions and library an ordinary `wprism census` would fold, so the
      * re-measurement half of WP-6.3's exit criterion is one command rather
      * than two and a diff.
      *
@@ -444,7 +444,7 @@ final class FleetCensus {
      * LIBRARY on the current side, not the engine.
      *
      * @param array{sites:array<string,string>,manifests:string|null,health:?string,baseline:string,current:?string} $options
-     * @return array<string,mixed> a `duo-cohort-rebaseline/v1` document
+     * @return array<string,mixed> a `wprism-cohort-rebaseline/v1` document
      */
     public static function rebaseline(array $options): array {
         self::boot();
@@ -469,17 +469,17 @@ final class FleetCensus {
             throw new FleetCensusRefusal(
                 'rebaseline_document_unreadable',
                 "the --$side census document does not exist",
-                'produce it with `duo census --format=json > <path>`, then name that path',
+                'produce it with `wprism census --format=json > <path>`, then name that path',
                 $path
             );
         }
         try {
-            $decoded = \Duo\Canon::decode((string) file_get_contents($path));
+            $decoded = \WPrism\Canon::decode((string) file_get_contents($path));
         } catch (\Throwable $t) {
             throw new FleetCensusRefusal(
                 'rebaseline_document_unreadable',
                 "the --$side census document is not valid JSON",
-                'reproduce it with `duo census --format=json` and pass the output unmodified',
+                'reproduce it with `wprism census --format=json` and pass the output unmodified',
                 $path . ': ' . $t->getMessage(),
                 $t
             );
@@ -488,7 +488,7 @@ final class FleetCensus {
             throw new FleetCensusRefusal(
                 'rebaseline_document_unreadable',
                 "the --$side census document does not decode to an object",
-                'reproduce it with `duo census --format=json` and pass the output unmodified',
+                'reproduce it with `wprism census --format=json` and pass the output unmodified',
                 $path
             );
         }
@@ -507,17 +507,17 @@ final class FleetCensus {
             throw new FleetCensusRefusal(
                 'census_health_unreadable',
                 'the --health document does not exist',
-                'derive one with `duo adapter proposals --format=json > <path>`, then pass it to --health',
+                'derive one with `wprism adapter proposals --format=json > <path>`, then pass it to --health',
                 $path
             );
         }
         try {
-            $decoded = \Duo\Canon::decode((string) file_get_contents($path));
+            $decoded = \WPrism\Canon::decode((string) file_get_contents($path));
         } catch (\Throwable $t) {
             throw new FleetCensusRefusal(
                 'census_health_unreadable',
                 'the --health document is not valid JSON',
-                'rederive it with `duo adapter proposals --format=json` and pass the output unmodified',
+                'rederive it with `wprism adapter proposals --format=json` and pass the output unmodified',
                 $path . ': ' . $t->getMessage(),
                 $t
             );
@@ -526,7 +526,7 @@ final class FleetCensus {
             throw new FleetCensusRefusal(
                 'census_health_unreadable',
                 'the --health document does not decode to an object',
-                'rederive it with `duo adapter proposals --format=json` and pass the output unmodified',
+                'rederive it with `wprism adapter proposals --format=json` and pass the output unmodified',
                 $path
             );
         }
@@ -546,7 +546,7 @@ final class FleetCensus {
      *
      * @return array{adapters:array<string,array<string,mixed>>,reviewed:int,sha256:string,site_mode:string}
      */
-    public static function library(string|\Duo\AdapterLibrary $library): array {
+    public static function library(string|\WPrism\AdapterLibrary $library): array {
         self::boot();
         $dir = is_string($library) ? rtrim($library, '/') : null;
         if (is_string($dir) && !is_dir($dir)) {
@@ -557,17 +557,17 @@ final class FleetCensus {
             );
         }
         try {
-            $platform = $library instanceof \Duo\AdapterLibrary
-                ? \Duo\ManifestDispositions::platform_boundary_library($library)
-                : \Duo\ManifestDispositions::platform_boundary((string) $dir);
-            $dispositions = $library instanceof \Duo\AdapterLibrary
-                ? \Duo\ManifestDispositions::load_library($library)
-                : \Duo\ManifestDispositions::load((string) $dir);
+            $platform = $library instanceof \WPrism\AdapterLibrary
+                ? \WPrism\ManifestDispositions::platform_boundary_library($library)
+                : \WPrism\ManifestDispositions::platform_boundary((string) $dir);
+            $dispositions = $library instanceof \WPrism\AdapterLibrary
+                ? \WPrism\ManifestDispositions::load_library($library)
+                : \WPrism\ManifestDispositions::load((string) $dir);
         } catch (\Throwable $t) {
             throw new FleetCensusRefusal(
                 'census_library_unreadable',
                 'the manifest library could not be read as a reviewed adapter library',
-                'repair the library so `duo manifest-validate` is green, then rerun census',
+                'repair the library so `wprism manifest-validate` is green, then rerun census',
                 $t->getMessage(),
                 $t
             );
@@ -591,7 +591,7 @@ final class FleetCensus {
         $adapters = [];
         $reviewed = 0;
         $manifestPaths = [];
-        if ($library instanceof \Duo\AdapterLibrary) {
+        if ($library instanceof \WPrism\AdapterLibrary) {
             foreach ($library->packages() as $package) {
                 $manifestPaths[$package->name()] = $package->manifestPath();
             }
@@ -602,14 +602,14 @@ final class FleetCensus {
             }
         }
         foreach ($manifestPaths as $name => $file) {
-            $manifest = \Duo\Canon::decode(\Duo\Canon::read_file($file));
+            $manifest = \WPrism\Canon::decode(\WPrism\Canon::read_file($file));
             if (!is_array($manifest)) {
                 continue;
             }
             $entry = $dispositions->entry($name);
             $surfaces = [];
             if (is_array($entry)) {
-                $surfaces = (array) (\Duo\ManifestDispositions::claim_from_disposition(
+                $surfaces = (array) (\WPrism\ManifestDispositions::claim_from_disposition(
                     $manifest,
                     $entry,
                     [],
@@ -634,7 +634,7 @@ final class FleetCensus {
         return [
             'adapters' => $adapters,
             'reviewed' => $reviewed,
-            'sha256' => hash('sha256', \Duo\Canon::encode($oracle)),
+            'sha256' => hash('sha256', \WPrism\Canon::encode($oracle)),
             'site_mode' => $siteMode,
         ];
     }
@@ -790,9 +790,9 @@ final class FleetCensus {
      * rows swamp every other fact on the site, which is the opposite of what
      * a coverage number is for.
      *
-     * `tables.covered` counts Duo's own ledger tables as covered because
+     * `tables.covered` counts WPrism's own ledger tables as covered because
      * `Coverage::tables_report()` deliberately excludes them from `undeclared`
-     * ("Duo's own ledger is not site state and no adapter will ever declare
+     * ("WPrism's own ledger is not site state and no adapter will ever declare
      * it", agent/src/Review/Coverage.php:~288) — a handful of rows per site,
      * and naming them here would teach an operator to classify the tool
      * assessing them.
@@ -917,7 +917,7 @@ final class FleetCensus {
             // A slug two adapters claim is a library defect, not a census
             // verdict: the FIRST name in the ksorted library wins so the
             // document stays a function of the library's content, and the
-            // collision is left to `duo adapter doctor`, which is where a
+            // collision is left to `wprism adapter doctor`, which is where a
             // duplicate claim is the subject.
             $adapterBySlug[$slug] ??= (string) $name;
         }
@@ -1048,7 +1048,7 @@ final class FleetCensus {
             if (!str_starts_with($surface, 'options.')) {
                 continue;
             }
-            if (\Duo\Coverage::guess_prefix(substr($surface, strlen('options.'))) === $prefix) {
+            if (\WPrism\Coverage::guess_prefix(substr($surface, strlen('options.'))) === $prefix) {
                 return true;
             }
         }
@@ -1211,7 +1211,7 @@ final class FleetCensus {
             );
         }
         try {
-            $decoded = \Duo\Canon::decode((string) file_get_contents($path));
+            $decoded = \WPrism\Canon::decode((string) file_get_contents($path));
         } catch (\Throwable $t) {
             throw new FleetCensusRefusal(
                 'census_inventory_unreadable',
@@ -1240,37 +1240,37 @@ final class FleetCensus {
      */
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
         if (!is_file($agent)) {
             throw new FleetCensusRefusal(
                 'census_agent_source_missing',
                 'the agent source this checkout ships could not be found',
-                'run census from a duo checkout that carries agent/duo.php',
+                'run census from a wprism checkout that carries agent/wprism.php',
                 $agent
             );
         }
         $source = (string) file_get_contents($agent);
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
                 throw new FleetCensusRefusal(
                     'census_agent_source_missing',
                     'the agent version could not be resolved from this checkout',
-                    'run census from a duo checkout whose agent/duo.php declares DUO_AGENT_VERSION'
+                    'run census from a wprism checkout whose agent/wprism.php declares WPRISM_AGENT_VERSION'
                 );
             }
-            define('DUO_AGENT_VERSION', $m[1]);
+            define('WPRISM_AGENT_VERSION', $m[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
                 throw new FleetCensusRefusal(
                     'census_agent_source_missing',
                     'the spec version could not be resolved from this checkout',
-                    'run census from a duo checkout whose agent/duo.php declares DUO_SPEC_VERSION'
+                    'run census from a wprism checkout whose agent/wprism.php declares WPRISM_SPEC_VERSION'
                 );
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
-        $classmap = require $repo . '/agent/duo-classmap.php';
+        $classmap = require $repo . '/agent/wprism-classmap.php';
         if (!is_array($classmap)) {
             throw new FleetCensusRefusal(
                 'census_agent_source_missing',

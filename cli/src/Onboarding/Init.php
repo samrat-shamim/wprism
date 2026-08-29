@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 // The engine's OWN wire-version window (`agent/src/Kernel/SpecVersionWindow.php:47`),
@@ -14,9 +14,9 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/SpecVersionWindow.php';
 /**
  * An init phase the target answered with the common v1 refusal envelope.
  *
- * DUO-3421: the envelope is a STRUCTURED public answer on stdout, and the host
+ * issue #3421: the envelope is a STRUCTURED public answer on stdout, and the host
  * renders it through render_command_refusal_human() exactly as cmd_status()
- * and fetch_pending() do (DUO-3399). Carrying it on a typed exception rather
+ * and fetch_pending() do (issue #3399). Carrying it on a typed exception rather
  * than flattening it into the message keeps that rendering possible at the
  * command layer and keeps this class free of any host output convention.
  */
@@ -49,7 +49,7 @@ final class Init {
     public const ALLOW_UNMANAGED_PLUGINS = '--allow-unmanaged-plugins';
 
     /**
-     * The one advisory code that names a whole body of state Duo will not
+     * The one advisory code that names a whole body of state WPrism will not
      * version, rather than a gap inside something it does.
      *
      * T6 §3.4 gives it its own line shape for that reason. `ADVISORY PLUGIN
@@ -63,7 +63,7 @@ final class Init {
 
     /**
      * The host's per-component code classification, forwarded to BOTH target
-     * calls for the same reason ALLOW_UNMANAGED_PLUGINS is (DUO-3499).
+     * calls for the same reason ALLOW_UNMANAGED_PLUGINS is (issue #3499).
      *
      * The classification is a decision — it changes what the repository
      * declares and what Git carries — so it lives inside the proposal digest.
@@ -78,7 +78,7 @@ final class Init {
     private const DECLARATION_SPLIT = [
         'format' => 2,
         'layout' => 'wp-content',
-        'lock' => 'code/duo-code.lock.json',
+        'lock' => 'code/wprism-code.lock.json',
         'source' => 'code/wp-content',
     ];
 
@@ -88,7 +88,7 @@ final class Init {
         bool $allowUnmanagedPlugins = false,
         ?array $lockPlan = null
     ): array {
-        $args = ['duo', 'init', '--repo=' . $transport->repoPath(), '--format=json'];
+        $args = ['wprism', 'init', '--repo=' . $transport->repoPath(), '--format=json'];
         if ($allowUnmanagedPlugins) {
             $args[] = self::ALLOW_UNMANAGED_PLUGINS;
         }
@@ -108,10 +108,10 @@ final class Init {
         ?array $lockPlan = null
     ): array {
         if (preg_match('/^[a-f0-9]{64}$/', $digest) !== 1) {
-            throw new \RuntimeException('duo init confirmation requires the exact 64-hex proposal digest');
+            throw new \RuntimeException('wprism init confirmation requires the exact 64-hex proposal digest');
         }
         $args = [
-            'duo', 'init', '--repo=' . $transport->repoPath(),
+            'wprism', 'init', '--repo=' . $transport->repoPath(),
             '--confirm=' . $digest, '--format=json',
         ];
         if ($allowUnmanagedPlugins) {
@@ -128,21 +128,21 @@ final class Init {
     /** @return array<string,mixed> */
     public static function archiveInterrupted(EnvironmentDriver $transport, string $archive): array {
         $result = self::request($transport, [
-            'duo', 'init', '--repo=' . $transport->repoPath(),
+            'wprism', 'init', '--repo=' . $transport->repoPath(),
             '--archive-interrupted-to=' . $archive, '--format=json',
         ], 'interrupted archive');
         $keys = array_keys($result);
         sort($keys, SORT_STRING);
         if ($keys !== ['archive', 'attempt_sha256', 'format', 'receipt_sha256', 'repository', 'resumed']
-            || ($result['format'] ?? null) !== 'duo-init-interrupted-archive/v1'
+            || ($result['format'] ?? null) !== 'wprism-init-interrupted-archive/v1'
             || ($result['archive'] ?? null) !== $archive
             || ($result['repository'] ?? null) !== $transport->repoPath()
             || !is_bool($result['resumed'] ?? null)) {
-            throw new \RuntimeException('duo init interrupted archive returned an unbound receipt');
+            throw new \RuntimeException('wprism init interrupted archive returned an unbound receipt');
         }
         foreach (['attempt_sha256', 'receipt_sha256'] as $field) {
             if (!is_string($result[$field] ?? null) || preg_match('/^[a-f0-9]{64}$/D', $result[$field]) !== 1) {
-                throw new \RuntimeException("duo init interrupted archive returned a malformed $field");
+                throw new \RuntimeException("wprism init interrupted archive returned a malformed $field");
             }
         }
 
@@ -157,7 +157,7 @@ final class Init {
      * @param list<array<string,mixed>> $lockPlan
      */
     private static function lockArgument(array $lockPlan): string {
-        return self::CODE_LOCK_ARGUMENT . '=' . base64_encode(\Duo\Canon::encode($lockPlan));
+        return self::CODE_LOCK_ARGUMENT . '=' . base64_encode(\WPrism\Canon::encode($lockPlan));
     }
 
     /** @return list<string> */
@@ -167,7 +167,7 @@ final class Init {
         $code = $proposal['code'] ?? [];
         $env = $proposal['environment'] ?? [];
         $media = $state['media'] ?? [];
-        $lines[] = 'Duo initialization proposal ' . ($proposal['digest'] ?? '(missing digest)');
+        $lines[] = 'WPrism initialization proposal ' . ($proposal['digest'] ?? '(missing digest)');
         $lines[] = '  WordPress ' . ($env['wordpress'] ?? '?') . ' / PHP ' . ($env['php'] ?? '?')
             . ' / database ' . ($env['database']['server'] ?? '?');
         $lines[] = '  URL: ' . ($env['home'] ?? '(unknown)');
@@ -185,7 +185,7 @@ final class Init {
         foreach (self::renderSplit($code) as $line) {
             $lines[] = $line;
         }
-        $lines[] = '  state: ' . ($state['repository'] ?? '?') . ' (site.duo.json + canonical capture baseline)';
+        $lines[] = '  state: ' . ($state['repository'] ?? '?') . ' (site.wprism.json + canonical capture baseline)';
         $lines[] = '  Git: ' . ($state['git']['mode'] ?? 'unknown') . ' (' . ($state['git']['version'] ?? 'unknown') . ')';
         $lines[] = '  Git LFS: ' . (($state['git_lfs']['required'] ?? false) ? 'required' : 'prepared')
             . ' for media/** (' . ($state['git_lfs']['version'] ?? 'unknown') . ')';
@@ -225,7 +225,7 @@ final class Init {
             // --allow-unmanaged-plugins reads their unmanaged plugins in the
             // same undifferentiated run of lines as everything else and
             // cannot tell that the flag did anything.
-            $lines[] = '  advisories (init proceeds; each is a stated, accepted limit on what Duo versions):';
+            $lines[] = '  advisories (init proceeds; each is a stated, accepted limit on what WPrism versions):';
         }
         foreach ($advisories as $row) {
             $lines[] = '  ' . self::advisoryLine($row);
@@ -241,7 +241,7 @@ final class Init {
     }
 
     /**
-     * The per-component code classification (DUO-3499, then the
+     * The per-component code classification (issue #3499, then the
      * no-third-party-bytes invariant).
      *
      * Every component is named with its classification and the REASON for it,
@@ -308,7 +308,7 @@ final class Init {
 
     /**
      * @param bool $hasLock the repository published a code lock, so its locked
-     *        components are on disk but deliberately NOT in Git (DUO-3499)
+     *        components are on disk but deliberately NOT in Git (issue #3499)
      * @return list<string>
      */
     public static function nextSteps(string $env, string $repo, bool $hasLock = false): array {
@@ -318,10 +318,10 @@ final class Init {
             // Not a bare `git add code`: with locked components, that command
             // adds only the first-party half, and an operator reading the old
             // line would reasonably believe the clone in step 5 is complete.
-            // It is not -- it needs `duo code-resolve` before it can compile.
-            ? "  1. git -C $gitRepo add .gitattributes .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\""
-                . ' # the locked components are ignored by design; code/duo-code.lock.json declares them'
-            : "  1. git -C $gitRepo add .gitattributes .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"";
+            // It is not -- it needs `wprism code-resolve` before it can compile.
+            ? "  1. git -C $gitRepo add .gitattributes .gitignore site.wprism.json code state media && git -C $gitRepo commit -m \"wprism: initial code and state baselines\""
+                . ' # the locked components are ignored by design; code/wprism-code.lock.json declares them'
+            : "  1. git -C $gitRepo add .gitattributes .gitignore site.wprism.json code state media && git -C $gitRepo commit -m \"wprism: initial code and state baselines\"";
         $steps = [
             'Managed state scope is clean. Coverage outside the selected adapters remains advisory, not a whole-site guarantee.',
             "The Git worktree is ready at target path $repo.",
@@ -332,23 +332,23 @@ final class Init {
             "  3. TARGET_BRANCH=\$(git -C $gitRepo symbolic-ref --quiet --short HEAD) && test -n \"\$TARGET_BRANCH\" || { echo 'target worktree is detached; switch to the intended branch first' >&2; exit 1; }",
             "  4. git -C $gitRepo push -u origin \"HEAD:refs/heads/\$TARGET_BRANCH\"",
             "  5. git clone --branch \"\$TARGET_BRANCH\" 'YOUR_GIT_URL' 'YOUR_WORKSPACE' # exact initialized baseline",
-            "  6. export DUO_CLI='YOUR_DUO_CLI'                   # absolute path to an installed Duo cli/duo; it is not in the site repo",
+            "  6. export WPRISM_CLI='YOUR_WPRISM_CLI'                   # absolute path to an installed WPrism cli/wprism; it is not in the site repo",
             "  7. git -C 'YOUR_WORKSPACE' switch -c 'YOUR_BRANCH' # feature branch",
-            "Do not assume that checkout is the live environment: Duo commands for $envArg always operate on its configured repo_path ($repo), never on 'YOUR_WORKSPACE'.",
-            "In 'YOUR_WORKSPACE', recreate the complete machine-local connection for $envArg in the untracked .duo-envs.json overlay, then run `\"\$DUO_CLI\" envs` and verify that it names the intended target and repo_path.",
+            "Do not assume that checkout is the live environment: WPrism commands for $envArg always operate on its configured repo_path ($repo), never on 'YOUR_WORKSPACE'.",
+            "In 'YOUR_WORKSPACE', recreate the complete machine-local connection for $envArg in the untracked .wprism-envs.json overlay, then run `\"\$WPRISM_CLI\" envs` and verify that it names the intended target and repo_path.",
             "Point or materialize that target environment to 'YOUR_BRANCH' before capturing WordPress-authored changes. Then, from 'YOUR_WORKSPACE':",
-            "  \"\$DUO_CLI\" capture $envArg                   # capture authored state from the configured target",
-            "  \"\$DUO_CLI\" plan $envArg                      # preview",
-            "  \"\$DUO_CLI\" promote $envArg                   # promote with a DB checkpoint",
+            "  \"\$WPRISM_CLI\" capture $envArg                   # capture authored state from the configured target",
+            "  \"\$WPRISM_CLI\" plan $envArg                      # preview",
+            "  \"\$WPRISM_CLI\" promote $envArg                   # promote with a DB checkpoint",
             '  follow the exact checkpoint receipt on failure     # rollback',
             'Executable code remains a separate content-addressed half under code/wp-content; review its descriptor and ownership boundary independently from state.',
         ];
         if ($hasLock) {
-            $steps[] = 'This repository locks third-party components (code/duo-code.lock.json): they are on disk '
+            $steps[] = 'This repository locks third-party components (code/wprism-code.lock.json): they are on disk '
                 . 'at the target but are NOT in Git, so a fresh clone carries neither their bytes nor a way to compile. '
-                . 'Run `duo code-resolve` (documented in docs/guides/code-updates.md) in \'YOUR_WORKSPACE\' before '
-                . 'the first compile; until then Duo refuses with code_component_unresolved and names the component. '
-                . 'An imported-archive component resolves only on a host where `duo code-import` stored its archive.';
+                . 'Run `wprism code-resolve` (documented in docs/guides/code-updates.md) in \'YOUR_WORKSPACE\' before '
+                . 'the first compile; until then WPrism refuses with code_component_unresolved and names the component. '
+                . 'An imported-archive component resolves only on a host where `wprism code-import` stored its archive.';
         }
         return $steps;
     }
@@ -357,22 +357,22 @@ final class Init {
     private static function request(EnvironmentDriver $transport, array $args, string $phase): array {
         $result = $transport->captureWp($args);
         if ($result['exit'] !== 0) {
-            $label = "duo init $phase failed for '{$transport->name()}' (exit {$result['exit']})";
-            // DUO-3421: the agent answers a refusal with the common envelope on
+            $label = "wprism init $phase failed for '{$transport->name()}' (exit {$result['exit']})";
+            // issue #3421: the agent answers a refusal with the common envelope on
             // STDOUT. The stderr-first rule below is right for a transport
             // whose stderr carries the target's own words, but a docker
             // transport's stderr is never empty — `docker compose run` writes
             // "Container ... Creating/Created" progress there on every single
             // invocation — so the operator was handed compose progress noise
             // and the refusal's reason code, remediation, and redaction
-            // witness were dropped on the floor. Observed live on the DUO-3421
+            // witness were dropped on the floor. Observed live on the issue #3421
             // init evidence run: an adapter-boundary refusal surfaced as
-            // "(exit 1): Container duo-...-cli1-run-... Creating". Decode
-            // first, exactly as cmd_status()/fetch_pending() do (DUO-3399);
+            // "(exit 1): Container wprism-...-cli1-run-... Creating". Decode
+            // first, exactly as cmd_status()/fetch_pending() do (issue #3399);
             // anything that is not a v1 envelope still takes the original
             // stderr-else-stdout path unchanged.
             $refusal = json_decode(trim($result['stdout']), true);
-            if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+            if (is_array($refusal) && ($refusal['format'] ?? null) === 'wprism-command-refusal/v1') {
                 throw new InitRefusalException($label, $refusal);
             }
             $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
@@ -380,7 +380,7 @@ final class Init {
         }
         $decoded = json_decode(trim($result['stdout']), true);
         if (!is_array($decoded)) {
-            throw new \RuntimeException("duo init $phase returned invalid JSON for '{$transport->name()}'");
+            throw new \RuntimeException("wprism init $phase returned invalid JSON for '{$transport->name()}'");
         }
         return $decoded;
     }
@@ -397,7 +397,7 @@ final class Init {
             // `state.config.spec_version` below. Every other refusal in this
             // tree names its blocker; this one now does too.
             throw new \RuntimeException(
-                "duo init proposal returned an incompatible or incomplete contract for '{$transport->name()}': "
+                "wprism init proposal returned an incompatible or incomplete contract for '{$transport->name()}': "
                     . $field
             );
         }
@@ -422,7 +422,7 @@ final class Init {
         $ready = $proposal['ready'] ?? null;
         $expectedRepo = self::expectedRepository($transport);
         $field = self::firstFailure([
-            'format' => static fn(): bool => ($proposal['format'] ?? null) === 'duo-init-plan/v1',
+            'format' => static fn(): bool => ($proposal['format'] ?? null) === 'wprism-init-plan/v1',
             'ready' => static fn(): bool => is_bool($ready),
             'digest' => static fn(): bool => is_string($proposal['digest'] ?? null)
                 && preg_match('/^[a-f0-9]{64}$/', (string) $proposal['digest']) === 1,
@@ -561,14 +561,14 @@ final class Init {
      * acceptance window, computed by the agent's own definition of it.
      *
      * This clause used to be the literal `=== 2`, written when
-     * `DUO_SPEC_VERSION` had never moved. WP-4.12 moved it to 3 and stamped
+     * `WPRISM_SPEC_VERSION` had never moved. WP-4.12 moved it to 3 and stamped
      * the new value into `InitPlanner::plan()`'s proposed config
      * (`agent/src/Init/InitPlanner.php:357`) and into `Adopt::SEED`
      * (`cli/src/Onboarding/Adopt.php:35`) — but not here, so from that commit
-     * every `duo init <env>` that reached a READY proposal died on this line
+     * every `wprism init <env>` that reached a READY proposal died on this line
      * (measured against the shipped engine on a live pair, three ways: bare,
      * `--offline` and `--first-party=`). A BLOCKED proposal never reaches it,
-     * which is why the corpus stayed green: `duo init` appeared to work right
+     * which is why the corpus stayed green: `wprism init` appeared to work right
      * up to the moment it would have done something.
      *
      * The remedy is not a literal `3`. A host talks to whatever agent the
@@ -581,20 +581,20 @@ final class Init {
      * @return list<int>
      */
     private static function acceptedSpecVersions(): array {
-        if (!defined('DUO_SPEC_VERSION')) {
+        if (!defined('WPRISM_SPEC_VERSION')) {
             // The same resolution `AdapterDraft::boot()` (`:482-487`) and
             // `AdapterCatalog` already do: the host has the agent tree it
             // adopts from, and its defines are the engine's own statement of
-            // the version. Parsed rather than required, because `agent/duo.php`
+            // the version. Parsed rather than required, because `agent/wprism.php`
             // is a WordPress drop-in that bootstraps 99 files on load.
-            $agent = dirname(__DIR__, 3) . '/agent/duo.php';
+            $agent = dirname(__DIR__, 3) . '/agent/wprism.php';
             $source = is_file($agent) ? (string) file_get_contents($agent) : '';
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('duo init could not resolve DUO_SPEC_VERSION from the agent source');
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('wprism init could not resolve WPRISM_SPEC_VERSION from the agent source');
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
-        return \Duo\SpecVersionWindow::accepted(DUO_SPEC_VERSION);
+        return \WPrism\SpecVersionWindow::accepted(WPRISM_SPEC_VERSION);
     }
 
     /** @param array<string,mixed> $result */
@@ -607,7 +607,7 @@ final class Init {
         $state = $result['state'] ?? null;
         $unsupported = $result['unsupported'] ?? null;
         $expectedRepo = self::expectedRepository($transport);
-        $valid = ($result['format'] ?? null) === 'duo-init-result/v1'
+        $valid = ($result['format'] ?? null) === 'wprism-init-result/v1'
             && ($result['proposal_digest'] ?? null) === $digest
             && is_array($baseline)
             && ($baseline['kind'] ?? null) === 'state-capture'
@@ -630,14 +630,14 @@ final class Init {
             && ($capture['initial_code_baseline'] ?? null) === $lifecycle
             && is_array($state)
             && ($state['repository'] ?? null) === $expectedRepo
-            && ($state['site_config'] ?? null) === $expectedRepo . '/site.duo.json'
+            && ($state['site_config'] ?? null) === $expectedRepo . '/site.wprism.json'
             && ($state['git'] ?? null) === 'existing-worktree'
             && is_array($unsupported)
             && array_is_list($unsupported)
             && $unsupported === [];
         if (!$valid) {
             throw new \RuntimeException(
-                "duo init confirmation returned an incompatible or incomplete result for '{$transport->name()}'"
+                "wprism init confirmation returned an incompatible or incomplete result for '{$transport->name()}'"
             );
         }
     }
@@ -646,7 +646,7 @@ final class Init {
         $repo = rtrim($transport->repoPath(), '/');
         if ($repo === '' || !str_starts_with($repo, '/')) {
             throw new \RuntimeException(
-                "duo init requires an absolute, non-root repository path for '{$transport->name()}'"
+                "wprism init requires an absolute, non-root repository path for '{$transport->name()}'"
             );
         }
         return $repo;
@@ -672,7 +672,7 @@ final class Init {
     }
 
     /**
-     * The classification the operator is being asked to confirm (DUO-3499).
+     * The classification the operator is being asked to confirm (issue #3499).
      *
      * Total over the components it names, single-line reasons, one of the
      * three classifications, and a locked entry that actually carries an

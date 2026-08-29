@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Safe boundary for values that may be PHP-serialized in WordPress storage.
@@ -39,12 +39,12 @@ final class PlainData {
         $decoded = @unserialize($trimmed, ['allowed_classes' => false]);
         if ($decoded === false && $trimmed !== 'b:0;') {
             throw new \RuntimeException(
-                "duo: $ctx contains malformed or noncanonical PHP-serialized data"
+                "wprism: $ctx contains malformed or noncanonical PHP-serialized data"
             );
         }
         if (is_object($decoded)) {
             throw new \RuntimeException(
-                "duo: non-plain serialized data (PHP object) in $ctx — refusing to capture it"
+                "wprism: non-plain serialized data (PHP object) in $ctx — refusing to capture it"
             );
         }
 
@@ -52,7 +52,7 @@ final class PlainData {
             $roundTrip = serialize($decoded);
         } catch (\Throwable $e) {
             throw new \RuntimeException(
-                "duo: $ctx contains malformed or noncanonical PHP-serialized data",
+                "wprism: $ctx contains malformed or noncanonical PHP-serialized data",
                 0,
                 $e
             );
@@ -63,7 +63,7 @@ final class PlainData {
             // unserialize() otherwise accepts and silently ignores trailing
             // payloads.
             throw new \RuntimeException(
-                "duo: $ctx contains trailing or noncanonical PHP-serialized data"
+                "wprism: $ctx contains trailing or noncanonical PHP-serialized data"
             );
         }
 
@@ -78,13 +78,13 @@ final class PlainData {
             $encoded = serialize($decoded);
         } catch (\Throwable $e) {
             throw new \RuntimeException(
-                "duo: $ctx must be canonical PHP-serialized plain data",
+                "wprism: $ctx must be canonical PHP-serialized plain data",
                 0,
                 $e
             );
         }
         if ($encoded !== trim($raw)) {
-            throw new \RuntimeException("duo: $ctx must be canonical PHP-serialized plain data");
+            throw new \RuntimeException("wprism: $ctx must be canonical PHP-serialized plain data");
         }
         return $decoded;
     }
@@ -108,12 +108,12 @@ final class PlainData {
     private static function assert_depth($value, string $ctx, int $depth): void {
         if (is_object($value)) {
             throw new \RuntimeException(
-                "duo: non-plain serialized data (PHP object) in $ctx — needs the verbatim-preservation path (post-v0)"
+                "wprism: non-plain serialized data (PHP object) in $ctx — needs the verbatim-preservation path (post-v0)"
             );
         }
         if ($depth > self::MAX_DEPTH) {
             throw new \RuntimeException(
-                "duo: serialized data in $ctx is nested too deeply; refusing recursive/reference-shaped input"
+                "wprism: serialized data in $ctx is nested too deeply; refusing recursive/reference-shaped input"
             );
         }
         if (!is_array($value)) {
@@ -127,7 +127,7 @@ final class PlainData {
             if (class_exists('ReflectionReference')
                 && \ReflectionReference::fromArrayElement($value, $key) !== null) {
                 throw new \RuntimeException(
-                    "duo: serialized data in $ctx contains a PHP reference or recursive array; refusing capture"
+                    "wprism: serialized data in $ctx contains a PHP reference or recursive array; refusing capture"
                 );
             }
             self::assert_depth($child, $ctx, $depth + 1);

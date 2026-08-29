@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Offline host-path regression for DUO-3344 scoped promotion. The companion
+# Offline host-path regression for issue #3344 scoped promotion. The companion
 # fixture routes the public SSH driver through a temporary fake ssh/wp target
 # while retaining the real signed rollback-control implementation.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-FIXTURE="$ROOT/sandbox/tests/fixtures/duo3344-scoped-promote-unit.php"
+FIXTURE="$ROOT/sandbox/tests/fixtures/scoped-promote-unit.php"
 
 printf '== syntax ==\n'
-for file in "$FIXTURE" "$ROOT/cli/duo" "$ROOT/cli/src/Recovery/ScopedRollbackProfile.php" \
+for file in "$FIXTURE" "$ROOT/cli/wprism" "$ROOT/cli/src/Recovery/ScopedRollbackProfile.php" \
   "$ROOT/cli/src/Recovery/RollbackAuthority.php" "$ROOT/recovery/rollback-control.php"; do
   php -l "$file" >/dev/null
 done

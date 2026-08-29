@@ -40,7 +40,7 @@
     },
     "default_authored_keyspaces": [],
     "evidence": {
-        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-paid-memberships-pro",
             "exact-artifact-version-matrix"
@@ -88,12 +88,12 @@
         },
         {
             "operation": "all",
-            "reason": "Duo v1 refuses multisite; PMPro network tables, network activation, and blog-prefix behavior are outside this single-site adapter.",
+            "reason": "WPrism v1 refuses multisite; PMPro network tables, network activation, and blog-prefix behavior are outside this single-site adapter.",
             "surface": "multisite"
         },
         {
             "operation": "all",
-            "reason": "PMPro 3.8.2/3.8.3 remove_recurring_hooks() requests ARRAY_A records from its bundled Action Scheduler, receives empty protected-property arrays, and warns while leaving pending recurring actions. Duo certifies authored-state recovery across deactivate/redeploy and destructive uninstall/reinstall, but does not claim or repair the plugin's runtime scheduler cleanup.",
+            "reason": "PMPro 3.8.2/3.8.3 remove_recurring_hooks() requests ARRAY_A records from its bundled Action Scheduler, receives empty protected-property arrays, and warns while leaving pending recurring actions. WPrism certifies authored-state recovery across deactivate/redeploy and destructive uninstall/reinstall, but does not claim or repair the plugin's runtime scheduler cleanup.",
             "surface": "runtime.action-scheduler-deactivation-cleanup"
         }
     ]
