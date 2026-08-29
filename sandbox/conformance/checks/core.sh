@@ -248,11 +248,13 @@ jq -e --argjson hello "$TARGET_HELLO" --argjson comment "$TARGET_COMMENT" '
 rm "$DIRTY_TARGET_FILE"
 pass "target-owned runtime option, session, postmeta, derived residue, and operational comment survive adoption without entering canonical state"
 
-# The same exact action must fail after the authored commit when WordPress
-# refuses the derived-row write, retain retry authority, and recover without a
-# second source edit. The MU filter models a real extension/object-store write
-# veto at WordPress's public option boundary; the action's generated-vs-stored
-# hash comparison is the gate that catches it.
+# An unreviewed option hook must refuse during action negotiation, before the
+# authored commit or retry journal. NativeRewriteEffects enumerates the exact
+# rewrite_rules hook topology it can prove; allowing this MU filter through as
+# a dropped-write fixture would contradict that gate. The offline native-action
+# suite separately drives the post-write mismatch path through its controlled
+# runtime seam, while this real-WordPress leg proves the extension topology is
+# blocked and removing it permits the same repository revision to converge.
 wp_conf1 eval '
 global $wp_rewrite;
 $wp_rewrite->set_permalink_structure("/dispatch/%postname%/");
@@ -285,20 +287,20 @@ CORE_REWRITE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='ap
 require_observed_nonempty "conf2 applied revision before rewrite fault" "$CORE_REWRITE_REV_BEFORE"
 CORE_REWRITE_FAIL_RC=0
 CORE_REWRITE_FAIL=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CORE_REWRITE_FAIL_RC=$?
-require_duo_answered "conf2 core rewrite dropped-write apply" human "$CORE_REWRITE_FAIL"
+require_duo_answered "conf2 core rewrite topology-fault apply" human "$CORE_REWRITE_FAIL"
 [ "$CORE_REWRITE_FAIL_RC" -ne 0 ] \
-  && grep -Fq "required manifest action 'native:rewrite.flush' failed" <<<"$CORE_REWRITE_FAIL" \
-  && grep -Fq 'generated rewrite rules disagree with the checked database row; recovery_required' <<<"$CORE_REWRITE_FAIL" \
-  || fail "dropped rewrite write did not fail through the exact required action: $CORE_REWRITE_FAIL"
+  && grep -Fq "apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported" <<<"$CORE_REWRITE_FAIL" \
+  && grep -Fq 'native rewrite found extended rewrite_rules option topology' <<<"$CORE_REWRITE_FAIL" \
+  || fail "unreviewed rewrite hook did not fail through the exact topology gate: $CORE_REWRITE_FAIL"
 ! grep -Fq '/dispatch/%postname%/' <<<"$CORE_REWRITE_FAIL" \
   && ! grep -Fq '/journal/%postname%/' <<<"$CORE_REWRITE_FAIL" \
   || fail "rewrite failure diagnostic leaked source or previous permalink plaintext: $CORE_REWRITE_FAIL"
-[ "$(wp_conf2 option get permalink_structure)" = '/dispatch/%postname%/' ] \
-  || fail "rewrite failure did not reach the post-commit authored state needed for retry"
+[ "$(wp_conf2 option get permalink_structure)" = '/journal/%postname%/' ] \
+  || fail "rewrite topology refusal crossed its before-target-mutation boundary"
 [ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$CORE_REWRITE_REV_BEFORE" ] \
   || fail "failed required rewrite action advanced applied_revision"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "missing" : "retained";')" = retained ] \
-  || fail "failed required rewrite action did not retain apply_in_progress retry authority"
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "missing" : "retained";')" = missing ] \
+  || fail "rewrite topology refusal published apply_in_progress before mutation"
 
 remove_core_rewrite_fault
 CORE_REWRITE_MU_MAY_EXIST=0
@@ -325,7 +327,7 @@ CORE_REWRITE_ZERO=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin -
 require_duo_answered "conf2 core rewrite zero-change retry" json "$CORE_REWRITE_ZERO"
 jq -e '.canary == "clean" and .actions == []' <<<"$CORE_REWRITE_ZERO" >/dev/null \
   || fail "zero-change core retry fired rewrite.flush or dirtied the canary: $CORE_REWRITE_ZERO"
-pass "dropped native rewrite write fails after commit with redacted evidence, retains retry authority, then exact retry converges and a zero-change apply fires nothing"
+pass "unreviewed native rewrite hook fails before mutation, then removal permits exact convergence and a zero-change apply fires nothing"
 
 # DUO-3264: dynamic_options.theme_mods -- proof beyond the generic
 # byte-diff already run above in run.sh (which only proves conf1's
