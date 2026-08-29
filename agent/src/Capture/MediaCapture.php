@@ -37,10 +37,6 @@ final class MediaCapture {
         $localPath = $uploads['path'] . '/' . $attachedFile;
         $source = $this->localSource($uploads['path'], $localPath);
 
-        if ($strictReadOnly) {
-            $this->assertStrictProviderAbsent();
-        }
-
         /**
          * Lets an offload adapter supply attachment bytes without requiring
          * a persistent local uploads copy. The strict result contract is
@@ -181,19 +177,4 @@ final class MediaCapture {
         return ['path' => MediaPayloadAuthority::physicalLocalFilePath($path)];
     }
 
-    private function assertStrictProviderAbsent(): void {
-        global $wp_filter;
-        if (!is_array($wp_filter ?? null) || !isset($wp_filter['duo_attachment_capture_source'])) return;
-        $node = $wp_filter['duo_attachment_capture_source'];
-        $callbacks = is_object($node) && property_exists($node, 'callbacks')
-            ? $node->callbacks
-            : null;
-        if (!is_array($callbacks) || $callbacks !== []) {
-            throw CommandRefusalException::explainObservationPrecondition(
-                new \RuntimeException(
-                    'duo: strict attachment observation refuses the registered offload source callback topology'
-                )
-            );
-        }
-    }
 }
