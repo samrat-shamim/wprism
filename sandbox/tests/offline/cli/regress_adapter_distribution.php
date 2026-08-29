@@ -60,7 +60,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/check.php';
 // The hermetic manifest library, so the revocation cases can install a
 // platform-signed document into `capabilities/` without ever writing scratch
-// under the shipped `manifests/` (AGENTS.md rule 3 — sandbox/bin/pair.sh
+// under `adapter-packages/` or `platform/` (AGENTS.md rule 3 — sandbox/bin/pair.sh
 // refuses a dirty candidate source, and an untracked file counts).
 require_once __DIR__ . '/../adapter/certification_fixture.php';
 
@@ -92,8 +92,8 @@ $distIndexes = [];
  * A COPY of the shipped library, asserted byte-identical and loadable by
  * `wprism_cert_assert_loadable()` before anything mounts it. Two things need it:
  * the revocation channel lives at `capabilities/adapter-revocations.json`
- * INSIDE a manifest library, and a suite that wrote one into `manifests/`
- * would leave scratch in the one directory pair.sh bind-mounts.
+ * INSIDE an adapter library, and a suite that wrote one into the source
+ * `platform/adapter-library/` would dirty a root pair.sh bind-mounts.
  */
 $library = wprism_cert_hermetic_library($wprismRoot, $root . '/agent');
 
@@ -1089,8 +1089,8 @@ wprism_check_same(
     . 'have reached a network even if a transport existed for one'
 );
 wprism_check(
-    !is_dir($wprismRoot . '/manifests/capabilities') || !is_file($wprismRoot . '/manifests/capabilities/adapter-revocations.json'),
-    'and the shipped manifest library is untouched: every revocation document this suite installed went into '
+    !is_file($wprismRoot . '/platform/adapter-library/capabilities/adapter-revocations.json'),
+    'and the shipped platform library is untouched: every revocation document this suite installed went into '
     . 'the hermetic copy (AGENTS.md rule 3)'
 );
 

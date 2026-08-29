@@ -36,7 +36,7 @@
  * same driver rehearses them without being rewritten.
  *
  * WHAT IS ON DISK (estate root; `sandbox/tmp/` or a mktemp -d — never under
- * agent/ or manifests/, rule 3, because `sandbox/bin/pair.sh:355` refuses on an
+ * agent/, adapter-packages/, or platform/, rule 3, because `sandbox/bin/pair.sh:355` refuses on an
  * untracked file there and every concurrently running live package would block)
  *
  *   libs/A          the shipped manifest library, byte for byte
@@ -898,9 +898,10 @@ function rehearsal_probes(string $estate, string $state): array {
 
     // --- platform axis ----------------------------------------------------
 
-    // The hand-mixed bundle: this state's agent under the OTHER state's
-    // manifests. `Adopt::install()` ships the two as one archive, so this state
-    // is unreachable through the supported path — which is exactly why the
+    // The hand-mixed bundle: this state's agent with the OTHER state's
+    // projected adapter library. `Adopt::install()` embeds the library below
+    // the agent and archives exactly `agent recovery`, so this state is
+    // unreachable through the supported path — which is exactly why the
     // refusal has to be proven rather than assumed, and why a partial rollback
     // is refused instead of survived.
     $probe(
@@ -1667,9 +1668,10 @@ function rehearsal_contract_claim(): array {
  * These are the gates that never throw: a moved disposition or boundary turns
  * an allowed promotion into a blocked one by returning a row, so the evidence
  * here is a row's content rather than a refusal message. `wprism-agency-cpt` is
- * the shipped `excluded` fixture (manifests/dispositions.json), which is what
- * lets the blocker projections be driven from the real reviewed library rather
- * than from an invented disposition.
+ * the shipped `excluded` fixture whose reviewed source is
+ * `adapter-packages/wprism-agency-cpt/package/disposition.json`; the rehearsal
+ * projects it into its legacy-shaped `dispositions/` library so the blocker
+ * projections use real reviewed evidence rather than an invented disposition.
  *
  * @return list<array<string,mixed>>
  */

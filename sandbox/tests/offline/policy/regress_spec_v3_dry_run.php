@@ -8,7 +8,7 @@
  * ---------------------
  * The flag day (WPRISM_SPEC_VERSION 2 -> 3) turns on several rules at once, and
  * the failure mode nobody can recover from is discovering the in-repo break
- * list AFTER the defines move: `manifests/capabilities/platform.json` restates
+ * list AFTER the defines move: `platform/adapter-library/capabilities/platform.json` restates
  * both defines (AGENTS.md rule 8), so the bump is one atomic edit that every
  * deployed site sees. This suite produces that break list now, from the tree,
  * as ordinary offline evidence.
@@ -65,7 +65,8 @@
  * THE MEASUREMENT THIS SUITE OWES ITS CALLER
  * ------------------------------------------
  * WP-1.6 requires the union of top-level keys actually in use across
- * `manifests/*.json` to be MEASURED against the 33-key signer partition and
+ * the source package manifests (`adapter-packages/<slug>/package/manifest.json`
+ * plus `platform/adapter-library/core/manifest.json`) to be MEASURED against the 33-key signer partition and
  * the difference ENUMERATED, never assumed. It is measured below and the
  * difference is asserted rather than reconciled:
  *
@@ -127,6 +128,7 @@ require_once __DIR__ . '/../../../../agent/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
+require_once __DIR__ . '/../../../../tools/src/AdapterPackageProjection.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 
 use WPrism\AdapterCertification;
@@ -140,6 +142,12 @@ use WPrism\Policy;
 
 $repo = dirname(__DIR__, 4);
 $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
+$embeddedPhpFiles = [];
+foreach (\WPrism\Tooling\AdapterPackageProjection::plan($repo) as $source => $destination) {
+    if (str_ends_with($destination, '.php')) {
+        $embeddedPhpFiles[] = $source;
+    }
+}
 
 /** One indented report row. Indented so it can never look like a PHP diagnostic to the guard. */
 $report = static function (string $line): void {
@@ -149,8 +157,11 @@ $report = static function (string $line): void {
 /**
  * Every shipped PHP file naming any of these tokens, repo-relative and sorted.
  *
- * The three trees are exactly what `Adopt.php:147-150` tars to a managed site,
- * so "no reader" measured over them means no reader a deployment can have. A
+ * The checked-in agent, CLI, and recovery trees execute across a deployment.
+ * Adopt also embeds every PHP member selected by AdapterPackageProjection
+ * below the agent before archiving exactly `agent recovery`; reading the real
+ * projection here means a future package runtime cannot evade the scan. Thus
+ * "no reader" measured over this set means neither side can read the token. A
  * source scan and not a Reflection walk because the question is which FILES
  * would have to change on the flag day, which the loaded class graph cannot
  * answer.
@@ -167,9 +178,10 @@ $report = static function (string $line): void {
  * @param list<string> $tokens
  * @return list<string>
  */
-$shippedFilesNaming = static function (array $tokens) use ($repo): array {
+$shippedFilesNaming = static function (array $tokens) use ($repo, $embeddedPhpFiles): array {
     $hits = [];
-    foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
+    $files = [$repo . '/cli/wprism' => true];
+    foreach (['agent', 'cli', 'recovery'] as $tree) {
         $walk = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($repo . '/' . $tree, FilesystemIterator::SKIP_DOTS),
             RecursiveIteratorIterator::LEAVES_ONLY,
@@ -179,20 +191,26 @@ $shippedFilesNaming = static function (array $tokens) use ($repo): array {
             if (!$file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
-            // COMMENTS STRIPPED (WP-6.1): this helper answers "which shipped
-            // files READ this name", and a docblock explaining why a section
-            // rides a channel reads nothing. It was a plain text match while
-            // `engine_features` appeared in one file's prose and code alike;
-            // the first sections to actually ship through the channel put the
-            // phrase in the docblocks of the collaborators that stage through
-            // it, which a text match reports as four readers of a definition
-            // three of them never consult.
-            $body = wprism_code_without_comments((string) file_get_contents($file->getPathname()));
-            foreach ($tokens as $token) {
-                if (str_contains($body, $token)) {
-                    $hits[substr($file->getPathname(), strlen($repo) + 1)] = true;
-                    break;
-                }
+            $files[$file->getPathname()] = true;
+        }
+    }
+    foreach ($embeddedPhpFiles as $file) {
+        $files[$file] = true;
+    }
+    foreach (array_keys($files) as $file) {
+        // COMMENTS STRIPPED (WP-6.1): this helper answers "which shipped
+        // files READ this name", and a docblock explaining why a section
+        // rides a channel reads nothing. It was a plain text match while
+        // `engine_features` appeared in one file's prose and code alike;
+        // the first sections to actually ship through the channel put the
+        // phrase in the docblocks of the collaborators that stage through
+        // it, which a text match reports as four readers of a definition
+        // three of them never consult.
+        $body = wprism_code_without_comments((string) file_get_contents($file));
+        foreach ($tokens as $token) {
+            if (str_contains($body, $token)) {
+                $hits[substr($file, strlen($repo) + 1)] = true;
+                break;
             }
         }
     }

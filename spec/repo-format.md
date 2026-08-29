@@ -3474,15 +3474,19 @@ write token: install repeats the bounded topology proof immediately before
 staging. The proof uses a plugin/theme/MU-isolated WordPress bootstrap, requires
 installed WordPress and its standard MU leaf, disjoint normalized source/WP/
 repository roots, ordinary non-symlink ancestors and absent-or-ordinary
-destinations, required tools/access, no stale adoption transaction, and either
-an entirely absent local WPrism agent/loader/manifest/`.wprism` control plane. Local
+destinations, required tools/access, no stale adoption transaction, and an
+entirely absent local WPrism agent, loader, target `wprism-control/`, and
+repository `.wprism/` control plane. Local
 bootstrap is initial-only: an installed target is refused with remediation to
 use its existing update path, avoiding any race with recovery writers. It
 performs no WPrism target write.
 
-Local adoption copies only the invoking checkout's fixed `agent`, `manifests`,
-and recovery artifact. The new agent/loader/manifests and repository `.wprism`
-tree are staged under exclusively created, identity-recorded paths. Recovery initialization and configured probes run only against the
+Local adoption copies the invoking checkout's fixed `agent` and recovery trees
+into disposable staging, then assembles `adapter-packages/*/package/` and
+`platform/adapter-library/` into staged `agent/adapter-library/`. It uploads an
+archive containing exactly `agent recovery`. The new agent, loader, embedded
+adapter library, and repository `.wprism` tree are staged under exclusively
+created, identity-recorded paths. Recovery initialization and configured probes run only against the
 staged `.wprism`; `site.wprism.json` is hard-linked into place only when absent. The
 swap, exact agent/policy/authority verification, and isolated public doctor are
 one rollback unit. Only a green doctor crosses a mutation-free commit barrier;

@@ -407,7 +407,7 @@ ksort($shippedRegistry['manifests'], SORT_STRING);
 check(
     $fixtureDispositions !== null
     && hash_equals($fixtureDispositions->sha256(), hash('sha256', Canon::encode($shippedRegistry))),
-    'registry_sha256 addresses exactly the shipped manifests/dispositions/ bytes reassembled, read through the real '
+    'registry_sha256 addresses exactly the shipped adapter-package and platform disposition/profile bytes reassembled, read through the real '
     . 'loader — the number did not move when WP-4.4 split the document'
 );
 

@@ -109,8 +109,8 @@ happens after.
 `wprism init <env>` is the shipped first-run path once the WPrism agent is reachable
 on an existing WordPress target. How the agent gets there is transport-specific:
 
-1. **SSH:** `wprism adopt` installs the agent, manifest library, and recovery
-   runtime first; then `wprism init` discovers and captures the site.
+1. **SSH:** `wprism adopt` installs the agent with its embedded adapter library,
+   plus the recovery runtime; then `wprism init` discovers and captures the site.
 2. **Machine-local:** an untracked, explicit bootstrap opt-in lets `wprism adopt`
    prove and initially install that same control plane before `wprism init`. It
    refuses when a WPrism control plane is already present; installed-target
@@ -239,7 +239,7 @@ paths are right *before* adoption starts moving files, and it gives you a
 before/after pair for the same nine checks adoption ends with.
 
 `wprism adopt` verifies reachability, discovers `WPMU_PLUGIN_DIR`, installs the
-agent, loader, manifest library, and recovery runtime, creates the protected
+agent, loader, embedded adapter library, and recovery runtime, creates the protected
 control root and stable target identity, creates `repo_path/site.wprism.json`
 **only when it is absent**, then proves in fresh wp-cli processes that the
 installed agent version matches this checkout exactly and that the policy
@@ -247,8 +247,9 @@ loads. It ends by running the same `wprism doctor` checks, and succeeds only whe
 every blocking one passes.
 
 Over SSH, re-running `wprism adopt` is the update mechanism: it replaces the
-agent and manifest trees with the ones beside the invoking CLI and leaves the
-site's policy untouched. The privileged machine-local bootstrap is
+installed agent (including its embedded adapter library) and recovery runtime
+from the invoking checkout's freshly assembled `agent recovery` archive, and
+leaves the site's policy untouched. The privileged machine-local bootstrap is
 initial-only and refuses a second adoption rather than racing an installed
 recovery authority.
 
@@ -433,8 +434,8 @@ copied, which was never in question.
 
 ## Path B — a Docker site or a local site without bootstrap authority
 
-Install or mount the WPrism agent and manifest library through that environment's
-own control-plane setup — this path has no `wprism adopt` step, so nothing else
+Install or mount the WPrism agent with its embedded adapter library through that
+environment's own control-plane setup — this path has no `wprism adopt` step, so nothing else
 will deliver it. "The agent is already there, so the assessment costs one
 read-only run" is true, but `wprism assess` still needs a repository to run
 *against*: it walks upward from the current directory for `site.wprism.json` and

@@ -127,8 +127,9 @@ final class AdapterDistribution {
     /**
      * A bounded read, for the reason `fetch-artifact.sh` bounds its download:
      * a resolver that will read whatever it is handed is a memory-exhaustion
-     * surface reachable from a document nobody signed. 4 MiB is 34x the
-     * largest shipped manifest (`manifests/woocommerce.json`, 121,594 bytes),
+     * surface reachable from a document nobody signed. 4 MiB is more than 20x
+     * the largest shipped manifest
+     * (`adapter-packages/woocommerce/package/manifest.json`, 207,315 bytes),
      * so it bounds an attack without bounding an adapter.
      */
     private const MAX_PACKAGE_BYTES = 4194304;

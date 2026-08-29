@@ -842,8 +842,9 @@ Verbs:
     [--operation=<flow>]   Defaults to attach. Unsupported requirements are
     [--format=json]        explicit and non-zero; destructive operations are
                           never silently emulated.
-  adopt <env>             Bootstrap this checkout's agent + manifests and a
-                          seed site repo onto an SSH target or an explicitly
+  adopt <env>             Assemble this checkout's adapter library into its
+                          agent, then bootstrap that agent, recovery runtime,
+                          and a seed site repo onto an SSH target or an explicitly
                           authorized machine-local target. Local adoption first
                           proves a read-only safe topology; both paths verify
                           the exact agent version, policy load, rollback

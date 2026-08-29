@@ -165,7 +165,8 @@ namespace {
 
     /**
      * A filler manifest, padded to roughly the size of the smallest manifest
-     * that actually ships (manifests/classic-editor.json is 1,378 bytes). The
+     * that actually ships
+     * (`adapter-packages/classic-editor/package/manifest.json` is 1,381 bytes). The
      * padding is what makes the memory half of this suite mean anything: the
      * pre-WP-1.2 engine held every one of these decoded at once.
      */

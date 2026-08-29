@@ -5,7 +5,7 @@
 # regress_env_options_policy.php for the offline complement, Policy.php's
 # own validate_env_options()/env_options() wiring in isolation).
 #
-# Proves, end to end, against the SHIPPED manifests/core.json (not a
+# Proves, end to end, against the SHIPPED platform/adapter-library/core/manifest.json (not a
 # synthetic declaration):
 #   1. `wp wprism plan`/`wp wprism status` refuse required options that have live
 #      values but no intended-value binding; provisioning all three shipped

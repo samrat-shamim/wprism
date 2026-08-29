@@ -14,8 +14,8 @@ use RuntimeException;
  *
  * The estate-level properties — the kit assembles, its skeleton runs on `php`
  * alone from outside a checkout, the shipped FakeWpdb still refuses an
- * uninterpretable statement, and Adopt's tar is still `agent manifests
- * recovery` — are proven against the REAL tree in
+ * uninterpretable statement, and Adopt still embeds the adapter library in
+ * `agent/` before archiving exactly `agent recovery` — are proven against the REAL tree in
  * sandbox/tests/offline/guards/regress_adapter_test_kit.php. What is left for a
  * unit test is the part of tools/adapter-kit.php that decides WHAT goes in a
  * kit and what may leave it, driven against synthetic trees carrying exactly

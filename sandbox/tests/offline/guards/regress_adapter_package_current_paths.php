@@ -59,6 +59,130 @@ foreach ($currentSurfaces as $relative) {
     }
 }
 
+$retiredTopologyClaims = [
+    'cli/wprism' => [
+        "Bootstrap this checkout's agent + manifests",
+    ],
+    'docs/guides/quickstart.md' => [
+        'agent, manifest library',
+        'replaces the agent and manifest trees',
+        'agent and manifest library',
+    ],
+    'spec/repo-format.md' => [
+        'agent/loader/manifest/`.wprism` control plane',
+        'fixed `agent`, `manifests`,',
+        'agent/loader/manifests',
+    ],
+    'sandbox/tests/offline/policy/regress_spec_v3_dry_run.php' => [
+        '`manifests/capabilities/platform.json` restates',
+        '`manifests/*.json`',
+        'The three trees are exactly what `Adopt.php',
+    ],
+    'sandbox/tests/offline/guards/spec_migration_estate.php' => [
+        'agent/ or manifests/',
+        "this state's agent under the OTHER state's",
+        'the shipped `excluded` fixture (manifests/dispositions.json)',
+    ],
+    'sandbox/tests/offline/cli/regress_adapter_distribution.php' => [
+        'under the shipped `manifests/`',
+        'wrote one into `manifests/`',
+        "'/manifests/capabilities/adapter-revocations.json'",
+    ],
+    'cli/src/Adapter/AdapterDistribution.php' => [
+        'manifests/woocommerce.json',
+    ],
+    'sandbox/tests/offline/policy/regress_policy_load_scale.php' => [
+        'manifests/classic-editor.json',
+    ],
+    'sandbox/tests/live/regress_env_set.sh' => [
+        'SHIPPED manifests/core.json',
+    ],
+    'sandbox/tests/offline/adapter/regress_adapter_sources.php' => [
+        'shipped manifests/dispositions/ bytes reassembled',
+    ],
+    'tests/Tooling/AdapterKitTest.php' => [
+        "Adopt's tar is still `agent manifests",
+    ],
+];
+foreach ($retiredTopologyClaims as $relative => $claims) {
+    $path = $root . '/' . $relative;
+    wprism_check(is_file($path), "$relative is a readable current topology surface");
+    $bytes = (string) file_get_contents($path);
+    foreach ($claims as $claim) {
+        wprism_check(!str_contains($bytes, $claim), "$relative contains no retired current-topology claim '$claim'");
+    }
+}
+
+$currentTopologyEvidence = [
+    'cli/wprism' => [
+        "Assemble this checkout's adapter library into its",
+        'agent, then bootstrap that agent, recovery runtime',
+    ],
+    'docs/guides/quickstart.md' => [
+        'agent with its embedded adapter library',
+        'freshly assembled `agent recovery` archive',
+    ],
+    'spec/repo-format.md' => [
+        '`adapter-packages/*/package/`',
+        '`platform/adapter-library/`',
+        'staged `agent/adapter-library/`',
+        'exactly `agent recovery`',
+    ],
+    'sandbox/tests/offline/policy/regress_spec_v3_dry_run.php' => [
+        'AdapterPackageProjection::plan($repo)',
+        'archiving exactly `agent recovery`',
+    ],
+    'sandbox/tests/offline/guards/spec_migration_estate.php' => [
+        'projected adapter library',
+        'archives exactly `agent recovery`',
+        '`adapter-packages/wprism-agency-cpt/package/disposition.json`',
+    ],
+    'sandbox/tests/offline/cli/regress_adapter_distribution.php' => [
+        '`platform/adapter-library/` would dirty',
+        "!is_file(\$wprismRoot . '/platform/adapter-library/capabilities/adapter-revocations.json')",
+    ],
+    'cli/src/Adapter/AdapterDistribution.php' => [
+        '`adapter-packages/woocommerce/package/manifest.json`',
+    ],
+    'sandbox/tests/offline/policy/regress_policy_load_scale.php' => [
+        '`adapter-packages/classic-editor/package/manifest.json`',
+    ],
+    'sandbox/tests/live/regress_env_set.sh' => [
+        'SHIPPED platform/adapter-library/core/manifest.json',
+    ],
+    'sandbox/tests/offline/adapter/regress_adapter_sources.php' => [
+        'shipped adapter-package and platform disposition/profile bytes',
+    ],
+    'tests/Tooling/AdapterKitTest.php' => [
+        'embeds the adapter library',
+        'archiving exactly `agent recovery`',
+    ],
+];
+foreach ($currentTopologyEvidence as $relative => $claims) {
+    $bytes = (string) file_get_contents($root . '/' . $relative);
+    foreach ($claims as $claim) {
+        wprism_check(str_contains($bytes, $claim), "$relative states current topology evidence '$claim'");
+    }
+}
+
+$adoptSource = (string) file_get_contents($root . '/cli/src/Onboarding/Adopt.php');
+foreach ([". '/adapter-packages'", ". '/platform/adapter-library'", 'agent/adapter-library'] as $claim) {
+    wprism_check(str_contains($adoptSource, $claim), "Adopt.php names current assembly source or target '$claim'");
+}
+ob_start();
+require_once $root . '/tools/adapter-kit.php';
+ob_end_clean();
+try {
+    wprism_check_same(
+        ['agent', 'recovery'],
+        \WPrism\Tooling\AdapterKit::adoptionTar($root),
+        'Adopt.php archive composition resolves to only the assembled agent and recovery runtime'
+    );
+} catch (Throwable $error) {
+    wprism_check(false, 'Adopt.php archive composition resolves to only the assembled agent and recovery runtime');
+    wprism_check_detail($error->getMessage());
+}
+
 $currentPathEvidence = [
     'agent/src/Adapter/AdapterCertification.php' => 'adapter-packages/<name>/package/disposition.json',
     'cli/src/Assess/AssessReport.php' => 'package-owned disposition documents',
