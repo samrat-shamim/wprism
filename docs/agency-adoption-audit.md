@@ -1,7 +1,7 @@
 # Duo WP agency-adoption audit: 100 current blockers
 
 Date: 2026-08-29  
-Current revision analyzed: `2efd539df892558444152e1008216f30f66b722f` (`origin/main`)  
+Current revision analyzed: `2efd539d6c33b5838670750b350fdd42d720d4b1` (`origin/main`)
 Original audit revision: `d37ae78be5a1beab408baf31d20082e346db64f7`
 
 ## Decision
@@ -14,6 +14,94 @@ inventory, and operational controls the selected scenario requires.
 This is not a claim that Duo's correctness core is generally broken. Many
 entries are explicit, fail-closed product boundaries. They are still adoption
 blockers for an agency whose client portfolio crosses those boundaries.
+
+## Triage verdict
+
+This audit is the adoption risk register, not a 100-item implementation
+backlog. The ratified product is deliberately scoped: it makes the proven parts
+of eligible, single-site WordPress installations branchable while refusing
+unknown state, retaining runtime truth locally, and relying on operator- or
+host-supplied infrastructure. Treating every refusal as a defect would erase
+the safety model that differentiates Duo from a best-effort database merger.
+
+The Phase A calibration cohort may begin with read-only assessment now. No
+pilot may perform a production release until every applicable **resolve now**
+finding below is closed or the requested operation is narrowed so the finding
+is provably inapplicable. Broad portfolio adoption remains a no-go until the
+held-out validation cohort passes the frozen launch thresholds in
+`docs/product-spec.md`.
+
+### Resolve now: 28 findings
+
+- **Isolation and machine contract — 7, 17, 20.** Rehearsal currently cannot
+  prove the containment the initial outcome promises; readiness lacks one
+  dependable automation result; and capture's remote branch destination is too
+  easy to mistake for the local checkout. These are first-session contract
+  leaks, not new compatibility breadth.
+- **Release verification and delivery — 25, 27, 28.** A release cannot truthfully
+  pass with no business journey, an unauthenticated substring check is not a
+  sufficient journey contract, and `release --from` must either deliver the
+  selected repository revision or expose a composed, machine-checked handoff.
+- **Merge/apply truth — 31, 32, 33.** Reviewers need an authorized semantic
+  comparison channel; success cannot hide pending deletion intent; and target
+  drift that invalidates a frozen plan must be detected before unrelated plan
+  items mutate production.
+- **Sensitive data and bounded operator surfaces — 43, 47, 48, 49, 50.** The
+  default plaintext checkpoint, unpageable plan output, presence-only
+  environment bindings, command-line secret argument, and indefinitely
+  ambiguous remote secret write are Phase A raw-recovery, unbounded-output, and
+  public-surface leaks.
+- **Truthful claims and adapter loading — 56, 57.** `Site-certified` must not
+  authorize production when no site was exercised, and a spec-v2 typo must not
+  load successfully while silently declaring nothing. Both violate the loud,
+  evidence-backed claim model.
+- **Release transaction and upgrade safety — 72, 75, 76, 77, 86.** Dependency
+  resolution must not mutate the target outside release protection; the
+  WooCommerce wedge needs a bounded migration-completion gate; missing version
+  baselines cannot suppress drift; content-only releases must not run unrelated
+  extension lifecycle hooks; and cross-branch schema/version skew must block
+  rather than warn.
+- **Resumability, providers, and exit — 82, 87, 88, 100.** First adoption needs
+  owned resume/cleanup, provider actions need a receipt-safe duration model and
+  a bounded diagnostic channel, and an agency pilot needs a supported,
+  ownership-aware offboarding transaction.
+- **Media in the initial sellable outcome — 96, 97, 99.** Generic “media” is
+  part of the ratified WooCommerce outcome. Common documents and media cannot
+  be categorically rejected, mature libraries cannot be forced through a
+  1-GiB aggregate path, and onboarding must configure and verify the Git LFS
+  behavior the repository contract already promises.
+
+### Defer pending Phase A field evidence: 21 findings
+
+Findings **2, 9–13, 16, 21, 22, 30, 38, 60–62, 65, 68, 73, 74, 79, 80, and
+98** are real eligibility, coverage, maintenance-cost, representation, or
+scale constraints. The calibration cohort exists to measure their frequency,
+business impact, qualification cost, and operator attention. Candidate sites
+must be screened against them and may be excluded or narrowed; the product
+must not pre-build wider version matrices, adapters, merge grammars, payload
+ceilings, or deployment optimizations before field evidence establishes the
+order and economic boundary.
+
+### Defer to the ratified later phases: 12 findings
+
+Findings **26, 34, 39, 40, 51–55, 58, 91, and 95** belong to the sequenced
+application-contract, fleet, privacy/compliance, identity, scoped-promotion,
+recovery-history, or ecosystem work in Phases B–D. Pulling those systems ahead
+of field grounding would invert `docs/product-spec.md`'s strategic sequence.
+Their current limitations remain explicit and blocking where applicable.
+
+### Retain as boundaries or safety invariants: 39 findings
+
+Findings **1, 3–6, 8, 14, 15, 18, 19, 23, 24, 29, 35–37, 41, 42, 44–46, 59,
+63, 64, 66, 67, 69–71, 78, 81, 83–85, 89, 90, and 92–94** are not generic
+implementation debt. They include the authored/runtime partition, exact
+adapter-identity invalidation, human authorization, generation fencing,
+third-party artifact ownership, coherent snapshots, and host/provider duties
+the product explicitly does not supply. They stay visible in assessment and
+may refuse a client. They move only through a deliberate product ruling and
+new evidence, never by weakening the refusal.
+
+The accounting is complete: **28 + 21 + 12 + 39 = 100 findings**.
 
 ## Counting and traceability
 
