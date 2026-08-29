@@ -55,12 +55,24 @@ $bytes = is_file($path) ? @file_get_contents($path) : false;
 if ($bytes === false) {
     $id = 'wprism-target:' . bin2hex(random_bytes(32));
     $temporary = @tempnam($root, '.target-id-');
-    if (!is_string($temporary)
-        || @file_put_contents($temporary, $id . "\n", LOCK_EX) === false
+    $handle = is_string($temporary) ? @fopen($temporary, 'r+b') : false;
+    $identityBytes = $id . "\n";
+    if (!is_resource($handle)
+        || @fwrite($handle, $identityBytes) !== strlen($identityBytes)
+        || !@fflush($handle)
+        || !function_exists('fsync')
+        || !@fsync($handle)
+        || !@fclose($handle)
         || !@chmod($temporary, 0600)
         || !@rename($temporary, $path)) {
+        if (is_resource($handle)) @fclose($handle);
         if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
         fwrite(STDERR, "identity-write\n"); exit(25);
+    }
+    $rootHandle = @fopen($root, 'rb');
+    if (!is_resource($rootHandle) || !@fsync($rootHandle) || !@fclose($rootHandle)) {
+        if (is_resource($rootHandle)) @fclose($rootHandle);
+        fwrite(STDERR, "identity-sync\n"); exit(25);
     }
     $bytes = $id . "\n";
 }
@@ -172,11 +184,28 @@ if ($expiry->getTimestamp() <= time()) { fwrite(STDERR, "expired\n"); exit(22); 
 if (@mkdir($directory, 0700)) {
     @chmod($directory, 0700);
     $temporary = @tempnam($directory, '.consumption-');
-    if (!is_string($temporary)
-        || @file_put_contents($temporary, $expected, LOCK_EX) === false
+    $handle = is_string($temporary) ? @fopen($temporary, 'r+b') : false;
+    if (!is_resource($handle)
+        || @fwrite($handle, $expected) !== strlen($expected)
+        || !@fflush($handle)
+        || !function_exists('fsync')
+        || !@fsync($handle)
+        || !@fclose($handle)
         || !@chmod($temporary, 0600)
         || !@rename($temporary, $directory . '/consumption.json')) {
+        if (is_resource($handle)) @fclose($handle);
         if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
+        fwrite(STDERR, "publish-uncertain\n"); exit(25);
+    }
+    foreach ([$directory, $authorizations, $root] as $syncDirectory) {
+        $sync = @fopen($syncDirectory, 'rb');
+        if (!is_resource($sync) || !@fsync($sync) || !@fclose($sync)) {
+            if (is_resource($sync)) @fclose($sync);
+            fwrite(STDERR, "publish-uncertain\n"); exit(25);
+        }
+    }
+    $readback = @file_get_contents($directory . '/consumption.json');
+    if (!is_string($readback) || !hash_equals($expected, $readback)) {
         fwrite(STDERR, "publish-uncertain\n"); exit(25);
     }
     echo "first\n"; exit(0);
@@ -256,11 +285,28 @@ $path = $publication . '/outcome.json';
 if (@mkdir($publication, 0700)) {
     @chmod($publication, 0700);
     $temporary = @tempnam($publication, '.outcome-');
-    if (!is_string($temporary)
-        || @file_put_contents($temporary, $expected, LOCK_EX) === false
+    $handle = is_string($temporary) ? @fopen($temporary, 'r+b') : false;
+    if (!is_resource($handle)
+        || @fwrite($handle, $expected) !== strlen($expected)
+        || !@fflush($handle)
+        || !function_exists('fsync')
+        || !@fsync($handle)
+        || !@fclose($handle)
         || !@chmod($temporary, 0600)
         || !@rename($temporary, $path)) {
+        if (is_resource($handle)) @fclose($handle);
         if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
+        fwrite(STDERR, "outcome-uncertain\n"); exit(27);
+    }
+    foreach ([$publication, $directory] as $syncDirectory) {
+        $sync = @fopen($syncDirectory, 'rb');
+        if (!is_resource($sync) || !@fsync($sync) || !@fclose($sync)) {
+            if (is_resource($sync)) @fclose($sync);
+            fwrite(STDERR, "outcome-uncertain\n"); exit(27);
+        }
+    }
+    $readback = @file_get_contents($path);
+    if (!is_string($readback) || !hash_equals($expected, $readback)) {
         fwrite(STDERR, "outcome-uncertain\n"); exit(27);
     }
     echo "first\n"; exit(0);
